@@ -14,7 +14,6 @@ services:
       - DEBUG=True
       - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
       - ALLOWED_HOSTS=*
-      - DATABASE_ENGINE=django.db.backends.sqlite3
       - TIME_ZONE=${TIME_ZONE:-UTC}
 
       # Optional: Create superuser on first run

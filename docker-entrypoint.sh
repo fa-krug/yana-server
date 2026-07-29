@@ -3,31 +3,8 @@ set -e
 
 echo "=== Yana Django Application Startup ==="
 
-# Function to wait for database (not needed for SQLite, but good for future PostgreSQL support)
-wait_for_db() {
-    if [ -n "$DATABASE_HOST" ]; then
-        echo "Waiting for database at $DATABASE_HOST:${DATABASE_PORT:-5432}..."
-
-        max_attempts=30
-        attempt=0
-
-        while [ $attempt -lt $max_attempts ]; do
-            if python -c "import socket; socket.create_connection(('$DATABASE_HOST', ${DATABASE_PORT:-5432}), timeout=2)" 2>/dev/null; then
-                echo "Database is available"
-                return 0
-            fi
-
-            attempt=$((attempt + 1))
-            echo "Waiting for database... attempt $attempt/$max_attempts"
-            sleep 2
-        done
-
-        echo "WARNING: Database not reachable after $max_attempts attempts, continuing anyway..."
-    fi
-}
-
-# Wait for database if configured (for future PostgreSQL support)
-wait_for_db
+# No database wait step: SQLite is a local file, so there is no server to
+# become reachable.
 
 # Run database migrations
 echo "Running database migrations..."

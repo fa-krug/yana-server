@@ -10,7 +10,6 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS}
       - BASE_URL=https://${YANA_DOMAIN:-yana.fa-krug.de}
-      - DATABASE_ENGINE=django.db.backends.sqlite3
       - TIME_ZONE=${TIME_ZONE:-Europe/Berlin}
       - SUPERUSER_USERNAME=${SUPERUSER_USERNAME:-}
       - SUPERUSER_EMAIL=${SUPERUSER_EMAIL:-}

@@ -29,8 +29,6 @@ env = environ.Env(
     # Network
     ALLOWED_HOSTS=(str, "localhost,127.0.0.1"),
     BASE_URL=(str, "http://localhost:8000"),
-    # Database
-    DATABASE_ENGINE=(str, "django.db.backends.sqlite3"),
     # Internationalization
     TIME_ZONE=(str, "UTC"),
     # Email

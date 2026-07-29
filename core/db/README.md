@@ -143,7 +143,8 @@ Expected performance improvements:
 ### Large Databases (> 1GB)
 - Cache size: 128MB (`-128000`) or more
 - mmap_size: 512MB (`536870912`) or more
-- Consider PostgreSQL for very large databases
+- Retention (deleting old articles) is the intended answer to unbounded growth,
+  not switching engines -- SQLite is the only supported backend
 
 ### Limited RAM
 - Reduce cache_size and mmap_size proportionally

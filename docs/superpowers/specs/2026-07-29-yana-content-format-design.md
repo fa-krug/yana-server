@@ -225,10 +225,10 @@ plain_text = models.TextField(blank=True, default="")   # flattened blocks, for 
   purely because a list holds *sequences*, not blocks. It never appears on the wire.
 - **Styles are real booleans**, not a bitmask int. The entire reason for choosing rows over a JSON
   document is that the database understands the data; an opaque integer would give that back.
-- **`UniqueConstraint(article, parent, position)`** makes sibling ordering unambiguous. Note it
-  behaves as intended in SQLite/PostgreSQL only for non-`NULL` parents — `NULL` values are distinct in
-  a unique index, so root-level blocks are **not** protected by it. Enforce root ordering in the
-  writer instead, and note the limitation rather than pretending the constraint covers it.
+- **`UniqueConstraint(article, parent, position)`** makes sibling ordering unambiguous, but only for
+  non-`NULL` parents: SQLite treats `NULL`s as distinct in a unique index, so root-level blocks are
+  **not** protected by it. Enforce root ordering in the writer instead, and note the limitation
+  rather than pretending the constraint covers it.
 - **`image_ref` is indexed**, which turns Spec 4's orphan pruning from a text scan of every article
   body into a JOIN. Spec 4's `prune_orphaned_images` command should be rewritten against this index
   once this spec lands — that rewrite is called out in Spec 4 and belongs to this one.

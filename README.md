@@ -89,7 +89,7 @@ Yana provides a Google Reader compatible API. You can use any client that suppor
 
 ## ✨ Features
 
--   **Self-Hosted & Private:** Keep your reading habits private. SQLite database and no external dependencies (Redis/Postgres optional but not required).
+-   **Self-Hosted & Private:** Keep your reading habits private. Runs on a single SQLite file with no external services -- no Redis, no database server.
 -   **Multi-Source Aggregation:**
     -   Standard RSS/Atom feeds
     -   YouTube channels

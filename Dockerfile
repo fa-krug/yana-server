@@ -62,7 +62,6 @@ ENV PYTHONUNBUFFERED=1 \
 RUN apk add --no-cache \
     tini \
     bash \
-    libpq \
     libjpeg-turbo \
     curl \
     && mkdir -p /app/data /app/media /app/staticfiles

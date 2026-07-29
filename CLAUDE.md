@@ -8,7 +8,7 @@ This file provides guidance for AI assistants working on the Yana codebase.
 
 **Key characteristics:**
 - Python 3.13+ / Django 6.0
-- SQLite by default (highly optimized), PostgreSQL supported
+- SQLite only, via a tuned custom backend (no other engine is supported)
 - Background task processing with django-q2 (ORM broker, no Redis required)
 - 14 pluggable aggregator implementations
 - Comprehensive test suite with pytest
@@ -378,7 +378,6 @@ ALLOWED_HOSTS=localhost,127.0.0.1
 # Optional
 DEBUG=True
 TIME_ZONE=Europe/Berlin
-DATABASE_ENGINE=django.db.backends.sqlite3
 
 # Superuser (Docker auto-creation)
 SUPERUSER_USERNAME=admin
