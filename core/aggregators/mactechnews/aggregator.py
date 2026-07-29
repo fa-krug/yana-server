@@ -57,8 +57,12 @@ class MactechnewsAggregator(FullWebsiteAggregator):
             ),
         }
 
-    # Body lives in one known container -- keep the first match, never union.
-    uses_first_content_match = True
+    # Multipage articles are combined by fetch_all_pages into sibling
+    # .MtnArticle containers (one per page), so every match must be kept --
+    # keeping only the first would silently truncate to page 1 after fetching
+    # every page over the network. A single-page article has exactly one
+    # match, so the union degenerates to the same result.
+    uses_first_content_match = False
 
     # Main content container
     content_selectors = [".MtnArticle"]

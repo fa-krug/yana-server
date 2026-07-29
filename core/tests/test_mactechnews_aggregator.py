@@ -47,6 +47,22 @@ class TestMactechnewsAggregator(unittest.TestCase):
         self.assertNotIn("NewsPictureMobile", content)
         self.assertNotIn("google-analytics.com", content)
 
+    def test_extract_content_keeps_both_pages_of_a_combined_multipage_article(self):
+        """fetch_all_pages joins pages into sibling .MtnArticle containers (see
+        multipage_handler.fetch_all_pages), so extract_content must union all
+        matches instead of keeping only the first -- otherwise pages 2..N are
+        fetched over the network and then thrown away."""
+        combined_html = (
+            '<article class="MtnArticle"><p>Page 1 content here</p></article>'
+            "\n\n"
+            '<article class="MtnArticle"><p>Page 2 content here</p></article>'
+        )
+
+        result = self.aggregator.extract_content(combined_html, {"name": "T", "identifier": "u"})
+
+        self.assertIn("Page 1 content here", result)
+        self.assertIn("Page 2 content here", result)
+
 
 class TestMactechnewsPagination(unittest.TestCase):
     def test_detect_pagination_no_pages(self):
