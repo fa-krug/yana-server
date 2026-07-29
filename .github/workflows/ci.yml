@@ -21,28 +21,34 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
+    # Version pinned to match the Dockerfile's uv, so CI and the image
+    # resolve dependencies identically.
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v5
       with:
-        python-version: '3.13'
-        cache: 'pip'
+        version: '0.11.15'
+        enable-cache: true
 
+    - name: Set up Python
+      run: uv python install 3.13
+
+    # --frozen fails the job if uv.lock is stale rather than silently
+    # resolving something the lock does not describe. Dev group included:
+    # ruff, mypy, and pytest live there.
     - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+      run: uv sync --frozen
 
     - name: Run Ruff (Linting)
-      run: ruff check .
+      run: uv run ruff check .
 
     - name: Run Ruff (Formatting)
-      run: ruff format --check .
+      run: uv run ruff format --check .
 
     - name: Run Mypy (Type Checking)
-      run: mypy .
+      run: uv run mypy .
 
     - name: Run Pytest
-      run: pytest
+      run: uv run pytest
 
   # Build AMD64 image
   build-amd64:
