@@ -149,6 +149,9 @@ class Article(models.Model):
             models.Index(fields=["read"]),
             models.Index(fields=["starred"]),
             models.Index(fields=["feed", "read", "date"]),
+            # Stable append-only ordering / future sync cursor
+            models.Index(fields=["-created_at", "-id"]),
+            models.Index(fields=["feed", "-created_at"]),
         ]
 
     def __str__(self):
