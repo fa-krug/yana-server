@@ -59,8 +59,7 @@ class TestBaseFiltering(TestCase):
         self.assertNotIn("Old Article", names)
         self.assertNotIn("Borderline Article (Skip)", names)
 
-        # Check if dates are updated to roughly now
-        for article in filtered:
-            current_now = timezone.now()
-            diff = abs((article["date"] - current_now).total_seconds())
-            self.assertLess(diff, 40.0)
+        # Dates are the real publish times and must not be rewritten
+        by_name = {article["name"]: article["date"] for article in filtered}
+        self.assertEqual(by_name["New Article"], articles[0]["date"])
+        self.assertEqual(by_name["Borderline Article (Keep)"], articles[2]["date"])

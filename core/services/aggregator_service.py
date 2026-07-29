@@ -103,7 +103,7 @@ class AggregatorService:
                             name=article_data.get("name", ""),
                             raw_content=article_data.get("raw_content", ""),
                             content=article_data.get("content", ""),
-                            date=timezone.now(),  # Always save with current timestamp
+                            date=article_data.get("date") or timezone.now(),
                             author=article_data.get("author", ""),
                         )
                         created_count += 1

@@ -4,7 +4,6 @@ import contextlib
 import json
 import logging
 import math
-import random
 import re
 import time
 from abc import ABC, abstractmethod
@@ -225,8 +224,10 @@ class BaseAggregator(ABC):
         """
         Filter articles based on criteria.
 
-        Default implementation filters articles older than 2 months
-        and sets their date to now.
+        Default implementation drops articles older than 60 days. The article
+        date is the real publish time and is never rewritten -- naive datetimes
+        are only made timezone-aware, which preserves the instant. Anything that
+        needs append-only ordering must use Article.created_at.
 
         Args:
             articles: List of article dictionaries
@@ -241,9 +242,10 @@ class BaseAggregator(ABC):
         for article in articles:
             article_date = article.get("date")
 
-            # Ensure article_date is aware for comparison
+            # Normalize the representation only -- same instant, now comparable.
             if article_date and timezone.is_naive(article_date):
                 article_date = timezone.make_aware(article_date)
+                article["date"] = article_date
 
             if article_date and article_date < cutoff_date:
                 self.logger.info(
@@ -251,10 +253,6 @@ class BaseAggregator(ABC):
                 )
                 continue
 
-            # Update date to now for accepted articles, with a random offset of +/- 30s
-            # to shuffle them slightly (avoid exact same timestamp for sorting)
-            offset = random.randint(-30, 30)
-            article["date"] = timezone.now() + timedelta(seconds=offset)
             filtered.append(article)
         self.logger.info(f"[filter_articles] Kept {len(filtered)}/{len(articles)} articles")
         return filtered

@@ -4,6 +4,8 @@ from datetime import datetime
 from email.utils import parsedate_to_datetime
 from typing import Any, Dict, List, Optional
 
+from django.utils import timezone
+
 from .base import BaseAggregator
 from .utils import parse_rss_feed
 
@@ -55,10 +57,13 @@ class RssAggregator(BaseAggregator):
         return articles
 
     def _parse_date(self, date_str: Optional[str]) -> datetime:
-        """Parse RSS date string to datetime."""
+        """Parse an RSS date string into an aware datetime."""
         if not date_str:
-            return datetime.now()
+            return timezone.now()
         try:
-            return parsedate_to_datetime(date_str)
+            parsed = parsedate_to_datetime(date_str)
         except Exception:
-            return datetime.now()
+            return timezone.now()
+        if timezone.is_naive(parsed):
+            return timezone.make_aware(parsed)
+        return parsed
