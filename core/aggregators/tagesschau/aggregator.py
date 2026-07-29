@@ -18,6 +18,12 @@ class TagesschauAggregator(FullWebsiteAggregator):
     and filters out specific types of content (livestreams, podcasts).
     """
 
+    # NOTE: extract_content below bypasses the shared extractor entirely (it
+    # calls extract_tagesschau_content, a bespoke textabsatz-paragraph parser),
+    # so nothing in tagesschau/ ever reads these two attributes. They are inert
+    # until Spec 2 rewires this aggregator onto the shared extraction path --
+    # see docs/superpowers/specs/2026-07-29-aggregator-parity-2-scrapers-and-types-design.md.
+
     # Body lives in one known container -- keep the first match, never union.
     uses_first_content_match = True
 
