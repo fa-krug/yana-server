@@ -223,9 +223,8 @@ class TestGReaderModelRemoved(TestCase):
     def test_model_not_in_app_registry(self):
         """The app registry must not know the model either."""
         from django.apps import apps
-        from django.core.exceptions import LookupError as DjangoLookupError
 
-        with self.assertRaises(DjangoLookupError):
+        with self.assertRaises(LookupError):
             apps.get_model("core", "GReaderAuthToken")
 
     def test_table_does_not_exist(self):
@@ -241,7 +240,7 @@ class TestGReaderModelRemoved(TestCase):
         self.assertFalse(hasattr(User, "greader_tokens"))
 ```
 
-Note on `test_model_not_in_app_registry`: Django re-exports `LookupError` from `django.core.exceptions`; `apps.get_model` raises that, not the builtin. The import alias above is deliberate — keep it.
+Note on `test_model_not_in_app_registry`: `apps.get_model` raises the **builtin** `LookupError` — there is no `LookupError` in `django.core.exceptions` (verified against this repo's pinned Django 6.0.0). The assertion is not vacuous: `"core"` is a valid app label, so the only way `get_model` raises here is if the model is genuinely absent from the registry. Reintroduce the model and `get_model` returns it, failing the block with "LookupError not raised".
 
 - [ ] **Step 2: Run the guard test to verify it fails**
 
