@@ -133,6 +133,38 @@ The command displays:
 
 See **CLAUDE.md** > **Aggregator Debugging Guide** for comprehensive documentation.
 
+## Content Selection
+
+`FullWebsiteAggregator` resolves the article body from a *list* of CSS selectors. Every selector is
+applied and all surviving containers are concatenated in document order, so a body split across
+sibling containers is not truncated. A match nested inside another match is dropped (outermost
+wins), and duplicates are collapsed.
+
+| Hook | Where | Purpose |
+|---|---|---|
+| `content_selectors: list[str]` | aggregator class | Places to look for the body. Default: `article`, `.article-content`, `.entry-content`, `main` |
+| `selectors_to_remove: list[str]` | aggregator class | Scraper-specific removals, always applied |
+| `uses_first_content_match: bool` | aggregator class | `True` for scrapers with one known container — keeps only the first match instead of unioning |
+| `content_selectors` | `Feed.options` | Per-feed override of the class list. Absent → class default; present-but-empty → deliberately empty |
+| `ignore_selectors` | `Feed.options` | Per-feed removals. Absent → the shared defaults (`.advertisement`, `.ad`, `.ads`, `[class*='advert']`, `[class*='sponsor']`, `.social-share`, `.newsletter`, `.related-articles`) |
+
+Sanitization of `script`, `style`, `noscript` and `template` is applied before selection and cannot
+be disabled by any option. Iframes are an aggregator-level policy: `FullWebsiteAggregator` carries
+`IFRAME_SANITIZE_SELECTOR` (everything but YouTube) in its `selectors_to_remove`, and a scraper that
+supports more embed hosts — Caschy's Blog allows Twitter/X — overrides that list and filters iframes
+itself in `process_content`.
+
+Two escape hatches for scrapers with a dedicated container:
+
+- `extract_main_content_if_present(...)` returns `None` instead of falling back to `<body>`, so a
+  paywall or gate page cannot surface site navigation as the article.
+- `generic_content_if_present(raw_html, article)` retries with the *generic* default selectors and
+  requires at least 80 characters of real text — for syndicated pages on other domains that carry
+  none of the scraper's markup.
+
+Resolution order for such a scraper: dedicated container → generic extraction (≥80 chars) → RSS
+summary.
+
 ## Creating a New Aggregator
 
 To add a new aggregator type:

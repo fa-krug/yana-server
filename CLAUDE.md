@@ -222,6 +222,10 @@ def test_feed_creation(user):
 | `RedditSubreddit` | name, user | Reddit feed reference |
 | `YouTubeChannel` | channel_id, channel_name, user | YouTube feed reference |
 
+**Article dates:** `Article.date` is the feed's real publish time — aggregation never rewrites it.
+Use `created_at` (indexed with `id` as tie-breaker) for stable, append-only ordering such as sync
+cursors; `date` is for display and retention.
+
 ## Aggregator System
 
 ### Pattern: Template Method
@@ -258,8 +262,9 @@ All aggregators inherit from `BaseAggregator` and follow this flow:
    from ..website import FullWebsiteAggregator
 
    class MySiteAggregator(FullWebsiteAggregator):
-       content_selector = "div.article-body"
-       selectors_to_remove = ["div.ads", ".social-buttons", "script"]
+       content_selectors = ["div.article-body"]
+       selectors_to_remove = ["div.ads", ".social-buttons"]
+       uses_first_content_match = True  # body lives in one known container
 
        def get_source_url(self):
            return "https://mysite.com/rss"
