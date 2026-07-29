@@ -293,10 +293,10 @@ The server has no article API. What is reachable:
 | `/api/youtube-proxy`, `/api/dailymotion-proxy` | Embed proxies (interim) |
 | `/*` | Catch-all redirect to admin |
 
-The previous RSS-sync API that let third-party readers connect was removed
-(see the design doc under `docs/superpowers/specs/`). Aggregation runs via
-django-q2 scheduled tasks and the `test_aggregator` / `trigger_aggregator`
-management commands — none of which touch HTTP.
+The Google Reader API was removed (see
+`docs/superpowers/specs/2026-07-29-remove-greader-api-design.md`). Aggregation
+runs via django-q2 scheduled tasks and the `test_aggregator` /
+`trigger_aggregator` management commands — none of which touch HTTP.
 
 ## SQLite Optimizations
 

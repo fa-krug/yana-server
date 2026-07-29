@@ -81,10 +81,9 @@ If you used the default settings (or didn't change the superuser variables), you
 Yana currently has no HTTP API. Content is aggregated by background tasks and
 inspected through the Django admin at `http://<your-server-ip>:8000/admin/`.
 
-The RSS-sync API that used to support third-party readers was removed: the
-first-party Yana app for iOS/macOS is becoming the only client, and a
-tailored API is being designed to replace it. Third-party RSS readers are
-not supported in the meantime.
+The Google Reader compatible API was removed: the first-party Yana app for
+iOS/macOS is becoming the only client, and a tailored API is being designed to
+replace it. Third-party RSS readers are not supported in the meantime.
 
 ---
 
