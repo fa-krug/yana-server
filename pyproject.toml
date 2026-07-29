@@ -6,6 +6,50 @@ requires-python = ">=3.13"
 license = {text = "MIT"}
 authors = [{name = "Stefan Krug"}]
 
+# Direct runtime dependencies only. Transitive dependencies are resolved and
+# pinned in uv.lock -- do not list them here. Versions stay pinned so the lock
+# reproduces the pre-uv environment exactly; loosen them deliberately later.
+dependencies = [
+    "Django==6.0",
+    "Pillow==11.0.0",
+    "beautifulsoup4==4.14.3",
+    "feedparser==6.0.12",
+    "requests==2.32.5",
+    "markdown==3.10",
+    "praw>=7.7.1",
+    "django-environ==0.12.0",
+    "django-q2==1.9.0",
+    "django-autocomplete-light==3.12.1",
+    "django-import-export==4.3.14",
+    "djangoql==0.18.1",
+    "gunicorn==21.2.0",
+    "whitenoise==6.6.0",
+    # 4.3.0, not 4.2.5: 4.2.5 imports pkg_resources, which setuptools removed in
+    # 81. requirements.txt silently relied on its setuptools==80.9.0 pin to keep
+    # that import working -- an undeclared coupling that broke as soon as
+    # transitive versions were resolved fresh. 4.3.0 needs neither.
+    "supervisor==4.3.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.0.2",
+    "pytest-django==4.11.1",
+    "pytest-cov==7.0.0",
+    "ruff==0.14.10",
+    "mypy==1.19.1",
+    "django-stubs==5.2.8",
+    "pre-commit==4.5.1",
+    "types-Markdown==3.10.0.20251106",
+    "types-beautifulsoup4==4.12.0.20250516",
+    "types-requests==2.32.4.20250913",
+]
+
+[tool.uv]
+# Yana is an application, not a distributable package: there is no
+# [build-system], so uv must not try to build and install the project itself.
+package = false
+
 [tool.ruff]
 # Set the maximum line length to 100.
 line-length = 100

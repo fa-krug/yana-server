@@ -108,32 +108,35 @@ If you want to contribute or modify Yana, here is how to set up the development 
 
 ### Local Development Setup
 
-**Requirements:** Python 3.11+, `pip`, `virtualenv`.
+**Requirements:** Python 3.13+ and [uv](https://docs.astral.sh/uv/).
 
-1.  **Create a virtual environment:**
+1.  **Install dependencies:**
     ```bash
-    python3 -m venv venv
-    source venv/bin/activate  # On Windows: venv\Scripts\activate
+    uv sync --all-groups
     ```
+    This creates `.venv/` and installs the exact versions pinned in `uv.lock`.
+    Omit `--all-groups` to skip the test and lint tooling.
 
-2.  **Install dependencies:**
+2.  **Run commands:**
     ```bash
-    pip install -r requirements.txt
+    uv run python manage.py runserver
     ```
+    `uv run` resolves the environment for you -- no `activate` step. Activating
+    `.venv` manually also works if you prefer it.
 
 3.  **Run migrations:**
     ```bash
-    python3 manage.py migrate
+    uv run python manage.py migrate
     ```
 
 4.  **Create an admin user:**
     ```bash
-    python3 manage.py createsuperuser
+    uv run python manage.py createsuperuser
     ```
 
 5.  **Start the development server:**
     ```bash
-    python3 manage.py runserver
+    uv run python manage.py runserver
     ```
 
 ### Developing Aggregators
@@ -146,16 +149,16 @@ The project includes a powerful CLI tool to test and debug aggregators without w
 
 ```bash
 # Quick test by feed ID (if it exists in DB)
-python3 manage.py test_aggregator 5
+uv run python manage.py test_aggregator 5
 
 # Test by aggregator type with a custom URL (no DB entry needed)
-python3 manage.py test_aggregator heise "https://www.heise.de/"
+uv run python manage.py test_aggregator heise "https://www.heise.de/"
 
 # Detailed verbose output (raw HTML, logs)
-python3 manage.py test_aggregator 5 --verbose
+uv run python manage.py test_aggregator 5 --verbose
 
 # Dry-run (don't save articles to DB)
-python3 manage.py test_aggregator 5 --dry-run
+uv run python manage.py test_aggregator 5 --dry-run
 ```
 
 See **CLAUDE.md** for more detailed debugging workflows.
@@ -173,10 +176,10 @@ See **CLAUDE.md** for more detailed debugging workflows.
 
 ```bash
 # Run all tests
-python3 manage.py test
+uv run python manage.py test
 
 # Run specific test module
-python3 manage.py test core.tests.test_greader
+uv run python manage.py test core.tests.test_greader
 ```
 
 ---
@@ -192,7 +195,7 @@ docker-compose logs -f
 **Database Reset (Dev):**
 ```bash
 rm db.sqlite3
-python3 manage.py migrate
+uv run python manage.py migrate
 ```
 
 **"ClientLogin" Errors:**

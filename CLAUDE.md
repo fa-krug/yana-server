@@ -16,39 +16,42 @@ This file provides guidance for AI assistants working on the Yana codebase.
 ## Quick Reference
 
 ```bash
-# ALWAYS activate venv first
-source venv/bin/activate
+# Dependencies are managed with uv. First-time setup:
+uv sync --all-groups
+
+# Prefix commands with `uv run` -- no venv activation needed.
+# (`uv run python manage.py …` for Django, `uv run pytest` for tests.)
 
 # Development
-python3 manage.py runserver              # Dev server at http://localhost:8000
-python3 manage.py test                   # Run all tests
-pytest                                   # Run tests with coverage
-pytest core/tests/test_models.py         # Run specific test file
-pytest -k "youtube"                      # Run tests matching keyword
+uv run python manage.py runserver              # Dev server at http://localhost:8000
+uv run python manage.py test                   # Run all tests
+uv run pytest                                   # Run tests with coverage
+uv run pytest core/tests/test_models.py         # Run specific test file
+uv run pytest -k "youtube"                      # Run tests matching keyword
 
 # Database
-python3 manage.py makemigrations && python3 manage.py migrate
-python3 manage.py createsuperuser
+uv run python manage.py makemigrations && uv run python manage.py migrate
+uv run python manage.py createsuperuser
 
 # Linting & Formatting
-ruff check core/                         # Lint check
-ruff check core/ --fix                   # Lint with auto-fix
-ruff format core/                        # Format code
+uv run ruff check core/                         # Lint check
+uv run ruff check core/ --fix                   # Lint with auto-fix
+uv run ruff format core/                        # Format code
 
 # Type checking
-mypy core/
+uv run mypy core/
 
 # Aggregator debugging (PRIMARY TOOL)
-python3 manage.py test_aggregator 5                    # By feed ID
-python3 manage.py test_aggregator tagesschau           # By type (uses default)
-python3 manage.py test_aggregator 5 --verbose          # Detailed output
-python3 manage.py test_aggregator 5 --dry-run          # Test without saving
-python3 manage.py test_aggregator 5 --limit 3          # Limit articles
-python3 manage.py test_aggregator 5 --first 2          # Show first N details
+uv run python manage.py test_aggregator 5                    # By feed ID
+uv run python manage.py test_aggregator tagesschau           # By type (uses default)
+uv run python manage.py test_aggregator 5 --verbose          # Detailed output
+uv run python manage.py test_aggregator 5 --dry-run          # Test without saving
+uv run python manage.py test_aggregator 5 --limit 3          # Limit articles
+uv run python manage.py test_aggregator 5 --first 2          # Show first N details
 
 # SQLite maintenance
-python3 manage.py verify_sqlite_optimizations
-python3 manage.py optimize_sqlite --analyze
+uv run python manage.py verify_sqlite_optimizations
+uv run python manage.py optimize_sqlite --analyze
 
 # Docker
 docker-compose up
@@ -132,8 +135,8 @@ Yana/
 │   ├── tech-stack.md               # Tech decisions
 │   └── code_styleguides/           # Style guides
 │
-├── pyproject.toml                   # Tool configuration (ruff, mypy, pytest)
-├── requirements.txt                 # Dependencies
+├── pyproject.toml                   # Dependencies + tool config (ruff, mypy, pytest)
+├── uv.lock                          # Locked dependency versions
 ├── Dockerfile                       # Multi-stage build
 ├── docker-compose.yml               # Dev environment
 └── .pre-commit-config.yaml          # Pre-commit hooks
@@ -273,12 +276,12 @@ All aggregators inherit from `BaseAggregator` and follow this flow:
 
 4. **Migrate**:
    ```bash
-   python3 manage.py makemigrations && python3 manage.py migrate
+   uv run python manage.py makemigrations && uv run python manage.py migrate
    ```
 
 5. **Test**:
    ```bash
-   python3 manage.py test_aggregator my_site --dry-run --verbose
+   uv run python manage.py test_aggregator my_site --dry-run --verbose
    ```
 
 **Reference implementation:** `core/aggregators/mein_mmo/` (multipage, embeds, custom extraction)
@@ -330,7 +333,7 @@ not a PRAGMA) — required to avoid "database is locked" (`SQLITE_BUSY`) errors
 under concurrent writers, since `busy_timeout` alone does not cover the WAL
 read-to-write lock-upgrade deadlock.
 
-Verify with: `python3 manage.py verify_sqlite_optimizations`
+Verify with: `uv run python manage.py verify_sqlite_optimizations`
 
 ## Development Workflow
 
@@ -344,13 +347,13 @@ Verify with: `python3 manage.py verify_sqlite_optimizations`
 
 ```bash
 # Run all checks
-ruff check core/ --fix
-ruff format core/
-mypy core/
-pytest
+uv run ruff check core/ --fix
+uv run ruff format core/
+uv run mypy core/
+uv run pytest
 
 # Or use pre-commit hooks
-pre-commit run --all-files
+uv run pre-commit run --all-files
 ```
 
 ### Commit Message Format
@@ -402,30 +405,30 @@ GEMINI_API_KEY=...
 
 ```bash
 # See raw vs processed content
-python3 manage.py test_aggregator <id> --first 1 --verbose
+uv run python manage.py test_aggregator <id> --first 1 --verbose
 
 # Debug CSS selectors
-python3 manage.py test_aggregator <id> --selector-debug
+uv run python manage.py test_aggregator <id> --selector-debug
 ```
 
 ### Fix failing tests
 
 ```bash
 # Run specific failing test
-pytest core/tests/test_models.py::test_article_creation -v
+uv run pytest core/tests/test_models.py::test_article_creation -v
 
 # Run with print statements visible
-pytest -s core/tests/test_models.py
+uv run pytest -s core/tests/test_models.py
 
 # Run last failed only
-pytest --lf
+uv run pytest --lf
 ```
 
 ### Check database performance
 
 ```bash
-python3 manage.py verify_sqlite_optimizations
-python3 manage.py optimize_sqlite --analyze
+uv run python manage.py verify_sqlite_optimizations
+uv run python manage.py optimize_sqlite --analyze
 ```
 
 ## Important Files for AI Assistants

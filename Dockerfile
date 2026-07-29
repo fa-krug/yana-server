@@ -3,41 +3,40 @@
 # Strategy: Multi-stage build with Alpine base for minimal footprint
 # =============================================================================
 
-# Build stage - compile dependencies
+# Build stage - resolve and install dependencies with uv
 FROM python:3.13-alpine AS builder
 
 WORKDIR /build
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    # Copy packages into the venv instead of hardlinking to uv's cache, so the
+    # venv stays self-contained when copied into the runtime stage.
+    UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    UV_PROJECT_ENVIRONMENT=/opt/venv
 
-# Install build dependencies for native modules (Pillow, lxml, etc.)
+# uv ships as a static binary -- no Python bootstrap needed.
+COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /usr/local/bin/uv
+
+# Build dependencies for native modules (Pillow needs jpeg/zlib headers).
 RUN apk add --no-cache \
     gcc \
     g++ \
     musl-dev \
-    postgresql-dev \
     python3-dev \
     jpeg-dev \
     zlib-dev \
-    libxml2-dev \
-    libxslt-dev \
     linux-headers
 
-# Create virtual environment
-RUN python -m venv /opt/venv
+# Lockfile + manifest only, for layer caching: dependencies are reinstalled
+# only when these two files change, not on every source edit.
+COPY pyproject.toml uv.lock ./
 
-# Activate venv and install dependencies
-ENV PATH="/opt/venv/bin:$PATH"
-
-# Copy requirements for layer caching
-COPY requirements.txt .
-
-# Install Python dependencies
-RUN pip install --upgrade pip setuptools wheel && \
-    pip install -r requirements.txt
+# --frozen fails the build if uv.lock is stale rather than silently resolving
+# something different from what was tested. --no-dev keeps test/lint tooling
+# out of the production image.
+RUN uv sync --frozen --no-dev --no-install-project
 
 # =============================================================================
 # Runtime Stage - Minimal production image (Alpine)
@@ -49,7 +48,7 @@ WORKDIR /app
 # OCI Labels
 LABEL org.opencontainers.image.title="Yana" \
       org.opencontainers.image.description="Django RSS aggregator and feed management system" \
-      org.opencontainers.image.source="https://github.com/anthropics/yana"
+      org.opencontainers.image.source="https://github.com/fa-krug/yana-server"
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -57,14 +56,14 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
     DJANGO_SETTINGS_MODULE=yana.settings
 
-# Install runtime dependencies and tini
+# Install runtime dependencies and tini.
+# libxml2/libxslt are intentionally absent: they existed only for lxml, which
+# is no longer a dependency (every BeautifulSoup call uses stdlib html.parser).
 RUN apk add --no-cache \
     tini \
     bash \
     libpq \
     libjpeg-turbo \
-    libxml2 \
-    libxslt \
     curl \
     && mkdir -p /app/data /app/media /app/staticfiles
 
