@@ -88,6 +88,52 @@ class TestHeiseAggregator:
         assert "<span></span>" not in extracted
         assert '<img src="img.jpg"/>' in extracted
 
+    def test_extract_content_keeps_only_the_story_container(self, heise_agg):
+        """Heise pages carry sibling <article> teaser cards; the union must not
+        splice them into the body."""
+        html = (
+            "<html><body>"
+            "<nav>Startseite Newsticker Themen</nav>"
+            '<article id="meldung"><p>The real story body.</p></article>'
+            "<article><p>Teaser one</p></article>"
+            "<article><p>Teaser two</p></article>"
+            "<article><p>Teaser three</p></article>"
+            "</body></html>"
+        )
+
+        result = heise_agg.extract_content(
+            html, {"name": "T", "identifier": "u", "content": "<p>rss summary</p>"}
+        )
+
+        assert "The real story body." in result
+        assert "Teaser one" not in result
+        assert "Startseite Newsticker Themen" not in result
+
+    def test_extract_content_falls_back_to_the_rss_summary(self, heise_agg):
+        """Magazine/paywall gate pages have a different DOM. Dumping <body>
+        surfaced the whole site chrome as the article, so degrade to RSS."""
+        html = (
+            "<html><body>"
+            "<nav>Startseite Newsticker Themen</nav>"
+            '<div class="paywall">Jetzt heise+ lesen</div>'
+            "</body></html>"
+        )
+
+        result = heise_agg.extract_content(
+            html, {"name": "T", "identifier": "u", "content": "<p>rss summary</p>"}
+        )
+
+        assert result == "<p>rss summary</p>"
+        assert "Startseite Newsticker Themen" not in result
+        assert "Jetzt heise+ lesen" not in result
+
+    def test_extract_content_falls_back_to_empty_when_there_is_no_rss_summary(self, heise_agg):
+        result = heise_agg.extract_content(
+            "<html><body><nav>chrome</nav></body></html>", {"name": "T"}
+        )
+
+        assert result == ""
+
     @patch("core.aggregators.heise.aggregator.fetch_html")
     def test_extract_comments(self, mock_fetch_html, heise_agg):
         article_html = """
