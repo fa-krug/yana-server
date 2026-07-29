@@ -283,6 +283,40 @@ class TestRedditAggregator:
         assert len(filtered) == 1
         assert filtered[0]["name"] == "Good"
 
+    def test_filter_articles_preserves_the_exact_date(self, reddit_agg):
+        """Regression guard: filter_articles must not rewrite the real post date."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        good_date = timezone.now() - timedelta(hours=72)
+
+        filtered = reddit_agg.filter_articles(
+            [{"name": "Good", "author": "user1", "date": good_date, "_reddit_num_comments": 10}]
+        )
+
+        assert len(filtered) == 1
+        assert filtered[0]["date"] == good_date
+
+    def test_filter_articles_naive_date_becomes_aware_without_shifting_the_instant(
+        self, reddit_agg
+    ):
+        from datetime import datetime, timedelta
+
+        from django.utils import timezone
+
+        # A fixed naive datetime, recent enough to survive the age filters below.
+        naive = timezone.now().replace(tzinfo=None, microsecond=0) - timedelta(hours=72)
+
+        filtered = reddit_agg.filter_articles(
+            [{"name": "Naive", "author": "user1", "date": naive, "_reddit_num_comments": 10}]
+        )
+
+        assert len(filtered) == 1
+        assert isinstance(filtered[0]["date"], datetime)
+        assert timezone.is_aware(filtered[0]["date"])
+        assert filtered[0]["date"] == timezone.make_aware(naive)
+
     def test_filter_articles_min_age_skips_recent_posts(self, reddit_agg):
         """Posts younger than min_age_hours should be skipped."""
         from datetime import timedelta

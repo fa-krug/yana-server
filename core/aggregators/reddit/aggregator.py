@@ -438,6 +438,12 @@ class RedditAggregator(BaseAggregator):
         for article in articles:
             article_date = article.get("date")
 
+            # Normalize the representation only -- same instant, now comparable
+            # and safe for the cutoff comparisons below.
+            if article_date and timezone.is_naive(article_date):
+                article_date = timezone.make_aware(article_date)
+                article["date"] = article_date
+
             # Skip posts older than 2 months
             if article_date and article_date < two_months_ago:
                 logger.debug(f"Skipping old post: {article.get('name')} ({article_date})")
@@ -464,8 +470,6 @@ class RedditAggregator(BaseAggregator):
                     )
                     continue
 
-            # Update date to now for accepted articles (matching base behavior)
-            article["date"] = now
             filtered.append(article)
 
         logger.info(f"Filtered articles: kept {len(filtered)}/{len(articles)}")
