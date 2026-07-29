@@ -93,7 +93,7 @@ class TestCaschysBlogAggregator(unittest.TestCase):
     </div>
 </div>
 """
-        content = extract_main_content(html, selector=self.aggregator.content_selector)
+        content = extract_main_content(html, content_selectors=[self.aggregator.content_selector])
 
         article = {
             "name": "Test",
@@ -126,7 +126,7 @@ class TestCaschysBlogAggregator(unittest.TestCase):
     </div>
 </div>
 """
-        content = extract_main_content(html, selector=self.aggregator.content_selector)
+        content = extract_main_content(html, content_selectors=[self.aggregator.content_selector])
 
         article = {
             "name": "Test Article",

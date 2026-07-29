@@ -127,7 +127,7 @@ class FullWebsiteAggregator(RssAggregator):
             remove_selectors.extend(additional)
 
         return extract_main_content(
-            html, selector=content_selector, remove_selectors=remove_selectors
+            html, content_selectors=[content_selector], remove_selectors=remove_selectors
         )
 
     def process_content(self, html: str, article: Dict[str, Any]) -> str:

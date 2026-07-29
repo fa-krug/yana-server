@@ -29,7 +29,7 @@ class TestMerkurAggregator:
         mock_extract.assert_called()
         # Verify it uses the right selector
         args, kwargs = mock_extract.call_args
-        assert kwargs["selector"] == ".idjs-Story"
+        assert kwargs["content_selectors"] == [".idjs-Story"]
 
     def test_process_content_removes_sanitized_attributes(self, merkur_agg):
         # Merkur specific: sanitize_html_attributes followed by remove_sanitized_attributes

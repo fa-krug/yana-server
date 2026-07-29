@@ -133,7 +133,9 @@ class MerkurAggregator(FullWebsiteAggregator):
 
         # Try to extract using .idjs-Story selector
         extracted = extract_main_content(
-            html, selector=self.content_selector, remove_selectors=self.selectors_to_remove
+            html,
+            content_selectors=[self.content_selector],
+            remove_selectors=self.selectors_to_remove,
         )
 
         if not extracted or extracted.strip() == "":

@@ -1,7 +1,15 @@
 """Utility modules for aggregators."""
 
 from .bs4_utils import get_attr_list, get_attr_str
-from .content_extractor import extract_main_content
+from .content_extractor import (
+    DEFAULT_CONTENT_SELECTORS,
+    DEFAULT_IGNORE_SELECTORS,
+    IFRAME_SANITIZE_SELECTOR,
+    MANDATORY_REMOVE_SELECTORS,
+    extract_main_content,
+    extract_main_content_if_present,
+    select_content_elements,
+)
 from .content_formatter import format_article_content
 from .html_cleaner import (
     clean_data_attributes,
@@ -20,6 +28,12 @@ __all__ = [
     "parse_rss_feed",
     "fetch_html",
     "extract_main_content",
+    "DEFAULT_CONTENT_SELECTORS",
+    "DEFAULT_IGNORE_SELECTORS",
+    "IFRAME_SANITIZE_SELECTOR",
+    "MANDATORY_REMOVE_SELECTORS",
+    "extract_main_content_if_present",
+    "select_content_elements",
     "clean_html",
     "remove_selectors",
     "remove_empty_elements",
