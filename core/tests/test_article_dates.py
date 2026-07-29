@@ -67,10 +67,28 @@ class TestRssDateParsing:
         assert parsed.hour == 12
         assert parsed.utcoffset() == timedelta(hours=2)
 
-    def test_date_without_timezone_becomes_aware(self, agg):
+    def test_date_without_timezone_becomes_aware(self, agg, settings):
+        # Force a non-UTC server zone so the assertion can't pass by accident
+        # of the test environment's default TIME_ZONE.
+        settings.TIME_ZONE = "Europe/Berlin"
+
         parsed = agg._parse_date("Mon, 20 Jul 2026 12:30:00")
 
         assert timezone.is_aware(parsed)
+        # RFC 5322 gives no basis for assuming any particular zone -- the
+        # server's local TIME_ZONE must not silently shift the instant.
+        assert parsed.utcoffset() == timedelta(0)
+
+    def test_dash_zero_offset_means_utc_unknown_zone_not_server_local(self, agg, settings):
+        """RFC 5322: "-0000" means UTC, local zone unknown -- never the
+        server's TIME_ZONE."""
+        settings.TIME_ZONE = "Europe/Berlin"
+
+        parsed = agg._parse_date("Mon, 20 Jul 2026 12:30:00 -0000")
+
+        assert timezone.is_aware(parsed)
+        assert parsed.utcoffset() == timedelta(0)
+        assert parsed.hour == 12
 
     def test_missing_and_unparseable_dates_fall_back_to_aware_now(self, agg):
         for value in (None, "not a date"):

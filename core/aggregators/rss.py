@@ -1,6 +1,7 @@
 """RSS aggregator base class."""
 
 from datetime import datetime
+from datetime import timezone as dt_timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, Dict, List, Optional
 
@@ -57,7 +58,15 @@ class RssAggregator(BaseAggregator):
         return articles
 
     def _parse_date(self, date_str: Optional[str]) -> datetime:
-        """Parse an RSS date string into an aware datetime."""
+        """Parse an RSS date string into an aware datetime.
+
+        ``parsedate_to_datetime`` returns a naive datetime both when the
+        source has no timezone at all and for the RFC 5322 "-0000" offset
+        ("UTC, local zone unknown"). Either way there is no basis for
+        assuming the server's local ``TIME_ZONE`` -- attach UTC instead, so
+        the instant is not silently shifted by whatever zone the server
+        happens to run in.
+        """
         if not date_str:
             return timezone.now()
         try:
@@ -65,5 +74,5 @@ class RssAggregator(BaseAggregator):
         except Exception:
             return timezone.now()
         if timezone.is_naive(parsed):
-            return timezone.make_aware(parsed)
+            return parsed.replace(tzinfo=dt_timezone.utc)
         return parsed
