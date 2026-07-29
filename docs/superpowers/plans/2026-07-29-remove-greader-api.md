@@ -528,7 +528,9 @@ Run:
 grep -rn "greader\|GReader\|Google Reader" README.md CLAUDE.md
 ```
 
-Expected: **no output.** Any remaining hit is a section you missed.
+Expected: **only past-tense removal context** — the two paragraphs in Steps 3 and 4 that name what was removed and link the spec. Nothing else.
+
+The bar is that no remaining hit describes GReader as *available*: no connection instructions, no endpoint table, no auth-header documentation, no "Server Type: Google Reader" client setup. Naming the retired API historically is deliberate and required — a reader who finds "the previous RSS-sync API" has no way to know the term to search for, and a user whose Reeder setup just broke needs the docs to say why. Check each hit against that bar rather than counting hits.
 
 Then confirm every path the new `CLAUDE.md` HTTP Surface table claims actually resolves:
 
