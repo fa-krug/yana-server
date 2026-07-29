@@ -146,7 +146,7 @@ wins), and duplicates are collapsed.
 | `selectors_to_remove: list[str]` | aggregator class | Scraper-specific removals, always applied |
 | `uses_first_content_match: bool` | aggregator class | `True` for scrapers with one known container — keeps only the first match instead of unioning |
 | `content_selectors` | `Feed.options` | Per-feed override of the class list. Absent → class default; present-but-empty → deliberately empty |
-| `ignore_selectors` | `Feed.options` | Per-feed removals. Absent → the shared defaults (`.advertisement`, `.ad`, `.ads`, `[class*='advert']`, `[class*='sponsor']`, `.social-share`, `.newsletter`, `.related-articles`) |
+| `ignore_selectors` | `Feed.options` | Per-feed override of the removals. Absent → the shared defaults (`.advertisement`, `.ad`, `.ads`, `[class*='advert']`, `[class*='sponsor']`, `.social-share`, `.newsletter`, `.related-articles`); present-but-empty → no per-feed removals beyond the class `selectors_to_remove` and the mandatory set |
 
 Sanitization of `script`, `style`, `noscript` and `template` is applied before selection and cannot
 be disabled by any option. Iframes are an aggregator-level policy: `FullWebsiteAggregator` carries
@@ -154,7 +154,10 @@ be disabled by any option. Iframes are an aggregator-level policy: `FullWebsiteA
 supports more embed hosts — Caschy's Blog allows Twitter/X — overrides that list and filters iframes
 itself in `process_content`.
 
-Two escape hatches for scrapers with a dedicated container:
+Two lower-level building blocks in `core/aggregators/utils/content_extractor.py`, available for a
+scraper to wire into its own `extract_content` / `enrich_articles` override. Neither is called
+automatically by `FullWebsiteAggregator` or any shipped scraper today — `extract_content` currently
+calls plain `extract_main_content` — so this is opt-in plumbing, not live behavior:
 
 - `extract_main_content_if_present(...)` returns `None` instead of falling back to `<body>`, so a
   paywall or gate page cannot surface site navigation as the article.
@@ -162,8 +165,9 @@ Two escape hatches for scrapers with a dedicated container:
   requires at least 80 characters of real text — for syndicated pages on other domains that carry
   none of the scraper's markup.
 
-Resolution order for such a scraper: dedicated container → generic extraction (≥80 chars) → RSS
-summary.
+For a scraper that does opt in, the intended resolution order is: dedicated container → generic
+extraction (≥80 chars) → RSS summary. Wiring these into a specific scraper is out of scope here —
+see `docs/superpowers/specs/2026-07-29-aggregator-parity-2-scrapers-and-types-design.md`.
 
 ## Creating a New Aggregator
 
