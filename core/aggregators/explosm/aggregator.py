@@ -45,7 +45,7 @@ class ExplosmAggregator(FullWebsiteAggregator):
         }
 
     # Main comic container
-    content_selector = "#comic"
+    content_selectors = ["#comic"]
 
     # Selectors to strip from the comic container
     selectors_to_remove = [

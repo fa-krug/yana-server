@@ -61,7 +61,7 @@ class MactechnewsAggregator(FullWebsiteAggregator):
         }
 
     # Main content container
-    content_selector = ".MtnArticle"
+    content_selectors = [".MtnArticle"]
 
     # Selectors to strip
     selectors_to_remove = [
@@ -116,7 +116,7 @@ class MactechnewsAggregator(FullWebsiteAggregator):
         combined_html = fetch_all_pages(
             base_url=url,
             page_numbers=page_numbers,
-            content_selector=self.content_selector,
+            content_selectors=self.content_selectors,
             fetcher=lambda page_url: super(MactechnewsAggregator, self).fetch_article_content(
                 page_url
             ),

@@ -71,7 +71,7 @@ class HeiseAggregator(FullWebsiteAggregator):
         }
 
     # Heise specific selectors
-    content_selector = "#meldung, .StoryContent"
+    content_selectors = ["#meldung", ".StoryContent"]
 
     selectors_to_remove = [
         ".ad-label",

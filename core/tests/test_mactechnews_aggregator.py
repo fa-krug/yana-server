@@ -145,7 +145,7 @@ class TestMactechnewsPagination(unittest.TestCase):
         result = fetch_all_pages(
             base_url="https://example.com/article.html",
             page_numbers={1, 2},
-            content_selector=".MtnArticle",
+            content_selectors=[".MtnArticle"],
             fetcher=mock_fetcher,
             logger=logger,
             first_page_html=page1_html,
@@ -169,7 +169,7 @@ class TestMactechnewsPagination(unittest.TestCase):
         fetch_all_pages(
             base_url="https://example.com/article.html",
             page_numbers={1, 2, 3},
-            content_selector=".MtnArticle",
+            content_selectors=[".MtnArticle"],
             fetcher=mock_fetcher,
             logger=logger,
             first_page_html='<article class="MtnArticle"><p>Page 1</p></article>',

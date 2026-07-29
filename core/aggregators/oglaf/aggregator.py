@@ -57,7 +57,7 @@ class OglafAggregator(FullWebsiteAggregator):
         return "https://www.oglaf.com"
 
     # Selectors for main content
-    content_selector = "div.content"
+    content_selectors = ["div.content"]
 
     # Selectors to strip from the main content div
     selectors_to_remove = [

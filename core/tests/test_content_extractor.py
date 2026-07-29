@@ -237,3 +237,23 @@ class TestSharedDefaults:
             ".newsletter",
             ".related-articles",
         ]
+
+
+class TestAggregatorSelectorAttributes:
+    """Every FullWebsiteAggregator subclass exposes a selector *list*."""
+
+    def test_all_website_aggregators_use_selector_lists(self):
+        from core.aggregators.registry import AggregatorRegistry
+        from core.aggregators.website import FullWebsiteAggregator
+
+        for name, agg_class in AggregatorRegistry._registry.items():
+            if not issubclass(agg_class, FullWebsiteAggregator):
+                continue
+            selectors = agg_class.content_selectors
+            assert isinstance(selectors, list), f"{name}: content_selectors must be a list"
+            assert all(isinstance(entry, str) for entry in selectors), (
+                f"{name}: entries must be str"
+            )
+            assert not hasattr(agg_class, "content_selector"), (
+                f"{name}: legacy singular content_selector still present"
+            )

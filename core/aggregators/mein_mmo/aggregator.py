@@ -53,7 +53,7 @@ class MeinMmoAggregator(FullWebsiteAggregator):
         }
 
     # Mein-MMO specific selectors
-    content_selector = "div.entry-content"
+    content_selectors = ["div.entry-content"]
 
     selectors_to_remove = [
         "div.wp-block-mmo-recirculation-box",

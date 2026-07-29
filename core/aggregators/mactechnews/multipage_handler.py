@@ -2,10 +2,12 @@
 
 import logging
 import re
-from typing import Callable, Set
+from typing import Callable, List, Set
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from bs4 import BeautifulSoup
+
+from ..utils.content_extractor import select_content_elements
 
 
 def detect_pagination(html: str, logger: logging.Logger) -> Set[int]:
@@ -62,7 +64,7 @@ def _build_page_url(base_url: str, page_num: int) -> str:
 def fetch_all_pages(
     base_url: str,
     page_numbers: Set[int],
-    content_selector: str,
+    content_selectors: List[str],
     fetcher: Callable[[str], str],
     logger: logging.Logger,
     first_page_html: str | None = None,
@@ -73,7 +75,7 @@ def fetch_all_pages(
     Args:
         base_url: Base article URL
         page_numbers: Set of page numbers to fetch
-        content_selector: CSS selector for the content container
+        content_selectors: CSS selectors for the content container
         fetcher: Function to fetch HTML from URL
         logger: Logger instance
         first_page_html: Already fetched HTML for the first page
@@ -99,16 +101,16 @@ def fetch_all_pages(
                 page_html = fetcher(page_url)
                 logger.debug(f"Page {page_num}: HTML fetched ({len(page_html)} bytes)")
 
-            # Extract content using the provided selector
+            # Extract content using the provided selectors (dedicated container: first match)
             soup = BeautifulSoup(page_html, "html.parser")
-            content_div = soup.select_one(content_selector)
+            matches = select_content_elements(soup, content_selectors, first_match_only=True)
 
-            if content_div:
-                content_html = str(content_div)
+            if matches:
+                content_html = str(matches[0])
                 content_parts.append(content_html)
                 logger.debug(f"Page {page_num}: Content extracted ({len(content_html)} bytes)")
             else:
-                logger.warning(f"Page {page_num}: No content found with '{content_selector}'")
+                logger.warning(f"Page {page_num}: No content found with {content_selectors}")
 
         except Exception as e:
             logger.error(f"Page {page_num}: Failed to fetch - {type(e).__name__}: {e}")

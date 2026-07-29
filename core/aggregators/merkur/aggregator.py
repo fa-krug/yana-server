@@ -90,7 +90,7 @@ class MerkurAggregator(FullWebsiteAggregator):
         }
 
     # Merkur specific selectors
-    content_selector = ".idjs-Story"
+    content_selectors = [".idjs-Story"]
 
     selectors_to_remove = [
         ".id-DonaldBreadcrumb--default",
@@ -134,7 +134,7 @@ class MerkurAggregator(FullWebsiteAggregator):
         # Try to extract using .idjs-Story selector
         extracted = extract_main_content(
             html,
-            content_selectors=[self.content_selector],
+            content_selectors=self.content_selectors,
             remove_selectors=self.selectors_to_remove,
         )
 

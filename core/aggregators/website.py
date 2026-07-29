@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from .exceptions import ArticleSkipError
 from .rss import RssAggregator
 from .utils import (
+    DEFAULT_CONTENT_SELECTORS,
     clean_html,
     extract_main_content,
     fetch_html,
@@ -31,8 +32,8 @@ class FullWebsiteAggregator(RssAggregator):
         ".social-share",
     ]
 
-    # Main content selector (override in subclasses)
-    content_selector: str = "article, .article-content, .entry-content, main"
+    # Places to look for the main content (override in subclasses)
+    content_selectors: List[str] = list(DEFAULT_CONTENT_SELECTORS)
 
     @classmethod
     def get_configuration_fields(cls) -> Dict[str, Any]:
@@ -117,7 +118,11 @@ class FullWebsiteAggregator(RssAggregator):
     def extract_content(self, html: str, article: Dict[str, Any]) -> str:
         """Extract main content from HTML."""
         # Get selectors from options
-        content_selector = self.feed.options.get("custom_content_selector") or self.content_selector
+        content_selectors = (
+            self.feed.options.get("custom_content_selector") or self.content_selectors
+        )
+        if isinstance(content_selectors, str):
+            content_selectors = [content_selectors]
 
         remove_selectors = list(self.selectors_to_remove)
         custom_remove = self.feed.options.get("custom_selectors_to_remove", "")
@@ -127,7 +132,7 @@ class FullWebsiteAggregator(RssAggregator):
             remove_selectors.extend(additional)
 
         return extract_main_content(
-            html, content_selectors=[content_selector], remove_selectors=remove_selectors
+            html, content_selectors=content_selectors, remove_selectors=remove_selectors
         )
 
     def process_content(self, html: str, article: Dict[str, Any]) -> str:

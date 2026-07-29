@@ -46,7 +46,7 @@ class CaschysBlogAggregator(FullWebsiteAggregator):
         }
 
     # Main content container
-    content_selector = ".entry-inner"
+    content_selectors = [".entry-inner"]
 
     # Selectors to strip
     selectors_to_remove = [
@@ -129,7 +129,8 @@ class CaschysBlogAggregator(FullWebsiteAggregator):
         # Caschy's Blog often has the featured image at the top of the content,
         # sometimes with a different filename than the OG image.
         if article.get("header_data"):
-            # Get the root container. The content passed to this method is usually wrapped in the content_selector element.
+            # Get the root container. The content passed to this method is usually wrapped in the
+            # matched content selector's element.
             # We want to check the *contents* of that wrapper.
             root: Tag = soup
 

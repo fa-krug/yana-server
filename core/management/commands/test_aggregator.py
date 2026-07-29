@@ -105,8 +105,8 @@ class Command(BaseCommand):
             if hasattr(aggregator, "get_source_url"):
                 self._print_field("Source URL", aggregator.get_source_url())
 
-            if selector_debug and hasattr(aggregator, "content_selector"):
-                self._print_field("Content selector", aggregator.content_selector)
+            if selector_debug and hasattr(aggregator, "content_selectors"):
+                self._print_field("Content selectors", ", ".join(aggregator.content_selectors))
             if selector_debug and hasattr(aggregator, "selectors_to_remove"):
                 self._print_field("Selectors to remove", ", ".join(aggregator.selectors_to_remove))
 

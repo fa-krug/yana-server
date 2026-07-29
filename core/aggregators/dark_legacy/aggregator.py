@@ -47,7 +47,7 @@ class DarkLegacyAggregator(FullWebsiteAggregator):
         }
 
     # Main comic container
-    content_selector = "#gallery"
+    content_selectors = ["#gallery"]
 
     # Selectors to strip
     selectors_to_remove = [
