@@ -224,7 +224,9 @@ def test_feed_creation(user):
 
 **Article dates:** `Article.date` is the feed's real publish time — aggregation never rewrites it.
 Use `created_at` (indexed with `id` as tie-breaker) for stable, append-only ordering such as sync
-cursors; `date` is for display and retention.
+cursors, and for retention (`ArticleService.delete_old_articles`) — `date` is for display only.
+Keying retention off `date` would delete articles almost immediately after import whenever their
+publish date is already close to the retention cutoff.
 
 ## Aggregator System
 

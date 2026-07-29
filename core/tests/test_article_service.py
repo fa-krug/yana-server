@@ -93,15 +93,16 @@ class TestArticleService:
         assert article.starred is True
 
     def test_delete_old_articles_custom_threshold(self, rss_feed):
+        # Retention is keyed on created_at (import time), not date (publish
+        # time) -- see core/tests/test_article_cleanup.py. created_at is
+        # auto_now_add, so ages are set with a queryset .update() afterward.
         now = timezone.now()
-        # 4 months old
-        Article.objects.create(
-            name="Old", identifier="old", feed=rss_feed, date=now - timedelta(days=120)
-        )
-        # 2 months old
-        Article.objects.create(
-            name="Mid", identifier="mid", feed=rss_feed, date=now - timedelta(days=60)
-        )
+        # Imported 4 months ago
+        old = Article.objects.create(name="Old", identifier="old", feed=rss_feed, date=now)
+        Article.objects.filter(id=old.id).update(created_at=now - timedelta(days=120))
+        # Imported 2 months ago
+        mid = Article.objects.create(name="Mid", identifier="mid", feed=rss_feed, date=now)
+        Article.objects.filter(id=mid.id).update(created_at=now - timedelta(days=60))
 
         # Delete older than 3 months
         count = ArticleService.delete_old_articles(months=3)

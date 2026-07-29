@@ -148,8 +148,12 @@ class ArticleService:
         # Calculate the cutoff date
         cutoff_date = timezone.now() - timedelta(days=months * 30)
 
-        # Delete articles older than the cutoff date
+        # Delete articles older than the cutoff date, based on when the article
+        # was imported (created_at), not its publish date (date). Article.date
+        # is the feed's real publish time, so a just-imported article with an
+        # old publish date must not be deleted on the very next cleanup run --
+        # created_at is the append-only, import-time signal retention needs.
         # We preserve starred articles as they are explicitly saved by the user
-        count, _ = Article.objects.filter(date__lt=cutoff_date, starred=False).delete()
+        count, _ = Article.objects.filter(created_at__lt=cutoff_date, starred=False).delete()
 
         return count
