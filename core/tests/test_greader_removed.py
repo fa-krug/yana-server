@@ -45,3 +45,31 @@ class TestGReaderRoutesRemoved(TestCase):
 
         with self.assertRaises(NoReverseMatch):
             reverse("greader:user_info")
+
+
+class TestGReaderModelRemoved(TestCase):
+    """The GReaderAuthToken model and its table must be gone."""
+
+    def test_model_import_raises_import_error(self):
+        """Importing GReaderAuthToken from core.models must fail."""
+        with self.assertRaises(ImportError):
+            from core.models import GReaderAuthToken  # noqa: F401
+
+    def test_model_not_in_app_registry(self):
+        """The app registry must not know the model either."""
+        from django.apps import apps
+
+        with self.assertRaises(LookupError):
+            apps.get_model("core", "GReaderAuthToken")
+
+    def test_table_does_not_exist(self):
+        """The database table must be dropped."""
+        from django.db import connection
+
+        self.assertNotIn("core_greaderauthtoken", connection.introspection.table_names())
+
+    def test_user_has_no_greader_tokens_relation(self):
+        """The reverse accessor from User must be gone."""
+        from django.contrib.auth.models import User
+
+        self.assertFalse(hasattr(User, "greader_tokens"))
