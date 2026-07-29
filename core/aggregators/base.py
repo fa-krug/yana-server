@@ -31,6 +31,10 @@ class BaseAggregator(ABC):
     # (i.e. uses the query parameter in get_identifier_choices)
     supports_identifier_search = False
 
+    # Scrapers whose body lives in one known container set this True: extraction
+    # then keeps only the first match instead of unioning every match.
+    uses_first_content_match = False
+
     def __init__(self, feed):
         """
         Initialize aggregator with a feed.
@@ -497,8 +501,14 @@ class BaseAggregator(ABC):
         config_fields = self.get_configuration_fields()
         options = self.feed.options or {}
         for field_name in config_fields:
-            if field_name in form_cleaned_data:
-                options[field_name] = form_cleaned_data[field_name]
+            if field_name not in form_cleaned_data:
+                continue
+            value = form_cleaned_data[field_name]
+            if value is None:
+                # Blank input means "use the default" -- drop the key entirely.
+                options.pop(field_name, None)
+            else:
+                options[field_name] = value
         self.feed.options = options
 
     @classmethod

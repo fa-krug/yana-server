@@ -45,6 +45,9 @@ class CaschysBlogAggregator(FullWebsiteAggregator):
             ),
         }
 
+    # Body lives in one known container -- keep the first match, never union.
+    uses_first_content_match = True
+
     # Main content container
     content_selectors = [".entry-inner"]
 

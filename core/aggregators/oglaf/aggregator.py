@@ -56,6 +56,9 @@ class OglafAggregator(FullWebsiteAggregator):
         """Return the Oglaf website URL."""
         return "https://www.oglaf.com"
 
+    # Body lives in one known container -- keep the first match, never union.
+    uses_first_content_match = True
+
     # Selectors for main content
     content_selectors = ["div.content"]
 

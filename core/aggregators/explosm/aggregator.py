@@ -44,6 +44,9 @@ class ExplosmAggregator(FullWebsiteAggregator):
             ),
         }
 
+    # Body lives in one known container -- keep the first match, never union.
+    uses_first_content_match = True
+
     # Main comic container
     content_selectors = ["#comic"]
 

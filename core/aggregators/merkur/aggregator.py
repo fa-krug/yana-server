@@ -89,6 +89,9 @@ class MerkurAggregator(FullWebsiteAggregator):
             ),
         }
 
+    # Body lives in one known container -- keep the first match, never union.
+    uses_first_content_match = True
+
     # Merkur specific selectors
     content_selectors = [".idjs-Story"]
 
@@ -134,8 +137,9 @@ class MerkurAggregator(FullWebsiteAggregator):
         # Try to extract using .idjs-Story selector
         extracted = extract_main_content(
             html,
-            content_selectors=self.content_selectors,
-            remove_selectors=self.selectors_to_remove,
+            content_selectors=self.get_content_selectors(),
+            remove_selectors=self.get_ignore_selectors(),
+            first_match_only=self.uses_first_content_match,
         )
 
         if not extracted or extracted.strip() == "":

@@ -8,6 +8,8 @@ from .exceptions import ArticleSkipError
 from .rss import RssAggregator
 from .utils import (
     DEFAULT_CONTENT_SELECTORS,
+    DEFAULT_IGNORE_SELECTORS,
+    IFRAME_SANITIZE_SELECTOR,
     clean_html,
     extract_main_content,
     fetch_html,
@@ -21,16 +23,11 @@ from .utils.youtube import proxy_youtube_embeds
 class FullWebsiteAggregator(RssAggregator):
     """Aggregator that extracts full content from article URLs."""
 
-    # CSS selectors to remove from extracted content
-    selectors_to_remove: List[str] = [
-        "script",
-        "style",
-        "iframe:not([src*='youtube.com']):not([src*='youtu.be'])",
-        "noscript",
-        ".advertisement",
-        ".ad",
-        ".social-share",
-    ]
+    # Scraper-specific removals, always applied on top of the feed's
+    # ignore_selectors (so a feed option cannot disable them). script/style/
+    # noscript/template are handled by the extractor and are not listed here;
+    # the iframe rule stays here because scrapers such as Caschy's Blog widen it.
+    selectors_to_remove: List[str] = [IFRAME_SANITIZE_SELECTOR]
 
     # Places to look for the main content (override in subclasses)
     content_selectors: List[str] = list(DEFAULT_CONTENT_SELECTORS)
@@ -38,25 +35,24 @@ class FullWebsiteAggregator(RssAggregator):
     @classmethod
     def get_configuration_fields(cls) -> Dict[str, Any]:
         """Get configuration fields for FullWebsiteAggregator."""
-        from django import forms
+        from .form_fields import SelectorListField
 
         return {
-            "use_full_content": forms.BooleanField(
-                initial=True,
-                label="Fetch Full Content",
-                help_text="If enabled, Yana will fetch the article URL and extract the main content. If disabled, only the RSS summary will be used.",
+            "content_selectors": SelectorListField(
+                label="Content Selectors",
+                help_text=(
+                    "Comma-separated CSS selectors for the article body. Every match is "
+                    "combined, so a body split across containers stays complete. Leave blank "
+                    "for the defaults: " + ", ".join(DEFAULT_CONTENT_SELECTORS)
+                ),
                 required=False,
             ),
-            "custom_content_selector": forms.CharField(
-                initial="",
-                label="Custom Content Selector",
-                help_text="Override the default CSS selector to find the main content. Example: div.my-article-body",
-                required=False,
-            ),
-            "custom_selectors_to_remove": forms.CharField(
-                initial="",
-                label="Selectors to Remove",
-                help_text="Additional CSS selectors to remove from the content (comma-separated). Example: .ads, .sidebar, #newsletter",
+            "ignore_selectors": SelectorListField(
+                label="Ignore Selectors",
+                help_text=(
+                    "Comma-separated CSS selectors to remove from the content. Leave blank "
+                    "for the defaults: " + ", ".join(DEFAULT_IGNORE_SELECTORS)
+                ),
                 required=False,
             ),
         }
@@ -64,13 +60,6 @@ class FullWebsiteAggregator(RssAggregator):
     def enrich_articles(self, articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Fetch and extract full article content with header elements."""
         enriched = []
-
-        # Check configuration
-        use_full_content = self.feed.options.get("use_full_content", True)
-
-        if not use_full_content:
-            self.logger.info("Full content extraction disabled via options.")
-            return articles
 
         for article in articles:
             url = article["identifier"]
@@ -115,24 +104,40 @@ class FullWebsiteAggregator(RssAggregator):
         """Fetch HTML content from URL."""
         return fetch_html(url, timeout=30)
 
+    def get_content_selectors(self) -> List[str]:
+        """Resolve the content selectors: feed option if set, else the class default."""
+        options = self.feed.options or {}
+        if "content_selectors" in options:
+            return self._clean_selector_list(options["content_selectors"])
+        return list(self.content_selectors)
+
+    def get_ignore_selectors(self) -> List[str]:
+        """Resolve removals: the class list plus the feed option (or the shared defaults)."""
+        options = self.feed.options or {}
+        if "ignore_selectors" in options:
+            configured = self._clean_selector_list(options["ignore_selectors"])
+        else:
+            configured = list(DEFAULT_IGNORE_SELECTORS)
+        return list(self.selectors_to_remove) + configured
+
+    @staticmethod
+    def _clean_selector_list(value: Any) -> List[str]:
+        """Normalize a stored option value into a list of non-empty selectors."""
+        if isinstance(value, str):
+            parts = value.split(",")
+        elif isinstance(value, (list, tuple)):
+            parts = [str(item) for item in value]
+        else:
+            return []
+        return [part.strip() for part in parts if part.strip()]
+
     def extract_content(self, html: str, article: Dict[str, Any]) -> str:
         """Extract main content from HTML."""
-        # Get selectors from options
-        content_selectors = (
-            self.feed.options.get("custom_content_selector") or self.content_selectors
-        )
-        if isinstance(content_selectors, str):
-            content_selectors = [content_selectors]
-
-        remove_selectors = list(self.selectors_to_remove)
-        custom_remove = self.feed.options.get("custom_selectors_to_remove", "")
-        if custom_remove:
-            # Split comma-separated string and add to list
-            additional = [s.strip() for s in custom_remove.split(",") if s.strip()]
-            remove_selectors.extend(additional)
-
         return extract_main_content(
-            html, content_selectors=content_selectors, remove_selectors=remove_selectors
+            html,
+            content_selectors=self.get_content_selectors(),
+            remove_selectors=self.get_ignore_selectors(),
+            first_match_only=self.uses_first_content_match,
         )
 
     def process_content(self, html: str, article: Dict[str, Any]) -> str:

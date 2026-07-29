@@ -52,6 +52,9 @@ class MeinMmoAggregator(FullWebsiteAggregator):
             ),
         }
 
+    # Body lives in one known container -- keep the first match, never union.
+    uses_first_content_match = True
+
     # Mein-MMO specific selectors
     content_selectors = ["div.entry-content"]
 

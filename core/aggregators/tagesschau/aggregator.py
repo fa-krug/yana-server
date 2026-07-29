@@ -18,6 +18,9 @@ class TagesschauAggregator(FullWebsiteAggregator):
     and filters out specific types of content (livestreams, podcasts).
     """
 
+    # Body lives in one known container -- keep the first match, never union.
+    uses_first_content_match = True
+
     # Selectors to remove (in addition to those in FullWebsiteAggregator)
     selectors_to_remove = FullWebsiteAggregator.selectors_to_remove + [
         "div.teaser",

@@ -23,9 +23,6 @@ class MactechnewsAggregator(FullWebsiteAggregator):
 
     def __init__(self, feed):
         super().__init__(feed)
-        # Force full content extraction
-        self.feed.options["use_full_content"] = True
-
         if not self.identifier or self.identifier == "":
             self.identifier = "https://www.mactechnews.de/Rss/News.x"
 
@@ -59,6 +56,9 @@ class MactechnewsAggregator(FullWebsiteAggregator):
                 max_value=20,
             ),
         }
+
+    # Body lives in one known container -- keep the first match, never union.
+    uses_first_content_match = True
 
     # Main content container
     content_selectors = [".MtnArticle"]

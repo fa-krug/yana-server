@@ -70,6 +70,9 @@ class HeiseAggregator(FullWebsiteAggregator):
             ),
         }
 
+    # Body lives in one known container -- keep the first match, never union.
+    uses_first_content_match = True
+
     # Heise specific selectors
     content_selectors = ["#meldung", ".StoryContent"]
 
