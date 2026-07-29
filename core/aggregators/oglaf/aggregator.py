@@ -53,7 +53,7 @@ class OglafAggregator(FullWebsiteAggregator):
         }
 
     def get_source_url(self) -> str:
-        """Required for GReader API."""
+        """Return the Oglaf website URL."""
         return "https://www.oglaf.com"
 
     # Selectors for main content

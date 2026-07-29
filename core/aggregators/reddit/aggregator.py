@@ -53,7 +53,7 @@ class RedditAggregator(BaseAggregator):
         return getattr(related_obj, "display_name", str(related_obj))
 
     def get_source_url(self) -> str:
-        """Return the Reddit subreddit URL for GReader API."""
+        """Return the Reddit subreddit URL."""
         if self.identifier:
             subreddit = normalize_subreddit(self.identifier)
             return f"https://www.reddit.com/r/{subreddit}"

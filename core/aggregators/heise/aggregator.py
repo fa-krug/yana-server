@@ -28,7 +28,7 @@ class HeiseAggregator(FullWebsiteAggregator):
             self.identifier = "https://www.heise.de/rss/heise.rdf"
 
     def get_source_url(self) -> str:
-        """Return the Heise website URL for GReader API."""
+        """Return the Heise website URL."""
         return self.HEISE_URL
 
     @classmethod

@@ -21,7 +21,7 @@ class MeinMmoAggregator(FullWebsiteAggregator):
             self.identifier = "https://mein-mmo.de/feed/"
 
     def get_source_url(self) -> str:
-        """Return the Mein-MMO website URL for GReader API."""
+        """Return the Mein-MMO website URL."""
         return self.MEIN_MMO_URL
 
     @classmethod

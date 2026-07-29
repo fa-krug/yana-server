@@ -26,7 +26,7 @@ class MerkurAggregator(FullWebsiteAggregator):
             self.identifier = "https://www.merkur.de/rssfeed.rdf"
 
     def get_source_url(self) -> str:
-        """Return the Merkur website URL for GReader API."""
+        """Return the Merkur website URL."""
         return self.MERKUR_URL
 
     @classmethod

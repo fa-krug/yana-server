@@ -1,6 +1,6 @@
 # <img src="core/static/core/img/logo-icon-only.svg" width="40" height="40" align="center" style="margin-right: 10px;"> Yana - RSS Aggregator
 
-A modern, self-hosted RSS aggregator built with Django that supports Google Reader API compatibility for use with external RSS clients like Reeder, NetNewsWire, and FeedMe.
+A modern, self-hosted RSS aggregator built with Django. Feeds are fetched by background tasks and managed through the Django admin.
 
 ## 🚀 User Guide: Setup & Run
 
@@ -76,14 +76,15 @@ If you used the default settings (or didn't change the superuser variables), you
 -   **Username:** `admin`
 -   **Password:** `password`
 
-### Connecting RSS Clients
+### Clients
 
-Yana provides a Google Reader compatible API. You can use any client that supports "Google Reader" or "GReader" (e.g., Reeder, NetNewsWire, FeedMe).
+Yana currently has no HTTP API. Content is aggregated by background tasks and
+inspected through the Django admin at `http://<your-server-ip>:8000/admin/`.
 
--   **Server Type:** Google Reader / GReader
--   **Host/URL:** `http://<your-server-ip>:8000` (Note: specific path depends on the client, often just the base URL is enough, or sometimes `http://.../api/greader`)
--   **Username:** Your Django admin username
--   **Password:** Your Django admin password
+The RSS-sync API that used to support third-party readers was removed: the
+first-party Yana app for iOS/macOS is becoming the only client, and a
+tailored API is being designed to replace it. Third-party RSS readers are
+not supported in the meantime.
 
 ---
 
@@ -96,7 +97,7 @@ Yana provides a Google Reader compatible API. You can use any client that suppor
     -   Reddit subreddits
     -   Podcasts
     -   Specialized scrapers for websites
--   **Google Reader API:** Full compatibility with desktop and mobile RSS readers.
+-   **Admin-First:** Feeds, groups, and articles are managed and inspected through the Django admin.
 -   **Background Processing:** Automatic feed updates using `django-q2`.
 -   **Admin Interface:** Manage feeds, view fetching status, and trigger updates directly from the Django admin.
 
@@ -169,8 +170,7 @@ See **CLAUDE.md** for more detailed debugging workflows.
 -   **`core/aggregators/`**: Content fetching logic.
     -   `registry.py`: Factory pattern for aggregators.
     -   `base.py`: Base classes for RSS, Full Website, etc.
--   **`core/services/`**: Business logic (GReader API, Aggregation triggers).
--   **`core/views/greader/`**: Google Reader API endpoints.
+-   **`core/services/`**: Business logic (aggregation triggers, article maintenance).
 
 ### Running Tests
 
@@ -179,7 +179,7 @@ See **CLAUDE.md** for more detailed debugging workflows.
 uv run python manage.py test
 
 # Run specific test module
-uv run python manage.py test core.tests.test_greader
+uv run python manage.py test core.tests.test_models
 ```
 
 ---
@@ -197,9 +197,6 @@ docker-compose logs -f
 rm db.sqlite3
 uv run python manage.py migrate
 ```
-
-**"ClientLogin" Errors:**
-Ensure you are using the correct username/password. The GReader API uses the same credentials as the Django admin.
 
 ---
 

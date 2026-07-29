@@ -4,7 +4,7 @@ This file provides guidance for AI assistants working on the Yana codebase.
 
 ## Project Overview
 
-**Yana** is a self-hosted Django 6.0 RSS aggregator with Google Reader API compatibility. It aggregates content from multiple sources (RSS, YouTube, Reddit, Podcasts, specialized website scrapers) and provides a GReader-compatible API for external RSS clients (Reeder, NetNewsWire, FeedMe).
+**Yana** is a self-hosted Django 6.0 RSS aggregator. It aggregates content from multiple sources (RSS, YouTube, Reddit, Podcasts, specialized website scrapers) into a SQLite store, inspected and managed through the Django admin. A tailored HTTP API for the first-party iOS/macOS client is in design; the server currently exposes no article API.
 
 **Key characteristics:**
 - Python 3.13+ / Django 6.0
@@ -60,7 +60,6 @@ curl http://localhost:8000/health/
 
 **URLs:**
 - Admin: `http://localhost:8000/admin/`
-- API: `http://localhost:8000/api/greader/*`
 - Health: `http://localhost:8000/health/`
 
 ## Project Structure
@@ -73,7 +72,7 @@ Yana/
 │   └── wsgi.py / asgi.py
 │
 ├── core/                          # Main application
-│   ├── models.py                 # FeedGroup, Feed, Article, UserSettings, GReaderAuthToken
+│   ├── models.py                 # FeedGroup, Feed, Article, UserSettings
 │   ├── admin.py                  # Django admin with DjangoQL, bulk actions
 │   ├── choices.py                # AGGREGATOR_CHOICES (14 types)
 │   ├── forms.py                  # FeedAdminForm, UserSettingsAdminForm
@@ -106,16 +105,13 @@ Yana/
 │   ├── services/                 # Business logic layer
 │   │   ├── aggregator_service.py    # Feed aggregation
 │   │   ├── article_service.py       # Article operations
-│   │   ├── maintenance_service.py   # DB maintenance
-│   │   └── greader/                 # Google Reader API services
+│   │   └── maintenance_service.py   # DB maintenance
 │   │
 │   ├── views/
-│   │   ├── default.py               # Health, YouTube proxy
-│   │   └── greader/                 # GReader API endpoints
+│   │   └── default.py               # Health, YouTube proxy, Dailymotion proxy
 │   │
 │   ├── urls/
-│   │   ├── default.py               # Health, proxy routes
-│   │   └── greader.py               # 11+ GReader endpoints
+│   │   └── default.py               # Health, proxy routes
 │   │
 │   ├── db/backends/sqlite3/         # Optimized SQLite backend
 │   │
@@ -227,7 +223,6 @@ def test_feed_creation(user):
 | `Feed` | name, aggregator, identifier, user, group, enabled, daily_limit | 14 aggregator types |
 | `Article` | name, identifier, content, raw_content, date, read, starred, feed | Use `select_related("feed")` |
 | `UserSettings` | user, youtube_api_key, reddit_*, openai_* | API credentials |
-| `GReaderAuthToken` | user, token (SHA-256), expires_at | GReader API auth |
 | `RedditSubreddit` | name, user | Reddit feed reference |
 | `YouTubeChannel` | channel_id, channel_name, user | YouTube feed reference |
 
@@ -286,34 +281,22 @@ All aggregators inherit from `BaseAggregator` and follow this flow:
 
 **Reference implementation:** `core/aggregators/mein_mmo/` (multipage, embeds, custom extraction)
 
-## Google Reader API
+## HTTP Surface
 
-### Endpoints (core/urls/greader.py)
+The server has no article API. What is reachable:
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/accounts/ClientLogin` | POST | Authenticate with email/password |
-| `/api/greader/reader/api/0/token` | GET | Get action token |
-| `/api/greader/reader/api/0/user-info` | GET | User info |
-| `/api/greader/reader/api/0/subscription/list` | GET | List feeds |
-| `/api/greader/reader/api/0/subscription/edit` | POST | Add/remove feeds |
-| `/api/greader/reader/api/0/tag/list` | GET | List labels/groups |
-| `/api/greader/reader/api/0/unread-count` | GET | Unread counts |
-| `/api/greader/reader/api/0/stream/items/ids` | GET | Article IDs |
-| `/api/greader/reader/api/0/stream/items/contents` | POST | Article content |
-| `/api/greader/reader/api/0/edit-tag` | POST | Mark read/starred |
-| `/api/greader/reader/api/0/mark-all-as-read` | POST | Mark all read |
+| Path | Purpose |
+|---|---|
+| `/admin/` | Django admin — the verification surface for the current phase |
+| `/health/` | Health check |
+| `/media/…` | Media files |
+| `/api/youtube-proxy`, `/api/dailymotion-proxy` | Embed proxies (interim) |
+| `/*` | Catch-all redirect to admin |
 
-### Authentication
-
-Header: `Authorization: GoogleLogin auth=<TOKEN>`
-
-Tokens are SHA-256 hashed before storage. Use `GReaderAuthToken` model.
-
-### ID Formats
-
-- **Stream ID:** `feed/{id}` | `user/-/label/{name}` | `user/-/state/com.google/starred`
-- **Item ID:** `tag:google.com,2005:reader/item/{16-hex}` (Article 123 = `000000000000007b`)
+The previous RSS-sync API that let third-party readers connect was removed
+(see the design doc under `docs/superpowers/specs/`). Aggregation runs via
+django-q2 scheduled tasks and the `test_aggregator` / `trigger_aggregator`
+management commands — none of which touch HTTP.
 
 ## SQLite Optimizations
 
@@ -364,7 +347,7 @@ uv run pre-commit run --all-files
 Types: feat, fix, docs, style, refactor, test, chore
 Examples:
   feat(aggregator): Add support for new comic site
-  fix(greader): Correct unread count calculation
+  fix(aggregator): Correct duplicate article detection
   test(youtube): Add aggregator integration tests
 ```
 
@@ -437,7 +420,7 @@ When working on specific features, these files are most relevant:
 | Task | Key Files |
 |------|-----------|
 | New aggregator | `core/choices.py`, `core/aggregators/registry.py`, `core/aggregators/<name>/` |
-| GReader API | `core/views/greader/`, `core/services/greader/`, `core/urls/greader.py` |
+| HTTP views | `core/views/default.py`, `core/urls/default.py` |
 | Models/DB | `core/models.py`, `core/admin.py`, `core/forms.py` |
 | Testing | `core/tests/conftest.py`, `core/tests/test_*.py` |
 | Configuration | `yana/settings.py`, `pyproject.toml`, `.env.example` |

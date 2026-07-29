@@ -445,8 +445,9 @@ class BaseAggregator(ABC):
         """
         Get the source URL for this feed.
 
-        This is used by the GReader API to return the feed's website/source URL
-        to external clients (like NetNewsWire).
+        This returns the feed's canonical website URL -- the human-facing page
+        a reader would open, as opposed to the feed identifier the aggregator
+        fetches from. Subclasses override it when the two differ.
 
         Override this method in subclasses to provide aggregator-specific URLs.
         Default implementation returns the feed identifier.
