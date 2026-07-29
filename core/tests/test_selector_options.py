@@ -142,3 +142,53 @@ class TestSaveOptionsDropsNone:
 
         assert "content_selectors" not in agg.feed.options
         assert "ignore_selectors" not in agg.feed.options
+
+
+@pytest.mark.django_db
+class TestGenericContentFallback:
+    def test_returns_extracted_content_above_the_floor(self, rss_feed):
+        agg = FullWebsiteAggregator(rss_feed)
+        body = (
+            "This is a real article body with clearly more than eighty characters of prose in it."
+        )
+        html = f"<html><body><main><p>{body}</p></main></body></html>"
+
+        result = agg.generic_content_if_present(html, {"identifier": "https://example.com/a"})
+
+        assert result is not None
+        assert body in result
+
+    def test_returns_none_below_the_floor(self, rss_feed):
+        agg = FullWebsiteAggregator(rss_feed)
+        html = "<html><body><main><p>By Jane Doe</p></main></body></html>"
+
+        result = agg.generic_content_if_present(html, {"identifier": "https://example.com/a"})
+
+        assert result is None
+
+    def test_returns_none_when_no_generic_container_matches(self, rss_feed):
+        agg = FullWebsiteAggregator(rss_feed)
+        html = "<html><body><div class='mystery'>site navigation</div></body></html>"
+
+        result = agg.generic_content_if_present(html, {"identifier": "https://example.com/a"})
+
+        assert result is None
+
+    def test_uses_generic_defaults_not_the_scrapers_dedicated_container(self, rss_feed):
+        """The point of the hook: syndicated pages carry none of the scraper's markup."""
+        agg = FullWebsiteAggregator(rss_feed)
+        agg.content_selectors = [".tagesschau-only"]
+        body = (
+            "Foreign broadcaster template with a long enough body to clear the eighty char floor."
+        )
+        html = f"<html><body><article><p>{body}</p></article></body></html>"
+
+        result = agg.generic_content_if_present(html, {"identifier": "https://mdr.de/a"})
+
+        assert result is not None
+        assert body in result
+
+    def test_floor_is_exactly_eighty_characters(self):
+        from core.aggregators.website import GENERIC_CONTENT_MIN_TEXT_LENGTH
+
+        assert GENERIC_CONTENT_MIN_TEXT_LENGTH == 80

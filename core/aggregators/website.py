@@ -1,6 +1,6 @@
 """Full website aggregator base class."""
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from bs4 import BeautifulSoup
 
@@ -12,12 +12,17 @@ from .utils import (
     IFRAME_SANITIZE_SELECTOR,
     clean_html,
     extract_main_content,
+    extract_main_content_if_present,
     fetch_html,
     format_article_content,
     remove_image_by_url,
     sanitize_class_names,
 )
 from .utils.youtube import proxy_youtube_embeds
+
+# iOS's shipped floor: a container holding only a byline or breadcrumb must not
+# beat the RSS summary fallback. Keep this value identical to the client's.
+GENERIC_CONTENT_MIN_TEXT_LENGTH = 80
 
 
 class FullWebsiteAggregator(RssAggregator):
@@ -139,6 +144,37 @@ class FullWebsiteAggregator(RssAggregator):
             remove_selectors=self.get_ignore_selectors(),
             first_match_only=self.uses_first_content_match,
         )
+
+    def generic_content_if_present(self, raw_html: str, article: Dict[str, Any]) -> Optional[str]:
+        """
+        Try generic extraction on already-fetched HTML.
+
+        Used by scrapers whose dedicated container is missing -- syndicated
+        pages on other domains carry none of the scraper's markup. Requires at
+        least GENERIC_CONTENT_MIN_TEXT_LENGTH characters of real text so a
+        byline-only container does not beat the RSS summary fallback.
+
+        Returns:
+            Extracted HTML, or None when nothing usable was found
+        """
+        extracted = extract_main_content_if_present(
+            raw_html,
+            content_selectors=list(DEFAULT_CONTENT_SELECTORS),
+            remove_selectors=self.get_ignore_selectors(),
+        )
+        if not extracted:
+            return None
+
+        text = BeautifulSoup(extracted, "html.parser").get_text(" ", strip=True)
+        if len(text) < GENERIC_CONTENT_MIN_TEXT_LENGTH:
+            self.logger.info(
+                "[generic_content_if_present] Only %d chars of text for %s -- rejecting",
+                len(text),
+                article.get("identifier"),
+            )
+            return None
+
+        return extracted
 
     def process_content(self, html: str, article: Dict[str, Any]) -> str:
         """Process and format content."""
