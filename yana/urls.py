@@ -16,7 +16,6 @@ def redirect_to_admin(request, *args, **kwargs):
 
 urlpatterns: List[Any] = [
     path("admin/", admin.site.urls),
-    path("api/greader/", include("core.urls.greader")),
     path("", include("core.urls")),
 ]
 
