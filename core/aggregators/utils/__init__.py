@@ -22,11 +22,14 @@ from .html_cleaner import (
     sanitize_html_attributes,
 )
 from .html_fetcher import fetch_html
+from .legacy_options import convert_legacy_options, revert_options
 from .rss_parser import parse_rss_feed
 
 __all__ = [
     "parse_rss_feed",
     "fetch_html",
+    "convert_legacy_options",
+    "revert_options",
     "extract_main_content",
     "DEFAULT_CONTENT_SELECTORS",
     "DEFAULT_IGNORE_SELECTORS",
