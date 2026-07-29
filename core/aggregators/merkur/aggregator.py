@@ -106,6 +106,10 @@ class MerkurAggregator(FullWebsiteAggregator):
         ".id-Story-timestamp",
         ".id-Story-authors",
         ".id-Story-interactionBar",
+        # Standalone "Uns auf Google/YouTube folgen" anchors that leak into the
+        # story flow outside the interaction bar. The class name varies per
+        # network, so match the shared suffix instead of enumerating each.
+        "[class*='FollowButton']",
         ".id-Comments",
         ".id-ClsPrevention",
         "egy-discussion",
