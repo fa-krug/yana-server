@@ -94,13 +94,24 @@ class TestFirstMatchOptOut:
         assert "two" in result
 
     def test_scrapers_with_a_dedicated_container_opt_out(self):
-        from core.aggregators.caschys_blog.aggregator import CaschysBlogAggregator
-        from core.aggregators.heise import HeiseAggregator
-        from core.aggregators.merkur import MerkurAggregator
+        from core.aggregators.mactechnews.aggregator import MactechnewsAggregator
+        from core.aggregators.registry import AggregatorRegistry
 
         assert FullWebsiteAggregator.uses_first_content_match is False
-        for agg_class in (HeiseAggregator, MerkurAggregator, CaschysBlogAggregator):
-            assert agg_class.uses_first_content_match is True
+
+        for name, agg_class in AggregatorRegistry.get_all().items():
+            if agg_class is FullWebsiteAggregator or not issubclass(
+                agg_class, FullWebsiteAggregator
+            ):
+                continue
+            if agg_class is MactechnewsAggregator:
+                # MacTechNews multipage articles are combined into sibling
+                # .MtnArticle containers by fetch_all_pages, so extraction
+                # must union every match instead of keeping only the first
+                # -- see FIX 1 / core/aggregators/mactechnews/aggregator.py.
+                assert agg_class.uses_first_content_match is False, name
+                continue
+            assert agg_class.uses_first_content_match is True, name
 
     def test_first_match_flag_is_honored_by_extract_content(self, rss_feed):
         agg = FullWebsiteAggregator(rss_feed)
@@ -111,6 +122,94 @@ class TestFirstMatchOptOut:
 
         assert "one" in result
         assert "two" not in result
+
+
+@pytest.mark.django_db
+class TestManagedScrapersHonorSelectorOptions:
+    """Every prior test in this module runs on a bare FullWebsiteAggregator --
+    these exercise the option accessors on an actual managed scraper."""
+
+    def test_content_selectors_option_overrides_a_managed_scrapers_class_list(self, rss_feed):
+        from core.aggregators.heise import HeiseAggregator
+
+        rss_feed.options = {"content_selectors": [".custom-body"]}
+        agg = HeiseAggregator(rss_feed)
+        html = (
+            "<html><body>"
+            '<div id="meldung"><p>heise default container</p></div>'
+            '<div class="custom-body"><p>overridden container</p></div>'
+            "</body></html>"
+        )
+
+        result = agg.extract_content(html, {"name": "T", "identifier": "u"})
+
+        assert "overridden container" in result
+        assert "heise default container" not in result
+
+    def test_empty_ignore_selectors_option_still_applies_class_and_mandatory_removals(
+        self, rss_feed
+    ):
+        """An explicitly emptied ignore_selectors option must not disable a
+        scraper's own selectors_to_remove or the extractor's mandatory set."""
+        from core.aggregators.heise import HeiseAggregator
+
+        rss_feed.options = {"ignore_selectors": []}
+        agg = HeiseAggregator(rss_feed)
+        html = (
+            '<div id="meldung">'
+            "<p>real content</p>"
+            '<div class="ad-label">buy now</div>'
+            "<script>evil()</script>"
+            "</div>"
+        )
+
+        result = agg.extract_content(html, {"name": "T", "identifier": "u"})
+
+        assert "real content" in result
+        assert "buy now" not in result  # Heise's own selectors_to_remove
+        assert "evil()" not in result  # extractor's MANDATORY_REMOVE_SELECTORS
+
+    def test_mein_mmo_currently_ignores_content_selectors_option(self, rss_feed):
+        """Documented gap for Spec 2: MeinMmoAggregator.extract_content bypasses
+        the shared extractor (and get_content_selectors()) entirely -- it always
+        looks for div.entry-content. A feed's content_selectors option has no
+        effect until this is rewired. See
+        docs/superpowers/specs/2026-07-29-aggregator-parity-2-scrapers-and-types-design.md.
+        """
+        from core.aggregators.mein_mmo import MeinMmoAggregator
+
+        rss_feed.options = {"content_selectors": [".custom-body"]}
+        agg = MeinMmoAggregator(rss_feed)
+        html = (
+            '<div class="entry-content"><p>real mein-mmo body</p></div>'
+            '<div class="custom-body"><p>option target, ignored today</p></div>'
+        )
+
+        result = agg.extract_content(html, {"name": "T", "identifier": "u"})
+
+        assert "real mein-mmo body" in result
+        assert "option target, ignored today" not in result
+
+    def test_tagesschau_currently_ignores_content_selectors_option(self, rss_feed):
+        """Documented gap for Spec 2: TagesschauAggregator.extract_content
+        bypasses the shared extractor (and get_content_selectors()) entirely --
+        it always extracts textabsatz paragraphs. A feed's content_selectors
+        option has no effect until this is rewired. See
+        docs/superpowers/specs/2026-07-29-aggregator-parity-2-scrapers-and-types-design.md.
+        """
+        from core.aggregators.tagesschau import TagesschauAggregator
+
+        rss_feed.options = {"content_selectors": [".custom-body"]}
+        agg = TagesschauAggregator(rss_feed)
+        html = (
+            '<p class="textabsatz">real tagesschau body</p>'
+            '<div class="custom-body"><p>option target, ignored today</p></div>'
+        )
+
+        result = agg.extract_content(html, {"name": "T", "identifier": "u"})
+
+        assert "real tagesschau body" in result
+        assert "option target, ignored today" not in result
 
 
 class TestSelectorListField:

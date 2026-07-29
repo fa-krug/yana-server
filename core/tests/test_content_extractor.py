@@ -246,7 +246,7 @@ class TestAggregatorSelectorAttributes:
         from core.aggregators.registry import AggregatorRegistry
         from core.aggregators.website import FullWebsiteAggregator
 
-        for name, agg_class in AggregatorRegistry._registry.items():
+        for name, agg_class in AggregatorRegistry.get_all().items():
             if not issubclass(agg_class, FullWebsiteAggregator):
                 continue
             selectors = agg_class.content_selectors
