@@ -1,6 +1,7 @@
 """Tests for the legacy selector-option conversion and its migration."""
 
 import importlib
+import logging
 
 from django.apps import apps as global_apps
 
@@ -125,6 +126,43 @@ class TestMigrationOverRealRows:
         feed.refresh_from_db()
         assert feed.aggregator == "feed_content"
         assert feed.options == {}
+
+    def test_non_full_website_feed_keeps_use_full_content_false_but_warns(self, user, caplog):
+        """A heise (or any non-full_website) feed carrying use_full_content:
+        false predates this schema -- that toggle only ever lived in
+        FullWebsiteAggregator.enrich_articles, but every managed scraper
+        inherits it. Retyping such a feed would destroy its scraper config, so
+        the gate on aggregator == "full_website" is intentional -- but losing
+        the key silently would make it start scraping every article, so an
+        operator needs a warning naming the feed."""
+        from core.models import Feed
+
+        feed = Feed.objects.create(
+            name="Heise Scraper",
+            aggregator="heise",
+            identifier="https://www.heise.de/rss/heise.rdf",
+            user=user,
+            options={"use_full_content": False},
+        )
+
+        # The "core" logger is configured with propagate=False (see
+        # yana/settings.py LOGGING), so records never reach caplog's root
+        # handler -- attach it directly to the migration's logger instead.
+        migration_logger = logging.getLogger("core.migrations.0027_migrate_selector_options")
+        migration_logger.addHandler(caplog.handler)
+        caplog.set_level(logging.WARNING, logger="core.migrations.0027_migrate_selector_options")
+        try:
+            self._run_forwards()
+        finally:
+            migration_logger.removeHandler(caplog.handler)
+
+        feed.refresh_from_db()
+        assert feed.aggregator == "heise"
+        assert feed.options == {}
+        assert any(
+            str(feed.pk) in record.getMessage() and "heise" in record.getMessage()
+            for record in caplog.records
+        )
 
     def test_malformed_options_row_does_not_block_the_migration(self, user):
         from core.models import Feed

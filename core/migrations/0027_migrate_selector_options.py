@@ -49,6 +49,20 @@ def forwards(apps, schema_editor):
             )
             feed.aggregator = "feed_content"
             update_fields.append("aggregator")
+        elif to_feed_content:
+            # use_full_content only ever lived in
+            # FullWebsiteAggregator.enrich_articles, but every managed scraper
+            # inherits it. Retyping a non-full_website feed would destroy its
+            # scraper config, so we keep the aggregator -- but the key is gone
+            # and the scraper will now fetch full content for every article,
+            # so an operator needs to know.
+            logger.warning(
+                "Feed %s (aggregator=%s): use_full_content was false but the "
+                "feed is not full_website -- keeping its aggregator, but the "
+                "option is dropped and it will now scrape every article",
+                feed.pk,
+                feed.aggregator,
+            )
 
         if update_fields:
             feed.save(update_fields=update_fields)
