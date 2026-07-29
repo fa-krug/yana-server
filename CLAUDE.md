@@ -105,6 +105,7 @@ Yana/
 │   ├── services/                 # Business logic layer
 │   │   ├── aggregator_service.py    # Feed aggregation
 │   │   ├── article_service.py       # Article operations
+│   │   ├── email_service.py         # Email notifications
 │   │   └── maintenance_service.py   # DB maintenance
 │   │
 │   ├── views/
@@ -125,11 +126,6 @@ Yana/
 │       ├── conftest.py              # Pytest fixtures
 │       ├── test_*.py                # Test modules
 │       └── fixtures/                # Test data
-│
-├── conductor/                       # Development documentation
-│   ├── workflow.md                  # TDD workflow
-│   ├── tech-stack.md               # Tech decisions
-│   └── code_styleguides/           # Style guides
 │
 ├── pyproject.toml                   # Dependencies + tool config (ruff, mypy, pytest)
 ├── uv.lock                          # Locked dependency versions
@@ -290,6 +286,7 @@ The server has no article API. What is reachable:
 | `/admin/` | Django admin — the verification surface for the current phase |
 | `/health/` | Health check |
 | `/media/…` | Media files |
+| `/static/…` | Static assets (admin CSS/JS) — Django serves them in `DEBUG`, whitenoise in production |
 | `/api/youtube-proxy`, `/api/dailymotion-proxy` | Embed proxies (interim) |
 | `/*` | Catch-all redirect to admin |
 
@@ -320,7 +317,7 @@ Verify with: `uv run python manage.py verify_sqlite_optimizations`
 
 ## Development Workflow
 
-### TDD Approach (from conductor/workflow.md)
+### TDD Approach
 
 1. **Red:** Write failing test first
 2. **Green:** Implement minimum code to pass
@@ -428,7 +425,5 @@ When working on specific features, these files are most relevant:
 ## References
 
 - `README.md` - User documentation and setup guide
-- `conductor/workflow.md` - TDD workflow details
-- `conductor/tech-stack.md` - Technology decisions
 - `core/aggregators/README.md` - Aggregator implementation guide
 - `core/db/README.md` - SQLite optimization documentation

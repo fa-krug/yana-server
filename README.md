@@ -96,7 +96,6 @@ replace it. Third-party RSS readers are not supported in the meantime.
     -   Reddit subreddits
     -   Podcasts
     -   Specialized scrapers for websites
--   **Admin-First:** Feeds, groups, and articles are managed and inspected through the Django admin.
 -   **Background Processing:** Automatic feed updates using `django-q2`.
 -   **Admin Interface:** Manage feeds, view fetching status, and trigger updates directly from the Django admin.
 

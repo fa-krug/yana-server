@@ -66,6 +66,10 @@ class TestGReaderModelRemoved(TestCase):
         """The database table must be dropped."""
         from django.db import connection
 
+        # If this fails on a pre-existing test DB (pyproject.toml's `--reuse-db`
+        # addopt reuses whatever test DB is on disk), the table is stale, not
+        # reintroduced -- rerun with `--create-db` before treating this as a
+        # real regression.
         self.assertNotIn("core_greaderauthtoken", connection.introspection.table_names())
 
     def test_user_has_no_greader_tokens_relation(self):
