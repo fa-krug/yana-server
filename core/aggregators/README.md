@@ -148,6 +148,19 @@ wins), and duplicates are collapsed.
 | `content_selectors` | `Feed.options` | Per-feed override of the class list. Absent → class default; present-but-empty → deliberately empty |
 | `ignore_selectors` | `Feed.options` | Per-feed override of the removals. Absent → the shared defaults (`.advertisement`, `.ad`, `.ads`, `[class*='advert']`, `[class*='sponsor']`, `.social-share`, `.newsletter`, `.related-articles`); present-but-empty → no per-feed removals beyond the class `selectors_to_remove` and the mandatory set |
 
+A present-but-empty `content_selectors: []` is a surprising one: it means *nothing* matches, so
+extraction falls through to the whole `<body>` rather than any narrower container — the same
+outcome as when no selector matches at all.
+
+`DEFAULT_IGNORE_SELECTORS` is applied on top of every managed scraper's own `selectors_to_remove`,
+not just `FullWebsiteAggregator`'s. Before this branch, a scraper that overrode `selectors_to_remove`
+with its own list got none of the base ad/newsletter selectors — this is deliberate iOS parity, not
+an oversight.
+
+`ignore_selectors` entries are matched *within* each selected content container, not against the
+document as a whole — so an `ignore_selectors` entry identical to a `content_selectors` entry is a
+no-op and cannot be used to remove the container itself.
+
 Sanitization of `script`, `style`, `noscript` and `template` is applied before selection and cannot
 be disabled by any option. Iframes are an aggregator-level policy: `FullWebsiteAggregator` carries
 `IFRAME_SANITIZE_SELECTOR` (everything but YouTube) in its `selectors_to_remove`, and a scraper that
@@ -209,20 +222,6 @@ class AggregatorRegistry:
 python3 manage.py makemigrations
 python3 manage.py migrate
 ```
-
-## Current Status
-
-All aggregators are currently **dummy implementations** that only print debug information. They need to be ported from the TypeScript implementation in `old/src/server/aggregators/`.
-
-## Next Steps
-
-1. Port aggregator logic from TypeScript to Python
-2. Implement actual content fetching and parsing
-3. Add error handling and retries
-4. Implement article deduplication
-5. Add rate limiting
-6. Implement caching
-7. Add comprehensive tests
 
 ## Testing
 

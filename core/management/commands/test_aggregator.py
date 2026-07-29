@@ -105,10 +105,28 @@ class Command(BaseCommand):
             if hasattr(aggregator, "get_source_url"):
                 self._print_field("Source URL", aggregator.get_source_url())
 
-            if selector_debug and hasattr(aggregator, "content_selectors"):
-                self._print_field("Content selectors", ", ".join(aggregator.content_selectors))
-            if selector_debug and hasattr(aggregator, "selectors_to_remove"):
-                self._print_field("Selectors to remove", ", ".join(aggregator.selectors_to_remove))
+            if selector_debug:
+                # Prefer the resolved per-feed values (feed options applied)
+                # over the raw class attributes -- otherwise this can never
+                # show what actually ran for a feed with content_selectors or
+                # ignore_selectors set. FeedContentAggregator and the social
+                # aggregators (youtube/reddit/podcast) don't have a body to
+                # extract and so don't inherit these accessors.
+                if hasattr(aggregator, "get_content_selectors"):
+                    self._print_field(
+                        "Content selectors", ", ".join(aggregator.get_content_selectors())
+                    )
+                elif hasattr(aggregator, "content_selectors"):
+                    self._print_field("Content selectors", ", ".join(aggregator.content_selectors))
+
+                if hasattr(aggregator, "get_ignore_selectors"):
+                    self._print_field(
+                        "Selectors to remove", ", ".join(aggregator.get_ignore_selectors())
+                    )
+                elif hasattr(aggregator, "selectors_to_remove"):
+                    self._print_field(
+                        "Selectors to remove", ", ".join(aggregator.selectors_to_remove)
+                    )
 
             # Run aggregation with timing
             self._print_section("AGGREGATION RUN")

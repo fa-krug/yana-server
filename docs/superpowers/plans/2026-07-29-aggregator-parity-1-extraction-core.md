@@ -37,10 +37,15 @@
    renames the *option* keys, but the class attribute feeds the same list parameter; keeping a
    singular string attribute next to a plural list option guarantees confusion. Spec 2's prose uses
    the singular name for new scrapers — read those as the plural list attribute.
-3. **Managed scrapers get `uses_first_content_match = True` in this plan.** The spec introduces the
-   hook and leaves the per-scraper flip to Spec 2. Leaving every scraper on the union would
-   *introduce* the exact Heise navigation bug the hook exists to prevent, so scrapers with a
-   dedicated container opt out now. Spec 2 can relax individual ones.
+3. **The flag is not uniform across managed scrapers.** The spec introduces the hook and leaves the
+   per-scraper flip to Spec 2. The rule this plan actually applies: a scraper whose fetch step
+   yields a *single* page sets `uses_first_content_match = True`, because leaving it on the union
+   would *introduce* the exact Heise navigation bug the hook exists to prevent. MacTechNews is the
+   one exception — its multipage fetch (`fetch_all_pages`) deliberately returns combined HTML as
+   sibling `.MtnArticle` containers, one per page, so it keeps `uses_first_content_match = False` and
+   unions them; a whole-branch review caught that the first draft of this plan set it to `True`
+   uniformly, which would have silently re-truncated multipage articles to page 1. Spec 2 can relax
+   individual scrapers further.
 4. **`filter_articles` normalizes naive datetimes to aware.** Not in the spec, but required: today
    every date is replaced by an aware `timezone.now()`, so naive dates never reached the ORM. Once we
    stop rewriting, `parsedate_to_datetime` results without a timezone would hit SQLite as naive and

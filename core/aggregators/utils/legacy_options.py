@@ -2,6 +2,12 @@
 
 Kept as pure functions so migration 0027 stays thin and the behavior is
 directly testable.
+
+Ownership: this module is owned by migration
+``core/migrations/0027_migrate_selector_options.py``, its only production
+consumer. Do not delete it even though nothing under ``core/aggregators/``
+imports it directly -- doing so would break that migration for anyone
+running it from scratch (e.g. a fresh `migrate` or a squash).
 """
 
 from typing import Any, Dict, List, Tuple
