@@ -1,5 +1,6 @@
 """Utility modules for aggregators."""
 
+from .block_parser import blocks_from_html, plain_text
 from .bs4_utils import get_attr_list, get_attr_str
 from .content_extractor import (
     DEFAULT_CONTENT_SELECTORS,
@@ -31,6 +32,7 @@ from .rss_parser import parse_rss_feed
 
 __all__ = [
     "best_icon_url",
+    "blocks_from_html",
     "build_header_html",
     "clean_data_attributes",
     "clean_html",
@@ -50,6 +52,7 @@ __all__ = [
     "MANDATORY_REMOVE_SELECTORS",
     "normalize",
     "parse_rss_feed",
+    "plain_text",
     "remove_empty_elements",
     "remove_image_by_url",
     "remove_sanitized_attributes",
