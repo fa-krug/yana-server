@@ -12,6 +12,19 @@ import pytest
 from core.models import Feed, FeedGroup
 
 
+@pytest.fixture(autouse=True)
+def _no_network_resolve(monkeypatch):
+    """Keep identifier resolution a no-op here.
+
+    ``test_feed`` uses the ``feed_content`` aggregator, which resolves feed
+    URLs on save (see ``FeedAdminForm.clean_identifier``). These tests are
+    about 'Save as new' field preservation, not resolution, so patch
+    ``resolve_feed_url`` to the identity function to avoid a real network
+    call to ``https://example.com/feed.xml``.
+    """
+    monkeypatch.setattr("core.forms.resolve_feed_url", lambda identifier: identifier)
+
+
 @pytest.fixture
 def admin_client(admin_user, client):
     """Create an authenticated admin client."""

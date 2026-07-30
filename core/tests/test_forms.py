@@ -22,8 +22,9 @@ class TestFeedAdminForm(TestCase):
         form = FeedAdminForm(request=request)
         self.assertEqual(form.request, request)
 
+    @patch("core.forms.resolve_feed_url", side_effect=lambda identifier: identifier)
     @patch("core.aggregators.get_aggregator")
-    def test_save_normalizes_identifier(self, mock_get_aggregator):
+    def test_save_normalizes_identifier(self, mock_get_aggregator, mock_resolve_feed_url):
         """Test that saving the form normalizes the identifier."""
         # Setup mock aggregator
         mock_aggregator = MagicMock()
@@ -52,8 +53,9 @@ class TestFeedAdminForm(TestCase):
         mock_aggregator.normalize_identifier.assert_called_with("http://example.com/feed")
         self.assertEqual(feed.identifier, "http://normalized.com/feed")
 
+    @patch("core.forms.resolve_feed_url", side_effect=lambda identifier: identifier)
     @patch("core.aggregators.get_aggregator")
-    def test_save_handles_normalization_error(self, mock_get_aggregator):
+    def test_save_handles_normalization_error(self, mock_get_aggregator, mock_resolve_feed_url):
         """Test that save continues if normalization fails."""
         mock_aggregator = MagicMock()
         mock_aggregator.normalize_identifier.side_effect = Exception("Normalization failed")
