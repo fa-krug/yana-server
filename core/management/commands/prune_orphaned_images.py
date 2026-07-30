@@ -9,6 +9,9 @@ and ``image_ref`` is indexed -- so finding them is an index read rather than a
 full-text scan of every article body. Articles that have no blocks at all (a
 failed conversion, or content predating the backfill) are the one exception:
 their ``content`` is still scanned, because their references exist nowhere else.
+The rule itself lives in ``image_store.referenced_image_hashes``, shared with
+``ArticleAdmin.referenced_images`` so admin cannot show an image as
+"referenced" that this command is about to delete.
 
 The command also reports rows whose file is gone from disk (manual deletion,
 failed storage) -- the serving layer would 404 on those.
@@ -25,8 +28,8 @@ from django.core.files.storage import default_storage
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from core.aggregators.services.image_store import find_image_refs
-from core.models import Article, ArticleBlock, ArticleImage
+from core.aggregators.services.image_store import referenced_image_hashes
+from core.models import ArticleImage
 
 DEFAULT_MIN_AGE_DAYS = 7
 MISSING_FILE_REPORT_LIMIT = 20
@@ -57,7 +60,7 @@ class Command(BaseCommand):
         dry_run = options["dry_run"]
         cutoff = timezone.now() - timedelta(days=options["min_age"])
 
-        referenced = self._referenced_hashes()
+        referenced = referenced_image_hashes()
         self.stdout.write(f"{len(referenced)} image(s) referenced by article blocks/content")
 
         # Decide pass: a lightweight scalar snapshot, not full ArticleImage
@@ -96,7 +99,7 @@ class Command(BaseCommand):
         # ~92ms per candidate measured on a 100MB/5000-article table, i.e.
         # minutes once a retention sweep produces its usual few thousand
         # orphans.
-        fresh_referenced = self._referenced_hashes()
+        fresh_referenced = referenced_image_hashes()
 
         to_delete: list[tuple[int, int]] = []  # (pk, byte_size)
         skipped_as_referenced = 0
@@ -143,43 +146,3 @@ class Command(BaseCommand):
                     f"{len(missing_files)} row(s) with a missing file: {shown}{suffix}"
                 )
             )
-
-    @staticmethod
-    def _referenced_hashes() -> set[str]:
-        """
-        Every hash any article still references.
-
-        Blocks are the authority: ``image_ref`` and ``embed_thumbnail_ref`` are
-        both ``yana-img://`` references and ``image_ref`` is indexed, which is
-        what turns this from a full-text scan of every article body into an
-        index read.
-
-        Articles with **no** blocks are the exception and still get scanned. A
-        conversion failure or a body written before the backfill ran keeps its
-        references only in ``content``, and reaping those images would be
-        permanent data loss for a recoverable problem. Once an article has a
-        tree, its ``content`` is deliberately ignored -- a hash left behind
-        there by an earlier conversion is stale, not a reference.
-        """
-        referenced: set[str] = set()
-
-        for column in ("image_ref", "embed_thumbnail_ref"):
-            values = (
-                ArticleBlock.objects.exclude(**{column: ""})
-                .values_list(column, flat=True)
-                .distinct()
-                .iterator(chunk_size=SCAN_CHUNK_SIZE)
-            )
-            for value in values:
-                referenced |= find_image_refs(value)
-
-        contents = (
-            Article.objects.filter(blocks__isnull=True)
-            .exclude(content="")
-            .values_list("content", flat=True)
-            .iterator(chunk_size=SCAN_CHUNK_SIZE)
-        )
-        for content in contents:
-            referenced |= find_image_refs(content)
-
-        return referenced

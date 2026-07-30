@@ -22,7 +22,7 @@ from djangoql.admin import DjangoQLSearchMixin
 from import_export.admin import ImportExportMixin, ImportExportModelAdmin
 
 from .aggregators.feed_logo import store_feed_logo
-from .aggregators.services.image_store import find_image_refs
+from .aggregators.services.image_store import referenced_image_hashes
 from .aggregators.utils import parse_rss_feed, resolve_feed_url
 from .blocks.conversion import convert_article
 from .blocks.render import render_blocks_html
@@ -647,7 +647,11 @@ class ArticleBlockInline(admin.TabularInline):
         return False
 
     def get_queryset(self, request):
-        return super().get_queryset(request).prefetch_related("runs")
+        # `parent` is a readonly field (see `fields` above); Django's
+        # readonly-field rendering does an uncached `getattr(obj, "parent")`
+        # per row, which is a single-row query for every one of them without
+        # `select_related` -- the change page's primary N+1.
+        return super().get_queryset(request).select_related("parent").prefetch_related("runs")
 
     @admin.display(description="Preview")
     def preview(self, obj):
@@ -785,11 +789,17 @@ class ArticleAdmin(YanaDjangoQLMixin, ImportExportModelAdmin):
     @admin.display(description="Referenced images")
     def referenced_images(self, obj):
         """Show the stored images this article references, so a missing one is
-        traceable to the article that wanted it."""
+        traceable to the article that wanted it.
+
+        Uses the same rule the orphan-image reaper uses (blocks first, content
+        only as a fallback for an article with no blocks at all) -- scanning
+        ``content`` unconditionally would show an image as "referenced" here
+        that the reaper is about to delete, or nothing at all once
+        ``Article.content`` itself is dropped."""
         if not obj or not obj.pk:
             return "-"
 
-        hashes = find_image_refs(obj.content or "")
+        hashes = referenced_image_hashes(Article.objects.filter(pk=obj.pk))
         if not hashes:
             return "No hosted images referenced"
 

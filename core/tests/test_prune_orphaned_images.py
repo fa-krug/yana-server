@@ -99,13 +99,13 @@ class TestPruning:
         that and save the row.
 
         This pins the two-snapshot design specifically (not just "some"
-        recheck existing): `_referenced_hashes()` is mocked to return an
+        recheck existing): `referenced_image_hashes()` is mocked to return an
         empty set on its first call (simulating the snapshot predating the
         late-written article) and the real referenced set on its second call
         (the fresh, pre-delete snapshot). If the command only snapshotted
         once, or reused the first snapshot for the delete decision instead of
-        calling `_referenced_hashes()` again, the second value would never be
-        consumed and the row would be wrongly deleted.
+        calling `referenced_image_hashes()` again, the second value would
+        never be consumed and the row would be wrongly deleted.
         """
         image = make_image("9" * 64)
         Article.objects.create(
@@ -117,9 +117,9 @@ class TestPruning:
         )
         snapshots = iter([set(), {image.content_hash}])
         monkeypatch.setattr(
-            prune_orphaned_images.Command,
-            "_referenced_hashes",
-            staticmethod(lambda: next(snapshots)),
+            prune_orphaned_images,
+            "referenced_image_hashes",
+            lambda *args, **kwargs: next(snapshots),
         )
 
         output = run()

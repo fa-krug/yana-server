@@ -18,8 +18,9 @@ import re
 
 from django.core.files.base import ContentFile
 from django.db import IntegrityError, transaction
+from django.db.models import QuerySet
 
-from core.models import ArticleImage
+from core.models import Article, ArticleBlock, ArticleImage
 
 from .image_extraction.compression import compress_image
 from .image_extraction.fetcher import fetch_single_image
@@ -58,6 +59,54 @@ def find_image_refs(text: str) -> set[str]:
     if not text:
         return set()
     return set(_IMAGE_REF_PATTERN.findall(text))
+
+
+def referenced_image_hashes(articles: QuerySet[Article] | None = None) -> set[str]:
+    """
+    Every image hash referenced by ``articles`` (default: every article).
+
+    Blocks are the authority for an article that has any: their ``image_ref``
+    and ``embed_thumbnail_ref`` columns are the reference, and ``image_ref`` is
+    indexed, so this is an index read rather than a full-text scan of every
+    article body. ``Article.content`` is scanned only as a fallback, for the
+    articles that have no blocks at all (a failed conversion, or a body
+    written before the backfill) -- their references live nowhere else. Once
+    an article has a tree, its ``content`` is deliberately ignored: a hash
+    left behind there by an earlier conversion is stale, not a reference.
+
+    Shared by ``prune_orphaned_images`` (the reaper, scoped to every article)
+    and ``ArticleAdmin.referenced_images`` (scoped to one), so the two cannot
+    quietly drift apart on what "referenced" means -- which is exactly what
+    happened before this function existed: admin scanned ``content``
+    unconditionally and could show an image as referenced that the reaper was
+    about to delete.
+    """
+    if articles is None:
+        articles = Article.objects.all()
+
+    referenced: set[str] = set()
+
+    blocks = ArticleBlock.objects.filter(article__in=articles)
+    for column in ("image_ref", "embed_thumbnail_ref"):
+        values = (
+            blocks.exclude(**{column: ""})
+            .values_list(column, flat=True)
+            .distinct()
+            .iterator(chunk_size=200)
+        )
+        for value in values:
+            referenced |= find_image_refs(value)
+
+    contents = (
+        articles.filter(blocks__isnull=True)
+        .exclude(content="")
+        .values_list("content", flat=True)
+        .iterator(chunk_size=200)
+    )
+    for content in contents:
+        referenced |= find_image_refs(content)
+
+    return referenced
 
 
 def store_image_bytes(

@@ -3,13 +3,16 @@
 from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
+from django.db import connection
 from django.test import RequestFactory
+from django.test.utils import CaptureQueriesContext
 
 import pytest
 
 from core.admin import ArticleAdmin, ArticleBlockInline
 from core.blocks.conversion import convert_article
 from core.blocks.render import render_blocks_html
+from core.blocks.storage import write_blocks
 from core.blocks.types import (
     Blockquote,
     CodeBlock,
@@ -145,6 +148,70 @@ def test_reconvert_blocks_rebuilds_the_tree_identically(article, article_admin, 
         article_admin.reconvert_blocks(request, Article.objects.filter(pk=article.pk))
 
     assert list(ArticleBlock.objects.values_list("kind", "position")) == before
+
+
+@pytest.mark.django_db
+def test_inline_queryset_avoids_the_parent_n_plus_one(article, admin_user):
+    """`parent` is a readonly column (see `ArticleBlockInline.fields`), and
+    Django's readonly-field rendering does an uncached `getattr(obj, "parent")`
+    per row -- without `select_related("parent")` that's one query per row on
+    top of the base fetch, the change page's primary N+1. Bounded rather than
+    exact: an unrelated admin change should not be able to break this test by
+    shifting an incidental query by one."""
+    tree = [
+        ListBlock(
+            ordered=False,
+            items=[[Paragraph(runs=[InlineRun(text=f"item {i}")])] for i in range(20)],
+        )
+    ]
+    write_blocks(article, tree)
+    assert ArticleBlock.objects.filter(article=article).count() == 41
+
+    inline = ArticleBlockInline(Article, AdminSite())
+    request = RequestFactory().get("/")
+    request.user = admin_user
+
+    with CaptureQueriesContext(connection) as queries:
+        rows = list(inline.get_queryset(request).filter(article=article))
+        for row in rows:
+            _ = row.parent  # what the readonly-field renderer touches
+            inline.preview(row)
+
+    assert len(queries) < 20
+
+
+@pytest.mark.django_db
+def test_referenced_images_ignores_stale_content_once_blocks_exist(
+    article, article_admin, settings, tmp_path
+):
+    """`content` can hold a stale `yana-img://` hash left behind by an earlier
+    conversion. Once the article has a block tree, blocks are the authority
+    (the same rule the orphan-image reaper uses) -- admin must not report
+    that stale hash as referenced, or it would show an image as safe that the
+    reaper is about to delete."""
+    settings.MEDIA_ROOT = tmp_path
+    stale = ArticleImage.objects.create(
+        content_hash="a" * 64,
+        file="article_images/stale.jpg",
+        content_type="image/jpeg",
+        byte_size=1,
+    )
+    live = ArticleImage.objects.create(
+        content_hash="b" * 64,
+        file="article_images/live.jpg",
+        content_type="image/jpeg",
+        byte_size=1,
+    )
+    article.content = f'<img src="yana-img://{stale.content_hash}">'
+    article.save()
+    ArticleBlock.objects.create(
+        article=article, position=0, kind="image", image_ref=f"yana-img://{live.content_hash}"
+    )
+
+    html = article_admin.referenced_images(Article.objects.get(pk=article.pk))
+
+    assert "live.jpg" in html
+    assert "stale.jpg" not in html
 
 
 @pytest.mark.django_db
