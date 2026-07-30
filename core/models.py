@@ -3,6 +3,7 @@
 from django.db import models
 from django.utils import timezone
 
+from .blocks.types import BLOCK_KINDS
 from .choices import AGGREGATOR_CHOICES
 
 AI_PROVIDER_CHOICES = [
@@ -140,6 +141,11 @@ class Article(models.Model):
     identifier = models.TextField()  # URL or external ID
     raw_content = models.TextField(help_text="Raw HTML content")
     content = models.TextField(help_text="Processed content")
+    plain_text = models.TextField(
+        blank=True,
+        default="",
+        help_text="Block tree flattened to visible text, for search",
+    )
     date = models.DateTimeField(default=timezone.now)
     read = models.BooleanField(default=False)
     starred = models.BooleanField(default=False)
@@ -167,6 +173,95 @@ class Article(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class ArticleBlock(models.Model):
+    """
+    One node of an article body in the Yana content format.
+
+    Bodies are stored as typed rows rather than HTML or an opaque JSON document,
+    so the database understands them: ``image_ref`` is indexed (which turns
+    orphan-image pruning into a JOIN) and ``embed_provider`` is indexed (which
+    makes "articles containing video" answerable).
+
+    ``list_item`` is the one synthetic kind. A ``list``'s children are
+    ``list_item`` rows and each item's children are its actual content blocks --
+    the row shape for ``[[Block]]``. It never appears on the wire.
+
+    Derived data: rebuilt wholesale from ``Article.content`` on every
+    conversion, and read-only in admin for that reason.
+    """
+
+    article = models.ForeignKey(Article, on_delete=models.CASCADE, related_name="blocks")
+    parent = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.CASCADE, related_name="children"
+    )
+    position = models.PositiveIntegerField()
+    kind = models.CharField(max_length=20, choices=[(kind, kind) for kind in BLOCK_KINDS])
+
+    level = models.PositiveSmallIntegerField(null=True, blank=True)  # heading
+    ordered = models.BooleanField(null=True, blank=True)  # list
+    text = models.TextField(blank=True, default="")  # code_block
+    language = models.CharField(max_length=50, blank=True, default="")  # code_block
+    image_ref = models.TextField(blank=True, default="")  # image
+
+    embed_provider = models.CharField(max_length=20, blank=True, default="")
+    embed_thumbnail_ref = models.TextField(blank=True, default="")
+    embed_external_url = models.TextField(blank=True, default="")
+    embed_title = models.TextField(blank=True, default="")
+
+    class Meta:
+        verbose_name = "Article Block"
+        verbose_name_plural = "Article Blocks"
+        ordering = ["position"]
+        constraints = [
+            # Sibling ordering is unambiguous for nested blocks only: SQLite
+            # treats NULLs as distinct in a unique index, so root-level rows
+            # (parent IS NULL) are NOT covered. core/blocks/storage.py is what
+            # keeps root positions unique.
+            models.UniqueConstraint(
+                fields=["article", "parent", "position"], name="uniq_block_position"
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["article", "parent", "position"]),
+            models.Index(fields=["image_ref"]),
+            models.Index(fields=["embed_provider"]),
+        ]
+
+    def __str__(self):
+        return f"{self.kind} #{self.position}"
+
+
+class ArticleInlineRun(models.Model):
+    """
+    A styled span of text inside a paragraph, heading or image caption.
+
+    Styles are four real booleans rather than a bitmask int: the whole reason to
+    choose rows over a JSON document is that the database understands the data,
+    and an opaque integer would hand that back.
+    """
+
+    block = models.ForeignKey(ArticleBlock, on_delete=models.CASCADE, related_name="runs")
+    position = models.PositiveIntegerField()
+    text = models.TextField()
+    # One field per style. Never write `bold = italic = ... = BooleanField(...)`:
+    # chained assignment binds one field instance to four names and Django
+    # mishandles it.
+    bold = models.BooleanField(default=False)
+    italic = models.BooleanField(default=False)
+    code = models.BooleanField(default=False)
+    strikethrough = models.BooleanField(default=False)
+    link = models.TextField(blank=True, default="")
+
+    class Meta:
+        verbose_name = "Article Inline Run"
+        verbose_name_plural = "Article Inline Runs"
+        ordering = ["position"]
+        indexes = [models.Index(fields=["block", "position"])]
+
+    def __str__(self):
+        return self.text[:60]
 
 
 class ArticleImage(models.Model):
