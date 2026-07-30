@@ -37,6 +37,8 @@ BRAND_SITES = {
     "explosm": "https://explosm.net/",
     "dark_legacy": "https://darklegacycomics.com/",
     "caschys_blog": "https://stadt-bremerhaven.de/",
+    "the_verge": "https://www.theverge.com/",
+    "ars_technica": "https://arstechnica.com/",
     "mactechnews": "https://www.mactechnews.de/",
     "oglaf": "https://www.oglaf.com/",
     "mein_mmo": "https://mein-mmo.de/",

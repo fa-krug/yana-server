@@ -11,6 +11,7 @@ class ArsTechnicaAggregator(RssSummaryFallbackAggregator):
 
     ARS_TECHNICA_URL = "https://arstechnica.com"
     DEFAULT_FEED = "https://arstechnica.com/feed/"
+    brand_site_url = "https://arstechnica.com/"
 
     def __init__(self, feed):
         super().__init__(feed)

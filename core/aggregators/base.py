@@ -48,8 +48,6 @@ class BaseAggregator(ABC):
     # brand's favicon rather than whichever feed URL the identifier happens to
     # be. None for free-form URL types (the identifier's origin is used) and for
     # reddit/youtube (their API provides an image).
-    # Spec 2 adds the_verge -> https://www.theverge.com/ and
-    # ars_technica -> https://arstechnica.com/ when those aggregators land.
     brand_site_url: Optional[str] = None
 
     def logo_image_url(self) -> Optional[str]:

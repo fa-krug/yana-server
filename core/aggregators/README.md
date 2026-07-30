@@ -302,9 +302,9 @@ never parses as a feed.
 
 1. `BaseAggregator.logo_image_url()` — an API-provided image. `None` by default; overridden by
    Reddit (subreddit icon) and YouTube (channel avatar).
-2. `BaseAggregator.brand_site_url` — for the nine fixed-brand scrapers (Heise, Merkur, Tagesschau,
-   Explosm, Dark Legacy Comics, Caschy's Blog, MacTechNews, Oglaf, Mein-MMO), the brand's own
-   favicon rather than whatever feed URL the identifier happens to be.
+2. `BaseAggregator.brand_site_url` — for the eleven fixed-brand scrapers (Heise, Merkur, Tagesschau,
+   Explosm, Dark Legacy Comics, Caschy's Blog, The Verge, Ars Technica, MacTechNews, Oglaf,
+   Mein-MMO), the brand's own favicon rather than whatever feed URL the identifier happens to be.
 3. The feed identifier's own origin, for everything else.
 
 Only the site's own domain is ever contacted — there is no third-party favicon service, which

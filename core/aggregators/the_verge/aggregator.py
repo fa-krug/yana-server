@@ -11,6 +11,7 @@ class TheVergeAggregator(RssSummaryFallbackAggregator):
 
     THE_VERGE_URL = "https://www.theverge.com"
     DEFAULT_FEED = "https://www.theverge.com/rss/index.xml"
+    brand_site_url = "https://www.theverge.com/"
 
     def __init__(self, feed):
         super().__init__(feed)
