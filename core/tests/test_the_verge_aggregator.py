@@ -30,37 +30,69 @@ class TestTheVergeAggregator:
 
     def test_extracts_the_article_body(self, verge_agg):
         html = (
-            f'<html><body><div class="{BODY_SELECTOR}"><p>The real story.</p></div></body></html>'
+            "<html><body>"
+            '<div class="duet--layout--entry-body">'
+            f'<div class="{BODY_SELECTOR}"><p>The real story.</p></div>'
+            "</div>"
+            "</body></html>"
         )
 
         result = verge_agg.extract_content(html, {"name": "T", "identifier": "u"})
 
         assert "The real story." in result
 
-    def test_keeps_only_the_first_body_component(self, verge_agg):
-        """The page repeats the class for related/"stream" stories."""
+    def test_unions_all_body_components_within_the_entry_body(self, verge_agg):
+        """Vox's Duet CMS emits one body component per paragraph-group, not per article."""
         html = (
             "<html><body>"
-            f'<div class="{BODY_SELECTOR}"><p>Main article.</p></div>'
-            f'<div class="{BODY_SELECTOR}"><p>Related story one.</p></div>'
-            f'<div class="{BODY_SELECTOR}"><p>Related story two.</p></div>'
+            '<div class="duet--layout--entry-body">'
+            f'<div class="{BODY_SELECTOR}"><p>First paragraph group.</p></div>'
+            f'<div class="{BODY_SELECTOR}"><p>Second paragraph group.</p></div>'
+            f'<div class="{BODY_SELECTOR}"><p>Third paragraph group.</p></div>'
+            "</div>"
             "</body></html>"
         )
 
         result = verge_agg.extract_content(html, {"name": "T", "identifier": "u"})
 
-        assert "Main article." in result
-        assert "Related story one." not in result
-        assert "Related story two." not in result
+        assert "First paragraph group." in result
+        assert "Second paragraph group." in result
+        assert "Third paragraph group." in result
+        # Document order must be preserved.
+        assert (
+            result.index("First paragraph group.")
+            < result.index("Second paragraph group.")
+            < result.index("Third paragraph group.")
+        )
+
+    def test_excludes_body_components_outside_the_entry_body_scope(self, verge_agg):
+        """Related/"stream" stories elsewhere on the page must not be unioned in."""
+        html = (
+            "<html><body>"
+            '<div class="duet--layout--entry-body">'
+            f'<div class="{BODY_SELECTOR}"><p>Main article paragraph.</p></div>'
+            "</div>"
+            '<div class="duet--layout--related-stream">'
+            f'<div class="{BODY_SELECTOR}"><p>Related story body.</p></div>'
+            "</div>"
+            "</body></html>"
+        )
+
+        result = verge_agg.extract_content(html, {"name": "T", "identifier": "u"})
+
+        assert "Main article paragraph." in result
+        assert "Related story body." not in result
 
     def test_strips_noise_containers(self, verge_agg):
         html = (
+            '<div class="duet--layout--entry-body">'
             f'<div class="{BODY_SELECTOR}">'
             "<p>Body text.</p>"
             '<div class="duet--ad--slot">Advertisement</div>'
             '<div class="duet--recirculation--related-list">Read more</div>'
             '<div class="newsletter-signup">Subscribe</div>'
             "<aside>Sidebar</aside>"
+            "</div>"
             "</div>"
         )
 

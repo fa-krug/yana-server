@@ -130,15 +130,220 @@ def test_http_https_mailto_and_relative_hrefs_all_keep_their_link():
 
 
 def test_dropped_tags_produce_nothing_and_neither_do_their_children():
-    """Table cells must not leak in as stray paragraphs -- that is the whole
-    reason drop-vs-recurse exists."""
-    html = "<table><tbody><tr><td><p>cell</p></td></tr></tbody></table><p>real</p>"
+    """A still-dropped wrapper's children must not leak in as stray paragraphs
+    -- that is the whole reason drop-vs-recurse exists.
+
+    Table used to be the example here, but tables now flatten into paragraphs
+    instead of being dropped -- see the table tests below."""
+    html = "<script><p>cell</p></script><p>real</p>"
     assert blocks_from_html(html) == [Paragraph(runs=[InlineRun(text="real")])]
 
 
 def test_every_dropped_tag_is_dropped():
     for tag in ("form", "button", "select", "textarea", "noscript", "iframe", "audio", "canvas"):
         assert blocks_from_html(f"<{tag}><p>x</p></{tag}>") == [], tag
+
+
+def test_header_image_is_suppressed_but_the_rest_of_the_document_is_untouched():
+    """<header> is the article's dedicated hero-media slot
+    (content_formatter.build_header_html): its plain image is persisted
+    separately to Article.icon, so surfacing it again here would duplicate it
+    as the article's own leading body block. <header> is recursed into like
+    any unknown wrapper -- only the `image` block kind its subtree produces is
+    dropped, not the wrapper's content wholesale (see
+    test_header_paragraph_survives and test_header_keeps_an_embed_facade_but_drops_its_image
+    below for what does survive)."""
+    ref = "yana-img://" + "a" * 64
+    html = f"<header><img src='{ref}'></header><p>body</p>"
+    assert blocks_from_html(html) == [Paragraph(runs=[InlineRun(text="body")])]
+
+
+def test_header_paragraph_survives():
+    """Only the `image` block kind is suppressed from a header's subtree --
+    ordinary text content it holds is real and must come through."""
+    assert blocks_from_html("<header><p>lead text</p></header>") == [
+        Paragraph(runs=[InlineRun(text="lead text")])
+    ]
+
+
+def test_header_keeps_an_embed_facade_but_drops_its_image():
+    """The case that pins the rule: a header holding BOTH a plain image and a
+    non-image block (here, an embed facade) keeps the embed and drops only
+    the image -- the suppression is by block kind, not by dropping the whole
+    header subtree."""
+    ref = "yana-img://" + "b" * 64
+    html = f'<header><img src="{ref}">{YOUTUBE_FACADE}</header>'
+    blocks = blocks_from_html(html)
+    assert not any(isinstance(block, ImageBlock) for block in blocks)
+    assert any(isinstance(block, EmbedBlock) and block.provider == "youtube" for block in blocks)
+
+
+def test_nested_header_suppresses_its_own_image_without_double_handling():
+    ref = "yana-img://" + "c" * 64
+    html = f'<header><header><img src="{ref}"></header><p>text</p></header>'
+    assert blocks_from_html(html) == [Paragraph(runs=[InlineRun(text="text")])]
+
+
+def test_table_row_becomes_one_paragraph_with_cells_joined_by_em_dash():
+    html = "<table><tr><td>Alice</td><td>30</td></tr></table>"
+    assert blocks_from_html(html) == [
+        Paragraph(runs=[InlineRun(text="Alice"), InlineRun(text=" — "), InlineRun(text="30")])
+    ]
+
+
+def test_table_header_row_cells_are_bold():
+    html = "<table><tr><th>Name</th><th>Age</th></tr><tr><td>Alice</td><td>30</td></tr></table>"
+    assert blocks_from_html(html) == [
+        Paragraph(
+            runs=[
+                InlineRun(text="Name", bold=True),
+                InlineRun(text=" — "),
+                InlineRun(text="Age", bold=True),
+            ]
+        ),
+        Paragraph(runs=[InlineRun(text="Alice"), InlineRun(text=" — "), InlineRun(text="30")]),
+    ]
+
+
+def test_table_cell_link_survives_as_an_inline_run_with_its_href():
+    html = '<table><tr><td><a href="https://example.com/x">link text</a></td></tr></table>'
+    assert blocks_from_html(html) == [
+        Paragraph(runs=[InlineRun(text="link text", link="https://example.com/x")])
+    ]
+
+
+def test_table_cell_image_becomes_an_image_block_after_the_row_paragraph():
+    ref = "yana-img://" + "9" * 64
+    html = f'<table><tr><td>row text</td><td><img src="{ref}"></td></tr></table>'
+    assert blocks_from_html(html) == [
+        Paragraph(runs=[InlineRun(text="row text")]),
+        ImageBlock(ref=ref),
+    ]
+
+
+def test_table_row_with_only_an_image_and_no_text_still_yields_the_image():
+    ref = "yana-img://" + "8" * 64
+    html = f'<table><tr><td><img src="{ref}"></td></tr></table>'
+    assert blocks_from_html(html) == [ImageBlock(ref=ref)]
+
+
+def test_table_empty_row_yields_no_empty_paragraph():
+    html = "<table><tr><td>x</td></tr><tr><td></td><td>   </td></tr></table>"
+    assert blocks_from_html(html) == [Paragraph(runs=[InlineRun(text="x")])]
+
+
+def test_table_caption_becomes_a_paragraph_before_the_rows():
+    html = "<table><caption>Caption text</caption><tr><td>a</td></tr></table>"
+    assert blocks_from_html(html) == [
+        Paragraph(runs=[InlineRun(text="Caption text")]),
+        Paragraph(runs=[InlineRun(text="a")]),
+    ]
+
+
+def test_a_pure_table_body_still_produces_content():
+    """The TorrentFreak regression: an article whose entire body is a table
+    must not come out as zero blocks and empty plainText."""
+    html = (
+        "<table><tbody>"
+        "<tr><th>Field</th><th>Value</th></tr>"
+        "<tr><td>Seeds</td><td>42</td></tr>"
+        "</tbody></table>"
+    )
+    blocks = blocks_from_html(html)
+    assert blocks
+    assert plain_text(blocks) != ""
+
+
+def test_nested_table_rows_flatten_independently_of_the_outer_row():
+    """Nested tables are not preserved as nesting -- the inner row becomes its
+    own paragraph rather than bleeding its text into the outer cell."""
+    html = "<table><tr><td>outer<table><tr><td>inner</td></tr></table></td></tr></table>"
+    blocks = blocks_from_html(html)
+    assert Paragraph(runs=[InlineRun(text="outer")]) in blocks
+    assert Paragraph(runs=[InlineRun(text="inner")]) in blocks
+    # The inner table's text must not have leaked into the outer row's own run.
+    outer_row = next(b for b in blocks if b.runs and b.runs[0].text.strip() == "outer")
+    assert "inner" not in "".join(r.text for r in outer_row.runs)
+
+
+def test_a_full_document_still_parses_from_body():
+    """Regression guard: a genuine full document must still be read from its
+    <body>, not the whole soup (which would otherwise leak <head> content like
+    <title> into the article body)."""
+    html = "<html><head><title>Page Title</title></head><body><p>real</p></body></html>"
+    assert blocks_from_html(html) == [Paragraph(runs=[InlineRun(text="real")])]
+
+
+def test_fragment_with_no_body_is_unaffected():
+    html = "<p>a</p><div>b</div>"
+    assert blocks_from_html(html) == [
+        Paragraph(runs=[InlineRun(text="a")]),
+        Paragraph(runs=[InlineRun(text="b")]),
+    ]
+
+
+def test_stray_empty_body_element_does_not_swallow_the_rest_of_the_fragment():
+    """The TorrentFreak regression: sanitized content can contain a stray,
+    empty <body> element (bs4's html.parser happily creates one from malformed
+    input, e.g. mid-table). Selecting that empty <body> as the container --
+    which `soup.body or soup` used to do -- discards everything else in the
+    fragment. The real article's shape, minimized: a stray `<p><body></body></p>`
+    sitting between real paragraphs."""
+    html = "<p>before</p><p><body></body></p><p>after</p>"
+    assert blocks_from_html(html) == [
+        Paragraph(runs=[InlineRun(text="before")]),
+        Paragraph(runs=[InlineRun(text="after")]),
+    ]
+
+
+def test_table_bodied_fragment_with_stray_empty_body_still_flattens_rows():
+    """End-to-end pin of the real-world TorrentFreak case: a table-only body
+    with a stray empty <body> element sitting in the middle of it must still
+    flatten every row into a paragraph -- the stray <body> was the actual
+    cause of the reported emptiness, not the table-row flattening."""
+    html = (
+        "<table><tfoot><tr><td>foot</td></tr></tfoot>"
+        "<p><body></body></p>"
+        "<tr><td><strong>1</strong></td><td>Seeds</td></tr>"
+        "<tr><td><strong>2</strong></td><td>Peers</td></tr>"
+        "</table>"
+    )
+    blocks = blocks_from_html(html)
+    assert blocks
+    text = plain_text(blocks)
+    assert "foot" in text
+    assert "Seeds" in text
+    assert "Peers" in text
+
+
+def test_stray_nonempty_body_wins_over_sibling_content_like_a_real_document():
+    """Pinning the deliberate tradeoff: a non-empty <body> is treated as an
+    authoritative document boundary, exactly like a genuine full document, even
+    when it is nested oddly and other content sits alongside it. This keeps the
+    container-selection rule a simple, predictable binary (does <body> hold
+    content, yes/no) instead of a fuzzier "how much would we lose" heuristic
+    that risks regressing the ordinary full-document case (see
+    test_a_full_document_still_parses_from_body, where content also exists
+    outside <body> in the form of <head><title>). The only real-world case
+    observed (TorrentFreak) had an EMPTY stray <body> -- this scenario is
+    deliberately not the one being fixed."""
+    html = "<p>outside</p><div><body><p>inside body</p></body></div>"
+    assert blocks_from_html(html) == [Paragraph(runs=[InlineRun(text="inside body")])]
+
+
+def test_multiple_body_elements_first_empty_falls_back_to_whole_soup():
+    """bs4's html.parser can produce more than one <body> from malformed input.
+    `soup.body` only ever looks at the first one; when that first one is
+    empty, falling back to the whole soup (rather than hunting for a "real"
+    body among the rest) is what naturally recovers every other body's content
+    too, with no extra special-casing needed."""
+    html = "<p>before</p><body></body><p>middle</p><body><p>second body real</p></body><p>after</p>"
+    blocks = blocks_from_html(html)
+    text = plain_text(blocks)
+    assert "before" in text
+    assert "middle" in text
+    assert "second body real" in text
+    assert "after" in text
 
 
 def test_unknown_wrappers_are_recursed_into():
@@ -236,6 +441,48 @@ def test_standalone_img_becomes_an_image_block():
 
 def test_img_without_src_is_dropped():
     assert blocks_from_html('<img alt="nothing">') == []
+
+
+def test_relative_img_src_resolves_against_the_base_url():
+    """Defect 1: `_image_block` used to store a bare relative `src` verbatim,
+    the same way `<a href>` would if `_resolve_url` didn't exist for it --
+    this is why TorrentFreak's refs came out as `/images/proton270.png`."""
+    blocks = blocks_from_html(
+        '<img src="/images/proton270.png">', base_url="https://torrentfreak.com/article"
+    )
+    assert blocks == [ImageBlock(ref="https://torrentfreak.com/images/proton270.png")]
+
+
+def test_img_src_falls_back_to_data_src_then_data_lazy_src():
+    """Matches the codebase's existing lazy-load convention (see
+    `html_cleaner.remove_image_by_url` / `PageImagesStrategy`): `src` wins
+    when present, then `data-src`, then `data-lazy-src`."""
+    assert blocks_from_html('<img data-src="https://x/real.png">') == [
+        ImageBlock(ref="https://x/real.png")
+    ]
+    assert blocks_from_html('<img data-lazy-src="https://x/real2.png">') == [
+        ImageBlock(ref="https://x/real2.png")
+    ]
+    assert blocks_from_html('<img src="https://x/wins.png" data-src="https://x/loses.png">') == [
+        ImageBlock(ref="https://x/wins.png")
+    ]
+
+
+def test_already_localized_img_src_is_never_run_through_url_resolution():
+    """A `yana-img://` ref is not a real URL scheme -- `_resolve_url` must
+    special-case it, or every existing `yana-img://` fixture in this suite
+    would come out empty (its scheme isn't in `_SAFE_URL_SCHEMES`)."""
+    ref = "yana-img://" + "9" * 64
+    assert blocks_from_html(f'<img src="{ref}">', base_url="https://example.com/a/b") == [
+        ImageBlock(ref=ref)
+    ]
+
+
+def test_data_uri_img_src_is_dropped_not_stored_verbatim():
+    """`_resolve_url`'s scheme allowlist rejects `data:` the same way it does
+    for a link -- an image with only a data URI src is dropped rather than
+    persisting an inlined payload as a block's ref."""
+    assert blocks_from_html('<img src="data:image/png;base64,AAAA">') == []
 
 
 def test_paragraph_wrapping_only_an_image_yields_the_image():
@@ -457,6 +704,12 @@ def test_youtube_facade_is_found_through_an_unsanitized_class():
 
 
 def test_youtube_facade_is_found_inside_a_header_wrapper():
+    """<header> is recursed into like any unknown wrapper -- only its `image`
+    blocks are suppressed (see test_header_keeps_an_embed_facade_but_drops_its_image),
+    so an embed facade with no image alongside it must still be found. Reddit
+    renders its YouTube/tweet posts exactly this way, with no Article.icon
+    counterpart for the embed itself, so this is real content, not a
+    duplicate."""
     html = f'<header style="x">{YOUTUBE_FACADE}</header>'
     assert blocks_from_html(html)[0].provider == "youtube"
 
@@ -616,6 +869,13 @@ def test_video_fallback_text_never_leaks_into_a_paragraph():
 
 
 def test_tagesschau_style_video_header_is_found_through_its_wrappers():
+    """core/aggregators/tagesschau/media_processor.py builds a
+    <header class="media-header"> around the article's video/audio player and
+    the aggregator explicitly nulls out the ordinary header data to avoid a
+    redundant build_header_html() header -- meaning this <header>'s content is
+    the *only* place that player markup lives, with no Article.icon
+    counterpart. Only `image` blocks are suppressed from a header's subtree,
+    so this `video` embed must still be found."""
     html = (
         '<header data-sanitized-class="media-header">'
         '<div data-sanitized-class="media-player">'

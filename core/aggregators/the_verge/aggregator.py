@@ -34,14 +34,17 @@ class TheVergeAggregator(RssSummaryFallbackAggregator):
         """Get default The Verge identifier."""
         return cls.DEFAULT_FEED
 
-    # Essential: the page embeds ~22 sibling article-body-component divs -- the
-    # main article plus related/"stream" article bodies. Unioning them would
-    # splice unrelated articles into the body.
-    uses_first_content_match = True
-
-    # WordPress-backed with Vox's "Duet" design system; the prose lives in
-    # .duet--article--dangerously-set-cms-markup blocks inside this container.
-    content_selectors = [".duet--article--article-body-component"]
+    # WordPress-backed with Vox's "Duet" design system, which emits one
+    # article-body-component div per paragraph-group rather than one per
+    # article -- keeping only the first (as this used to) throws away most of
+    # the body. The page also embeds ~22 sibling article-body-component divs
+    # for related/"stream" articles, so unioning the bare class would splice
+    # unrelated articles into the body. Scoping to descendants of
+    # .duet--layout--entry-body -- which wraps only the main article's
+    # components -- makes unioning safe: every match is part of the one
+    # article, so nothing outside it can be pulled in.
+    uses_first_content_match = False
+    content_selectors = [".duet--layout--entry-body .duet--article--article-body-component"]
 
     selectors_to_remove = [
         IFRAME_SANITIZE_SELECTOR,

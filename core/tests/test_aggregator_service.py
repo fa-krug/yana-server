@@ -125,6 +125,103 @@ class TestAggregatorService:
         assert args[2] == "image/jpeg"
 
     @patch("core.services.aggregator_service.get_aggregator")
+    @patch("core.services.aggregator_service.HeaderElementFileHandler.save_image_to_article")
+    def test_trigger_by_feed_id_force_update_backfills_header_image(
+        self, mock_save_img, mock_get_agg, rss_feed, article
+    ):
+        """An existing article's header image must be persisted too, not only a new one's."""
+        mock_header_data = MagicMock()
+        mock_header_data.image_bytes = b"fresh-bytes"
+        mock_header_data.content_type = "image/jpeg"
+
+        mock_aggregator = MagicMock()
+        mock_aggregator.aggregate.return_value = [
+            {
+                "name": article.name,
+                "identifier": article.identifier,
+                "raw_content": article.raw_content,
+                "content": article.content,
+                "header_data": mock_header_data,
+            }
+        ]
+        mock_get_agg.return_value = mock_aggregator
+
+        result = AggregatorService.trigger_by_feed_id(rss_feed.id, force_update=True)
+
+        assert result["articles_count"] == 1
+        mock_save_img.assert_called_once()
+        args, kwargs = mock_save_img.call_args
+        assert args[0] == article
+        assert args[1] == b"fresh-bytes"
+        assert args[2] == "image/jpeg"
+
+    @patch("core.services.aggregator_service.get_aggregator")
+    @patch("core.services.aggregator_service.HeaderElementFileHandler.save_image_to_article")
+    def test_trigger_by_feed_id_force_update_no_header_data_keeps_existing_icon(
+        self, mock_save_img, mock_get_agg, rss_feed, article
+    ):
+        """Extraction returning no header this run must not clear an already-set icon."""
+        article.icon = "article_icons/existing.jpg"
+        article.save()
+
+        mock_aggregator = MagicMock()
+        mock_aggregator.aggregate.return_value = [
+            {
+                "name": article.name,
+                "identifier": article.identifier,
+                "raw_content": "different raw",
+                "content": article.content,
+            }
+        ]
+        mock_get_agg.return_value = mock_aggregator
+
+        AggregatorService.trigger_by_feed_id(rss_feed.id, force_update=True)
+
+        mock_save_img.assert_not_called()
+        article.refresh_from_db()
+        assert article.icon.name == "article_icons/existing.jpg"
+
+    @patch("core.services.aggregator_service.get_aggregator")
+    def test_trigger_by_feed_id_force_update_unchanged_image_does_not_orphan_files(
+        self, mock_get_agg, rss_feed, article, settings, tmp_path
+    ):
+        """Repeated force_update runs with the same image must not pile up icon files."""
+        settings.MEDIA_ROOT = str(tmp_path / "media")
+
+        image_bytes = b"identical-header-bytes"
+
+        def make_aggregator():
+            header_data = MagicMock()
+            header_data.image_bytes = image_bytes
+            header_data.content_type = "image/jpeg"
+            mock_aggregator = MagicMock()
+            mock_aggregator.aggregate.return_value = [
+                {
+                    "name": article.name,
+                    "identifier": article.identifier,
+                    "raw_content": article.raw_content,
+                    "content": article.content,
+                    "header_data": header_data,
+                }
+            ]
+            return mock_aggregator
+
+        mock_get_agg.return_value = make_aggregator()
+        AggregatorService.trigger_by_feed_id(rss_feed.id, force_update=True)
+        article.refresh_from_db()
+        first_icon_name = article.icon.name
+        assert first_icon_name
+
+        mock_get_agg.return_value = make_aggregator()
+        AggregatorService.trigger_by_feed_id(rss_feed.id, force_update=True)
+        article.refresh_from_db()
+
+        assert article.icon.name == first_icon_name
+
+        icon_dir = tmp_path / "media" / "article_icons"
+        assert len(list(icon_dir.iterdir())) == 1
+
+    @patch("core.services.aggregator_service.get_aggregator")
     def test_trigger_by_feed_id_aggregator_exception(self, mock_get_agg, rss_feed):
         mock_aggregator = MagicMock()
         mock_aggregator.aggregate.side_effect = Exception("Aggregation failed")

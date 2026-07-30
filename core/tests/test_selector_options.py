@@ -97,6 +97,7 @@ class TestFirstMatchOptOut:
         from core.aggregators.ars_technica import ArsTechnicaAggregator
         from core.aggregators.mactechnews.aggregator import MactechnewsAggregator
         from core.aggregators.registry import AggregatorRegistry
+        from core.aggregators.the_verge.aggregator import TheVergeAggregator
 
         assert FullWebsiteAggregator.uses_first_content_match is False
 
@@ -106,7 +107,11 @@ class TestFirstMatchOptOut:
         #     .MtnArticle containers (one per fetched page).
         #   Ars Technica -- the single fetched page already contains sibling
         #     .post-content blocks, one per article "page".
-        union_scrapers = {MactechnewsAggregator, ArsTechnicaAggregator}
+        #   The Verge -- Vox's Duet CMS emits one article-body-component div per
+        #     paragraph-group, not one per article; scoping the selector to
+        #     descendants of .duet--layout--entry-body (which wraps only the
+        #     main article's components) makes unioning them safe.
+        union_scrapers = {MactechnewsAggregator, ArsTechnicaAggregator, TheVergeAggregator}
 
         for name, agg_class in AggregatorRegistry.get_all().items():
             if agg_class is FullWebsiteAggregator or not issubclass(

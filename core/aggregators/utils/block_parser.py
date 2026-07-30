@@ -10,11 +10,21 @@ read path.
 The walk maps known tags to blocks and handles everything else one of two ways,
 and getting the distinction backwards is the classic failure mode:
 
-* **dropped** -- ``table``, ``form``, ``script`` and friends never hold body
-  content, so they are skipped without recursing. Recursing would surface table
-  cells as stray paragraphs.
-* **recursed** -- an unknown ``div``/``section``/``header``/``article`` may well
-  wrap real content, so it is walked for known blocks and then discarded.
+* **dropped** -- ``form``, ``script`` and friends never hold body content, so
+  they are skipped without recursing.
+* **recursed** -- an unknown ``div``/``section``/``article`` may well wrap real
+  content, so it is walked for known blocks and then discarded. ``header`` is
+  recursed the same way, with one narrowing: it is the article's dedicated
+  hero-media slot (see ``content_formatter.build_header_html``), and a plain
+  image there is persisted separately to ``Article.icon``, so any ``image``
+  block a header's subtree produces -- at any depth -- is dropped after the
+  fact. Everything else a header holds survives, because some aggregators
+  (Reddit's YouTube/tweet facade, Tagesschau's ``<video>``/``<audio>`` player)
+  put content there that has nowhere else to live -- see ``_header_blocks``.
+* **flattened** -- ``table`` and its row/cell tags do hold body content (a
+  table-only article body is real), but there is no table block kind, so each
+  ``tr`` collapses to one paragraph with its cells joined by an em dash; see
+  ``_table_row_blocks``.
 
 Whitespace is normalized to match SwiftSoup's ``TextNode.text()``. ``<pre>`` is
 the one exception: its text is taken verbatim, because collapsing whitespace
@@ -23,6 +33,7 @@ destroys code indentation.
 
 import re
 from collections.abc import Sequence
+from dataclasses import replace
 from typing import cast
 from urllib.parse import urljoin, urlparse
 
@@ -37,6 +48,7 @@ from bs4 import (
     Tag,
 )
 
+from core.aggregators.services.image_store import IMAGE_REF_SCHEME
 from core.blocks.types import (
     Block,
     Blockquote,
@@ -50,6 +62,8 @@ from core.blocks.types import (
     Paragraph,
 )
 
+from .bs4_utils import get_attr_str
+
 #: Tags whose content is purely inline, buffered into the surrounding paragraph.
 INLINE_TAGS: frozenset[str] = frozenset(
     {
@@ -59,10 +73,14 @@ INLINE_TAGS: frozenset[str] = frozenset(
 )  # fmt: skip
 
 #: Tags dropped wholesale -- never recursed into (see the module docstring).
+#: Table tags are deliberately absent: they hold real body content and are
+#: flattened by ``_table_row_blocks`` instead of being dropped. ``header`` is
+#: also deliberately absent: it is recursed into like any unknown wrapper, and
+#: ``_header_blocks`` filters its *output* instead -- see the module docstring.
 DROPPED_TAGS: frozenset[str] = frozenset(
     {
-        "table", "thead", "tbody", "tfoot", "tr", "td", "th", "form", "input", "button", "select",
-        "textarea", "script", "style", "noscript", "iframe", "audio", "svg", "canvas",
+        "form", "input", "button", "select", "textarea", "script", "style",
+        "noscript", "iframe", "audio", "svg", "canvas",
     }
 )  # fmt: skip
 
@@ -93,8 +111,56 @@ def blocks_from_html(html: str, base_url: str = "") -> list[Block]:
     if not html or not html.strip():
         return []
     soup = BeautifulSoup(html, "html.parser")
-    container = soup.body or soup
+    container = _select_container(soup)
     return _convert(container, base_url)
+
+
+def _select_container(soup: BeautifulSoup) -> Tag:
+    """
+    Pick the root to walk: ``soup.body`` when it actually holds content,
+    otherwise the whole soup.
+
+    ``soup.body`` finds the *first* ``<body>`` tag in the tree, full document
+    or not. For a genuine full document that is exactly right -- it excludes
+    ``<head>`` junk like ``<title>`` that would otherwise leak into the
+    article body. But sanitized article fragments can contain a stray
+    ``<body>`` element that ``html.parser`` happily produces from malformed
+    markup (observed mid-table, in a real article), and when that stray
+    element is empty, treating it as the container silently discards the rest
+    of the fragment -- total content loss with no error. So an empty
+    ``<body>`` is treated the same as no ``<body>`` at all: fall back to the
+    whole soup, which still contains everything (a ``<body>`` element with no
+    special meaning of its own is walked like any other unknown wrapper).
+
+    A *non-empty* ``<body>`` -- even one nested oddly inside a fragment with
+    other content alongside it -- is still preferred over the whole soup. That
+    keeps this a simple, predictable yes/no check (does ``<body>`` hold
+    content) rather than a fuzzier "how much would we lose either way"
+    comparison that risks regressing the ordinary full-document case, where
+    content (``<head><title>``) always exists outside ``<body>`` too. The only
+    real-world case this fixes had an empty stray ``<body>``; a non-empty one
+    sitting beside sibling content is treated as an authoritative document
+    boundary, same as a real document's ``<body>`` would be.
+    """
+    body = soup.body
+    if body is not None and _has_direct_content(body):
+        return body
+    return soup
+
+
+def _has_direct_content(tag: Tag) -> bool:
+    """True if ``tag`` has a direct element child, or direct non-whitespace
+    text -- markup nodes like ``Comment`` don't count as text."""
+    for child in tag.children:
+        if isinstance(child, Tag):
+            return True
+        if (
+            isinstance(child, NavigableString)
+            and not isinstance(child, _NON_TEXT_STRINGS)
+            and child.strip()
+        ):
+            return True
+    return False
 
 
 def plain_text(blocks: Sequence[Block]) -> str:
@@ -167,6 +233,14 @@ def is_safe_url(url: str) -> bool:
 
 
 def _resolve_url(href: str, base_url: str) -> str:
+    if href.startswith(IMAGE_REF_SCHEME):
+        # Already a localized `yana-img://<hash>` ref -- not a URL scheme
+        # `is_safe_url` recognizes, and re-resolving it against `base_url`
+        # would be meaningless even if it were. Every already-stored image
+        # ref in this pipeline goes through here (image `src`s share this
+        # resolver with link `href`s -- see `_image_block`), so this must be
+        # a pass-through, not a rejection.
+        return href
     resolved = href
     if base_url:
         try:
@@ -201,11 +275,31 @@ def _first(element: Tag, selector: str) -> Tag | None:
     return element.select_one(selector)
 
 
-def _image_block(img: Tag) -> ImageBlock | None:
-    src = str(img.get("src") or "")
+def _image_block(img: Tag, base_url: str) -> ImageBlock | None:
+    """
+    An ``<img>`` -> its block, or None when there is no usable source.
+
+    ``src`` wins when present, then ``data-src``, then ``data-lazy-src`` --
+    the same lazy-load fallback chain ``html_cleaner.remove_image_by_url`` and
+    ``PageImagesStrategy`` already use elsewhere in this codebase, reused
+    rather than invented fresh here. The chosen value is resolved the same
+    way an ``<a href>`` is (see ``_resolve_url``): a relative path becomes
+    absolute against ``base_url``, and a dangerous or unsupported scheme
+    (`javascript:`, `data:`, ...) drops the image rather than storing it
+    verbatim -- an already-localized ``yana-img://`` ref is the one scheme
+    ``_resolve_url`` passes through untouched.
+    """
+    src = (
+        get_attr_str(img, "src")
+        or get_attr_str(img, "data-src")
+        or get_attr_str(img, "data-lazy-src")
+    )
     if not src:
         return None
-    return ImageBlock(ref=src)
+    resolved = _resolve_url(src, base_url)
+    if not resolved:
+        return None
+    return ImageBlock(ref=resolved)
 
 
 def _has_dropped_ancestor(element: Tag, scanned: Tag) -> bool:
@@ -213,8 +307,8 @@ def _has_dropped_ancestor(element: Tag, scanned: Tag) -> bool:
     True if some ancestor of ``element``, strictly between it and ``scanned``,
     is a ``DROPPED_TAGS`` element.
 
-    ``DROPPED_TAGS`` subtrees (table cells, ``<noscript>`` fallbacks, ...)
-    never hold real content -- see the module docstring -- so an
+    ``DROPPED_TAGS`` subtrees (``<noscript>`` fallbacks, ``<script>``, ...)
+    never hold recoverable body content -- see the module docstring -- so an
     ``img``/``video`` a publisher tucks inside one (a ``<noscript>`` lazy-load
     fallback sitting next to the real, already-visible tag is a standard
     pattern) must not be recovered as a duplicate of the sibling that already
@@ -238,7 +332,7 @@ def _recoverable_media(scanned: Tag) -> list[Tag]:
     return [el for el in scanned.select("img, video") if not _has_dropped_ancestor(el, scanned)]
 
 
-def _media_block(element: Tag) -> Block | None:
+def _media_block(element: Tag, base_url: str) -> Block | None:
     """
     An ``<img>`` or ``<video>`` -> its block, dispatched by tag name.
 
@@ -248,7 +342,7 @@ def _media_block(element: Tag) -> Block | None:
     """
     tag = (element.name or "").lower()
     if tag == "img":
-        return _image_block(element)
+        return _image_block(element, base_url)
     if tag == "video":
         return _video_embed(element)
     return None
@@ -310,6 +404,116 @@ def _figure_blocks(element: Tag, base_url: str) -> list[Block]:
         else:
             blocks.append(Paragraph(runs=caption))
 
+    return blocks
+
+
+def _header_blocks(header: Tag, base_url: str) -> list[Block]:
+    """
+    A ``<header>`` -> its blocks, with every ``image`` block dropped at any
+    depth.
+
+    ``<header>`` is the article's dedicated hero-media slot (see
+    ``content_formatter.build_header_html``): a plain image there is also
+    persisted separately to ``Article.icon``, so surfacing it again here
+    would duplicate it as the article's own leading body block. But a header
+    is also where some aggregators put content that has nowhere else to
+    live -- Reddit's YouTube/tweet facade, Tagesschau's ``<video>``/``<audio>``
+    player -- and those must survive. The rule is about the ``image`` block
+    *kind*, decided after conversion, not about sniffing whether a ref starts
+    with ``yana-img://``: an already-localized ref and a remote one are
+    dropped the same way, and an ``embed`` block is kept the same way
+    regardless of what produced it.
+
+    A nested ``<header>`` is walked by the same recursive ``_convert`` call
+    this function starts with, so its own image is filtered out too, without
+    any special-casing here.
+    """
+    return _drop_image_blocks(_convert(header, base_url))
+
+
+def _drop_image_blocks(blocks: list[Block]) -> list[Block]:
+    """
+    Remove every ``ImageBlock``, at any depth -- see ``_header_blocks``.
+
+    Recurses into ``ListBlock`` items and ``Blockquote`` contents, the only
+    two kinds that nest further blocks; an item/quote left with nothing after
+    filtering is dropped too, same as any other emptied container in this
+    module.
+    """
+    kept: list[Block] = []
+    for block in blocks:
+        if isinstance(block, ImageBlock):
+            continue
+        if isinstance(block, ListBlock):
+            items = [filtered for item in block.items if (filtered := _drop_image_blocks(item))]
+            if items:
+                block.items = items
+                kept.append(block)
+            continue
+        if isinstance(block, Blockquote):
+            inner = _drop_image_blocks(block.blocks)
+            if inner:
+                block.blocks = inner
+                kept.append(block)
+            continue
+        kept.append(block)
+    return kept
+
+
+#: Separator joining a table row's cells into one paragraph -- see
+#: ``_table_row_blocks``.
+_TABLE_CELL_SEPARATOR = " — "
+
+
+def _table_row_blocks(tr: Tag, base_url: str) -> list[Block]:
+    """
+    A ``<tr>`` -> its blocks: one paragraph with the row's cells joined by
+    ``_TABLE_CELL_SEPARATOR`` (``<th>`` cells bolded), followed by any images
+    the row's cells hold.
+
+    There is no table block kind (see the module docstring), so a table is
+    flattened rather than represented structurally. A nested ``<table>``
+    inside a cell is pulled out of that cell before its text is built -- it is
+    walked on its own via the ordinary recursive ``_convert``, so its rows
+    become their own paragraphs (appended after this row's) instead of
+    bleeding their text into this row's cell.
+
+    Only direct ``<td>``/``<th>`` children count as this row's cells, the same
+    "direct children only" rule ``_list_block`` uses for ``<li>``: a nested
+    table's cells belong to its own rows, not this one.
+    """
+    cell_runs: list[list[InlineRun]] = []
+    media_blocks: list[Block] = []
+    nested_tables: list[Tag] = []
+
+    for cell in tr.find_all(("td", "th"), recursive=False):
+        for nested in cell.find_all("table"):
+            nested.extract()
+            nested_tables.append(nested)
+
+        runs = _trimmed(_inline_runs(cell, base_url))
+        if (cell.name or "").lower() == "th" and runs:
+            runs = [replace(run, bold=True) for run in runs]
+        if runs:
+            cell_runs.append(runs)
+
+        for media in _recoverable_media(cell):
+            block = _media_block(media, base_url)
+            if block is not None:
+                media_blocks.append(block)
+
+    combined: list[InlineRun] = []
+    for index, runs in enumerate(cell_runs):
+        if index:
+            combined.append(InlineRun(text=_TABLE_CELL_SEPARATOR))
+        combined.extend(runs)
+
+    blocks: list[Block] = []
+    if combined:
+        blocks.append(Paragraph(runs=combined))
+    blocks.extend(media_blocks)
+    for nested in nested_tables:
+        blocks.extend(_convert(nested, base_url))
     return blocks
 
 
@@ -518,7 +722,7 @@ def _convert(container: Tag, base_url: str) -> list[Block]:
             # with no <p>/<figure> ancestor is not lost outright. Queued
             # rather than appended directly: see `pending_media` above.
             for media in _recoverable_media(node):
-                block = _media_block(media)
+                block = _media_block(media, base_url)
                 if block is not None:
                     pending_media.append(block)
             continue
@@ -541,7 +745,7 @@ def _convert(container: Tag, base_url: str) -> list[Block]:
             # DROPPED_TAGS fallback (e.g. a <noscript> lazy-load twin) from
             # being emitted alongside the real one.
             for media in _recoverable_media(node):
-                block = _media_block(media)
+                block = _media_block(media, base_url)
                 if block is not None:
                     blocks.append(block)
             continue
@@ -582,7 +786,7 @@ def _convert(container: Tag, base_url: str) -> list[Block]:
 
         if tag == "img":
             flush()
-            block = _image_block(node)
+            block = _image_block(node, base_url)
             if block is not None:
                 blocks.append(block)
             continue
@@ -602,6 +806,16 @@ def _convert(container: Tag, base_url: str) -> list[Block]:
         if tag == "hr":
             flush()
             blocks.append(Divider())
+            continue
+
+        if tag == "tr":
+            flush()
+            blocks.extend(_table_row_blocks(node, base_url))
+            continue
+
+        if tag == "header":
+            flush()
+            blocks.extend(_header_blocks(node, base_url))
             continue
 
         # Unknown wrapper: an embed facade becomes an embed; otherwise walk it

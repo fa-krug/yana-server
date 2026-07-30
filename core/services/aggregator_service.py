@@ -93,6 +93,19 @@ class AggregatorService:
                                 article.author = article_data.get("author", "")
                                 updated = True
 
+                            # Backfill the header image too. Extraction re-fetches it on
+                            # every run, but an article that already existed never takes
+                            # the "create new article" branch below, where it is normally
+                            # persisted -- so without this it never gets an icon.
+                            header_data = article_data.get("header_data")
+                            if header_data and AggregatorService._icon_needs_update(
+                                article, header_data.image_bytes
+                            ):
+                                HeaderElementFileHandler.save_image_to_article(
+                                    article, header_data.image_bytes, header_data.content_type
+                                )
+                                updated = True
+
                             if updated:
                                 article.save()
                                 convert_article(article)
@@ -146,6 +159,25 @@ class AggregatorService:
                 "articles_count": 0,
                 "error": str(e),
             }
+
+    @staticmethod
+    def _icon_needs_update(article: Article, image_bytes: bytes) -> bool:
+        """
+        Whether the article's stored icon differs from freshly extracted image bytes.
+
+        Extraction re-fetches the header image on every aggregation run, so without
+        this check a repeated force_update run would call save_image_to_article again
+        for an unchanged image -- rewriting the file under a new name and orphaning the
+        previous one, since that helper is not itself idempotent.
+        """
+        if not article.icon:
+            return True
+        try:
+            with article.icon.open("rb") as existing:
+                return existing.read() != image_bytes
+        except (OSError, ValueError):
+            # Field references a file missing on disk / storage error -- refresh it.
+            return True
 
     @staticmethod
     def trigger_by_aggregator_type(
