@@ -3,6 +3,8 @@
 from django import forms
 from django.utils.html import format_html
 
+from .aggregators.registry import AggregatorRegistry
+from .aggregators.utils import resolve_feed_url
 from .ai_client import AIClient
 from .models import Feed, UserSettings
 
@@ -201,6 +203,28 @@ class FeedAdminForm(forms.ModelForm):
             self.fields[
                 "aggregator"
             ].help_text = "Select aggregator type. This determines available identifier choices."
+
+    def clean_identifier(self):
+        """Normalize and resolve the identifier for free-form URL aggregators.
+
+        A user pasting ``golem.de`` gets ``https://golem.de/rss.php`` stored.
+        ``resolve_feed_url`` never raises, so a dead or unreachable site still
+        saves -- with the normalized input.
+        """
+        identifier = self.cleaned_data.get("identifier", "")
+        if not identifier:
+            return identifier
+
+        aggregator_type = self.cleaned_data.get("aggregator") or self.instance.aggregator
+        try:
+            agg_class = AggregatorRegistry.get(aggregator_type)
+        except Exception:
+            return identifier
+
+        if not agg_class.resolves_feed_url():
+            return identifier
+
+        return resolve_feed_url(identifier)
 
     def save(self, commit=True):
         """

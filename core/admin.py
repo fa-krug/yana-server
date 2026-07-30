@@ -16,6 +16,7 @@ from django_q.models import Failure, OrmQ, Schedule, Task
 from djangoql.admin import DjangoQLSearchMixin
 from import_export.admin import ImportExportMixin, ImportExportModelAdmin
 
+from .aggregators.utils import parse_rss_feed, resolve_feed_url
 from .forms import FeedAdminForm, TextareaWithCopyButtonWidget, UserSettingsAdminForm
 from .models import Article, Feed, FeedGroup, RedditSubreddit, UserSettings, YouTubeChannel
 from .services import AggregatorService, ArticleService
@@ -156,6 +157,7 @@ class FeedAdmin(YanaDjangoQLMixin, ImportExportModelAdmin):
     search_fields = ["name", "identifier", "user__username"]
     readonly_fields = ["created_at", "updated_at"]
     actions = [
+        "resolve_and_test_feeds",
         "aggregate_selected_feeds",
         "force_delete_selected",
         "delete_all_articles",
@@ -420,6 +422,45 @@ class FeedAdmin(YanaDjangoQLMixin, ImportExportModelAdmin):
             return HttpResponseRedirect(change_url)
 
         return super().response_add(request, obj, post_url_continue)
+
+    @admin.action(description="Resolve & test")
+    def resolve_and_test_feeds(self, request, queryset):
+        """Resolve each identifier and report how many entries it yields.
+
+        Reports only -- nothing is saved, so this is safe to run on a feed you
+        are still configuring.
+        """
+        from .aggregators.registry import AggregatorRegistry
+
+        for feed in queryset:
+            try:
+                agg_class = AggregatorRegistry.get(feed.aggregator)
+            except Exception:
+                self.message_user(
+                    request, f"{feed.name}: unknown aggregator '{feed.aggregator}'", messages.ERROR
+                )
+                continue
+
+            resolved = (
+                resolve_feed_url(feed.identifier)
+                if agg_class.resolves_feed_url()
+                else feed.identifier
+            )
+
+            try:
+                data = parse_rss_feed(resolved)
+            except Exception as exc:
+                self.message_user(
+                    request, f"{feed.name}: {resolved} failed -- {exc}", messages.ERROR
+                )
+                continue
+
+            entries = len(data.get("entries", []))
+            self.message_user(
+                request,
+                f"{feed.name}: {resolved} yields {entries} entries",
+                messages.SUCCESS if entries else messages.WARNING,
+            )
 
     @admin.action(description="Aggregate selected feeds")
     def aggregate_selected_feeds(self, request, queryset):
