@@ -2,6 +2,7 @@
 
 from typing import Dict, Type
 
+from .ars_technica import ArsTechnicaAggregator
 from .base import BaseAggregator
 from .caschys_blog.aggregator import CaschysBlogAggregator
 from .dark_legacy.aggregator import DarkLegacyAggregator
@@ -36,6 +37,7 @@ class AggregatorRegistry:
         "oglaf": OglafAggregator,
         "mein_mmo": MeinMmoAggregator,
         "the_verge": TheVergeAggregator,
+        "ars_technica": ArsTechnicaAggregator,
         "youtube": YouTubeAggregator,
         "reddit": RedditAggregator,
         "podcast": PodcastAggregator,

@@ -94,21 +94,26 @@ class TestFirstMatchOptOut:
         assert "two" in result
 
     def test_scrapers_with_a_dedicated_container_opt_out(self):
+        from core.aggregators.ars_technica import ArsTechnicaAggregator
         from core.aggregators.mactechnews.aggregator import MactechnewsAggregator
         from core.aggregators.registry import AggregatorRegistry
 
         assert FullWebsiteAggregator.uses_first_content_match is False
+
+        # Scrapers whose page legitimately holds the body in SIBLING containers,
+        # where keeping only the first match would truncate the article:
+        #   MacTechNews -- fetch_all_pages combines pages into sibling
+        #     .MtnArticle containers (one per fetched page).
+        #   Ars Technica -- the single fetched page already contains sibling
+        #     .post-content blocks, one per article "page".
+        union_scrapers = {MactechnewsAggregator, ArsTechnicaAggregator}
 
         for name, agg_class in AggregatorRegistry.get_all().items():
             if agg_class is FullWebsiteAggregator or not issubclass(
                 agg_class, FullWebsiteAggregator
             ):
                 continue
-            if agg_class is MactechnewsAggregator:
-                # MacTechNews multipage articles are combined into sibling
-                # .MtnArticle containers by fetch_all_pages, so extraction
-                # must union every match instead of keeping only the first
-                # -- see FIX 1 / core/aggregators/mactechnews/aggregator.py.
+            if agg_class in union_scrapers:
                 assert agg_class.uses_first_content_match is False, name
                 continue
             assert agg_class.uses_first_content_match is True, name
