@@ -20,7 +20,8 @@ def build_header_html(
     their only image.
 
     Args:
-        header_image_url: Image URL, data URI, YouTube URL, or Twitter/X URL
+        header_image_url: Image URL (including a ``yana-img://<hash>`` reference
+            into the content-addressed image store), YouTube URL, or Twitter/X URL
         title: Article title (used for image alt text)
         header_caption_html: Optional HTML to display below the header media
 

@@ -109,9 +109,12 @@ class TestBackfill:
                 feed=rss_feed,
             )
 
-        run()
+        output = run()
 
         assert ArticleImage.objects.count() == 1
+        # The report counts distinct content hashes, not data-URI references --
+        # one row stored across two articles must say "(1 images)", not "(2 images)".
+        assert "(1 images)" in output
 
     def test_running_twice_converts_nothing_the_second_time(self, rss_feed):
         Article.objects.create(

@@ -6,9 +6,19 @@ stores it in the content-addressed image store, and replaces the URI with
 ``yana-img://<hash>``. Only ``content`` is rewritten -- ``raw_content`` is the
 untouched source HTML, and any data URI in it came from the publisher.
 
-The decoded bytes are stored verbatim (``compress=False``): they are already
-compression output, and re-compressing them would produce a different hash than
+The decoded bytes are stored verbatim (``compress=False``). For the five
+header-image sites this is exactly right: the inlined payload is already
+compression output, and re-compressing it would produce a different hash than
 a fresh aggregation of the same source image, creating a duplicate row.
+
+Oglaf is the one exception: before this work, ``oglaf/aggregator.py`` base64'd
+the *raw fetched bytes* without compressing them (see
+``git show 7c94619:core/aggregators/oglaf/aggregator.py``). So a historical
+Oglaf payload backfills into one uncompressed ``ArticleImage`` row -- still
+correctly referenced by its own article, just larger than it needs to be and
+unable to dedup against a fresh Oglaf aggregation, which now compresses before
+storing. Re-compressing here to fix that would break hash agreement for every
+other source, so it is left as-is; it is a one-time, self-contained cost.
 
 Batched and idempotent -- it runs over the whole article table and must be safe
 to interrupt and resume. Each batch commits on its own; a partial run leaves
@@ -72,7 +82,10 @@ class Command(BaseCommand):
         )
 
         converted_articles = 0
-        stored_images = 0
+        # Distinct content hashes across the whole run, not a count of data-URI
+        # references -- the same image inlined in two articles stores one row,
+        # and the report should say so.
+        stored_hashes: set[str] = set()
         skipped_articles = 0
         bytes_saved = 0
         processed = 0
@@ -92,12 +105,12 @@ class Command(BaseCommand):
                         )
                         continue
 
-                    new_content, image_count = result
-                    if image_count == 0:
+                    new_content, hashes = result
+                    if not hashes:
                         continue
 
                     converted_articles += 1
-                    stored_images += image_count
+                    stored_hashes |= hashes
                     bytes_saved += len(article.content) - len(new_content)
 
                     if not dry_run:
@@ -107,7 +120,7 @@ class Command(BaseCommand):
         verb = "would convert" if dry_run else "converted"
         savings_verb = "would save" if dry_run else "saved"
         self.stdout.write(
-            f"{verb} {converted_articles} articles ({stored_images} images), "
+            f"{verb} {converted_articles} articles ({len(stored_hashes)} images), "
             f"{savings_verb} {bytes_saved} bytes of content"
         )
         if skipped_articles:
@@ -137,17 +150,18 @@ class Command(BaseCommand):
                 remaining -= len(batch)
 
     @staticmethod
-    def _convert(content: str, *, dry_run: bool) -> tuple[str, int] | None:
+    def _convert(content: str, *, dry_run: bool) -> tuple[str, set[str]] | None:
         """
         Replace every data URI in content with a stored-image reference.
 
-        Returns the new content and the number of images, or None when any
-        payload could not be decoded (in which case the whole article is left
-        alone -- a half-rewritten body is worse than an unconverted one).
+        Returns the new content and the set of distinct content hashes it now
+        references, or None when any payload could not be decoded (in which
+        case the whole article is left alone -- a half-rewritten body is worse
+        than an unconverted one).
         """
         matches = list(DATA_URI_PATTERN.finditer(content))
         if not matches:
-            return content, 0
+            return content, set()
 
         replacements = []
         for match in matches:
@@ -167,10 +181,10 @@ class Command(BaseCommand):
             if not content_hash:
                 return None
 
-            replacements.append((match.span(), build_image_ref(content_hash)))
+            replacements.append((match.span(), build_image_ref(content_hash), content_hash))
 
         new_content = content
-        for (start, end), ref in reversed(replacements):
+        for (start, end), ref, _ in reversed(replacements):
             new_content = new_content[:start] + ref + new_content[end:]
 
-        return new_content, len(replacements)
+        return new_content, {content_hash for _, _, content_hash in replacements}

@@ -1,8 +1,8 @@
 """
 Header element extraction service.
 
-Provides functionality for extracting header elements (HTML iframes or base64 images)
-from various sources using Strategy pattern.
+Provides functionality for extracting header elements (HTML iframes or hosted images,
+referenced as ``yana-img://<hash>``) from various sources using Strategy pattern.
 """
 
 from .context import HeaderElementContext

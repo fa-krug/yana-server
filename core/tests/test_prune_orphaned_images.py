@@ -10,6 +10,7 @@ from django.utils import timezone
 
 import pytest
 
+from core.management.commands import prune_orphaned_images
 from core.models import Article, ArticleImage
 
 
@@ -87,6 +88,28 @@ class TestPruning:
 
         assert ArticleImage.objects.filter(pk=image.pk).exists()
         assert "would delete 1" in output
+
+    def test_a_row_referenced_after_the_snapshot_is_kept(self, rss_feed, monkeypatch):
+        """The reaper snapshots referenced hashes once at the start, but
+        store_image_bytes() dedups onto an old row without touching
+        created_at. If a django-q2 task commits an article referencing that
+        row after the snapshot but before deletion, the live per-row recheck
+        must still save it -- a stale snapshot must not be trusted."""
+        image = make_image("9" * 64)
+        Article.objects.create(
+            name="Late reference",
+            identifier="https://example.com/late",
+            raw_content="",
+            content=f'<img src="yana-img://{image.content_hash}">',
+            feed=rss_feed,
+        )
+        # Simulate the snapshot having been taken before that article existed.
+        monkeypatch.setattr(prune_orphaned_images.Command, "_referenced_hashes", staticmethod(set))
+
+        output = run()
+
+        assert ArticleImage.objects.filter(pk=image.pk).exists()
+        assert "skipped" in output.lower()
 
     def test_a_row_whose_file_is_missing_is_reported(self, rss_feed):
         image = make_image("f" * 64)

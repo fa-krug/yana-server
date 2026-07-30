@@ -3,6 +3,7 @@
 import hashlib
 import io
 import logging
+import os
 import random
 from unittest.mock import patch
 
@@ -170,6 +171,25 @@ class TestStoreImageBytes:
     def test_empty_bytes_store_nothing(self):
         assert store_image_bytes(b"", "image/png") is None
         assert ArticleImage.objects.count() == 0
+
+    def test_a_missing_file_is_rewritten_when_the_bytes_are_stored_again(self):
+        """A restored DB backup without media/ (or a cleared directory) leaves
+        rows whose file is gone. Re-encountering the same source image must
+        repair the file in place rather than silently doing nothing forever."""
+        data = noisy_png(seed=29)
+        content_hash = store_image_bytes(data, "image/png")
+        image = ArticleImage.objects.get(content_hash=content_hash)
+        file_path = image.file.path
+        os.remove(file_path)
+        assert not os.path.exists(file_path)
+
+        second_hash = store_image_bytes(data, "image/png")
+
+        assert second_hash == content_hash
+        assert ArticleImage.objects.count() == 1
+        assert os.path.exists(file_path)
+        with open(file_path, "rb") as handle:
+            assert hashlib.sha256(handle.read()).hexdigest() == content_hash
 
     def test_a_hash_collision_on_different_content_is_a_hard_error(self):
         """Cryptographically implausible for SHA-256 -- but never silently

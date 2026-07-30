@@ -230,8 +230,8 @@ Key properties:
   finds the existing row, and stores nothing new. Deduplication is free; the unique constraint on
   `content_hash` makes concurrent runs safe.
 - **A failed store means no image**, not no article. The header-element strategies return `None`, so
-  no header renders and the body publishes as usual. (Reddit's own header path is the documented
-  exception: it degrades to the remote URL, which still shows the image exactly once.)
+  no header renders and the body publishes as usual. (Reddit and Oglaf are exceptions: both degrade
+  to the remote URL on a failed store, which still shows the image exactly once.)
 - **A failed compression stores the original bytes** and logs it -- a large stored image beats a
   missing one.
 - Storage lives on local disk under `MEDIA_ROOT/article_images/YYYY/MM/`. Admin serves it via

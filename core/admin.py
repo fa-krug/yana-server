@@ -631,7 +631,7 @@ class ArticleImageAdmin(YanaDjangoQLMixin, admin.ModelAdmin):
         "byte_size",
         "created_at",
     ]
-    fields = readonly_fields  # type: ignore[assignment]  # same list; broader stub type
+    fields = list(readonly_fields)
     change_list_template = "admin/core/articleimage/change_list.html"
 
     def has_add_permission(self, request):

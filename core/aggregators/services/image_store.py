@@ -107,7 +107,20 @@ def store_image_bytes(
                 f"{content_hash} already stores {existing.byte_size} B, refusing to "
                 f"overwrite it with {len(data)} B"
             )
-        logger.debug("[image_store] %s already stored -- reusing it", content_hash[:12])
+        if not existing.file or not existing.file.storage.exists(existing.file.name):
+            # A restored DB backup without media/, or a manually cleared
+            # directory, leaves rows whose file is gone. Returning early here
+            # (the old behavior) is self-perpetuating: every later encounter
+            # finds the row and writes nothing, so the reference 404s forever
+            # and the reaper's "missing file" report never leads to repair.
+            # Rewrite the file in place instead, keeping the same hash.
+            logger.warning(
+                "[image_store] %s row exists but its file is missing on disk -- rewriting it",
+                content_hash[:12],
+            )
+            existing.file.storage.save(existing.file.name, ContentFile(data))
+        else:
+            logger.debug("[image_store] %s already stored -- reusing it", content_hash[:12])
         return content_hash
 
     image = ArticleImage(
