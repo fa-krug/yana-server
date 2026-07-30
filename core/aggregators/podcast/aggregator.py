@@ -218,7 +218,7 @@ class PodcastAggregator(RssAggregator):
         # Clean HTML
         cleaned = clean_html(str(soup))
 
-        # Format with footer (artwork is handled in enrich_articles)
+        # Wrap content (artwork is handled in enrich_articles)
         formatted = format_article_content(
             cleaned,
             title=article["name"],

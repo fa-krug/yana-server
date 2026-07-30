@@ -122,7 +122,7 @@ class OglafAggregator(FullWebsiteAggregator):
             # If no image found, use the cleaned HTML (from extract_content)
             new_html = html
 
-        # Format with footer (header image not used for Oglaf)
+        # Wrap content (no header image for Oglaf)
         return format_article_content(
             new_html,
             title=article["name"],

@@ -177,7 +177,7 @@ class MerkurAggregator(FullWebsiteAggregator):
         if remove_empty:
             remove_empty_elements(soup, tags=["p", "div", "span"])
 
-        # Proxy YouTube embeds (before sanitization)
+        # Replace YouTube iframes with click-through facades (before sanitization)
         proxy_youtube_embeds(soup)
 
         # Step 2: Sanitize HTML (create data-sanitized-* attributes)

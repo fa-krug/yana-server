@@ -256,9 +256,10 @@ Whatever HTML an aggregator produces in `Article.content` is converted to the Ya
 `core/blocks/conversion.py::convert_article`. This has two consequences for aggregator work:
 
 - `format_article_content` no longer appends a source-link footer to the body. Do not add one back
-  in a new aggregator on the theory that "the others do it" — none of them do, on purpose (a
-  trailing bare-URL paragraph is exactly what the block parser's footer-stripping was written to
-  remove).
+  in a new aggregator on the theory that "the others do it" — none of them do, on purpose. There is
+  no footer-stripping step to catch a reintroduced one, either: the trailing bare-URL paragraph is
+  simply absent because `format_article_content` no longer emits it, not because anything downstream
+  removes it.
 - A new aggregator's output should be checked in admin's **Rendered blocks** preview, not only by
   reading the `content` field. HTML that looks fine to a human eye can still convert badly — a
   wrapper `<div>` with the wrong class can make real content get dropped instead of recursed into,

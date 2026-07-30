@@ -181,7 +181,7 @@ class FullWebsiteAggregator(RssAggregator):
         # Parse HTML
         soup = BeautifulSoup(html, "html.parser")
 
-        # Proxy YouTube embeds
+        # Replace YouTube iframes with click-through facades
         proxy_youtube_embeds(soup)
 
         # Remove header image from content if it was extracted
@@ -199,7 +199,7 @@ class FullWebsiteAggregator(RssAggregator):
         # Determine header image URL for formatting
         header_image_url = header_data.image_ref if header_data else None
 
-        # Format with header and footer
+        # Format with header and content
         formatted = format_article_content(
             cleaned,
             title=article["name"],

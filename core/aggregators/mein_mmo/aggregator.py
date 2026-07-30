@@ -163,7 +163,7 @@ class MeinMmoAggregator(FullWebsiteAggregator):
         # Parse HTML for processing
         soup = BeautifulSoup(html, "html.parser")
 
-        # Proxy YouTube embeds
+        # Replace YouTube iframes with click-through facades
         proxy_youtube_embeds(soup)
 
         # Remove header image from content if it was extracted
@@ -202,7 +202,7 @@ class MeinMmoAggregator(FullWebsiteAggregator):
             except Exception as e:
                 self.logger.warning(f"[process_content] Failed to extract comments: {e}")
 
-        # Format with header (image only), comments, and footer
+        # Format with header (image only), content, and comments
         self.logger.debug("[process_content] Formatting content with header image only")
         formatted = format_article_content(
             cleaned,

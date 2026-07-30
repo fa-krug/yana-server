@@ -202,12 +202,16 @@ class HeiseAggregator(FullWebsiteAggregator):
     def process_content(self, html: str, article: Dict[str, Any]) -> str:
         """Process content and optionally add comments."""
         # Note: We override FullWebsiteAggregator.process_content entirely
-        # to inject comments BEFORE the footer (which format_article_content adds).
+        # because the base implementation has no comments_content plumbing at
+        # all -- it never extracts or forwards a comments section. This
+        # override duplicates the base's standard steps (step 1 below) and
+        # adds Heise-specific forum-comment extraction (step 2) so the result
+        # can be passed to format_article_content's comments_content.
 
         # 1. Standard Content Processing (copied from FullWebsiteAggregator)
         soup = BeautifulSoup(html, "html.parser")
 
-        # Proxy YouTube embeds
+        # Replace YouTube iframes with click-through facades
         proxy_youtube_embeds(soup)
 
         # Remove header image from content if it was extracted
@@ -243,7 +247,7 @@ class HeiseAggregator(FullWebsiteAggregator):
                     f"[process_content] Failed to extract comments for {article['identifier']}: {e}"
                 )
 
-        # 3. Format Article (Inject content + comments + footer)
+        # 3. Format Article (Inject content + comments)
         formatted = format_article_content(
             cleaned,
             title=article["name"],

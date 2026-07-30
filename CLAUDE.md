@@ -267,8 +267,9 @@ format is pinned in `core/blocks/schema.py` (version 1) and its golden fixture,
 `convert_articles_to_blocks` backfills existing articles -- **after** `migrate_inline_images`.
 `core/aggregators/utils/block_parser.py` still recognizes the old `/api/youtube-proxy` and
 `/api/dailymotion-proxy` URL patterns solely to read legacy `Article.content` written before the
-proxy endpoints were removed (see Task 12); that recognition retires once `Article.content` itself
-is dropped, so do not delete it as unused before then.
+proxy endpoints were removed (see "Deviations from the spec" in
+`docs/superpowers/plans/2026-07-30-yana-content-format.md`); that recognition retires once
+`Article.content` itself is dropped, so do not delete it as unused before then.
 
 ## Aggregator System
 

@@ -199,7 +199,7 @@ class MactechnewsAggregator(FullWebsiteAggregator):
             ):
                 a["href"] = urljoin(base_url, str(href))
 
-        # Proxy YouTube embeds
+        # Replace YouTube iframes with click-through facades
         proxy_youtube_embeds(soup)
 
         # Remove header image from content if extracted
@@ -233,7 +233,7 @@ class MactechnewsAggregator(FullWebsiteAggregator):
             except Exception as e:
                 self.logger.warning(f"[process_content] Failed to extract comments: {e}")
 
-        # Format with header, content, comments, and footer
+        # Format with header, content, and comments
         formatted = format_article_content(
             cleaned,
             title=article["name"],

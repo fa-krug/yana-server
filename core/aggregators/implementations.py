@@ -100,7 +100,7 @@ class FeedContentAggregator(RssAggregator):
         """
         Process and format RSS content.
 
-        Cleans HTML, sanitizes class names, and formats with header/footer.
+        Cleans HTML, sanitizes class names, and wraps it in a content section.
         """
         if not html:
             return ""
@@ -108,7 +108,7 @@ class FeedContentAggregator(RssAggregator):
         # Parse HTML
         soup = BeautifulSoup(html, "html.parser")
 
-        # Proxy YouTube embeds
+        # Replace YouTube iframes with click-through facades
         proxy_youtube_embeds(soup)
 
         # Sanitize class names
@@ -117,7 +117,7 @@ class FeedContentAggregator(RssAggregator):
         # Clean HTML
         cleaned = clean_html(str(soup))
 
-        # Format with footer (header image not used here)
+        # Wrap content (no header image for this aggregator)
         formatted = format_article_content(
             cleaned,
             title=article["name"],
