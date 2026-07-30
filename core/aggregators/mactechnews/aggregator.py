@@ -206,9 +206,7 @@ class MactechnewsAggregator(FullWebsiteAggregator):
         cleaned = clean_html(str(soup))
 
         # Determine header image URL
-        header_image_url = None
-        if header_data:
-            header_image_url = header_data.base64_data_uri or header_data.image_url
+        header_image_url = header_data.image_ref if header_data else None
 
         # Extract comments from the raw (full) HTML
         comments_html = None

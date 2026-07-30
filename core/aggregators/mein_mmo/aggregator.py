@@ -181,10 +181,7 @@ class MeinMmoAggregator(FullWebsiteAggregator):
         cleaned = clean_html(html)
 
         # Determine header image URL for formatting
-        # Use base64-encoded data URI if available, otherwise use original URL
-        header_image_url = None
-        if header_data:
-            header_image_url = header_data.base64_data_uri or header_data.image_url
+        header_image_url = header_data.image_ref if header_data else None
 
         # wpDiscuz comments live on the article page outside the content div.
         comments_html = None

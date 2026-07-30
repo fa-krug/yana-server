@@ -541,10 +541,7 @@ class RedditAggregator(BaseAggregator):
             # instead of the aggregation path, so no header was prepared.
             header_data = article.get("header_data")
             if header_data:
-                header_url = getattr(header_data, "base64_data_uri", None) or getattr(
-                    header_data, "image_url", None
-                )
-                header_html = build_header_html(header_url, title=article["name"])
+                header_html = build_header_html(header_data.image_ref, title=article["name"])
 
         return format_article_content(
             content=content,

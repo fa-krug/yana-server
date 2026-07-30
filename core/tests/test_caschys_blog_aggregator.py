@@ -102,7 +102,7 @@ class TestCaschysBlogAggregator(unittest.TestCase):
                 image_bytes=b"fake",
                 content_type="image/jpeg",
                 image_url="https://example.com/different-image.jpg",
-                base64_data_uri="data:image/jpeg;base64,fake",
+                content_hash="c" * 64,
             ),
         }
 
@@ -135,7 +135,7 @@ class TestCaschysBlogAggregator(unittest.TestCase):
                 image_bytes=b"fake",
                 content_type="image/jpeg",
                 image_url="https://stadt-bremerhaven.de/wp-content/uploads/2022/08/Plaion-Logo.jpg",
-                base64_data_uri="data:image/jpeg;base64,fake",
+                content_hash="c" * 64,
             ),
         }
 

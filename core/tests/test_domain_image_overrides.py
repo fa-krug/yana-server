@@ -109,7 +109,7 @@ class TestHeaderElementExtractorOverride:
 
     def test_override_short_circuits_strategies(self):
         fake_image = {"imageData": b"x" * 200, "contentType": "image/svg+xml"}
-        encoded = {"dataUri": "data:image/svg+xml;base64,FAKE"}
+        stored_hash = "ab" * 32
 
         extractor = HeaderElementExtractor()
         with (
@@ -118,19 +118,20 @@ class TestHeaderElementExtractorOverride:
                 return_value=fake_image,
             ) as mock_fetch,
             patch(
-                "core.aggregators.services.header_element.extractor.compress_and_encode_image",
-                return_value=encoded,
-            ) as mock_encode,
+                "core.aggregators.services.header_element.extractor.store_image_bytes",
+                return_value=stored_hash,
+            ) as mock_store,
             patch.object(extractor.strategies[0], "create") as mock_strategy_create,
         ):
             result = extractor.extract_header_element(NINTENDO_SUPPORT_URL)
 
         assert result is not None
         assert result.image_url == NINTENDO_OVERRIDE_IMAGE
-        assert result.base64_data_uri == "data:image/svg+xml;base64,FAKE"
+        assert result.content_hash == stored_hash
+        assert result.image_ref == f"yana-img://{stored_hash}"
         assert result.content_type == "image/svg+xml"
         mock_fetch.assert_called_once_with(NINTENDO_OVERRIDE_IMAGE)
-        mock_encode.assert_called_once()
+        mock_store.assert_called_once()
         mock_strategy_create.assert_not_called()
 
     def test_override_fetch_failure_falls_through_to_strategies(self):
