@@ -91,7 +91,11 @@ class MeinMmoAggregator(FullWebsiteAggregator):
         "style",
         "iframe:not([src*='youtube.com']):not([src*='youtu.be'])",
         "noscript",
-        ".dailymotion-embed-container",
+        # Do NOT add ".dailymotion-embed-container" here: that class is built
+        # only by process_dailymotion_blocks (content_extraction.py), which
+        # runs before this removal loop. Removing it here deletes the facade
+        # the converter just created, silently dropping every MeinMMO
+        # Dailymotion video. See test_dailymotion_facade_survives_selector_removal.
     ]
 
     def fetch_article_content(self, url: str) -> str:

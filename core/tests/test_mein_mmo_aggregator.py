@@ -1,6 +1,8 @@
 import pytest
 
 from core.aggregators.mein_mmo.aggregator import MeinMmoAggregator
+from core.aggregators.utils.block_parser import blocks_from_html
+from core.blocks.types import EmbedBlock
 
 
 @pytest.mark.django_db
@@ -32,6 +34,33 @@ class TestMeinMmoAggregator:
         # Verify affiliate widget is removed
         assert "wp-block-wbd-affiliate-widget" not in extracted
         assert "HBO Max" not in extracted
+
+    def test_dailymotion_facade_survives_selector_removal(self, mein_mmo_agg):
+        """
+        Regression test: `selectors_to_remove` used to contain
+        ".dailymotion-embed-container" -- the very class the Dailymotion
+        converter builds -- so the removal loop that runs right after the
+        conversion deleted the facade it had just created, and every
+        MeinMMO Dailymotion video was silently dropped.
+        """
+        html = (
+            '<div class="entry-content"><p>before</p>\n'
+            '<div class="wp-block-mmo-video"><div class="title">Trailer</div>\n'
+            "<script>var o = { dmVideoId: 'x9yt07o' };</script></div>\n"
+            "<p>after</p></div>"
+        )
+
+        extracted = mein_mmo_agg.extract_content(html, {"name": "Test", "identifier": "test-url"})
+
+        assert "dailymotion.com/video/x9yt07o" in extracted
+        blocks = blocks_from_html(extracted)
+        assert (
+            EmbedBlock(
+                provider="dailymotion",
+                external_url="https://www.dailymotion.com/video/x9yt07o",
+            )
+            in blocks
+        )
 
 
 WPDISCUZ_THREAD = """

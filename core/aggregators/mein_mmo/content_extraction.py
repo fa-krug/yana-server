@@ -148,6 +148,9 @@ def process_dailymotion_blocks(content: Tag, logger: logging.Logger) -> None:
         # build_dailymotion_facade_html for why -- so the facade's own markup
         # (data-embed + watch-link anchor) is parsed into the wrapper directly
         # rather than built by hand here.
+        # This class must never appear in the aggregator's selectors_to_remove:
+        # that removal loop runs right after this function, and would delete
+        # the very facade being built here.
         wrapper = soup.new_tag("div")
         wrapper["class"] = "dailymotion-embed-container"
         fragment = BeautifulSoup(build_dailymotion_facade_html(video_id), "html.parser")
