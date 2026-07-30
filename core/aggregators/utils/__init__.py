@@ -26,6 +26,7 @@ from .html_cleaner import (
 )
 from .html_fetcher import fetch_html
 from .legacy_options import convert_legacy_options, revert_options
+from .logo_background import remove_white_background
 from .rss_parser import parse_rss_feed
 
 __all__ = [
@@ -51,6 +52,7 @@ __all__ = [
     "remove_image_by_url",
     "remove_sanitized_attributes",
     "remove_selectors",
+    "remove_white_background",
     "resolve_feed_url",
     "resolve_site_icon",
     "revert_options",
