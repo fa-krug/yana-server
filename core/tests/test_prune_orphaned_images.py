@@ -90,11 +90,22 @@ class TestPruning:
         assert "would delete 1" in output
 
     def test_a_row_referenced_after_the_snapshot_is_kept(self, rss_feed, monkeypatch):
-        """The reaper snapshots referenced hashes once at the start, but
+        """The reaper's first referenced-hash snapshot can go stale:
         store_image_bytes() dedups onto an old row without touching
-        created_at. If a django-q2 task commits an article referencing that
-        row after the snapshot but before deletion, the live per-row recheck
-        must still save it -- a stale snapshot must not be trusted."""
+        created_at, so a django-q2 task can commit an article referencing a
+        candidate between the first snapshot and the delete loop. A second,
+        fresh snapshot taken immediately before the delete loop must catch
+        that and save the row.
+
+        This pins the two-snapshot design specifically (not just "some"
+        recheck existing): `_referenced_hashes()` is mocked to return an
+        empty set on its first call (simulating the snapshot predating the
+        late-written article) and the real referenced set on its second call
+        (the fresh, pre-delete snapshot). If the command only snapshotted
+        once, or reused the first snapshot for the delete decision instead of
+        calling `_referenced_hashes()` again, the second value would never be
+        consumed and the row would be wrongly deleted.
+        """
         image = make_image("9" * 64)
         Article.objects.create(
             name="Late reference",
@@ -103,8 +114,12 @@ class TestPruning:
             content=f'<img src="yana-img://{image.content_hash}">',
             feed=rss_feed,
         )
-        # Simulate the snapshot having been taken before that article existed.
-        monkeypatch.setattr(prune_orphaned_images.Command, "_referenced_hashes", staticmethod(set))
+        snapshots = iter([set(), {image.content_hash}])
+        monkeypatch.setattr(
+            prune_orphaned_images.Command,
+            "_referenced_hashes",
+            staticmethod(lambda: next(snapshots)),
+        )
 
         output = run()
 

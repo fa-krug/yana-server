@@ -107,7 +107,12 @@ def store_image_bytes(
                 f"{content_hash} already stores {existing.byte_size} B, refusing to "
                 f"overwrite it with {len(data)} B"
             )
-        if not existing.file or not existing.file.storage.exists(existing.file.name):
+        # A blank file name (however that happened) must never reach
+        # storage.save(""), which raises SuspiciousFileOperation -- the old
+        # code simply returned the hash in that case, so preserve that by
+        # only attempting repair when there is a name to check and rewrite.
+        file_name = existing.file.name if existing.file else ""
+        if file_name and not existing.file.storage.exists(file_name):
             # A restored DB backup without media/, or a manually cleared
             # directory, leaves rows whose file is gone. Returning early here
             # (the old behavior) is self-perpetuating: every later encounter
@@ -118,7 +123,15 @@ def store_image_bytes(
                 "[image_store] %s row exists but its file is missing on disk -- rewriting it",
                 content_hash[:12],
             )
-            existing.file.storage.save(existing.file.name, ContentFile(data))
+            saved_name = existing.file.storage.save(file_name, ContentFile(data))
+            if saved_name != file_name:
+                # Another writer recreated the file between our exists()
+                # check and this save, so storage disambiguated with a
+                # suffixed name instead of overwriting. That stray file is
+                # referenced by no row and the reaper would never reclaim
+                # it -- drop it and trust whatever now sits at the hash's
+                # real, DB-recorded path.
+                existing.file.storage.delete(saved_name)
         else:
             logger.debug("[image_store] %s already stored -- reusing it", content_hash[:12])
         return content_hash

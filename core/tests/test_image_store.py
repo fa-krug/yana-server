@@ -7,6 +7,8 @@ import os
 import random
 from unittest.mock import patch
 
+from django.core.files.storage import default_storage
+
 import pytest
 from PIL import Image
 
@@ -190,6 +192,44 @@ class TestStoreImageBytes:
         assert os.path.exists(file_path)
         with open(file_path, "rb") as handle:
             assert hashlib.sha256(handle.read()).hexdigest() == content_hash
+
+    def test_a_racing_file_repair_does_not_leave_a_stray_file(self, isolated_media_root):
+        """If another writer recreates the missing file between our exists()
+        check and the repair save, storage disambiguates with a suffixed name
+        instead of overwriting -- the repair must not silently discard that
+        outcome and leave the stray, unreferenced file behind."""
+        data = noisy_png(seed=33)
+        content_hash = store_image_bytes(data, "image/png")
+        image = ArticleImage.objects.get(content_hash=content_hash)
+        os.remove(image.file.path)
+
+        real_save = default_storage.save
+
+        def racing_save(name, content, max_length=None):
+            # Simulate a concurrent writer already having recreated the file
+            # at this exact name -- the storage backend disambiguates rather
+            # than overwriting it.
+            return real_save(f"{name}.racing", content, max_length=max_length)
+
+        with patch.object(default_storage, "save", side_effect=racing_save):
+            second_hash = store_image_bytes(data, "image/png")
+
+        assert second_hash == content_hash
+        assert not list(isolated_media_root.rglob("*.racing"))
+
+    def test_a_blank_file_name_skips_the_repair_check(self):
+        """A row with a blank file name (however it got that way) must still
+        return its hash, exactly like the pre-repair code did -- attempting
+        storage.save("") raises SuspiciousFileOperation, so the repair path
+        must never be reached for one."""
+        data = noisy_png(seed=37)
+        content_hash = store_image_bytes(data, "image/png")
+        ArticleImage.objects.filter(content_hash=content_hash).update(file="")
+
+        second_hash = store_image_bytes(data, "image/png")
+
+        assert second_hash == content_hash
+        assert ArticleImage.objects.count() == 1
 
     def test_a_hash_collision_on_different_content_is_a_hard_error(self):
         """Cryptographically implausible for SHA-256 -- but never silently
