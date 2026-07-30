@@ -150,9 +150,12 @@ wins), and duplicates are collapsed.
 | `content_selectors` | `Feed.options` | Per-feed override of the class list. Absent → class default; present-but-empty → deliberately empty |
 | `ignore_selectors` | `Feed.options` | Per-feed override of the removals. Absent → the shared defaults (`.advertisement`, `.ad`, `.ads`, `[class*='advert']`, `[class*='sponsor']`, `.social-share`, `.newsletter`, `.related-articles`); present-but-empty → no per-feed removals beyond the class `selectors_to_remove` and the mandatory set |
 
-A present-but-empty `content_selectors: []` is a surprising one: it means *nothing* matches, so
-extraction falls through to the whole `<body>` rather than any narrower container — the same
-outcome as when no selector matches at all.
+A present-but-empty `content_selectors: []` is a surprising one: it means *nothing* matches. What
+happens next depends on the aggregator's `extract_content`: a scraper still on
+`FullWebsiteAggregator`'s default (plain `extract_main_content`) falls through to the whole
+`<body>`, but Heise, The Verge, and Ars Technica override `extract_content` to degrade to the RSS
+summary instead (see below), so for those three a present-but-empty `content_selectors: []` yields
+the RSS summary, not `<body>`.
 
 `DEFAULT_IGNORE_SELECTORS` is applied on top of every managed scraper's own `selectors_to_remove`,
 not just `FullWebsiteAggregator`'s. Before this branch, a scraper that overrode `selectors_to_remove`
@@ -169,10 +172,7 @@ be disabled by any option. Iframes are an aggregator-level policy: `FullWebsiteA
 supports more embed hosts — Caschy's Blog allows Twitter/X — overrides that list and filters iframes
 itself in `process_content`.
 
-Two lower-level building blocks in `core/aggregators/utils/content_extractor.py`, available for a
-scraper to wire into its own `extract_content` / `enrich_articles` override. Neither is called
-automatically by `FullWebsiteAggregator` or any shipped scraper today — `extract_content` currently
-calls plain `extract_main_content` — so this is opt-in plumbing, not live behavior:
+Two lower-level building blocks live in `core/aggregators/utils/content_extractor.py`:
 
 - `extract_main_content_if_present(...)` returns `None` instead of falling back to `<body>`, so a
   paywall or gate page cannot surface site navigation as the article.
@@ -180,9 +180,27 @@ calls plain `extract_main_content` — so this is opt-in plumbing, not live beha
   requires at least 80 characters of real text — for syndicated pages on other domains that carry
   none of the scraper's markup.
 
-For a scraper that does opt in, the intended resolution order is: dedicated container → generic
-extraction (≥80 chars) → RSS summary. Wiring these into a specific scraper is out of scope here —
-see `docs/superpowers/specs/2026-07-29-aggregator-parity-2-scrapers-and-types-design.md`.
+`FullWebsiteAggregator`'s own default `extract_content` still calls plain `extract_main_content`
+(the `<body>` fallback), so a subclass has to opt in by overriding `extract_content` itself. Four
+scrapers do:
+
+- **Heise**, **The Verge** (via the shared `RssSummaryFallbackAggregator` base in `website.py`) call
+  `extract_main_content_if_present` with their own `content_selectors` /
+  `uses_first_content_match`; a miss degrades straight to the RSS summary (`article["content"]`,
+  still the untouched RSS value at this point in `enrich_articles`). Heise additionally strips
+  now-empty `p`/`div`/`span` elements from a successful extraction — that cleanup is Heise-specific,
+  not part of the shared base.
+- **Ars Technica** uses the same `RssSummaryFallbackAggregator` base, but with
+  `uses_first_content_match = False`: Ars serves every "page" of an article as sibling
+  `.post-content` blocks in one fetch, so unioning them (not keeping only the first) is correct.
+- **Tagesschau** keeps its bespoke `textabsatz` parser as tier one, adds
+  `generic_content_if_present` as a *middle* tier for syndicated external-broadcaster pages (mdr.de,
+  ndr.de, ...) that carry none of tagesschau.de's markup, and only then falls back to the RSS
+  summary. A media-player-only page (no `textabsatz` text, no generic match, but a `MediaPlayer`
+  header) keeps its header rather than losing it to a bogus fallback.
+
+Every other scraper is still on the `FullWebsiteAggregator` default and falls back to the whole
+`<body>` when nothing matches.
 
 ## Creating a New Aggregator
 
