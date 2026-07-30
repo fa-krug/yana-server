@@ -79,13 +79,26 @@ block inline and a rendered preview, because admin is this phase's only verifica
    the id from the proxy URL first, then from `data-embed` / `data-sanitized-data-embed-content`,
    then from a descendant watch link. All three are implemented; the proxy path is the one that
    actually fires today.
-2. **The proxy *URL* outlives the proxy *view*.** Task 12 deletes `youtube_proxy_view` /
-   `dailymotion_proxy_view` and their routes as the spec requires, but leaves
-   `create_youtube_embed_html`, `get_youtube_proxy_url`, the Dailymotion equivalent and the
-   `html_cleaner` iframe allowlist alone. That markup is now a pure internal marker between
-   extraction and block conversion — never fetched, because the parser rewrites it to a canonical
-   `https://www.youtube.com/watch?v=<id>` before anything stores it. Rewriting the producers instead
-   would touch five aggregators and ~13 tests for no behavioral gain.
+2. **The proxy goes away entirely — endpoint *and* markup.** Spec 5 only asks for the two views and
+   their routes to be deleted. Task 12 goes further on the user's explicit instruction ("no youtube
+   proxy anymore; we store the data like iOS, so iOS can correctly render it"): the proxy iframe
+   markup is removed from all three producers too, and `html_cleaner` stops allowlisting any iframe.
+   In its place every producer emits a **click-through facade carrying the canonical public URL**,
+   which is what the parser already reads and what iOS's own `EmbedRewriter` produces:
+
+   ```html
+   <div class="youtube-embed-container" data-embed="https://www.youtube.com/embed/<id>">
+     <a href="https://www.youtube.com/watch?v=<id>" target="_blank" rel="noopener">Watch on YouTube</a>
+   </div>
+   ```
+
+   The stored `embed` block is unchanged by this — Task 4 already builds the canonical watch URL from
+   the extracted id regardless of which source it matched — so the client renders exactly what it
+   renders today. What the change buys is that nothing in the pipeline references a route that does
+   not exist, and `BASE_URL` stops leaking a server-absolute URL into article bodies.
+
+   An earlier draft of this plan kept the proxy URL as an internal marker pointing at a deleted
+   endpoint. That is the thing this deviation replaces; do not reintroduce it.
 3. **`<pre>` keeps its whitespace.** iOS's `codeBlock` text comes from SwiftSoup's `text()`, which
    collapses whitespace — that destroys code indentation. The Python port uses BeautifulSoup's
    `get_text()` for `<pre>` only, preserving it. Whitespace *is* normalized everywhere else, to match
@@ -141,7 +154,11 @@ block inline and a rendered preview, because admin is this phase's only verifica
 | `core/management/commands/prune_orphaned_images.py` | Reference lookup via the block index |
 | `core/admin.py` | Block inline, rendered preview, `plain_text`, "Re-convert blocks" |
 | `core/views/default.py`, `core/views/__init__.py`, `core/urls/default.py` | Delete the two proxy views + routes |
-| `core/tests/test_default_views.py` | Drop the proxy tests |
+| `core/aggregators/utils/youtube.py` | Facade builder replaces the proxy-URL builder |
+| `core/aggregators/utils/html_cleaner.py` | Stop allowlisting proxy iframes — strip every iframe |
+| `core/aggregators/mein_mmo/embed_processors.py`, `core/aggregators/mein_mmo/content_extraction.py` | Facades replace proxy iframes |
+| `core/tests/test_youtube_proxy.py` → `test_youtube_facade.py` | Rewritten for the facade |
+| `core/tests/test_default_views.py`, `core/tests/test_embed_privacy.py`, `core/tests/test_caschys_blog_aggregator.py` | Drop/rewrite the proxy expectations |
 | `core/tests/test_prune_orphaned_images.py` | Cover block-sourced references |
 | `CLAUDE.md`, `core/aggregators/README.md` | Documentation |
 
@@ -4052,24 +4069,52 @@ git add core/management/commands/prune_orphaned_images.py core/tests/test_prune_
 
 ---
 
-## Task 12: Delete the embed proxy views and routes
+## Task 12: Remove the embed proxy entirely — markup, views and routes
 
 **Files:**
+- Modify: `core/aggregators/utils/youtube.py` (`create_youtube_embed_html`, `proxy_youtube_embeds`;
+  delete `get_youtube_proxy_url`)
+- Modify: `core/aggregators/mein_mmo/embed_processors.py:50-78,320-350` (two proxy-iframe builders)
+- Modify: `core/aggregators/mein_mmo/content_extraction.py:140-170` (`process_dailymotion_blocks`)
+- Modify: `core/aggregators/utils/html_cleaner.py:213-217` (drop the iframe allowlist)
+- Modify: `core/aggregators/utils/block_parser.py` (delete the two now-dead proxy regexes)
 - Modify: `core/views/default.py` (delete `youtube_proxy_view`, `dailymotion_proxy_view` and their
   private helpers)
 - Modify: `core/views/__init__.py`, `core/urls/default.py`
-- Test: `core/tests/test_default_views.py` (drop the three proxy tests, add route-gone assertions)
+- Test: `core/tests/test_youtube_proxy.py` (rewrite — the whole module is about proxying),
+  `core/tests/test_embed_privacy.py`, `core/tests/test_caschys_blog_aggregator.py`,
+  `core/tests/test_default_views.py`, `core/tests/test_block_parser.py`
 
 **Interfaces:**
-- Consumes: the guarantee from Task 4 that no `embed` block's `external_url` points at a proxy path.
-- Produces: `core.views` exporting `health_check` only.
+- Consumes: the guarantee from Task 4 that `_embed_facade` builds the canonical public URL from the
+  extracted id, whichever source it matched.
+- Produces: `core.views` exporting `health_check` only; `build_youtube_facade_html(video_id)` and
+  `build_dailymotion_facade_html(video_id)` replacing the proxy-URL builders.
 
-**What stays, and why (deviation 2):** `create_youtube_embed_html`, `get_youtube_proxy_url`,
-`process_dailymotion_blocks`'s proxy URL and `html_cleaner`'s iframe allowlist all stay. That markup is
-now purely an internal marker between extraction and block conversion — the parser reads the video id
-out of it and writes a canonical `https://www.youtube.com/watch?v=<id>`, so nothing stored or served
-ever points at a proxy path. `Article.content` (kept for one release) will contain iframes whose `src`
-now 404s; nothing renders it.
+**Why this is bigger than the spec says.** Spec 5 asks only for the two views and their routes to be
+deleted, leaving the proxy markup as an internal marker. The user overrode that: *"no youtube proxy
+anymore. we store the data like ios, so ios can correctly render it."* So the proxy leaves the pipeline
+completely. See deviation 2 for the shape that replaces it and why the stored `embed` block does not
+change.
+
+**The three producers.** This is the part the spec's one-line description misses — there are three
+places emitting proxy iframes, not one:
+
+| Producer | Used by | Current output |
+|---|---|---|
+| `utils/youtube.py::create_youtube_embed_html` | `build_header_html` — every YouTube header (YouTube feeds, Reddit YouTube link posts) | `<div class="youtube-embed-container"><iframe src="{BASE_URL}/api/youtube-proxy?v=<id>">` |
+| `utils/youtube.py::proxy_youtube_embeds` | the RSS/website path — rewrites publisher `<iframe>`s in place | same, wrapped around each rewritten iframe |
+| `mein_mmo/embed_processors.py` (two sites: figure processor + link fallback) | MeinMMO | `<div data-sanitized-class="youtube-embed"><iframe src="…/api/youtube-proxy?v=<id>">` |
+| `mein_mmo/content_extraction.py::process_dailymotion_blocks` | MeinMMO | `<div class="dailymotion-embed-container"><iframe src="…/api/dailymotion-proxy?v=<id>">` |
+
+**Leave `settings.BASE_URL` alone.** It becomes unused by `core/` after this task, but it is a
+documented deployment env var and the future API spec will want it for absolute URLs. Removing it is
+not in scope.
+
+**Leave TikTok alone.** `embed_processors.py`'s TikTok processor emits a non-proxy
+`https://www.tiktok.com/embed/v3/<id>` iframe. That iframe is already stripped by the sanitizer today
+(it was never on the allowlist), so its wrapper already recurses and contributes its caption text.
+Nothing about it changes here.
 
 - [ ] **Step 1: Confirm nothing stored references a proxy path**
 
@@ -4086,12 +4131,144 @@ for block in bad[:5]:
 "
 ```
 
-Expected: `0`. If it is not 0, **stop** — the parser is emitting proxy URLs and Task 4 needs fixing
-before anything is deleted.
+Expected: `0`. If it is not 0, **stop** — Task 4's `_embed_facade` is emitting proxy URLs and must be
+fixed before anything is deleted.
 
-- [ ] **Step 2: Write the failing tests**
+- [ ] **Step 2: Write the failing facade tests**
 
-In `core/tests/test_default_views.py`, delete `test_youtube_proxy_view_missing_id`,
+Replace the contents of `core/tests/test_youtube_proxy.py` with a module that tests the facade instead
+of the proxy, and rename the file to `core/tests/test_youtube_facade.py` (`git mv`) — the old name
+describes machinery that no longer exists:
+
+```python
+"""Publisher YouTube iframes become click-through facades, not proxied iframes."""
+
+from bs4 import BeautifulSoup
+
+from core.aggregators.utils.block_parser import blocks_from_html
+from core.aggregators.utils.youtube import (
+    build_youtube_facade_html,
+    create_youtube_embed_html,
+    proxy_youtube_embeds,
+)
+
+VIDEO_ID = "dQw4w9WgXcQ"
+WATCH_URL = f"https://www.youtube.com/watch?v={VIDEO_ID}"
+
+
+def test_the_facade_carries_the_canonical_watch_url():
+    html = build_youtube_facade_html(VIDEO_ID)
+    soup = BeautifulSoup(html, "html.parser")
+    container = soup.find("div")
+    assert "youtube-embed-container" in container["class"]
+    assert container["data-embed"] == f"https://www.youtube.com/embed/{VIDEO_ID}"
+    assert container.find("a")["href"] == WATCH_URL
+
+
+def test_the_facade_has_no_iframe_and_no_proxy_url():
+    html = build_youtube_facade_html(VIDEO_ID)
+    assert "<iframe" not in html
+    assert "youtube-proxy" not in html
+
+
+def test_the_facade_has_visible_text_so_it_survives_empty_element_pruning():
+    """remove_empty_elements() drops a div with no text and no img/iframe/video.
+    The anchor's text is what keeps the facade alive now that the iframe is gone."""
+    soup = BeautifulSoup(build_youtube_facade_html(VIDEO_ID), "html.parser")
+    assert soup.get_text(strip=True)
+
+
+def test_create_youtube_embed_html_appends_a_caption():
+    html = create_youtube_embed_html(VIDEO_ID, "<p>Caption</p>")
+    assert "<p>Caption</p>" in html
+    assert "<iframe" not in html
+
+
+def test_a_publisher_iframe_is_replaced_by_a_facade():
+    soup = BeautifulSoup(f'<iframe src="https://www.youtube.com/embed/{VIDEO_ID}"></iframe>', "html.parser")
+    proxy_youtube_embeds(soup)
+    assert soup.find("iframe") is None
+    assert soup.find("a")["href"] == WATCH_URL
+
+
+def test_a_youtu_be_iframe_is_replaced_by_a_facade():
+    soup = BeautifulSoup(f'<iframe src="https://youtu.be/{VIDEO_ID}"></iframe>', "html.parser")
+    proxy_youtube_embeds(soup)
+    assert soup.find("iframe") is None
+    assert soup.find("a")["href"] == WATCH_URL
+
+
+def test_a_non_youtube_iframe_is_left_alone():
+    soup = BeautifulSoup('<iframe src="https://vimeo.com/123456"></iframe>', "html.parser")
+    proxy_youtube_embeds(soup)
+    assert soup.find("iframe")["src"] == "https://vimeo.com/123456"
+
+
+def test_an_unparseable_youtube_url_is_left_alone():
+    soup = BeautifulSoup('<iframe src="https://www.youtube.com/invalid"></iframe>', "html.parser")
+    proxy_youtube_embeds(soup)
+    assert soup.find("iframe")["src"] == "https://www.youtube.com/invalid"
+
+
+def test_several_iframes_are_each_handled():
+    soup = BeautifulSoup(
+        '<div><iframe src="https://www.youtube.com/embed/video111111"></iframe>'
+        '<iframe src="https://other.com/embed"></iframe>'
+        '<iframe src="https://www.youtube.com/embed/video222222"></iframe></div>',
+        "html.parser",
+    )
+    proxy_youtube_embeds(soup)
+    hrefs = {a["href"] for a in soup.find_all("a")}
+    assert hrefs == {
+        "https://www.youtube.com/watch?v=video111111",
+        "https://www.youtube.com/watch?v=video222222",
+    }
+    assert [f["src"] for f in soup.find_all("iframe")] == ["https://other.com/embed"]
+
+
+def test_the_facade_parses_into_a_youtube_embed_block():
+    """The end-to-end point of the whole change: what the producer emits is what
+    the parser turns into the block the client renders."""
+    blocks = blocks_from_html(build_youtube_facade_html(VIDEO_ID))
+    assert len(blocks) == 1
+    assert blocks[0].provider == "youtube"
+    assert blocks[0].external_url == WATCH_URL
+```
+
+Add to `core/tests/test_block_parser.py`:
+
+```python
+def test_a_facade_with_no_iframe_still_yields_an_embed():
+    """Post-proxy markup: the id lives in data-embed and in a watch link, with
+    no iframe anywhere."""
+    html = (
+        '<div data-sanitized-class="youtube-embed-container" '
+        'data-sanitized-embed="https://www.youtube.com/embed/dQw4w9WgXcQ">'
+        '<a href="https://www.youtube.com/watch?v=dQw4w9WgXcQ">Watch on YouTube</a>'
+        "</div>"
+    )
+    assert blocks_from_html(html) == [
+        EmbedBlock(
+            provider="youtube", external_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        )
+    ]
+
+
+def test_a_dailymotion_facade_with_no_iframe_still_yields_an_embed():
+    html = (
+        '<div data-sanitized-class="dailymotion-embed-container" '
+        'data-sanitized-embed="https://www.dailymotion.com/embed/video/x8abcde">'
+        '<a href="https://www.dailymotion.com/video/x8abcde">Watch on Dailymotion</a>'
+        "</div>"
+    )
+    assert blocks_from_html(html) == [
+        EmbedBlock(
+            provider="dailymotion", external_url="https://www.dailymotion.com/video/x8abcde"
+        )
+    ]
+```
+
+And in `core/tests/test_default_views.py`, delete `test_youtube_proxy_view_missing_id`,
 `test_youtube_proxy_view_success` and `test_youtube_proxy_view_params`, and add:
 
 ```python
@@ -4121,21 +4298,153 @@ path may 302 rather than 404. Assert the route is *not* serving a player, not a 
 - [ ] **Step 3: Run the tests to verify they fail**
 
 ```bash
-uv run pytest core/tests/test_default_views.py -q
+uv run pytest core/tests/test_youtube_facade.py core/tests/test_default_views.py core/tests/test_block_parser.py -q
 ```
 
-Expected: the removal tests fail (the routes still serve 200 and the attributes still exist).
+Expected: the facade tests fail on `ImportError: cannot import name 'build_youtube_facade_html'`, and
+the removal tests fail because the routes still serve 200.
 
-- [ ] **Step 4: Delete the views**
+- [ ] **Step 4: Replace the YouTube producers**
+
+In `core/aggregators/utils/youtube.py`, delete `get_youtube_proxy_url` and add:
+
+```python
+def build_youtube_facade_html(video_id: str) -> str:
+    """
+    A click-through YouTube facade — the markup the block parser reads.
+
+    There is no iframe and no proxy endpoint: the client renders the typed
+    `embed` block natively with its own privacy-mode player, so the server's
+    only job is to carry the video id through the HTML stage of the pipeline in
+    a shape `block_parser._embed_facade` recognizes.
+
+    The id is carried twice on purpose. `data-embed` is where iOS's own
+    EmbedRewriter puts it, and the anchor is honest, working markup that also
+    gives the div visible text -- `remove_empty_elements()` prunes a div with no
+    text and no img/iframe/video, which the old iframe used to satisfy.
+    """
+    return (
+        f'<div class="youtube-embed-container" '
+        f'data-embed="https://www.youtube.com/embed/{video_id}">'
+        f'<a href="https://www.youtube.com/watch?v={video_id}" '
+        f'target="_blank" rel="noopener">Watch on YouTube</a>'
+        f"</div>"
+    )
+```
+
+Rewrite `create_youtube_embed_html` to build on it, keeping its signature and its caption behavior:
+
+```python
+def create_youtube_embed_html(video_id: str, caption: str = "") -> str:
+    """
+    A YouTube embed for the article body, with an optional caption appended.
+
+    Returns:
+        HTML string with a youtube-embed-container div (see
+        build_youtube_facade_html for why there is no iframe)
+    """
+    facade = build_youtube_facade_html(video_id)
+    if not caption:
+        return facade
+    return facade.replace("</div>", f"{caption}</div>")
+```
+
+Update its docstring's stale "Generates an iframe element that uses a full proxy endpoint" paragraph.
+
+Then rewrite `proxy_youtube_embeds` so it replaces each publisher YouTube iframe with the facade rather
+than with a proxied iframe. Keep the function name — it is imported in several aggregators and renaming
+it is scope this task does not need — but update its docstring to say what it now does. Read the
+existing implementation first; it already extracts the video id and already leaves non-YouTube and
+unparseable iframes untouched, so the change is confined to what it substitutes in.
+
+- [ ] **Step 5: Replace the MeinMMO producers**
+
+In `core/aggregators/mein_mmo/embed_processors.py`, both sites currently do
+`iframe = soup.new_tag("iframe", src=get_youtube_proxy_url(video_id))` and wrap it in a div. Replace
+each with the facade, parsed into the wrapper so the existing figcaption handling still applies:
+
+```python
+        wrapper = soup.new_tag("div")
+        wrapper["data-sanitized-class"] = "youtube-embed"
+        fragment = BeautifulSoup(build_youtube_facade_html(video_id), "html.parser")
+        facade = fragment.find("div")
+        for attr in ("data-embed",):
+            wrapper[attr] = facade[attr]
+        for child in list(facade.children):
+            wrapper.append(child)
+```
+
+Swap the `get_youtube_proxy_url` import for `build_youtube_facade_html`. The `figcaption` → `<p>`
+handling below each site is unchanged. Note that this module's wrapper uses
+`data-sanitized-class="youtube-embed"` rather than `youtube-embed-container`; the parser matches on the
+`youtube-embed` substring, so both keep working.
+
+In `core/aggregators/mein_mmo/content_extraction.py::process_dailymotion_blocks`, replace the
+`proxy_url` / iframe construction with a Dailymotion facade. Add the builder next to the YouTube one in
+`core/aggregators/utils/youtube.py`, or — better, since it is not YouTube — put it in
+`core/aggregators/utils/content_formatter.py` and import it:
+
+```python
+def build_dailymotion_facade_html(video_id: str) -> str:
+    """A click-through Dailymotion facade. See build_youtube_facade_html."""
+    return (
+        f'<div class="dailymotion-embed-container" '
+        f'data-embed="https://www.dailymotion.com/embed/video/{video_id}">'
+        f'<a href="https://www.dailymotion.com/video/{video_id}" '
+        f'target="_blank" rel="noopener">Watch on Dailymotion</a>'
+        f"</div>"
+    )
+```
+
+Put it wherever the imports come out cleanest without creating a cycle, and say where in your report.
+
+- [ ] **Step 6: Drop the iframe allowlist**
+
+In `core/aggregators/utils/html_cleaner.py::sanitize_html_attributes`, replace:
+
+```python
+    # Remove iframe elements, unless they are proxied video embeds
+    for tag in soup.find_all("iframe"):
+        src = str(tag.get("src", ""))
+        if "/api/youtube-proxy" not in src and "/api/dailymotion-proxy" not in src:
+            tag.decompose()
+```
+
+with:
+
+```python
+    # Remove every iframe. Nothing renders Article.content any more, and video
+    # embeds reach the client as typed `embed` blocks carrying a canonical
+    # public URL -- so there is no iframe worth keeping and no proxy endpoint
+    # left to point one at.
+    for tag in soup.find_all("iframe"):
+        tag.decompose()
+```
+
+Update the function's docstring line "Removes style and iframe elements" if it now misstates the
+behavior.
+
+- [ ] **Step 7: Delete the dead proxy regexes from the parser**
+
+In `core/aggregators/utils/block_parser.py`, delete `_YOUTUBE_PROXY_ID` and `_DAILYMOTION_PROXY_ID` and
+remove them from the two `_first_match` tuples in `_embed_facade`, leaving
+`(_YOUTUBE_EMBED_ID, _YOUTUBE_WATCH_ID)` and `(_DAILYMOTION_VIDEO_ID,)`. Update `_embed_facade`'s
+docstring: the proxy iframe is no longer the primary id source, `data-embed` is. Keep
+`test_youtube_facade_external_url_never_points_at_the_proxy` — it is now a regression guard against
+reintroducing the proxy rather than a check on a live path.
+
+If any Task 4 test feeds `_embed_facade` a proxy-URL fixture, keep **one** of them as an explicit
+legacy-content guard (articles converted before this task have proxy iframes in `Article.content`, and
+`--force` re-conversion or the admin re-convert action will re-parse them) and delete the rest. Say in
+your report which you kept.
+
+- [ ] **Step 8: Delete the views, exports and routes**
 
 From `core/views/default.py`, delete `youtube_proxy_view`, `dailymotion_proxy_view`,
-`_generate_embed_html`, `_generate_dailymotion_embed_html` and `_error_response` (all four helpers
-exist only for the proxies — check with `grep -n "_error_response\|_generate_" core/` before deleting,
-and keep anything `health_check` uses). Drop the now-unused imports: `urlencode`,
-`xframe_options_exempt`, and `HttpResponse` if nothing else uses it. Update the module docstring to
-`"""Default views for health checks."""`.
-
-- [ ] **Step 5: Update the exports and routes**
+`_generate_embed_html`, `_generate_dailymotion_embed_html` and `_error_response`. Check with
+`grep -n "_error_response\|_generate_" core/` before deleting, and keep anything `health_check` uses.
+Drop the now-unused imports (`urlencode`, `xframe_options_exempt`, and `HttpResponse` if nothing else
+uses it). Update the module docstring to `"""Default views for health checks."""`.
 
 `core/views/__init__.py`:
 
@@ -4163,43 +4472,51 @@ urlpatterns = [
 ]
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [ ] **Step 9: Fix the two other affected test modules**
+
+`core/tests/test_embed_privacy.py` — its last test asserts
+`"/api/youtube-proxy?v=dQw4w9WgXcQ" in html` after calling `proxy_youtube_embeds`. Update it to assert
+the facade's watch URL instead. The recovery tests above it are about
+`recover_consent_gated_embeds` and should keep asserting that a recoverable gate becomes a YouTube
+`<iframe src="https://www.youtube.com/embed/…">` — that function's job is to *recover* the publisher's
+iframe, and `proxy_youtube_embeds` is what then converts it. Do not change the recovery contract.
+
+`core/tests/test_caschys_blog_aggregator.py` — `test_youtube_iframe_conversion` (asserts `"<iframe"` and
+the proxy URL in the processed content) and `test_iframe_filtering` (asserts allowed iframes survive)
+both encode the old behavior. Rewrite their assertions: YouTube iframes become facades carrying
+`https://www.youtube.com/watch?v=<id>`, and **no** iframe survives sanitization. Read both tests fully
+before editing — `test_iframe_filtering` also covers Twitter and malicious iframes, and the "blocked"
+half of its assertions stays true.
+
+- [ ] **Step 10: Confirm the proxy is gone from the codebase**
 
 ```bash
-uv run pytest core/tests/test_default_views.py -q && uv run python manage.py check
+grep -rn "youtube-proxy\|dailymotion-proxy\|get_youtube_proxy_url\|youtube_proxy_view\|dailymotion_proxy_view" core/ yana/
 ```
 
-Expected: PASS and no system-check issues. A leftover `reverse("youtube_proxy")` anywhere would show
-up here — `grep -rn "youtube_proxy\|dailymotion_proxy" core/ yana/` should only match
-`get_youtube_proxy_url`, the Dailymotion URL literal in `mein_mmo/content_extraction.py`, and
-`html_cleaner`'s allowlist.
+Expected: matches only in `core/aggregators/utils/block_parser.py`'s retained legacy-guard test
+reference (if you kept one) and `core/tests/test_default_views.py`'s route-gone assertions. Anything
+else is a leftover. Also run:
 
-- [ ] **Step 7: Note why the markup outlives the endpoint**
-
-Add a short comment above `get_youtube_proxy_url` in `core/aggregators/utils/youtube.py`:
-
-```python
-# The /api/youtube-proxy endpoint no longer exists. This URL survives as the
-# internal marker the block parser reads the video id out of: it rewrites the
-# embed to a canonical https://www.youtube.com/watch?v=<id> before anything is
-# stored, so nothing ever fetches this path. See
-# core/aggregators/utils/block_parser.py::_embed_facade.
+```bash
+uv run python manage.py check
 ```
 
-and an equivalent one above the `proxy_url` assignment in
-`core/aggregators/mein_mmo/content_extraction.py` and above the iframe allowlist in
-`core/aggregators/utils/html_cleaner.py::sanitize_html_attributes`.
+A leftover `reverse("youtube_proxy")` would surface here.
 
-- [ ] **Step 8: Lint, format, type-check, full suite**
+- [ ] **Step 11: Full check**
 
 ```bash
 uv run ruff check core/ --fix && uv run ruff format core/ && uv run mypy core/ && uv run pytest -q
 ```
 
-- [ ] **Step 9: Commit**
+Expected: all green. Aggregator tests that asserted proxy URLs are expected to need the updates in
+Steps 2 and 9 — do **not** restore the proxy to make a test pass.
+
+- [ ] **Step 12: Commit**
 
 ```bash
-git add core/views/ core/urls/default.py core/aggregators/utils/youtube.py core/aggregators/utils/html_cleaner.py core/aggregators/mein_mmo/content_extraction.py core/tests/test_default_views.py && git commit -m "refactor(views): Delete the YouTube and Dailymotion embed proxies"
+git add core/aggregators core/views core/urls core/tests && git commit -m "refactor(embeds): Replace the video proxy with click-through facades"
 ```
 
 ---
