@@ -1,5 +1,6 @@
 """RSS aggregator base class."""
 
+import html
 from datetime import datetime
 from datetime import timezone as dt_timezone
 from email.utils import parsedate_to_datetime
@@ -63,17 +64,36 @@ class RssAggregator(BaseAggregator):
 
         for entry in entries[:limit]:
             article = {
-                "name": entry.get("title", ""),
+                "name": self._unescape_entities(entry.get("title", "")),
                 "identifier": entry.get("link", ""),
                 "raw_content": "",  # To be filled by enrich_articles
                 "content": entry.get("summary", ""),
                 "date": self._parse_date(entry.get("published")),
-                "author": entry.get("author", ""),
+                "author": self._unescape_entities(entry.get("author", "")),
                 "icon": None,
             }
             articles.append(article)
 
         return articles
+
+    @staticmethod
+    def _unescape_entities(value: str) -> str:
+        """Undo one layer of leftover HTML-entity encoding in plain-text feed metadata.
+
+        feedparser already decodes entities once while parsing an entry. Some
+        feeds double-encode their text (observed live on theverge.com/rss/index.xml:
+        titles like ``Apple&#8217;s iPhone`` survive feedparser's pass as a literal
+        ``&#8217;`` instead of becoming ``'``), while other entries in the very same
+        feed are already correctly decoded. ``html.unescape`` is idempotent -- a
+        no-op on text with no entities, or on a real apostrophe/ampersand -- so it
+        is safe to apply unconditionally rather than trying to detect which case
+        an entry is in.
+
+        Only ever call this on plain-text metadata (title, author). Never on HTML
+        content/summary: unescaping markup would corrupt it and could reintroduce
+        entity-encoded tags that the sanitizer stripped upstream.
+        """
+        return html.unescape(value) if value else value
 
     def _parse_date(self, date_str: Optional[str]) -> datetime:
         """Parse an RSS date string into an aware datetime.

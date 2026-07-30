@@ -1,5 +1,6 @@
 """Content formatting utilities."""
 
+import html
 from typing import Optional
 
 from .twitter import build_tweet_embed_html, is_twitter_url
@@ -75,9 +76,16 @@ def build_header_html(
             return None
         return "\n".join(['<header style="margin-bottom: 1.5em;">', tweet_embed, "</header>"])
 
+    # Both values are attacker-reachable (title decoded from feed entities --
+    # see RssAggregator._unescape_entities -- and header_image_url from a
+    # scraped <img src>), and both land inside an HTML attribute here. This is
+    # the last point before the header ships as stored article HTML: nothing
+    # downstream runs clean_html() on it again, so it must be escaped now.
     header_parts = [
         '<header style="margin-bottom: 1.5em; text-align: center;">',
-        f'<img src="{header_image_url}" alt="{title}" style="max-width: 100%; height: auto; border-radius: 8px;">',
+        f'<img src="{html.escape(header_image_url, quote=True)}" '
+        f'alt="{html.escape(title, quote=True)}" '
+        f'style="max-width: 100%; height: auto; border-radius: 8px;">',
     ]
     if header_caption_html:
         header_parts.append(header_caption_html)

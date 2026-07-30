@@ -54,13 +54,13 @@ class FeedContentAggregator(RssAggregator):
                 content = entry.get("description", "")
 
             article = {
-                "name": entry.get("title", ""),
+                "name": self._unescape_entities(entry.get("title", "")),
                 "identifier": entry.get("link", ""),
                 "raw_content": content,  # Store RSS content as raw_content
                 "content": content,  # Also store in content for processing
                 "summary": entry.get("summary", ""),  # Keep summary for fallback
                 "date": self._parse_date(entry.get("published")),
-                "author": entry.get("author", ""),
+                "author": self._unescape_entities(entry.get("author", "")),
                 "icon": None,
             }
             articles.append(article)
