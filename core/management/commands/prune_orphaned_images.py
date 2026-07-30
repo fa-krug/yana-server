@@ -4,12 +4,11 @@ Delete ``ArticleImage`` rows that no article references any more.
 Content-addressed storage needs a reaper: an image whose referencing articles
 are all gone is dead weight on disk and in the database.
 
-EFFICIENCY CAVEAT (temporary): until Spec 5 lands, finding references means
-scanning every ``Article.content`` for ``yana-img://`` hashes, because the only
-place a reference exists is that text. That is acceptable for a periodic
-maintenance command and unacceptable for anything hot. Once
-``ArticleBlock.image_ref`` exists and is indexed, this becomes a JOIN and this
-command should be rewritten accordingly.
+References live in ``ArticleBlock.image_ref`` and ``ArticleBlock.embed_thumbnail_ref``,
+and ``image_ref`` is indexed -- so finding them is an index read rather than a
+full-text scan of every article body. Articles that have no blocks at all (a
+failed conversion, or content predating the backfill) are the one exception:
+their ``content`` is still scanned, because their references exist nowhere else.
 
 The command also reports rows whose file is gone from disk (manual deletion,
 failed storage) -- the serving layer would 404 on those.
@@ -27,7 +26,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from core.aggregators.services.image_store import find_image_refs
-from core.models import Article, ArticleImage
+from core.models import Article, ArticleBlock, ArticleImage
 
 DEFAULT_MIN_AGE_DAYS = 7
 MISSING_FILE_REPORT_LIMIT = 20
@@ -59,7 +58,7 @@ class Command(BaseCommand):
         cutoff = timezone.now() - timedelta(days=options["min_age"])
 
         referenced = self._referenced_hashes()
-        self.stdout.write(f"{len(referenced)} image(s) referenced by article content")
+        self.stdout.write(f"{len(referenced)} image(s) referenced by article blocks/content")
 
         # Decide pass: a lightweight scalar snapshot, not full ArticleImage
         # instances -- a large table shouldn't need every row materialized as
@@ -89,13 +88,14 @@ class Command(BaseCommand):
         # onto an existing row without touching created_at, so a django-q2
         # aggregation task can commit a new article referencing a candidate
         # between the snapshot above and the deletes below. Re-checking here
-        # -- one more full pass over Article.content, not a per-candidate
-        # query -- narrows that race window to the delete loop's duration and
-        # keeps the cost at O(table size) regardless of orphan count. A
-        # per-candidate `content__contains` query is unindexable and, at
-        # scale, dominates the whole command: ~92ms per candidate measured on
-        # a 100MB/5000-article table, i.e. minutes once a retention sweep
-        # produces its usual few thousand orphans.
+        # -- one more index read over ArticleBlock (plus a scan of the small
+        # blockless-article remainder), not a per-candidate query -- narrows
+        # that race window to the delete loop's duration and keeps the cost
+        # bounded regardless of orphan count. A per-candidate `content__contains`
+        # query is unindexable and, at scale, dominates the whole command:
+        # ~92ms per candidate measured on a 100MB/5000-article table, i.e.
+        # minutes once a retention sweep produces its usual few thousand
+        # orphans.
         fresh_referenced = self._referenced_hashes()
 
         to_delete: list[tuple[int, int]] = []  # (pk, byte_size)
@@ -130,8 +130,8 @@ class Command(BaseCommand):
         if skipped_as_referenced:
             self.stdout.write(
                 self.style.WARNING(
-                    f"{skipped_as_referenced} image(s) skipped: referenced by article "
-                    "content written after this run's scan began"
+                    f"{skipped_as_referenced} image(s) skipped: referenced by an article "
+                    "block/content written after this run's scan began"
                 )
             )
 
@@ -146,13 +146,40 @@ class Command(BaseCommand):
 
     @staticmethod
     def _referenced_hashes() -> set[str]:
-        """Every hash referenced by any article's content."""
+        """
+        Every hash any article still references.
+
+        Blocks are the authority: ``image_ref`` and ``embed_thumbnail_ref`` are
+        both ``yana-img://`` references and ``image_ref`` is indexed, which is
+        what turns this from a full-text scan of every article body into an
+        index read.
+
+        Articles with **no** blocks are the exception and still get scanned. A
+        conversion failure or a body written before the backfill ran keeps its
+        references only in ``content``, and reaping those images would be
+        permanent data loss for a recoverable problem. Once an article has a
+        tree, its ``content`` is deliberately ignored -- a hash left behind
+        there by an earlier conversion is stale, not a reference.
+        """
         referenced: set[str] = set()
+
+        for column in ("image_ref", "embed_thumbnail_ref"):
+            values = (
+                ArticleBlock.objects.exclude(**{column: ""})
+                .values_list(column, flat=True)
+                .distinct()
+                .iterator(chunk_size=SCAN_CHUNK_SIZE)
+            )
+            for value in values:
+                referenced |= find_image_refs(value)
+
         contents = (
-            Article.objects.exclude(content="")
+            Article.objects.filter(blocks__isnull=True)
+            .exclude(content="")
             .values_list("content", flat=True)
-            .iterator(chunk_size=200)
+            .iterator(chunk_size=SCAN_CHUNK_SIZE)
         )
         for content in contents:
             referenced |= find_image_refs(content)
+
         return referenced

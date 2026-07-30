@@ -10,8 +10,9 @@ from django.utils import timezone
 
 import pytest
 
+from core.blocks.conversion import convert_article
 from core.management.commands import prune_orphaned_images
-from core.models import Article, ArticleImage
+from core.models import Article, ArticleBlock, ArticleImage
 
 
 @pytest.fixture(autouse=True)
@@ -147,3 +148,78 @@ class TestPruning:
         output = run(dry_run=True)
 
         assert "would delete 0" in output
+
+
+@pytest.mark.django_db
+def test_an_image_referenced_only_by_a_block_is_kept(article):
+    image = make_image("a" * 64)
+    article.content = ""
+    article.save()
+    ArticleBlock.objects.create(
+        article=article,
+        position=0,
+        kind="image",
+        image_ref=f"yana-img://{image.content_hash}",
+    )
+
+    run()
+
+    assert ArticleImage.objects.filter(pk=image.pk).exists()
+
+
+@pytest.mark.django_db
+def test_an_embed_thumbnail_reference_is_counted(article):
+    image = make_image("b" * 64)
+    article.content = ""
+    article.save()
+    ArticleBlock.objects.create(
+        article=article,
+        position=0,
+        kind="embed",
+        embed_provider="youtube",
+        embed_external_url="https://youtu.be/x",
+        embed_thumbnail_ref=f"yana-img://{image.content_hash}",
+    )
+
+    run()
+
+    assert ArticleImage.objects.filter(pk=image.pk).exists()
+
+
+@pytest.mark.django_db
+def test_a_blockless_articles_content_reference_is_still_honoured(article):
+    """A conversion failure must not turn into image loss."""
+    image = make_image("c" * 64)
+    article.content = f'<p><img src="yana-img://{image.content_hash}"></p>'
+    article.save()
+    assert not article.blocks.exists()
+
+    run()
+
+    assert ArticleImage.objects.filter(pk=image.pk).exists()
+
+
+@pytest.mark.django_db
+def test_an_unreferenced_image_is_still_deleted(article):
+    image = make_image("d" * 64)
+    article.content = ""
+    article.save()
+    convert_article(article)
+
+    run()
+
+    assert not ArticleImage.objects.filter(pk=image.pk).exists()
+
+
+@pytest.mark.django_db
+def test_content_of_an_article_that_has_blocks_is_not_scanned(article):
+    """Once an article has a tree, its blocks are the authority: a stale hash
+    left behind in content must not keep an image alive forever."""
+    image = make_image("e" * 64)
+    article.content = f'<p>stale <img src="yana-img://{image.content_hash}"></p>'
+    article.save()
+    ArticleBlock.objects.create(article=article, position=0, kind="divider")
+
+    run()
+
+    assert not ArticleImage.objects.filter(pk=image.pk).exists()
