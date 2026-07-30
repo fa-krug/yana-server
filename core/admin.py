@@ -480,11 +480,12 @@ class FeedAdmin(YanaDjangoQLMixin, ImportExportModelAdmin):
                 )
                 continue
 
+            # No zero-entries case to report: parse_rss_feed raises
+            # ValueError("No entries found in feed") for an empty feed, which the
+            # except above already turns into an ERROR message.
             entries = len(data.get("entries", []))
             self.message_user(
-                request,
-                f"{feed.name}: {resolved} yields {entries} entries",
-                messages.SUCCESS if entries else messages.WARNING,
+                request, f"{feed.name}: {resolved} yields {entries} entries", messages.SUCCESS
             )
 
     @admin.action(description="Refresh feed logo")

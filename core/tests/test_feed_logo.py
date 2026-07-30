@@ -1,6 +1,7 @@
 """Tests for per-feed logo resolution and storage."""
 
 import io
+import logging
 import os
 from unittest.mock import patch
 
@@ -332,3 +333,29 @@ def test_store_feed_logo_survives_the_old_file_already_being_gone(user, settings
     feed.refresh_from_db()
     assert feed.logo
     assert os.path.exists(feed.logo.path)
+
+
+@pytest.mark.django_db
+def test_a_silent_no_logo_is_logged_above_debug(user, caplog):
+    """A feed that ends up without a logo must leave a trace at INFO or above.
+
+    The handler goes on the configured ``core`` logger (INFO, ``propagate:
+    False``), so a DEBUG record would not show up here -- which is exactly how
+    the silent no-logo outcome used to hide.
+    """
+    feed = Feed.objects.create(
+        name="Broken", aggregator="full_website", identifier="not a url", user=user
+    )
+
+    core_logger = logging.getLogger("core")
+    core_logger.addHandler(caplog.handler)
+    try:
+        with patch("core.aggregators.feed_logo.resolve_feed_logo_url", return_value=None):
+            assert store_feed_logo(feed) is False
+    finally:
+        core_logger.removeHandler(caplog.handler)
+
+    assert any(
+        record.levelno >= logging.INFO and "No logo resolved" in record.getMessage()
+        for record in caplog.records
+    )

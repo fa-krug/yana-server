@@ -42,13 +42,13 @@ def resolve_feed_logo_url(feed) -> str | None:
     try:
         aggregator = get_aggregator(feed)
     except Exception as exc:
-        logger.debug(f"No aggregator for feed {feed.pk}: {exc}")
+        logger.warning(f"No aggregator for feed {feed.pk}: {exc}")
         return None
 
     try:
         api_image = aggregator.logo_image_url()
     except Exception as exc:
-        logger.debug(f"API logo lookup failed for feed {feed.pk}: {exc}")
+        logger.warning(f"API logo lookup failed for feed {feed.pk}: {exc}")
         api_image = None
 
     if api_image:
@@ -116,7 +116,7 @@ def store_feed_logo(feed) -> bool:
         return False
 
     if not source_url:
-        logger.debug(f"No logo resolved for feed {feed.pk}")
+        logger.info(f"No logo resolved for feed {feed.pk}")
         return False
 
     try:

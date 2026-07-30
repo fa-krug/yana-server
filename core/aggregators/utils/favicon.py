@@ -114,7 +114,7 @@ def resolve_site_icon(site_url: str) -> str | None:
     try:
         html = fetch_html(site_url, timeout=ICON_TIMEOUT, retries=ICON_RETRIES)
     except Exception as exc:
-        logger.debug(f"Could not fetch {site_url} for its icon: {exc}")
+        logger.warning(f"Could not fetch {site_url} for its icon: {exc}")
         html = ""
 
     if html:

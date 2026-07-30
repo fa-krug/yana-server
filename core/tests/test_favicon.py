@@ -1,5 +1,6 @@
 """Tests for site favicon selection."""
 
+import logging
 from unittest.mock import patch
 
 import requests
@@ -145,3 +146,27 @@ def test_resolve_site_icon_bounds_its_page_fetch():
 
     assert fetch.call_args.kwargs["timeout"] == ICON_TIMEOUT
     assert fetch.call_args.kwargs["retries"] == ICON_RETRIES
+
+
+def test_an_unreachable_site_is_logged_above_debug(caplog):
+    """ "No icon because the site was unreachable" must not be invisible.
+
+    The handler is attached to the configured ``core`` logger (settings set it to
+    INFO with ``propagate: False``), so this asserts the record really is emitted
+    under the project's own threshold -- a DEBUG record would be dropped.
+    """
+    core_logger = logging.getLogger("core")
+    core_logger.addHandler(caplog.handler)
+    try:
+        with patch(
+            "core.aggregators.utils.favicon.fetch_html",
+            side_effect=requests.RequestException("boom"),
+        ):
+            resolve_site_icon("https://heise.de/")
+    finally:
+        core_logger.removeHandler(caplog.handler)
+
+    assert any(
+        record.levelno >= logging.INFO and "for its icon" in record.getMessage()
+        for record in caplog.records
+    )
