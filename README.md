@@ -97,7 +97,8 @@ replace it. Third-party RSS readers are not supported in the meantime.
     -   Podcasts
     -   Specialized scrapers for websites
 -   **Background Processing:** Automatic feed updates using `django-q2`.
--   **Admin Interface:** Manage feeds, view fetching status, and trigger updates directly from the Django admin.
+-   **Easy Feed Setup:** Paste a homepage URL like `golem.de` when adding a feed -- Yana resolves it to the site's advertised feed on save, and fetches a logo for it automatically.
+-   **Admin Interface:** Manage feeds, view fetching status, and trigger updates directly from the Django admin, including **Resolve & test** (check a feed without saving) and **Refresh feed logo** actions.
 
 ---
 

@@ -182,6 +182,74 @@ For a scraper that does opt in, the intended resolution order is: dedicated cont
 extraction (≥80 chars) → RSS summary. Wiring these into a specific scraper is out of scope here —
 see `docs/superpowers/specs/2026-07-29-aggregator-parity-2-scrapers-and-types-design.md`.
 
+## Feed authoring
+
+Feeds can be created from a bare homepage URL instead of the feed URL itself, and pick up a logo
+without any manual work.
+
+### Resolving a pasted URL
+
+`BaseAggregator.resolves_feed_url()` is `True` only for the free-form URL identifier types —
+`full_website`, `feed_content`, and `podcast`. Managed scrapers pick their identifier from a fixed
+`identifier_choices` list, and Reddit/YouTube hold a subreddit name or channel id, so neither kind
+is ever normalized or resolved as a URL.
+
+For a resolving aggregator, `FeedAdminForm.clean_identifier()` runs the pasted value through
+`core/aggregators/utils/feed_url_resolver.py`:
+
+- `normalize()` trims the string, prepends `https://` when no scheme is present, and rewrites a
+  `feed://` scheme to `https://`.
+- `resolve_feed_url()` normalizes, then tries to parse the result as a feed. If that fails, it
+  fetches the page and looks for an advertised feed link (`feed_discovery.py`'s
+  `feed_url_in_html()` / `discover_feed_url()`, RSS preferred over Atom when a page advertises
+  both). It never raises — a dead site, an unreachable host, or a page with no feed link all just
+  return the normalized input, so a bad paste never blocks saving the feed.
+
+Pasting `golem.de` into a `full_website` feed's identifier and saving therefore stores the
+resolved feed URL, not the homepage. `FeedAdmin`'s **Resolve & test** action runs the same
+resolution and reports the entry count without saving anything, so it is safe on a feed you are
+still configuring.
+
+### RSS discovery fallback (not cached)
+
+`RssAggregator.fetch_source_data()` carries the same fallback independently of the admin form: if
+the stored identifier does not parse as a feed, it tries discovering one from the page and
+refetches. This runs on every aggregation pass — discovery is **not cached** — so a site that
+changes its advertised feed URL is picked up on the next run without a manual edit. The cost is
+that every fetch of a homepage-identifier feed makes one extra request when the identifier itself
+never parses as a feed.
+
+### Feed logos
+
+`Feed.logo` / `Feed.logo_source_url` resolve through three tiers, implemented by
+`core/aggregators/feed_logo.py`'s `resolve_feed_logo_url()`:
+
+1. `BaseAggregator.logo_image_url()` — an API-provided image. `None` by default; overridden by
+   Reddit (subreddit icon) and YouTube (channel avatar).
+2. `BaseAggregator.brand_site_url` — for the nine fixed-brand scrapers (Heise, Merkur, Tagesschau,
+   Explosm, Dark Legacy Comics, Caschy's Blog, MacTechNews, Oglaf, Mein-MMO), the brand's own
+   favicon rather than whatever feed URL the identifier happens to be.
+3. The feed identifier's own origin, for everything else.
+
+Only the site's own domain is ever contacted — there is no third-party favicon service, which
+would otherwise leak every subscribed URL to it. Favicon selection (`utils/favicon.py`) prefers an
+`apple-touch-icon`, then the largest declared `sizes`, then falls back to `/favicon.ico`
+unverified. A downloaded logo with a flood-fillable white border (`utils/logo_background.py`, the
+same 240 / 0.85 thresholds as the iOS client) gets that background stripped to transparent; a logo
+that isn't white-backed is stored as downloaded.
+
+Logos resolve on save — when the identifier or aggregator changed, or none is stored yet — never
+on every aggregation run. `FeedAdmin`'s **Refresh feed logo** action re-runs resolution manually.
+
+### AI selector suggestions
+
+`core/services/selector_suggester.py` asks the user's configured AI provider to propose either
+`content_selectors` or `ignore_selectors` (never both at once) for a feed, from a size-capped
+markup digest of one article page. `FeedAdmin` exposes this as two actions, **Suggest content
+selectors** and **Suggest ignore selectors** — both hidden entirely from the action list (not just
+disabled) when `has_ai_provider()` reports no AI provider configured for the user, matching the
+iOS client's behavior.
+
 ## Creating a New Aggregator
 
 To add a new aggregator type:

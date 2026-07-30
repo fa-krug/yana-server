@@ -83,6 +83,7 @@ Yana/
 │   │   ├── registry.py          # AggregatorRegistry factory
 │   │   ├── rss.py               # RssAggregator base
 │   │   ├── website.py           # FullWebsiteAggregator
+│   │   ├── feed_logo.py         # Per-feed logo resolution + storage
 │   │   ├── youtube/             # YouTube channel aggregator
 │   │   ├── reddit/              # Reddit subreddit aggregator
 │   │   ├── podcast/             # Podcast feed aggregator
@@ -100,13 +101,18 @@ Yana/
 │   │       ├── content_extractor.py # HTML extraction
 │   │       ├── html_cleaner.py      # Sanitization
 │   │       ├── rss_parser.py        # RSS/Atom parsing
-│   │       └── youtube_client.py    # YouTube API
+│   │       ├── youtube_client.py    # YouTube API
+│   │       ├── feed_discovery.py    # <link rel=alternate> feed discovery
+│   │       ├── feed_url_resolver.py # normalize + resolve pasted URLs
+│   │       ├── favicon.py           # site icon selection
+│   │       └── logo_background.py   # white-background removal (Pillow)
 │   │
 │   ├── services/                 # Business logic layer
 │   │   ├── aggregator_service.py    # Feed aggregation
 │   │   ├── article_service.py       # Article operations
 │   │   ├── email_service.py         # Email notifications
-│   │   └── maintenance_service.py   # DB maintenance
+│   │   ├── maintenance_service.py   # DB maintenance
+│   │   └── selector_suggester.py    # AI content/ignore selector suggestions
 │   │
 │   ├── views/
 │   │   └── default.py               # Health, YouTube proxy, Dailymotion proxy
@@ -216,7 +222,7 @@ def test_feed_creation(user):
 | Model | Key Fields | Notes |
 |-------|-----------|-------|
 | `FeedGroup` | name, user | Unique per (name, user) |
-| `Feed` | name, aggregator, identifier, user, group, enabled, daily_limit | 14 aggregator types |
+| `Feed` | name, aggregator, identifier, user, group, enabled, daily_limit, logo, logo_source_url | 14 aggregator types |
 | `Article` | name, identifier, content, raw_content, date, read, starred, feed | Use `select_related("feed")` |
 | `UserSettings` | user, youtube_api_key, reddit_*, openai_* | API credentials |
 | `RedditSubreddit` | name, user | Reddit feed reference |
