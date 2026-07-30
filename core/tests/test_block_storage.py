@@ -1,5 +1,7 @@
 """Block trees round-trip through rows, in a bounded number of queries."""
 
+import logging
+
 import pytest
 
 from core.blocks.storage import load_blocks, load_blocks_for_articles, write_blocks
@@ -126,7 +128,28 @@ def test_a_list_whose_children_are_not_items_still_reads_back(article):
 
 
 @pytest.mark.django_db
-def test_a_stray_root_list_item_is_skipped(article):
+def test_a_stray_root_list_item_is_skipped(article, caplog):
     write_blocks(article, [Paragraph(runs=[InlineRun(text="a")])])
     ArticleBlock.objects.filter(article=article).update(kind="list_item")
-    assert load_blocks(article) == []
+    # settings.py's LOGGING sets `"core": {"propagate": False}`, so records
+    # from `core.blocks.storage` never reach caplog's root-attached handler
+    # by propagation alone -- attach it here directly.
+    storage_logger = logging.getLogger("core.blocks.storage")
+    storage_logger.addHandler(caplog.handler)
+    try:
+        with caplog.at_level("WARNING", logger="core.blocks.storage"):
+            assert load_blocks(article) == []
+    finally:
+        storage_logger.removeHandler(caplog.handler)
+    assert "Skipping root-level list_item row" in caplog.text
+
+
+@pytest.mark.django_db
+def test_a_list_keeps_its_empty_items(article):
+    """An empty item -- a `list_item` row with no children -- is a real, if
+    unusual, entry in `ListBlock.items` and must round-trip as `[]`, not be
+    dropped. Whether an empty item should exist is the writer's/parser's call,
+    not the reader's."""
+    tree = [ListBlock(ordered=False, items=[[Paragraph(runs=[InlineRun(text="a")])], []])]
+    write_blocks(article, tree)
+    assert load_blocks(article) == tree

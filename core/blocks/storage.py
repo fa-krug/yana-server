@@ -16,6 +16,8 @@ from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
+from django.db import transaction
+
 from core.models import Article, ArticleBlock, ArticleInlineRun
 
 from .types import (
@@ -127,29 +129,38 @@ def write_blocks(article: Article, blocks: Sequence[Block]) -> int:
     Root ordering is enforced here, not by the database: the
     ``uniq_block_position`` constraint cannot cover ``parent IS NULL`` rows on
     SQLite, so sequential root positions are this function's contract.
+
+    The delete-then-rewrite is wrapped in ``transaction.atomic()`` so it is
+    all-or-nothing: without it, a failure partway through the per-level
+    ``bulk_create`` loop would leave the old tree deleted and the new one only
+    half-written. Django nests ``atomic()`` as a savepoint, so callers that
+    already run inside their own transaction (e.g. ``conversion.py`` alongside
+    the ``plain_text`` save) are unaffected -- they simply get one more
+    savepoint, not a second top-level transaction.
     """
-    ArticleBlock.objects.filter(article=article).delete()
+    with transaction.atomic():
+        ArticleBlock.objects.filter(article=article).delete()
 
-    written = 0
-    pending_runs: list[ArticleInlineRun] = []
-    level: list[tuple[Block | _ListItem, ArticleBlock | None, int]] = [
-        (block, None, position) for position, block in enumerate(blocks)
-    ]
+        written = 0
+        pending_runs: list[ArticleInlineRun] = []
+        level: list[tuple[Block | _ListItem, ArticleBlock | None, int]] = [
+            (block, None, position) for position, block in enumerate(blocks)
+        ]
 
-    while level:
-        rows = [_row_for(article, block, parent, position) for block, parent, position in level]
-        ArticleBlock.objects.bulk_create(rows)
-        written += len(rows)
+        while level:
+            rows = [_row_for(article, block, parent, position) for block, parent, position in level]
+            ArticleBlock.objects.bulk_create(rows)
+            written += len(rows)
 
-        next_level: list[tuple[Block | _ListItem, ArticleBlock | None, int]] = []
-        for (block, _parent, _position), row in zip(level, rows, strict=True):
-            pending_runs.extend(_runs_for(row, block))
-            next_level.extend(_children_of(block, row))
-        level = next_level
+            next_level: list[tuple[Block | _ListItem, ArticleBlock | None, int]] = []
+            for (block, _parent, _position), row in zip(level, rows, strict=True):
+                pending_runs.extend(_runs_for(row, block))
+                next_level.extend(_children_of(block, row))
+            level = next_level
 
-    if pending_runs:
-        ArticleInlineRun.objects.bulk_create(pending_runs)
-    return written
+        if pending_runs:
+            ArticleInlineRun.objects.bulk_create(pending_runs)
+        return written
 
 
 def _runs_of(row: ArticleBlock) -> list[InlineRun]:
@@ -189,8 +200,11 @@ def _block_for(row: ArticleBlock, children: dict[int, list[ArticleBlock]]) -> Bl
                     # dropping content.
                     stray = _block_for(kid, children)
                     item = [stray] if stray is not None else []
-                if item:
-                    items.append(item)
+                # A genuinely empty item (a `list_item` row with no children)
+                # is still an item -- appended as `[]`, not dropped. Storage
+                # reads back faithfully; whether an empty item should exist is
+                # the writer's/parser's call, not the reader's.
+                items.append(item)
             return ListBlock(ordered=bool(row.ordered), items=items)
         case "blockquote":
             inner = [
