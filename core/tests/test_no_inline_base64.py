@@ -21,7 +21,7 @@ ALLOWED_DATA_URI_MENTIONS = {
 
 def production_modules():
     for path in sorted(PRODUCTION_ROOT.rglob("*.py")):
-        if "tests" in path.parts or path.name.startswith("test"):
+        if "tests" in path.parts or path.name.startswith("tests_"):
             continue
         if "migrations" in path.parts:
             continue
