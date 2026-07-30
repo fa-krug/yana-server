@@ -28,6 +28,72 @@ def stored_image():
     return image
 
 
+@pytest.fixture
+def two_images_with_distinct_byte_sizes():
+    """Two rows whose byte sizes sum to a value that appears nowhere else on the
+    page, so the changelist total can only be right if it is genuinely summed
+    rather than borrowed from a single row's own byte-size column."""
+    first = ArticleImage(
+        content_hash="aa" * 32,
+        content_type="image/webp",
+        width=101,
+        height=102,
+        byte_size=1300,
+    )
+    first.file.save(f"{'aa' * 32}.webp", ContentFile(b"first"), save=False)
+    first.save()
+
+    second = ArticleImage(
+        content_hash="bb" * 32,
+        content_type="image/png",
+        width=103,
+        height=104,
+        byte_size=2500,
+    )
+    second.file.save(f"{'bb' * 32}.png", ContentFile(b"second"), save=False)
+    second.save()
+
+    return first, second
+
+
+@pytest.fixture
+def images_by_content_type():
+    """Two ``image/webp`` rows and one ``image/png`` row. Byte sizes are chosen
+    so the webp-only total (3300) differs from every individual byte size,
+    every dimension, and the unfiltered total (13299)."""
+    webp_one = ArticleImage(
+        content_hash="cc" * 32,
+        content_type="image/webp",
+        width=201,
+        height=202,
+        byte_size=1100,
+    )
+    webp_one.file.save(f"{'cc' * 32}.webp", ContentFile(b"webp-one"), save=False)
+    webp_one.save()
+
+    webp_two = ArticleImage(
+        content_hash="dd" * 32,
+        content_type="image/webp",
+        width=203,
+        height=204,
+        byte_size=2200,
+    )
+    webp_two.file.save(f"{'dd' * 32}.webp", ContentFile(b"webp-two"), save=False)
+    webp_two.save()
+
+    png_one = ArticleImage(
+        content_hash="ee" * 32,
+        content_type="image/png",
+        width=205,
+        height=206,
+        byte_size=9999,
+    )
+    png_one.file.save(f"{'ee' * 32}.png", ContentFile(b"png-one"), save=False)
+    png_one.save()
+
+    return webp_one, webp_two, png_one
+
+
 @pytest.mark.django_db
 class TestArticleImageChangelist:
     def test_the_changelist_shows_the_image(self, admin_client, stored_image):
@@ -39,10 +105,25 @@ class TestArticleImageChangelist:
         assert "image/webp" in content
         assert "800" in content
 
-    def test_the_changelist_totals_the_stored_bytes(self, admin_client, stored_image):
+    def test_the_changelist_totals_the_stored_bytes(
+        self, admin_client, two_images_with_distinct_byte_sizes
+    ):
         response = admin_client.get(reverse("admin:core_articleimage_changelist"))
 
-        assert "2048" in response.content.decode()
+        assert "3800" in response.content.decode()
+
+    def test_the_changelist_total_reflects_the_active_filter(
+        self, admin_client, images_by_content_type
+    ):
+        response = admin_client.get(
+            reverse("admin:core_articleimage_changelist"),
+            {"content_type": "image/webp"},
+        )
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "3300" in content
+        assert "13299" not in content
 
     def test_hash_prefix_search_finds_the_row(self, admin_client, stored_image):
         response = admin_client.get(
