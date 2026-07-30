@@ -208,6 +208,53 @@ def _image_block(img: Tag, caption: Sequence[InlineRun] = ()) -> ImageBlock | No
     return ImageBlock(ref=src, caption=list(caption))
 
 
+def _has_dropped_ancestor(element: Tag, scanned: Tag) -> bool:
+    """
+    True if some ancestor of ``element``, strictly between it and ``scanned``,
+    is a ``DROPPED_TAGS`` element.
+
+    ``DROPPED_TAGS`` subtrees (table cells, ``<noscript>`` fallbacks, ...)
+    never hold real content -- see the module docstring -- so an
+    ``img``/``video`` a publisher tucks inside one (a ``<noscript>`` lazy-load
+    fallback sitting next to the real, already-visible tag is a standard
+    pattern) must not be recovered as a duplicate of the sibling that already
+    is. Walks the whole chain, not just the immediate parent: the media can be
+    nested arbitrarily deep inside the dropped subtree.
+    """
+    parent = element.parent
+    while parent is not None and parent is not scanned:
+        if (parent.name or "").lower() in DROPPED_TAGS:
+            return True
+        parent = parent.parent
+    return False
+
+
+def _recoverable_media(scanned: Tag) -> list[Tag]:
+    """
+    ``<img>``/``<video>`` descendants of ``scanned`` eligible for splitting out
+    of running text, in document order -- excluding any living inside a
+    ``DROPPED_TAGS`` subtree (see ``_has_dropped_ancestor``).
+    """
+    return [el for el in scanned.select("img, video") if not _has_dropped_ancestor(el, scanned)]
+
+
+def _media_block(element: Tag, caption: Sequence[InlineRun] = ()) -> Block | None:
+    """
+    An ``<img>`` or ``<video>`` -> its block, dispatched by tag name.
+
+    Shared by every path that recovers media split out of running text: the
+    ``<p>`` branch, the ``INLINE_TAGS`` branch, and ``_figure_blocks``.
+    ``caption`` only applies to images -- ``EmbedBlock`` has no caption slot --
+    so it is simply unused for a ``<video>``.
+    """
+    tag = (element.name or "").lower()
+    if tag == "img":
+        return _image_block(element, caption)
+    if tag == "video":
+        return _video_embed(element)
+    return None
+
+
 def _list_block(element: Tag, ordered: bool, base_url: str) -> ListBlock | None:
     """
     A ``ul``/``ol`` -> a list block, or None when nothing survives.
@@ -227,18 +274,20 @@ def _list_block(element: Tag, ordered: bool, base_url: str) -> ListBlock | None:
 
 
 def _figure_blocks(element: Tag, base_url: str) -> list[Block]:
-    imgs = element.select("img")
-    if imgs:
+    media = _recoverable_media(element)
+    if media:
         figcaption = _first(element, "figcaption")
         caption = _trimmed(_inline_runs(figcaption, base_url)) if figcaption is not None else []
         # The figcaption describes the figure as a whole, but a block is one
-        # image with its own caption slot -- there is nowhere to attach a
-        # shared caption to every image without duplicating it. Give it to
-        # the first image only, the common case (one image, one caption).
+        # item with its own caption slot -- there is nowhere to attach a
+        # shared caption to every item without duplicating it. Give it to the
+        # first item only, the common case (one image, one caption); a
+        # leading <video> has nowhere to put it since EmbedBlock has no
+        # caption slot, so `_media_block` simply drops it there.
         blocks: list[Block] = [
             block
             for block in (
-                _image_block(img, caption if index == 0 else ()) for index, img in enumerate(imgs)
+                _media_block(el, caption if index == 0 else ()) for index, el in enumerate(media)
             )
             if block is not None
         ]
@@ -409,22 +458,22 @@ def _tweet_embed(element: Tag) -> EmbedBlock | None:
 def _convert(container: Tag, base_url: str) -> list[Block]:
     blocks: list[Block] = []
     inline: list[InlineRun] = []
-    # Images found inside an inline element (e.g. a lightbox `<a><img></a>`
+    # Media found inside an inline element (e.g. a lightbox `<a><img></a>`
     # with no `<p>`/`<figure>` ancestor) can't be spliced into `blocks`
-    # immediately -- that would land the image before text that is still
-    # buffering in `inline` and hasn't been emitted as a paragraph yet.
-    # Queue them here and let the next `flush()` place them right after the
-    # paragraph they were found alongside.
-    pending_images: list[ImageBlock] = []
+    # immediately -- that would land it before text that is still buffering
+    # in `inline` and hasn't been emitted as a paragraph yet. Queue it here
+    # and let the next `flush()` place it right after the paragraph it was
+    # found alongside.
+    pending_media: list[Block] = []
 
     def flush() -> None:
         runs = _trimmed(inline)
         if runs:
             blocks.append(Paragraph(runs=runs))
         inline.clear()
-        if pending_images:
-            blocks.extend(pending_images)
-            pending_images.clear()
+        if pending_media:
+            blocks.extend(pending_media)
+            pending_media.clear()
 
     for node in _child_nodes(container):
         if isinstance(node, _NON_TEXT_STRINGS):
@@ -446,15 +495,15 @@ def _convert(container: Tag, base_url: str) -> list[Block]:
 
         if tag in INLINE_TAGS:
             inline.extend(_inline_runs(node, base_url))
-            # _inline_runs drops images (media cannot live inside a text
-            # run) -- recover them the same way the <p> branch does, so an
-            # image wrapped in a lightbox anchor or other inline element
+            # _inline_runs drops media (cannot live inside a text run) --
+            # recover it the same way the <p> branch does, so an image or
+            # video wrapped in a lightbox anchor or other inline element
             # with no <p>/<figure> ancestor is not lost outright. Queued
-            # rather than appended directly: see `pending_images` above.
-            for img in node.select("img"):
-                block = _image_block(img)
+            # rather than appended directly: see `pending_media` above.
+            for media in _recoverable_media(node):
+                block = _media_block(media)
                 if block is not None:
-                    pending_images.append(block)
+                    pending_media.append(block)
             continue
 
         if tag == "br":
@@ -466,12 +515,16 @@ def _convert(container: Tag, base_url: str) -> list[Block]:
             runs = _trimmed(_inline_runs(node, base_url))
             if runs:
                 blocks.append(Paragraph(runs=runs))
-            # _inline_runs drops images, so a paragraph that wraps media --
+            # _inline_runs drops media, so a paragraph that wraps it --
             # Reddit emits Giphy, gallery and inline images as exactly
-            # <p><img></p> -- would otherwise vanish. Split them out as their
-            # own blocks after the text; a pure-image <p> yields just the image.
-            for img in node.select("img"):
-                block = _image_block(img)
+            # <p><img></p>, and a <video> can appear the same way -- would
+            # otherwise vanish. Split it out as its own block after the text,
+            # in document order; a pure-media <p> yields just that block.
+            # `_recoverable_media` also keeps a duplicate stashed in a
+            # DROPPED_TAGS fallback (e.g. a <noscript> lazy-load twin) from
+            # being emitted alongside the real one.
+            for media in _recoverable_media(node):
+                block = _media_block(media)
                 if block is not None:
                     blocks.append(block)
             continue

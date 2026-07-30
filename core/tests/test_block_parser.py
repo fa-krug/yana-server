@@ -297,6 +297,85 @@ def test_inline_wrapped_image_keeps_its_surrounding_text_in_order():
     ]
 
 
+def test_noscript_wrapped_image_in_a_paragraph_is_not_emitted():
+    """<noscript> is a DROPPED_TAGS member -- its subtree never holds real
+    content, so an image tucked inside it (a lazy-load fallback) must not be
+    recovered, even though the <p> branch splits real images out of the text
+    it wraps."""
+    ref = "yana-img://" + "5" * 64
+    html = f'<p><noscript><img src="{ref}"></noscript></p>'
+    assert blocks_from_html(html) == []
+
+
+def test_noscript_wrapped_image_in_an_inline_element_is_not_emitted():
+    html = 'before <a href="https://x/"><noscript><img src="yana-img://a"></noscript></a> after'
+    blocks = blocks_from_html(html)
+    assert not any(isinstance(block, ImageBlock) for block in blocks)
+
+
+def test_noscript_wrapped_image_in_a_figure_is_not_emitted():
+    html = '<figure><noscript><img src="yana-img://a"></noscript></figure>'
+    assert blocks_from_html(html) == []
+
+
+def test_image_duplicated_inside_noscript_next_to_the_real_tag_in_a_link():
+    """The exact reproduction: `<noscript><img></noscript>` next to a
+    lazy-loading `<img>` is a standard publisher pattern, and both used to be
+    emitted -- once each, both pointing at the same image."""
+    ref = "yana-img://A"
+    html = f'<div><a href="https://x/"><noscript><img src="{ref}"></noscript><img src="{ref}"></a></div>'  # noqa: E501
+    assert blocks_from_html(html) == [ImageBlock(ref=ref)]
+
+
+def test_image_duplicated_inside_noscript_next_to_the_real_tag_in_a_paragraph():
+    """Same defect, but reachable through the <p> branch, which has had it
+    all along -- not something the inline branch introduced."""
+    ref = "yana-img://B"
+    html = f'<p><noscript><img src="{ref}"></noscript><img src="{ref}"></p>'
+    assert blocks_from_html(html) == [ImageBlock(ref=ref)]
+
+
+def test_image_nested_several_levels_inside_a_dropped_subtree_is_skipped():
+    """The ancestor walk must not stop at the immediate parent -- the image
+    can be nested arbitrarily deep inside the dropped subtree."""
+    html = (
+        '<p><noscript><a href="https://x/"><span><img src="yana-img://a"></span></a></noscript></p>'  # noqa: E501
+    )
+    assert blocks_from_html(html) == []
+
+
+def test_video_is_recovered_from_a_paragraph():
+    html = '<p>caption<video src="https://v/x.mp4"></video></p>'
+    blocks = blocks_from_html(html)
+    assert [type(block) for block in blocks] == [Paragraph, EmbedBlock]
+    assert blocks[1].external_url == "https://v/x.mp4"
+
+
+def test_video_is_recovered_from_an_inline_element():
+    """The worse half of the defect: previously *everything* was lost, not
+    just the video -- a publisher wrapping a video in a link is ordinary
+    markup, same class of loss the image-recovery paths already guard
+    against."""
+    html = '<div><a href="https://x/"><video src="https://v/y.mp4"></video></a></div>'
+    blocks = blocks_from_html(html)
+    assert blocks == [EmbedBlock(provider="video", external_url="https://v/y.mp4")]
+
+
+def test_block_level_video_still_becomes_an_embed_block():
+    """Control case: this path must keep working unchanged."""
+    blocks = blocks_from_html('<video src="https://v/z.mp4"></video>')
+    assert blocks == [EmbedBlock(provider="video", external_url="https://v/z.mp4")]
+
+
+def test_paragraph_recovers_image_then_video_in_document_order():
+    ref = "yana-img://" + "6" * 64
+    html = f'<p>text<img src="{ref}"><video src="https://v/w.mp4"></video></p>'
+    blocks = blocks_from_html(html)
+    assert [type(block) for block in blocks] == [Paragraph, ImageBlock, EmbedBlock]
+    assert blocks[1].ref == ref
+    assert blocks[2].external_url == "https://v/w.mp4"
+
+
 def test_plain_text_walks_lists_quotes_captions_and_code():
     html = (
         "<ul><li>item</li></ul>"
