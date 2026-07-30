@@ -16,6 +16,7 @@ from django_q.models import Failure, OrmQ, Schedule, Task
 from djangoql.admin import DjangoQLSearchMixin
 from import_export.admin import ImportExportMixin, ImportExportModelAdmin
 
+from .aggregators.feed_logo import store_feed_logo
 from .aggregators.utils import parse_rss_feed, resolve_feed_url
 from .forms import FeedAdminForm, TextareaWithCopyButtonWidget, UserSettingsAdminForm
 from .models import Article, Feed, FeedGroup, RedditSubreddit, UserSettings, YouTubeChannel
@@ -158,6 +159,7 @@ class FeedAdmin(YanaDjangoQLMixin, ImportExportModelAdmin):
     readonly_fields = ["created_at", "updated_at"]
     actions = [
         "resolve_and_test_feeds",
+        "refresh_feed_logos",
         "aggregate_selected_feeds",
         "force_delete_selected",
         "delete_all_articles",
@@ -461,6 +463,23 @@ class FeedAdmin(YanaDjangoQLMixin, ImportExportModelAdmin):
                 f"{feed.name}: {resolved} yields {entries} entries",
                 messages.SUCCESS if entries else messages.WARNING,
             )
+
+    @admin.action(description="Refresh feed logo")
+    def refresh_feed_logos(self, request, queryset):
+        """Re-resolve and re-download the logo for the selected feeds."""
+        for feed in queryset:
+            try:
+                stored = store_feed_logo(feed)
+            except Exception as exc:
+                self.message_user(request, f"{feed.name}: logo failed -- {exc}", messages.ERROR)
+                continue
+
+            if stored:
+                self.message_user(
+                    request, f"{feed.name}: logo from {feed.logo_source_url}", messages.SUCCESS
+                )
+            else:
+                self.message_user(request, f"{feed.name}: no logo resolved", messages.WARNING)
 
     @admin.action(description="Aggregate selected feeds")
     def aggregate_selected_feeds(self, request, queryset):

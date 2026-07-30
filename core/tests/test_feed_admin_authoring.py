@@ -110,3 +110,50 @@ def test_resolve_and_test_action_reports_a_failure(rf, user):
         admin_instance.resolve_and_test_feeds(request, Feed.objects.filter(pk=feed.pk))
 
     assert any("No entries" in message for message in messages)
+
+
+@pytest.mark.django_db
+def test_form_save_resolves_the_logo_when_the_identifier_changed():
+    with (
+        patch("core.forms.resolve_feed_url", return_value="https://golem.de/rss.php"),
+        patch("core.forms.store_feed_logo", return_value=True) as store,
+    ):
+        form = FeedAdminForm(data=_form_data())
+        assert form.is_valid(), form.errors
+        feed = form.save()
+
+    store.assert_called_once_with(feed)
+
+
+@pytest.mark.django_db
+def test_form_save_survives_a_logo_failure(user):
+    with (
+        patch("core.forms.resolve_feed_url", return_value="https://golem.de/rss.php"),
+        patch("core.forms.store_feed_logo", side_effect=OSError("dead")),
+    ):
+        form = FeedAdminForm(data=_form_data())
+        assert form.is_valid(), form.errors
+        feed = form.save()
+
+    assert feed.pk is not None
+
+
+@pytest.mark.django_db
+def test_refresh_logo_action_reports_per_feed(rf, user):
+    feed = Feed.objects.create(
+        name="Golem", aggregator="full_website", identifier="https://golem.de/rss.php", user=user
+    )
+    admin_instance = FeedAdmin(Feed, None)
+    request = rf.post("/admin/core/feed/")
+    request.user = user
+    messages = []
+
+    with (
+        patch("core.admin.store_feed_logo", return_value=True),
+        patch.object(
+            FeedAdmin, "message_user", lambda self, req, msg, *a, **kw: messages.append(msg)
+        ),
+    ):
+        admin_instance.refresh_feed_logos(request, Feed.objects.filter(pk=feed.pk))
+
+    assert any("Golem" in message for message in messages)

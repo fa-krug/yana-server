@@ -7,9 +7,14 @@ raised into feed saving.
 """
 
 import logging
+import os
 from urllib.parse import urlparse
 
+from django.core.files.base import ContentFile
+
 from .utils.favicon import resolve_site_icon
+from .utils.html_fetcher import fetch_bytes
+from .utils.logo_background import remove_white_background
 
 logger = logging.getLogger(__name__)
 
@@ -50,3 +55,52 @@ def resolve_feed_logo_url(feed) -> str | None:
         return None
 
     return resolve_site_icon(origin)
+
+
+def _logo_filename(feed, source_url: str, is_png: bool) -> str:
+    if is_png:
+        return f"feed-{feed.pk}.png"
+    extension = os.path.splitext(urlparse(source_url).path)[1].lower()
+    if extension not in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico"):
+        extension = ".png"
+    return f"feed-{feed.pk}{extension}"
+
+
+def store_feed_logo(feed) -> bool:
+    """Resolve, download, and store ``feed.logo``. Returns True when one was stored.
+
+    Never raises: a dead favicon URL must not prevent saving a feed. Failures are
+    logged and leave ``logo`` as it was.
+    """
+    try:
+        source_url = resolve_feed_logo_url(feed)
+    except Exception as exc:
+        logger.warning(f"Logo resolution failed for feed {feed.pk}: {exc}")
+        return False
+
+    if not source_url:
+        logger.debug(f"No logo resolved for feed {feed.pk}")
+        return False
+
+    try:
+        data = fetch_bytes(source_url)
+    except Exception as exc:
+        logger.warning(f"Logo download failed for feed {feed.pk} ({source_url}): {exc}")
+        return False
+
+    stripped = remove_white_background(data)
+    payload = stripped or data
+
+    try:
+        feed.logo.save(
+            _logo_filename(feed, source_url, is_png=stripped is not None),
+            ContentFile(payload),
+            save=False,
+        )
+        feed.logo_source_url = source_url
+        feed.save(update_fields=["logo", "logo_source_url", "updated_at"])
+    except Exception as exc:
+        logger.warning(f"Storing the logo failed for feed {feed.pk}: {exc}")
+        return False
+
+    return True

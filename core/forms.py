@@ -1,12 +1,17 @@
 """Forms for the application."""
 
+import logging
+
 from django import forms
 from django.utils.html import format_html
 
+from .aggregators.feed_logo import store_feed_logo
 from .aggregators.registry import AggregatorRegistry
 from .aggregators.utils import resolve_feed_url
 from .ai_client import AIClient
 from .models import Feed, UserSettings
+
+logger = logging.getLogger(__name__)
 
 
 class TextareaWithCopyButtonWidget(forms.Textarea):
@@ -245,5 +250,24 @@ class FeedAdminForm(forms.ModelForm):
         if commit:
             instance.save()
             self.save_m2m()
+            self._refresh_logo_if_needed(instance)
 
         return instance
+
+    def _refresh_logo_if_needed(self, instance) -> None:
+        """Resolve the logo when the identifier or aggregator changed, or none is set.
+
+        Best-effort: a failure here must never surface as a save error.
+        """
+        needs_logo = (
+            "identifier" in self.changed_data
+            or "aggregator" in self.changed_data
+            or not instance.logo
+        )
+        if not needs_logo:
+            return
+
+        try:
+            store_feed_logo(instance)
+        except Exception:
+            logger.exception(f"Logo resolution failed for feed {instance.pk}")

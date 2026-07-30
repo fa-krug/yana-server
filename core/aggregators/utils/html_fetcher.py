@@ -62,3 +62,16 @@ def fetch_html(url: str, timeout: int = 30) -> str:
     if last_exception:
         raise last_exception
     raise requests.RequestException(f"Failed to fetch {url} after {retries} retries")
+
+
+def fetch_bytes(url: str, timeout: int = 30) -> bytes:
+    """Fetch raw bytes from ``url`` (images, icons).
+
+    Raises:
+        requests.RequestException: If the request fails.
+    """
+    response = requests.get(
+        url, headers={"User-Agent": USER_AGENT}, timeout=timeout, allow_redirects=True
+    )
+    response.raise_for_status()
+    return response.content

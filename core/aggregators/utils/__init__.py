@@ -24,7 +24,7 @@ from .html_cleaner import (
     sanitize_class_names,
     sanitize_html_attributes,
 )
-from .html_fetcher import fetch_html
+from .html_fetcher import fetch_bytes, fetch_html
 from .legacy_options import convert_legacy_options, revert_options
 from .logo_background import remove_white_background
 from .rss_parser import parse_rss_feed
@@ -40,6 +40,7 @@ __all__ = [
     "extract_main_content",
     "extract_main_content_if_present",
     "feed_url_in_html",
+    "fetch_bytes",
     "fetch_html",
     "format_article_content",
     "get_attr_list",

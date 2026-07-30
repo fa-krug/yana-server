@@ -1,10 +1,12 @@
 """Tests for per-feed logo resolution and storage."""
 
+import io
 from unittest.mock import patch
 
 import pytest
+from PIL import Image
 
-from core.aggregators.feed_logo import resolve_feed_logo_url
+from core.aggregators.feed_logo import resolve_feed_logo_url, store_feed_logo
 from core.aggregators.registry import AggregatorRegistry
 from core.models import Feed
 
@@ -115,3 +117,89 @@ def test_api_image_failure_falls_through_to_the_identifier_origin(user_with_sett
     ):
         assert resolve_feed_logo_url(feed) is None
     resolve_icon.assert_not_called()
+
+
+def _white_backed_png() -> bytes:
+    image = Image.new("RGB", (16, 16), (255, 255, 255))
+    for x in range(4, 12):
+        for y in range(4, 12):
+            image.putpixel((x, y), (10, 10, 10))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+@pytest.mark.django_db
+def test_store_feed_logo_downloads_and_records_the_source(user):
+    feed = Feed.objects.create(
+        name="Golem", aggregator="full_website", identifier="https://golem.de/rss.php", user=user
+    )
+    png = _white_backed_png()
+
+    with (
+        patch(
+            "core.aggregators.feed_logo.resolve_feed_logo_url",
+            return_value="https://golem.de/favicon.png",
+        ),
+        patch("core.aggregators.feed_logo.fetch_bytes", return_value=png) as fetch,
+    ):
+        assert store_feed_logo(feed) is True
+
+    fetch.assert_called_once_with("https://golem.de/favicon.png")
+    feed.refresh_from_db()
+    assert feed.logo
+    assert feed.logo_source_url == "https://golem.de/favicon.png"
+    feed.logo.delete(save=False)
+
+
+@pytest.mark.django_db
+def test_store_feed_logo_strips_a_white_background(user):
+    feed = Feed.objects.create(
+        name="Golem", aggregator="full_website", identifier="https://golem.de/rss.php", user=user
+    )
+
+    with (
+        patch(
+            "core.aggregators.feed_logo.resolve_feed_logo_url",
+            return_value="https://golem.de/favicon.png",
+        ),
+        patch("core.aggregators.feed_logo.fetch_bytes", return_value=_white_backed_png()),
+    ):
+        store_feed_logo(feed)
+
+    feed.refresh_from_db()
+    with feed.logo.open("rb") as stored:
+        image = Image.open(io.BytesIO(stored.read())).convert("RGBA")
+    assert image.getpixel((0, 0))[3] == 0
+    feed.logo.delete(save=False)
+
+
+@pytest.mark.django_db
+def test_store_feed_logo_keeps_the_feed_saveable_when_the_download_fails(user):
+    feed = Feed.objects.create(
+        name="Golem", aggregator="full_website", identifier="https://golem.de/rss.php", user=user
+    )
+
+    with (
+        patch(
+            "core.aggregators.feed_logo.resolve_feed_logo_url",
+            return_value="https://golem.de/favicon.png",
+        ),
+        patch("core.aggregators.feed_logo.fetch_bytes", side_effect=OSError("dead")),
+    ):
+        assert store_feed_logo(feed) is False
+
+    feed.refresh_from_db()
+    assert not feed.logo
+
+
+@pytest.mark.django_db
+def test_store_feed_logo_is_a_noop_when_nothing_resolves(user):
+    feed = Feed.objects.create(
+        name="Broken", aggregator="full_website", identifier="not a url", user=user
+    )
+
+    with patch("core.aggregators.feed_logo.resolve_feed_logo_url", return_value=None):
+        assert store_feed_logo(feed) is False
+
+    assert not feed.logo
