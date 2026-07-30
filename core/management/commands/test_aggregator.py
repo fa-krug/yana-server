@@ -8,6 +8,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from core.aggregators import get_aggregator
+from core.blocks.conversion import convert_article
 from core.models import Article, Feed
 
 
@@ -357,6 +358,8 @@ class Command(BaseCommand):
                     created += 1
                 else:
                     updated += 1
+                if was_created or not article.blocks.exists():
+                    convert_article(article)
             except Exception as e:
                 self.stdout.write(self.style.WARNING(f"  ✗ Failed to save: {e}"))
                 failed += 1

@@ -11,6 +11,7 @@ from django_q.tasks import async_task
 
 from ..aggregators import get_aggregator
 from ..aggregators.services.header_element.file_handler import HeaderElementFileHandler
+from ..blocks.conversion import convert_article
 from ..models import Article, Feed
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,7 @@ class AggregatorService:
 
                             if updated:
                                 article.save()
+                                convert_article(article)
                                 updated_count += 1
                     else:
                         # Create new article
@@ -114,6 +116,8 @@ class AggregatorService:
                             HeaderElementFileHandler.save_image_to_article(
                                 article, header_data.image_bytes, header_data.content_type
                             )
+
+                        convert_article(article)
                 except Exception as e:
                     print(f"Warning: Failed to save article: {e}")
 

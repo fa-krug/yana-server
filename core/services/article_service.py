@@ -6,6 +6,7 @@ from django.core.exceptions import ObjectDoesNotExist
 
 from ..aggregators import get_aggregator
 from ..aggregators.services.header_element.file_handler import HeaderElementFileHandler
+from ..blocks.conversion import convert_article
 from ..models import Article
 
 
@@ -100,6 +101,7 @@ class ArticleService:
             article.raw_content = raw_html
             article.content = processed_content
             article.save(update_fields=["raw_content", "content", "icon"])
+            convert_article(article)
 
             print(f"{'=' * 60}")
             print("Article reloaded successfully")
