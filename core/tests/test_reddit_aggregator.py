@@ -905,36 +905,35 @@ class TestRedditDirectImagePostKeepsItsImage:
         assert "i.redd.it/cool.gif" in finalized[0]["content"]
         assert "<header" not in finalized[0]["content"]
 
-    @patch("core.aggregators.reddit.aggregator.compress_and_encode_image")
-    @patch("core.aggregators.reddit.aggregator.fetch_single_image")
-    def test_body_copy_is_stripped_once_a_header_renders(self, mock_fetch, mock_encode, reddit_agg):
-        mock_fetch.return_value = {"imageData": b"gif-bytes", "contentType": "image/gif"}
-        mock_encode.return_value = {"dataUri": "data:image/gif;base64,AAA"}
+    STORED_REF = f"yana-img://{'d' * 64}"
+
+    @patch("core.aggregators.reddit.aggregator.store_image_ref_from_url")
+    def test_body_copy_is_stripped_once_a_header_renders(self, mock_store, reddit_agg):
+        mock_store.return_value = self.STORED_REF
 
         content = reddit_agg.finalize_articles([self._gif_article()])[0]["content"]
 
-        assert "data:image/gif;base64,AAA" in content
+        assert self.STORED_REF in content
+        assert "data:image" not in content
         assert "i.redd.it/cool.gif" not in content
 
     @patch("core.aggregators.reddit.aggregator.build_header_html", return_value=None)
-    @patch("core.aggregators.reddit.aggregator.compress_and_encode_image")
-    @patch("core.aggregators.reddit.aggregator.fetch_single_image")
+    @patch("core.aggregators.reddit.aggregator.store_image_ref_from_url")
     def test_body_image_survives_when_no_header_can_be_rendered(
-        self, mock_fetch, mock_encode, mock_header, reddit_agg
+        self, mock_store, mock_header, reddit_agg
     ):
-        mock_fetch.return_value = {"imageData": b"gif-bytes", "contentType": "image/gif"}
-        mock_encode.return_value = {"dataUri": "data:image/gif;base64,AAA"}
+        mock_store.return_value = self.STORED_REF
 
         content = reddit_agg.finalize_articles([self._gif_article()])[0]["content"]
 
         assert "i.redd.it/cool.gif" in content
         assert "<header" not in content
 
-    @patch("core.aggregators.reddit.aggregator.fetch_single_image", return_value=None)
+    @patch("core.aggregators.reddit.aggregator.store_image_ref_from_url", return_value=None)
     def test_failed_download_still_renders_the_header_from_the_original_url(
-        self, mock_fetch, reddit_agg
+        self, mock_store, reddit_agg
     ):
-        """Server behavior, deliberately kept: a failed inline degrades to the
+        """Server behavior, deliberately kept: a failed store degrades to the
         remote URL, which still shows the image exactly once."""
         content = reddit_agg.finalize_articles([self._gif_article()])[0]["content"]
 

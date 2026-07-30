@@ -14,8 +14,7 @@ from bs4 import BeautifulSoup
 
 from ..base import BaseAggregator
 from ..exceptions import ArticleSkipError
-from ..services.image_extraction.compression import compress_and_encode_image
-from ..services.image_extraction.fetcher import fetch_single_image
+from ..services.image_store import store_image_ref_from_url
 from ..utils import build_header_html, format_article_content
 from ..utils.twitter import is_twitter_url
 from ..utils.youtube import extract_youtube_video_id
@@ -579,10 +578,10 @@ class RedditAggregator(BaseAggregator):
                 is_twitter_header = is_twitter_url(header_source_url)
 
                 # YouTube/Twitter headers are embedded from their source URL;
-                # plain images are inlined as base64 (removed in Spec 4).
+                # plain images are stored and referenced by hash.
                 render_url = header_source_url
                 if not (is_youtube_header or is_twitter_header):
-                    render_url = self._inline_header_image(header_source_url, article)
+                    render_url = self._store_header_image(header_source_url, article)
 
                 # Only show "View Video" when the header is not already the video.
                 header_caption_html = None
@@ -635,23 +634,23 @@ class RedditAggregator(BaseAggregator):
 
         return finalized
 
-    def _inline_header_image(self, header_image_url: str, article: Dict[str, Any]) -> str:
-        """Inline a header image as a base64 data URI, or return it unchanged."""
+    def _store_header_image(self, header_image_url: str, article: Dict[str, Any]) -> str:
+        """
+        Store a header image and return its ``yana-img://`` reference.
+
+        Returns the original URL unchanged when the image cannot be stored: a
+        remote URL still renders the image exactly once, which is the behavior
+        Spec 2's A5 fix deliberately kept.
+        """
         if not header_image_url.startswith("http"):
             return header_image_url
 
         try:
-            image_data_result = fetch_single_image(header_image_url)
-            if image_data_result:
-                encoded = compress_and_encode_image(
-                    image_data_result["imageData"],
-                    image_data_result["contentType"],
-                    is_header=True,
-                )
-                if encoded:
-                    return str(encoded["dataUri"])
+            ref = store_image_ref_from_url(header_image_url, is_header=True)
+            if ref:
+                return ref
         except Exception as e:
-            logger.warning(f"Failed to inline header image for {article.get('name')}: {e}")
+            logger.warning(f"Failed to store header image for {article.get('name')}: {e}")
 
         return header_image_url
 
