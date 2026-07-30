@@ -1,0 +1,104 @@
+"""Admin is the verification surface for hosted images this phase."""
+
+from django.core.files.base import ContentFile
+from django.urls import reverse
+
+import pytest
+
+from core.models import Article, ArticleImage
+
+
+@pytest.fixture(autouse=True)
+def isolated_media_root(settings, tmp_path):
+    settings.MEDIA_ROOT = str(tmp_path / "media")
+    return tmp_path / "media"
+
+
+@pytest.fixture
+def stored_image():
+    image = ArticleImage(
+        content_hash="ab" * 32,
+        content_type="image/webp",
+        width=800,
+        height=600,
+        byte_size=2048,
+    )
+    image.file.save(f"{'ab' * 32}.webp", ContentFile(b"payload"), save=False)
+    image.save()
+    return image
+
+
+@pytest.mark.django_db
+class TestArticleImageChangelist:
+    def test_the_changelist_shows_the_image(self, admin_client, stored_image):
+        response = admin_client.get(reverse("admin:core_articleimage_changelist"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert stored_image.content_hash[:12] in content
+        assert "image/webp" in content
+        assert "800" in content
+
+    def test_the_changelist_totals_the_stored_bytes(self, admin_client, stored_image):
+        response = admin_client.get(reverse("admin:core_articleimage_changelist"))
+
+        assert "2048" in response.content.decode()
+
+    def test_hash_prefix_search_finds_the_row(self, admin_client, stored_image):
+        response = admin_client.get(
+            reverse("admin:core_articleimage_changelist"),
+            {"q": stored_image.content_hash[:8]},
+        )
+
+        assert response.status_code == 200
+        assert stored_image.content_hash[:12] in response.content.decode()
+
+    def test_rows_cannot_be_added_by_hand(self, admin_client):
+        """A hand-written content-addressed row makes the hash a lie."""
+        response = admin_client.get(reverse("admin:core_articleimage_add"))
+
+        assert response.status_code == 403
+
+    def test_deletion_stays_available(self, admin_client, stored_image):
+        response = admin_client.get(
+            reverse("admin:core_articleimage_delete", args=[stored_image.pk])
+        )
+
+        assert response.status_code == 200
+
+
+@pytest.mark.django_db
+class TestArticleReferencedImages:
+    def test_the_article_page_shows_its_referenced_images(
+        self, admin_client, rss_feed, stored_image
+    ):
+        article = Article.objects.create(
+            name="Referencing",
+            identifier="https://example.com/ref",
+            raw_content="",
+            content=f'<img src="yana-img://{stored_image.content_hash}">',
+            feed=rss_feed,
+        )
+
+        response = admin_client.get(reverse("admin:core_article_change", args=[article.pk]))
+
+        assert response.status_code == 200
+        assert stored_image.file.url in response.content.decode()
+
+    def test_a_reference_with_no_stored_row_is_flagged(self, admin_client, rss_feed):
+        article = Article.objects.create(
+            name="Dangling",
+            identifier="https://example.com/dangling",
+            raw_content="",
+            content=f'<img src="yana-img://{"cd" * 32}">',
+            feed=rss_feed,
+        )
+
+        response = admin_client.get(reverse("admin:core_article_change", args=[article.pk]))
+
+        assert "missing" in response.content.decode()
+
+    def test_an_article_without_references_says_so(self, admin_client, article):
+        response = admin_client.get(reverse("admin:core_article_change", args=[article.pk]))
+
+        assert "No hosted images" in response.content.decode()
