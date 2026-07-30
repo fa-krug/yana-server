@@ -7,12 +7,10 @@ Provides functionality for:
 - HTTP image fetching with validation
 """
 
-from .compression import compress_and_encode_image, compress_image, create_image_element
+from .compression import compress_image
 from .fetcher import fetch_single_image
 
 __all__ = [
     "fetch_single_image",
     "compress_image",
-    "compress_and_encode_image",
-    "create_image_element",
 ]
