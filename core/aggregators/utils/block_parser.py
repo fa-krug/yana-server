@@ -168,6 +168,47 @@ def _child_nodes(container: Tag) -> list[Tag | NavigableString]:
     return cast("list[Tag | NavigableString]", list(container.children))
 
 
+def _first(element: Tag, selector: str) -> Tag | None:
+    """The first descendant matching ``selector``, or None."""
+    return element.select_one(selector)
+
+
+def _image_block(img: Tag, caption: Sequence[InlineRun] = ()) -> ImageBlock | None:
+    src = str(img.get("src") or "")
+    if not src:
+        return None
+    return ImageBlock(ref=src, caption=list(caption))
+
+
+def _list_block(element: Tag, ordered: bool, base_url: str) -> ListBlock | None:
+    """
+    A ``ul``/``ol`` -> a list block, or None when nothing survives.
+
+    Only *direct* ``li`` children count: a nested list belongs to its own item,
+    not to the outer list. Empty items are dropped and an emptied list is
+    skipped entirely, because a persisted empty block renders as a blank gap.
+    """
+    items: list[list[Block]] = []
+    for li in element.find_all("li", recursive=False):
+        item = _convert(li, base_url)
+        if item:
+            items.append(item)
+    if not items:
+        return None
+    return ListBlock(ordered=ordered, items=items)
+
+
+def _figure_blocks(element: Tag, base_url: str) -> list[Block]:
+    img = _first(element, "img")
+    if img is not None:
+        figcaption = _first(element, "figcaption")
+        caption = _trimmed(_inline_runs(figcaption, base_url)) if figcaption is not None else []
+        block = _image_block(img, caption)
+        if block is not None:
+            return [block]
+    return _convert(element, base_url)
+
+
 def _convert(container: Tag, base_url: str) -> list[Block]:
     blocks: list[Block] = []
     inline: list[InlineRun] = []
@@ -209,6 +250,14 @@ def _convert(container: Tag, base_url: str) -> list[Block]:
             runs = _trimmed(_inline_runs(node, base_url))
             if runs:
                 blocks.append(Paragraph(runs=runs))
+            # _inline_runs drops images, so a paragraph that wraps media --
+            # Reddit emits Giphy, gallery and inline images as exactly
+            # <p><img></p> -- would otherwise vanish. Split them out as their
+            # own blocks after the text; a pure-image <p> yields just the image.
+            for img in node.select("img"):
+                block = _image_block(img)
+                if block is not None:
+                    blocks.append(block)
             continue
 
         if tag in _HEADING_TAGS:
@@ -216,6 +265,41 @@ def _convert(container: Tag, base_url: str) -> list[Block]:
             runs = _trimmed(_inline_runs(node, base_url))
             if runs:
                 blocks.append(Heading(level=_HEADING_TAGS[tag], runs=runs))
+            continue
+
+        if tag in ("ul", "ol"):
+            flush()
+            list_block = _list_block(node, ordered=tag == "ol", base_url=base_url)
+            if list_block is not None:
+                blocks.append(list_block)
+            continue
+
+        if tag == "blockquote":
+            flush()
+            inner = _convert(node, base_url)
+            if inner:
+                blocks.append(Blockquote(blocks=inner))
+            continue
+
+        if tag == "pre":
+            flush()
+            # get_text(), not the normalized path: collapsing whitespace here
+            # would destroy the indentation that makes a code block readable.
+            text = node.get_text()
+            if text.strip():
+                blocks.append(CodeBlock(text=text))
+            continue
+
+        if tag == "img":
+            flush()
+            block = _image_block(node)
+            if block is not None:
+                blocks.append(block)
+            continue
+
+        if tag == "figure":
+            flush()
+            blocks.extend(_figure_blocks(node, base_url))
             continue
 
         if tag == "hr":

@@ -1,7 +1,16 @@
 """HTML -> blocks: the Python port of iOS's BlockParser."""
 
 from core.aggregators.utils.block_parser import blocks_from_html, plain_text
-from core.blocks.types import Divider, Heading, InlineRun, Paragraph
+from core.blocks.types import (
+    Blockquote,
+    CodeBlock,
+    Divider,
+    Heading,
+    ImageBlock,
+    InlineRun,
+    ListBlock,
+    Paragraph,
+)
 
 
 def test_empty_and_blank_html_yields_nothing():
@@ -135,3 +144,103 @@ def test_plain_text_skips_empty_segments_and_dividers():
 
 def test_plain_text_of_nothing_is_empty():
     assert plain_text([]) == ""
+
+
+def test_unordered_and_ordered_lists():
+    blocks = blocks_from_html("<ul><li>a</li></ul><ol><li>b</li></ol>")
+    assert blocks == [
+        ListBlock(ordered=False, items=[[Paragraph(runs=[InlineRun(text="a")])]]),
+        ListBlock(ordered=True, items=[[Paragraph(runs=[InlineRun(text="b")])]]),
+    ]
+
+
+def test_nested_lists_round_trip_through_items():
+    blocks = blocks_from_html("<ul><li>outer<ul><li>inner</li></ul></li></ul>")
+    assert blocks == [
+        ListBlock(
+            ordered=False,
+            items=[
+                [
+                    Paragraph(runs=[InlineRun(text="outer")]),
+                    ListBlock(ordered=False, items=[[Paragraph(runs=[InlineRun(text="inner")])]]),
+                ]
+            ],
+        )
+    ]
+
+
+def test_only_direct_li_children_become_items():
+    blocks = blocks_from_html("<ul><div><li>nested-away</li></div><li>direct</li></ul>")
+    assert blocks == [
+        ListBlock(ordered=False, items=[[Paragraph(runs=[InlineRun(text="direct")])]])
+    ]
+
+
+def test_empty_lists_and_empty_items_are_omitted():
+    assert blocks_from_html("<ul></ul>") == []
+    assert blocks_from_html("<ul><li></li><li>  </li></ul>") == []
+    assert blocks_from_html("<ul><li></li><li>kept</li></ul>") == [
+        ListBlock(ordered=False, items=[[Paragraph(runs=[InlineRun(text="kept")])]])
+    ]
+
+
+def test_ordinary_blockquote_wraps_its_blocks():
+    blocks = blocks_from_html("<blockquote><p>quoted</p></blockquote>")
+    assert blocks == [Blockquote(blocks=[Paragraph(runs=[InlineRun(text="quoted")])])]
+
+
+def test_empty_blockquote_is_omitted():
+    assert blocks_from_html("<blockquote>  </blockquote>") == []
+
+
+def test_pre_becomes_a_code_block_with_whitespace_intact():
+    blocks = blocks_from_html("<pre>def f():\n    return 1\n</pre>")
+    assert blocks == [CodeBlock(text="def f():\n    return 1\n", language="")]
+
+
+def test_empty_pre_is_omitted():
+    assert blocks_from_html("<pre>   </pre>") == []
+
+
+def test_standalone_img_becomes_an_image_block():
+    ref = "yana-img://" + "c" * 64
+    assert blocks_from_html(f'<img src="{ref}">') == [ImageBlock(ref=ref)]
+
+
+def test_img_without_src_is_dropped():
+    assert blocks_from_html('<img alt="nothing">') == []
+
+
+def test_paragraph_wrapping_only_an_image_yields_the_image():
+    """The Reddit/Giphy regression guard: inline-run extraction drops images, so
+    a <p><img></p> would otherwise vanish entirely."""
+    ref = "yana-img://" + "d" * 64
+    assert blocks_from_html(f'<p><img src="{ref}"></p>') == [ImageBlock(ref=ref)]
+
+
+def test_paragraph_with_text_and_an_image_yields_text_then_image():
+    ref = "yana-img://" + "e" * 64
+    blocks = blocks_from_html(f'<p>caption text<img src="{ref}"></p>')
+    assert blocks == [Paragraph(runs=[InlineRun(text="caption text")]), ImageBlock(ref=ref)]
+
+
+def test_figure_pairs_an_image_with_its_figcaption():
+    ref = "yana-img://" + "f" * 64
+    blocks = blocks_from_html(f'<figure><img src="{ref}"><figcaption>Shot</figcaption></figure>')
+    assert blocks == [ImageBlock(ref=ref, caption=[InlineRun(text="Shot")])]
+
+
+def test_figure_without_an_image_is_recursed():
+    assert blocks_from_html("<figure><p>text only</p></figure>") == [
+        Paragraph(runs=[InlineRun(text="text only")])
+    ]
+
+
+def test_plain_text_walks_lists_quotes_captions_and_code():
+    html = (
+        "<ul><li>item</li></ul>"
+        "<blockquote><p>quote</p></blockquote>"
+        '<figure><img src="yana-img://a"><figcaption>cap</figcaption></figure>'
+        "<pre>code</pre>"
+    )
+    assert plain_text(blocks_from_html(html)) == "item\n\nquote\n\ncap\n\ncode"
