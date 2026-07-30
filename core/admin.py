@@ -24,9 +24,13 @@ from import_export.admin import ImportExportMixin, ImportExportModelAdmin
 from .aggregators.feed_logo import store_feed_logo
 from .aggregators.services.image_store import find_image_refs
 from .aggregators.utils import parse_rss_feed, resolve_feed_url
+from .blocks.conversion import convert_article
+from .blocks.render import render_blocks_html
+from .blocks.storage import load_blocks
 from .forms import FeedAdminForm, TextareaWithCopyButtonWidget, UserSettingsAdminForm
 from .models import (
     Article,
+    ArticleBlock,
     ArticleImage,
     Feed,
     FeedGroup,
@@ -613,6 +617,50 @@ class FeedAdmin(YanaDjangoQLMixin, ImportExportModelAdmin):
         self._suggest_selectors(request, queryset, "ignore")
 
 
+class ArticleBlockInline(admin.TabularInline):
+    """
+    The stored block tree, flat and read-only.
+
+    Blocks are derived data: hand-editing one would be silently overwritten on
+    the next aggregation and invites inconsistent trees, so add, change and
+    delete are all off. Nested rows are shown too, with their parent, so the
+    tree's shape is legible without a second screen.
+    """
+
+    model = ArticleBlock
+    fk_name = "article"
+    extra = 0
+    max_num = 0
+    can_delete = False
+    fields = ["parent", "position", "kind", "level", "ordered", "preview"]
+    readonly_fields = ["parent", "position", "kind", "level", "ordered", "preview"]
+    ordering = ["parent_id", "position"]
+    verbose_name_plural = "Blocks (read-only)"
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related("runs")
+
+    @admin.display(description="Preview")
+    def preview(self, obj):
+        if obj.kind == "image":
+            return obj.image_ref or "-"
+        if obj.kind == "embed":
+            return f"{obj.embed_provider}: {obj.embed_external_url}"
+        if obj.kind == "code_block":
+            return obj.text[:120]
+        text = "".join(run.text for run in obj.runs.all())[:120]
+        return text or "-"
+
+
 @admin.register(Article)
 class ArticleAdmin(YanaDjangoQLMixin, ImportExportModelAdmin):
     """Admin configuration for Article model."""
@@ -626,14 +674,22 @@ class ArticleAdmin(YanaDjangoQLMixin, ImportExportModelAdmin):
         "created_at",
     ]
     search_fields = ["name", "author", "identifier"]
-    readonly_fields = ["created_at", "updated_at", "referenced_images"]
-    actions = ["reload_selected_articles", "force_delete_selected"]
+    readonly_fields = [
+        "created_at",
+        "updated_at",
+        "referenced_images",
+        "block_preview",
+        "plain_text",
+    ]
+    actions = ["reload_selected_articles", "reconvert_blocks", "force_delete_selected"]
     save_as = True
     list_select_related = ["feed"]
+    inlines = [ArticleBlockInline]
 
     fieldsets = (
         (None, {"fields": ("name", "identifier", "feed")}),
         ("Content", {"fields": ("raw_content", "content")}),
+        ("Blocks", {"fields": ("block_preview", "plain_text")}),
         ("Images", {"fields": ("referenced_images",)}),
         ("Metadata", {"fields": ("author", "icon", "date")}),
         ("Status", {"fields": ("read", "starred")}),
@@ -648,7 +704,7 @@ class ArticleAdmin(YanaDjangoQLMixin, ImportExportModelAdmin):
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        return qs.defer("content", "raw_content")
+        return qs.defer("content", "raw_content", "plain_text")
 
     @admin.action(description="Reload selected articles")
     def reload_selected_articles(self, request, queryset):
@@ -699,6 +755,32 @@ class ArticleAdmin(YanaDjangoQLMixin, ImportExportModelAdmin):
         count = queryset.count()
         queryset.delete()
         self.message_user(request, f"Successfully deleted {count} articles.", messages.SUCCESS)
+
+    @admin.display(description="Rendered blocks")
+    def block_preview(self, obj):
+        """The block tree rendered as simple HTML -- this is what makes a wrong
+        conversion obvious at a glance."""
+        if not obj or not obj.pk:
+            return "-"
+        return render_blocks_html(load_blocks(obj))
+
+    @admin.action(description="Re-convert blocks")
+    def reconvert_blocks(self, request, queryset):
+        """Rebuild the block tree from Article.content. The iteration loop for
+        tuning the parser: change the parser, re-convert, look."""
+        # The changelist queryset defers `content`; re-read undeferred so
+        # conversion sees the real body.
+        articles = Article.objects.filter(pk__in=queryset.values("pk"))
+        converted = 0
+        blocks_written = 0
+        for article in articles:
+            blocks_written += convert_article(article)
+            converted += 1
+        self.message_user(
+            request,
+            f"Re-converted {converted} article(s), {blocks_written} block(s) written.",
+            messages.SUCCESS,
+        )
 
     @admin.display(description="Referenced images")
     def referenced_images(self, obj):
