@@ -4,7 +4,12 @@ import logging
 
 import pytest
 
-from core.blocks.storage import load_blocks, load_blocks_for_articles, write_blocks
+from core.blocks.storage import (
+    count_block_rows,
+    load_blocks,
+    load_blocks_for_articles,
+    write_blocks,
+)
 from core.blocks.types import (
     Blockquote,
     CodeBlock,
@@ -54,6 +59,14 @@ def test_a_tree_reads_back_identical(article):
 def test_writing_returns_the_row_count(article):
     written = write_blocks(article, TREE)
     assert written == ArticleBlock.objects.filter(article=article).count()
+
+
+@pytest.mark.django_db
+def test_count_block_rows_agrees_with_a_real_write(article):
+    """count_block_rows must predict exactly what write_blocks writes,
+    including list_item rows and everything nested inside a list item or
+    blockquote -- TREE has both, plus a doubly-nested list."""
+    assert count_block_rows(TREE) == write_blocks(article, TREE)
 
 
 @pytest.mark.django_db

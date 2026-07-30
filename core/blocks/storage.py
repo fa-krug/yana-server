@@ -109,17 +109,28 @@ def _runs_for(row: ArticleBlock, block: Block | _ListItem) -> list[ArticleInline
     ]
 
 
+def _child_nodes(block: Block | _ListItem) -> Sequence[Block | _ListItem]:
+    """
+    The direct child nodes ``write_blocks`` will store under ``block``.
+
+    Shared by ``_children_of`` (which pairs each child with its parent row
+    while writing) and ``count_block_rows`` (which only needs the shape, not
+    the rows) -- one traversal, so a count of what a write produces cannot
+    drift from what it actually writes.
+    """
+    match block:
+        case ListBlock(items=items):
+            return [_ListItem(blocks=item) for item in items]
+        case _ListItem(blocks=inner) | Blockquote(blocks=inner):
+            return inner
+        case _:
+            return []
+
+
 def _children_of(
     block: Block | _ListItem, row: ArticleBlock
 ) -> list[tuple[Block | _ListItem, ArticleBlock, int]]:
-    match block:
-        case ListBlock(items=items):
-            children: Sequence[Block | _ListItem] = [_ListItem(blocks=item) for item in items]
-        case _ListItem(blocks=inner) | Blockquote(blocks=inner):
-            children = inner
-        case _:
-            return []
-    return [(child, row, position) for position, child in enumerate(children)]
+    return [(child, row, position) for position, child in enumerate(_child_nodes(block))]
 
 
 def write_blocks(article: Article, blocks: Sequence[Block]) -> int:
@@ -161,6 +172,29 @@ def write_blocks(article: Article, blocks: Sequence[Block]) -> int:
         if pending_runs:
             ArticleInlineRun.objects.bulk_create(pending_runs)
         return written
+
+
+def count_block_rows(blocks: Sequence[Block]) -> int:
+    """
+    Count the rows ``write_blocks`` would write for ``blocks``, without
+    writing anything -- for callers (the ``convert_articles_to_blocks``
+    dry-run) that need to size a write in advance.
+
+    Walks the same shape ``write_blocks`` does, level by level, via the
+    shared ``_child_nodes`` helper: one row per block, one ``list_item`` row
+    per list entry, and a row for everything nested inside a list item or
+    blockquote. The two must not drift apart, so they share that helper
+    instead of each re-deriving "what counts as a child".
+    """
+    total = 0
+    level: list[Block | _ListItem] = list(blocks)
+    while level:
+        total += len(level)
+        next_level: list[Block | _ListItem] = []
+        for block in level:
+            next_level.extend(_child_nodes(block))
+        level = next_level
+    return total
 
 
 def _runs_of(row: ArticleBlock) -> list[InlineRun]:

@@ -47,6 +47,26 @@ def test_dry_run_writes_nothing(article):
 
 
 @pytest.mark.django_db
+def test_dry_run_count_agrees_with_what_a_real_run_writes(article):
+    """The dry-run count must match what a real run writes, including nested
+    rows -- list_item rows and the blocks nested inside them -- not just the
+    top-level block count, or it under-reports the database growth a real
+    backfill produces for any article with a list."""
+    article.content = "<ul><li>one</li><li>two<ul><li>deep</li></ul></li></ul>"
+    article.save()
+
+    dry_run_output = run("--dry-run")
+    distribution = dry_run_output.split("Block-count distribution -- ")[1].strip()
+    dry_run_blocks = int(distribution.split(" block(s):")[0])
+
+    run()
+    real_blocks = ArticleBlock.objects.filter(article=article).count()
+
+    assert dry_run_blocks == real_blocks
+    assert real_blocks > 1  # sanity: this article really does have nested rows
+
+
+@pytest.mark.django_db
 def test_dry_run_reports_a_block_count_distribution(articles_batch):
     for index, item in enumerate(articles_batch):
         item.content = "<p>a</p>" * (index + 1)

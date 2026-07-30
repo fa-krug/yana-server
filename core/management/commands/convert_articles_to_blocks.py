@@ -25,6 +25,7 @@ from django.core.management.base import BaseCommand
 
 from core.aggregators.utils.block_parser import blocks_from_html
 from core.blocks.conversion import convert_article
+from core.blocks.storage import count_block_rows
 from core.models import Article
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,7 @@ class Command(BaseCommand):
         dry_run = options["dry_run"]
         limit = options["limit"]
         force = options["force"]
-        batch_size = options["batch_size"]
+        batch_size = max(1, options["batch_size"])
 
         queryset = Article.objects.exclude(content="").order_by("pk")
         if not force:
@@ -90,9 +91,8 @@ class Command(BaseCommand):
 
             if dry_run:
                 try:
-                    count = len(
-                        blocks_from_html(article.content, base_url=article.identifier or "")
-                    )
+                    blocks = blocks_from_html(article.content, base_url=article.identifier or "")
+                    count = count_block_rows(blocks)
                 except Exception:
                     logger.warning("Parse failed for article %s", article.pk, exc_info=True)
                     failed.append(article.pk)
