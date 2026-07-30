@@ -109,7 +109,8 @@ Yana/
 │   │       ├── feed_discovery.py    # <link rel=alternate> feed discovery
 │   │       ├── feed_url_resolver.py # normalize + resolve pasted URLs
 │   │       ├── favicon.py           # site icon selection
-│   │       └── logo_background.py   # white-background removal (Pillow)
+│   │       ├── logo_background.py   # white-background removal (Pillow)
+│   │       └── block_parser.py      # HTML -> Yana content format blocks
 │   │
 │   ├── services/                 # Business logic layer
 │   │   ├── aggregator_service.py    # Feed aggregation
@@ -119,10 +120,17 @@ Yana/
 │   │   └── selector_suggester.py    # AI content/ignore selector suggestions
 │   │
 │   ├── views/
-│   │   └── default.py               # Health, YouTube proxy, Dailymotion proxy
+│   │   └── default.py               # Health check
 │   │
 │   ├── urls/
-│   │   └── default.py               # Health, proxy routes
+│   │   └── default.py               # Health route + catch-all
+│   │
+│   ├── blocks/                    # The Yana content format
+│   │   ├── types.py              # Block dataclasses
+│   │   ├── schema.py             # Pinned wire JSON (version 1)
+│   │   ├── storage.py            # Blocks <-> rows
+│   │   ├── conversion.py         # convert_article() -- the one entry point
+│   │   └── render.py             # Admin preview rendering
 │   │
 │   ├── db/backends/sqlite3/         # Optimized SQLite backend
 │   │
@@ -132,7 +140,8 @@ Yana/
 │   │   ├── optimize_sqlite.py       # DB optimization
 │   │   ├── verify_sqlite_optimizations.py
 │   │   ├── migrate_inline_images.py  # Backfill inline data URIs -> stored images
-│   │   └── prune_orphaned_images.py  # Delete unreferenced images
+│   │   ├── prune_orphaned_images.py  # Delete unreferenced images
+│   │   └── convert_articles_to_blocks.py  # Backfill Article.content -> blocks
 │   │
 │   └── tests/                       # Test suite (34+ test files)
 │       ├── conftest.py              # Pytest fixtures
@@ -229,8 +238,10 @@ def test_feed_creation(user):
 |-------|-----------|-------|
 | `FeedGroup` | name, user | Unique per (name, user) |
 | `Feed` | name, aggregator, identifier, user, group, enabled, daily_limit, logo, logo_source_url | 16 aggregator types |
-| `Article` | name, identifier, content, raw_content, date, read, starred, feed | Use `select_related("feed")` |
+| `Article` | name, identifier, content, raw_content, plain_text, date, read, starred, feed | Use `select_related("feed")` |
 | `ArticleImage` | content_hash, file, content_type, width, height, byte_size | Content-addressed; referenced from content as `yana-img://<hash>` |
+| `ArticleBlock` | article, parent, position, kind, level, ordered, text, image_ref, embed_* | Block tree rows; `list_item` is storage-only |
+| `ArticleInlineRun` | block, position, text, bold/italic/code/strikethrough, link | Styled spans; one boolean per style |
 | `UserSettings` | user, youtube_api_key, reddit_*, openai_* | API credentials |
 | `RedditSubreddit` | name, user | Reddit feed reference |
 | `YouTubeChannel` | channel_id, channel_name, user | YouTube feed reference |
@@ -245,6 +256,19 @@ publish date is already close to the retention cutoff.
 referenced from `Article.content` as `yana-img://<hash>`. Nothing inlines base64 — `core/tests/test_no_inline_base64.py`
 guards that. `migrate_inline_images` backfills legacy content; `prune_orphaned_images` reaps
 unreferenced rows.
+
+**Article bodies:** bodies are stored as the *Yana content format* -- typed `ArticleBlock` /
+`ArticleInlineRun` rows, the same block model the iOS reader renders. HTML remains internal
+pipeline state between extraction and block conversion; `Article.content` is still populated but
+is no longer a contract and is slated for removal once blocks are trusted. Conversion happens once
+at save time via `core/blocks/conversion.py::convert_article`, never on a read path. The wire
+format is pinned in `core/blocks/schema.py` (version 1) and its golden fixture,
+`core/tests/fixtures/blocks_golden_v1.json`, is the contract the iOS client tests against too.
+`convert_articles_to_blocks` backfills existing articles -- **after** `migrate_inline_images`.
+`core/aggregators/utils/block_parser.py` still recognizes the old `/api/youtube-proxy` and
+`/api/dailymotion-proxy` URL patterns solely to read legacy `Article.content` written before the
+proxy endpoints were removed (see Task 12); that recognition retires once `Article.content` itself
+is dropped, so do not delete it as unused before then.
 
 ## Aggregator System
 
@@ -312,12 +336,14 @@ The server has no article API. What is reachable:
 | `/health/` | Health check |
 | `/media/…` | Media files — including the stored article images, which is how admin previews them this phase |
 | `/static/…` | Static assets (admin CSS/JS) — Django serves them in `DEBUG`, whitenoise in production |
-| `/api/youtube-proxy`, `/api/dailymotion-proxy` | Embed proxies (interim) |
 | `/*` | Catch-all redirect to admin |
 
 The Google Reader API was removed (see
-`docs/superpowers/specs/2026-07-29-remove-greader-api-design.md`). Aggregation
-runs via django-q2 scheduled tasks and the `test_aggregator` /
+`docs/superpowers/specs/2026-07-29-remove-greader-api-design.md`), and the embed proxies
+(`/api/youtube-proxy`, `/api/dailymotion-proxy`) are gone entirely too — both the endpoints and the
+`<iframe>` markup that pointed at them. Embeds now reach the client as typed `embed` blocks
+(`provider`, `external_url`, `thumbnail_ref`) carrying a canonical public URL instead of a
+locally-proxied one. Aggregation runs via django-q2 scheduled tasks and the `test_aggregator` /
 `trigger_aggregator` management commands — none of which touch HTTP.
 
 ## SQLite Optimizations

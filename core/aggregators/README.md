@@ -249,6 +249,33 @@ uv run python manage.py prune_orphaned_images --dry-run
 uv run python manage.py prune_orphaned_images --min-age 30
 ```
 
+## Block conversion
+
+Whatever HTML an aggregator produces in `Article.content` is converted to the Yana content format
+(typed `ArticleBlock` / `ArticleInlineRun` rows) at save time, via
+`core/blocks/conversion.py::convert_article`. This has two consequences for aggregator work:
+
+- `format_article_content` no longer appends a source-link footer to the body. Do not add one back
+  in a new aggregator on the theory that "the others do it" — none of them do, on purpose (a
+  trailing bare-URL paragraph is exactly what the block parser's footer-stripping was written to
+  remove).
+- A new aggregator's output should be checked in admin's **Rendered blocks** preview, not only by
+  reading the `content` field. HTML that looks fine to a human eye can still convert badly — a
+  wrapper `<div>` with the wrong class can make real content get dropped instead of recursed into,
+  or a header image that never went through `image_store` will carry a raw remote URL as its
+  `image_ref` instead of a `yana-img://` reference. Reading `content` alone would not catch either.
+
+The tag → block mapping lives in `core/aggregators/utils/block_parser.py`, which documents the
+**drop-vs-recurse rule** its own docstring calls "the classic failure mode": tags in `DROPPED_TAGS`
+(`table`, `form`, `script`, and similar) are skipped without recursing, because recursing into them
+surfaces things like table cells as stray paragraphs; an unrecognized wrapper (`div`, `section`,
+`header`, `article`, ...) is instead recursed into, since it may well hold real content. When a new
+scraper introduces its own wrapper markup (a custom container class, a facade `<div>` for an
+embed), make sure it either matches a known tag/selector or falls into the recurse case — a wrapper
+that accidentally collides with something already in `DROPPED_TAGS`, or with a CSS selector the
+aggregator itself later removes, will silently delete real content before it ever reaches the
+parser.
+
 ## Feed authoring
 
 Feeds can be created from a bare homepage URL instead of the feed URL itself, and pick up a logo
