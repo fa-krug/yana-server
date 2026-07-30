@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from bs4 import BeautifulSoup, Tag
 
+from ..services.image_store import store_image_ref_from_url
 from ..utils import get_attr_list, get_attr_str
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,7 @@ def extract_media_header(html: str) -> Optional[str]:
             streams = mc.get("streams", [])
 
             is_audio_only = len(streams) > 0 and all(s.get("isAudioOnly") is True for s in streams)
-            image_url = _get_player_image(player_div, mc)
+            image_url = _localize_image_url(_get_player_image(player_div, mc))
 
             # Try to extract embed code
             plugin_data = player_data.get("pluginData", {})
@@ -94,6 +95,36 @@ def _get_player_image(player_div: Tag, mc: Dict[str, Any]) -> Optional[str]:
             return "https:" + image_url
         if image_url.startswith("/"):
             return "https://www.tagesschau.de" + image_url
+
+    return image_url
+
+
+def _localize_image_url(image_url: Optional[str]) -> Optional[str]:
+    """
+    Store a resolved header image once and return its ``yana-img://`` reference.
+
+    This is the single localization point for the player's preview image --
+    ``_get_player_image`` has already resolved protocol-relative and
+    root-relative URLs to absolute ``https://www.tagesschau.de/...`` form, and
+    every downstream consumer (``_build_header_from_embed_code``'s audio-only
+    ``<img>``, ``_build_header_from_streams``'s audio-only ``<img>`` and its
+    ``<video poster>``) reads the same ``image_url``, so localizing here
+    covers all three without having them each call storage independently.
+
+    Follows the ``reddit.aggregator._store_header_image`` idiom: only
+    ``http(s)`` URLs are attempted, and a failure (exception or a ``None``
+    return, e.g. the fetch failed) degrades to the original remote URL rather
+    than losing the image.
+    """
+    if not image_url or not image_url.startswith("http"):
+        return image_url
+
+    try:
+        ref = store_image_ref_from_url(image_url, is_header=True)
+        if ref:
+            return ref
+    except Exception as e:
+        logger.warning(f"Failed to store Tagesschau header image {image_url}: {e}")
 
     return image_url
 

@@ -1,8 +1,10 @@
+import json
 from unittest.mock import patch
 
 import pytest
 
 from core.aggregators.tagesschau.aggregator import _MEDIA_HEADER_CACHE_KEY, TagesschauAggregator
+from core.aggregators.tagesschau.media_processor import extract_media_header
 
 
 @pytest.mark.django_db
@@ -196,3 +198,123 @@ class TestTagesschauAggregator:
         assert mock_media.call_count == 1
         assert _MEDIA_HEADER_CACHE_KEY not in article
         assert "<video>player</video>Body" in processed
+
+
+def _media_player_html(mc: dict, plugin_data: dict | None = None) -> str:
+    """A minimal MediaPlayer div carrying the given ``mc``/``pluginData`` payload."""
+    player_data = {"mc": mc, "pluginData": plugin_data or {}}
+    data_v = json.dumps(player_data)
+    return f'<div data-v-type="MediaPlayer" class="mediaplayer" data-v=\'{data_v}\'></div>'
+
+
+REMOTE_IMAGE_URL = "https://www.tagesschau.de/multimedia/bild-123~1280x720.jpg"
+STORED_REF = f"yana-img://{'a' * 64}"
+
+
+class TestTagesschauMediaHeaderImageLocalization:
+    """
+    `_get_player_image` resolves the publisher's image URL to absolute form,
+    but nothing stored it -- every Tagesschau image/poster stayed a raw
+    remote URL while every other aggregator's images became `yana-img://`
+    refs. The fix localizes once at that resolution point, so both the
+    `<video poster>` and the audio-only `<img src>` (fallback-from-streams
+    and embed-code branches alike) get the reference.
+    """
+
+    VIDEO_HTML = _media_player_html(
+        {
+            "streams": [
+                {
+                    "isAudioOnly": False,
+                    "media": [{"url": "https://dl.example/video.mp4", "mimeType": "video/mp4"}],
+                }
+            ],
+            "image": "/multimedia/bild-123~1280x720.jpg",
+        }
+    )
+
+    AUDIO_STREAMS_HTML = _media_player_html(
+        {
+            "streams": [
+                {
+                    "isAudioOnly": True,
+                    "media": [{"url": "https://dl.example/audio.mp3", "mimeType": "audio/mpeg"}],
+                }
+            ],
+            "image": "/multimedia/bild-123~1280x720.jpg",
+        }
+    )
+
+    AUDIO_EMBED_HTML = _media_player_html(
+        {"streams": [{"isAudioOnly": True}], "image": "/multimedia/bild-123~1280x720.jpg"},
+        plugin_data={
+            "sharing@web": {
+                "embedCode": '<iframe src="//www.tagesschau.de/multimedia/embed-777.html"></iframe>'
+            }
+        },
+    )
+
+    @patch("core.aggregators.tagesschau.media_processor.store_image_ref_from_url")
+    def test_video_poster_uses_the_stored_ref(self, mock_store):
+        mock_store.return_value = STORED_REF
+
+        result = extract_media_header(self.VIDEO_HTML)
+
+        assert result is not None
+        assert f'poster="{STORED_REF}"' in result
+        mock_store.assert_called_once_with(REMOTE_IMAGE_URL, is_header=True)
+
+    @patch(
+        "core.aggregators.tagesschau.media_processor.store_image_ref_from_url", return_value=None
+    )
+    def test_video_poster_falls_back_to_the_remote_url_when_storage_returns_none(self, mock_store):
+        result = extract_media_header(self.VIDEO_HTML)
+
+        assert result is not None
+        assert f'poster="{REMOTE_IMAGE_URL}"' in result
+
+    @patch(
+        "core.aggregators.tagesschau.media_processor.store_image_ref_from_url",
+        side_effect=RuntimeError("boom"),
+    )
+    def test_video_poster_falls_back_to_the_remote_url_when_storage_raises(self, mock_store):
+        result = extract_media_header(self.VIDEO_HTML)
+
+        assert result is not None
+        assert f'poster="{REMOTE_IMAGE_URL}"' in result
+
+    @patch("core.aggregators.tagesschau.media_processor.store_image_ref_from_url")
+    def test_audio_only_streams_image_uses_the_stored_ref(self, mock_store):
+        mock_store.return_value = STORED_REF
+
+        result = extract_media_header(self.AUDIO_STREAMS_HTML)
+
+        assert result is not None
+        assert f'<img src="{STORED_REF}"' in result
+
+    @patch(
+        "core.aggregators.tagesschau.media_processor.store_image_ref_from_url", return_value=None
+    )
+    def test_audio_only_streams_image_falls_back_to_the_remote_url(self, mock_store):
+        result = extract_media_header(self.AUDIO_STREAMS_HTML)
+
+        assert result is not None
+        assert f'<img src="{REMOTE_IMAGE_URL}"' in result
+
+    @patch("core.aggregators.tagesschau.media_processor.store_image_ref_from_url")
+    def test_audio_only_embed_code_image_uses_the_stored_ref(self, mock_store):
+        mock_store.return_value = STORED_REF
+
+        result = extract_media_header(self.AUDIO_EMBED_HTML)
+
+        assert result is not None
+        assert f'<img src="{STORED_REF}"' in result
+
+    @patch(
+        "core.aggregators.tagesschau.media_processor.store_image_ref_from_url", return_value=None
+    )
+    def test_audio_only_embed_code_image_falls_back_to_the_remote_url(self, mock_store):
+        result = extract_media_header(self.AUDIO_EMBED_HTML)
+
+        assert result is not None
+        assert f'<img src="{REMOTE_IMAGE_URL}"' in result
