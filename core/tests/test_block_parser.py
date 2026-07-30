@@ -5,6 +5,7 @@ from core.blocks.types import (
     Blockquote,
     CodeBlock,
     Divider,
+    EmbedBlock,
     Heading,
     ImageBlock,
     InlineRun,
@@ -244,3 +245,159 @@ def test_plain_text_walks_lists_quotes_captions_and_code():
         "<pre>code</pre>"
     )
     assert plain_text(blocks_from_html(html)) == "item\n\nquote\n\ncap\n\ncode"
+
+
+YOUTUBE_FACADE = (
+    '<div data-sanitized-class="youtube-embed-container">'
+    '<iframe src="https://yana.example/api/youtube-proxy?v=dQw4w9WgXcQ"></iframe>'
+    "</div>"
+)
+
+
+def test_youtube_proxy_facade_becomes_a_youtube_embed():
+    assert blocks_from_html(YOUTUBE_FACADE) == [
+        EmbedBlock(
+            provider="youtube",
+            external_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        )
+    ]
+
+
+def test_youtube_facade_is_found_through_an_unsanitized_class():
+    html = YOUTUBE_FACADE.replace("data-sanitized-class", "class")
+    assert blocks_from_html(html)[0].provider == "youtube"
+
+
+def test_youtube_facade_is_found_inside_a_header_wrapper():
+    html = f'<header style="x">{YOUTUBE_FACADE}</header>'
+    assert blocks_from_html(html)[0].provider == "youtube"
+
+
+def test_youtube_facade_external_url_never_points_at_the_proxy():
+    """Task 12 deletes the proxy views; nothing stored may reference them."""
+    embed = blocks_from_html(YOUTUBE_FACADE)[0]
+    assert "youtube-proxy" not in embed.external_url
+    assert embed.external_url.startswith("https://www.youtube.com/watch?v=")
+
+
+def test_youtube_facade_takes_its_thumbnail_from_a_poster_image():
+    ref = "yana-img://" + "1" * 64
+    html = (
+        '<div data-sanitized-class="youtube-embed">'
+        f'<img src="{ref}">'
+        '<iframe src="/api/youtube-proxy?v=abcdefghijk"></iframe>'
+        "</div>"
+    )
+    assert blocks_from_html(html)[0].thumbnail_ref == ref
+
+
+def test_youtube_facade_falls_back_to_a_data_embed_attribute():
+    html = (
+        '<div data-sanitized-class="youtube-embed" '
+        'data-sanitized-data-embed-content="https://www.youtube.com/embed/abcdefghijk"></div>'
+    )
+    assert blocks_from_html(html) == [
+        EmbedBlock(provider="youtube", external_url="https://www.youtube.com/watch?v=abcdefghijk")
+    ]
+
+
+def test_youtube_facade_falls_back_to_a_watch_link():
+    html = (
+        '<div data-sanitized-class="youtube-embed">'
+        '<a href="https://www.youtube.com/watch?v=abcdefghijk">watch</a>'
+        "</div>"
+    )
+    assert blocks_from_html(html)[0].external_url == "https://www.youtube.com/watch?v=abcdefghijk"
+
+
+def test_dailymotion_proxy_facade_becomes_a_dailymotion_embed():
+    html = (
+        '<div data-sanitized-class="dailymotion-embed-container">'
+        '<iframe src="https://yana.example/api/dailymotion-proxy?v=x8abcde"></iframe>'
+        "</div>"
+    )
+    assert blocks_from_html(html) == [
+        EmbedBlock(provider="dailymotion", external_url="https://www.dailymotion.com/video/x8abcde")
+    ]
+
+
+def test_unrecognizable_facade_recurses_instead_of_vanishing():
+    html = '<div data-sanitized-class="youtube-embed"><p>Caption survives</p></div>'
+    assert blocks_from_html(html) == [Paragraph(runs=[InlineRun(text="Caption survives")])]
+
+
+def test_tiktok_and_bluesky_wrappers_recurse():
+    for cls in ("tiktok-embed", "bluesky-embed"):
+        html = f'<div data-sanitized-class="{cls}"><p>cap</p></div>'
+        assert blocks_from_html(html) == [Paragraph(runs=[InlineRun(text="cap")])], cls
+
+
+def test_video_with_a_source_becomes_a_video_embed():
+    poster = "yana-img://" + "2" * 64
+    html = (
+        f'<video controls poster="{poster}">'
+        '<source src="https://v.example/clip.mp4" type="video/mp4">'
+        "Your browser does not support the video element."
+        "</video>"
+    )
+    assert blocks_from_html(html) == [
+        EmbedBlock(
+            provider="video", external_url="https://v.example/clip.mp4", thumbnail_ref=poster
+        )
+    ]
+
+
+def test_video_falls_back_to_its_own_src():
+    html = '<video src="https://v.example/clip.m3u8"></video>'
+    assert blocks_from_html(html)[0].external_url == "https://v.example/clip.m3u8"
+
+
+def test_video_without_a_playable_source_is_dropped():
+    assert blocks_from_html("<video controls>no source</video>") == []
+
+
+def test_video_fallback_text_never_leaks_into_a_paragraph():
+    html = "<p>before</p><video><source src='https://v/x.mp4'>Your browser…</video>"
+    blocks = blocks_from_html(html)
+    assert [type(block) for block in blocks] == [Paragraph, EmbedBlock]
+    assert "browser" not in plain_text(blocks)
+
+
+def test_tagesschau_style_video_header_is_found_through_its_wrappers():
+    html = (
+        '<header data-sanitized-class="media-header">'
+        '<div data-sanitized-class="media-player">'
+        '<video controls><source src="https://v/x.mp4" type="video/mp4"></video>'
+        "</div></header>"
+    )
+    assert blocks_from_html(html)[0].provider == "video"
+
+
+def test_tweet_blockquote_becomes_a_tweet_embed():
+    html = (
+        "<blockquote><p><strong>@who</strong> · "
+        '<a href="https://x.com/who/status/1">View on X</a></p>'
+        "<p>the tweet body</p></blockquote>"
+    )
+    embed = blocks_from_html(html)[0]
+    assert embed.provider == "tweet"
+    assert embed.external_url == "https://x.com/who/status/1"
+    assert "the tweet body" in embed.title
+
+
+def test_twitter_and_fxtwitter_hosts_are_recognized():
+    for host in ("twitter.com", "mobile.twitter.com", "api.fxtwitter.com"):
+        html = f'<blockquote><a href="https://{host}/w/status/1">t</a></blockquote>'
+        assert blocks_from_html(html)[0].provider == "tweet", host
+
+
+def test_blockquote_linking_elsewhere_stays_a_blockquote():
+    html = '<blockquote><p><a href="https://example.com/a">link</a></p></blockquote>'
+    assert isinstance(blocks_from_html(html)[0], Blockquote)
+
+
+def test_plain_text_uses_an_embed_title():
+    html = (
+        '<blockquote><p>tweet text</p><a href="https://x.com/w/status/1">View on X</a></blockquote>'
+    )
+    assert "tweet text" in plain_text(blocks_from_html(html))

@@ -24,7 +24,7 @@ destroys code indentation.
 import re
 from collections.abc import Sequence
 from typing import cast
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from bs4 import (
     BeautifulSoup,
@@ -209,6 +209,141 @@ def _figure_blocks(element: Tag, base_url: str) -> list[Block]:
     return _convert(element, base_url)
 
 
+_YOUTUBE_PROXY_ID = re.compile(r"/api/youtube-proxy\?(?:.*&)?v=([A-Za-z0-9_-]{6,})")
+_DAILYMOTION_PROXY_ID = re.compile(r"/api/dailymotion-proxy\?(?:.*&)?v=([A-Za-z0-9]+)")
+_YOUTUBE_EMBED_ID = re.compile(r"(?:youtube\.com|youtube-nocookie\.com)/embed/([A-Za-z0-9_-]{6,})")
+_YOUTUBE_WATCH_ID = re.compile(r"(?:youtube\.com/watch\?(?:.*&)?v=|youtu\.be/)([A-Za-z0-9_-]{6,})")
+_DAILYMOTION_VIDEO_ID = re.compile(r"dailymotion\.com/(?:video|embed/video)/([A-Za-z0-9]+)")
+
+_TWEET_HOST_SUFFIXES = ("twitter.com", "x.com", "fxtwitter.com")
+
+#: Attributes an embed's class name can hide in: the sanitizer moves ``class``
+#: to ``data-sanitized-class``, but not every path through the pipeline has run
+#: the sanitizer by the time content is stored.
+_CLASS_ATTRS = ("data-sanitized-class", "class")
+
+#: Attributes that may carry the original player markup.
+_EMBED_MARKUP_ATTRS = ("data-sanitized-data-embed-content", "data-embed", "data-sanitized-embed")
+
+
+def _class_names(element: Tag) -> str:
+    parts: list[str] = []
+    for attr in _CLASS_ATTRS:
+        value = element.get(attr)
+        if isinstance(value, list):
+            parts.extend(str(item) for item in value)
+        elif value:
+            parts.append(str(value))
+    return " ".join(parts)
+
+
+def _embed_markup(element: Tag) -> str:
+    """Everything on this element or its descendants that could hold a video id."""
+    parts: list[str] = []
+    for candidate in (element, *element.find_all(True)):
+        for attr in _EMBED_MARKUP_ATTRS:
+            value = candidate.get(attr)
+            if value:
+                parts.append(str(value))
+        if (candidate.name or "").lower() == "iframe":
+            parts.append(str(candidate.get("src") or ""))
+        if (candidate.name or "").lower() == "a":
+            parts.append(str(candidate.get("href") or ""))
+    return " ".join(parts)
+
+
+def _first_match(patterns: Sequence[re.Pattern[str]], text: str) -> str:
+    for pattern in patterns:
+        match = pattern.search(text)
+        if match:
+            return match.group(1)
+    return ""
+
+
+def _facade_thumbnail(element: Tag) -> str:
+    img = _first(element, "img")
+    return str(img.get("src") or "") if img is not None else ""
+
+
+def _embed_facade(element: Tag) -> EmbedBlock | None:
+    """
+    Recognize this server's YouTube/Dailymotion embed wrappers.
+
+    The video id is read from the proxy iframe's ``src`` first, because that is
+    what the pipeline actually emits (see the module docstring and the plan's
+    deviation 1); a stashed ``data-embed`` payload and a descendant watch link
+    are fallbacks for content that took another route. The result carries the
+    canonical public watch URL, never the proxy path -- the proxy endpoints do
+    not exist any more, and nothing stored may point at them.
+    """
+    classes = _class_names(element)
+    is_youtube = "youtube-embed" in classes
+    is_dailymotion = "dailymotion-embed" in classes
+    if not (is_youtube or is_dailymotion):
+        return None
+
+    markup = _embed_markup(element)
+    thumbnail = _facade_thumbnail(element)
+
+    if is_youtube:
+        video_id = _first_match((_YOUTUBE_PROXY_ID, _YOUTUBE_EMBED_ID, _YOUTUBE_WATCH_ID), markup)
+        if video_id:
+            return EmbedBlock(
+                provider="youtube",
+                external_url=f"https://www.youtube.com/watch?v={video_id}",
+                thumbnail_ref=thumbnail,
+            )
+    else:
+        video_id = _first_match((_DAILYMOTION_PROXY_ID, _DAILYMOTION_VIDEO_ID), markup)
+        if video_id:
+            return EmbedBlock(
+                provider="dailymotion",
+                external_url=f"https://www.dailymotion.com/video/{video_id}",
+                thumbnail_ref=thumbnail,
+            )
+    return None
+
+
+def _video_embed(element: Tag) -> EmbedBlock | None:
+    """
+    A ``<video>`` -> a ``video`` embed played by the client's own player.
+
+    The stream URL comes from the first ``<source src>``, else the element's own
+    ``src``; ``poster`` -- already a ``yana-img://`` ref when the aggregator
+    localized it -- is the card thumbnail.
+    """
+    source = _first(element, "source")
+    src = str(source.get("src") or "") if source is not None else ""
+    if not src:
+        src = str(element.get("src") or "")
+    if not src:
+        return None
+    return EmbedBlock(
+        provider="video",
+        external_url=src,
+        thumbnail_ref=str(element.get("poster") or ""),
+    )
+
+
+def _tweet_embed(element: Tag) -> EmbedBlock | None:
+    """
+    A tweet card: ``build_tweet_embed_html`` renders a blockquote carrying a
+    "View on X" link, so a blockquote that links to twitter/x is a tweet.
+    """
+    for anchor in element.find_all("a", href=True):
+        href = str(anchor.get("href") or "")
+        try:
+            host = (urlparse(href).hostname or "").lower()
+        except ValueError:
+            continue
+        if not host:
+            continue
+        if any(host == suffix or host.endswith(f".{suffix}") for suffix in _TWEET_HOST_SUFFIXES):
+            title = element.get_text(" ", strip=True)
+            return EmbedBlock(provider="tweet", external_url=href, title=title)
+    return None
+
+
 def _convert(container: Tag, base_url: str) -> list[Block]:
     blocks: list[Block] = []
     inline: list[InlineRun] = []
@@ -276,6 +411,10 @@ def _convert(container: Tag, base_url: str) -> list[Block]:
 
         if tag == "blockquote":
             flush()
+            tweet = _tweet_embed(node)
+            if tweet is not None:
+                blocks.append(tweet)
+                continue
             inner = _convert(node, base_url)
             if inner:
                 blocks.append(Blockquote(blocks=inner))
@@ -297,6 +436,13 @@ def _convert(container: Tag, base_url: str) -> list[Block]:
                 blocks.append(block)
             continue
 
+        if tag == "video":
+            flush()
+            embed = _video_embed(node)
+            if embed is not None:
+                blocks.append(embed)
+            continue
+
         if tag == "figure":
             flush()
             blocks.extend(_figure_blocks(node, base_url))
@@ -307,8 +453,13 @@ def _convert(container: Tag, base_url: str) -> list[Block]:
             blocks.append(Divider())
             continue
 
-        # Unknown wrapper: walk it for known blocks, then discard the wrapper.
+        # Unknown wrapper: an embed facade becomes an embed; otherwise walk it
+        # for known blocks and discard the wrapper itself.
         flush()
+        facade = _embed_facade(node)
+        if facade is not None:
+            blocks.append(facade)
+            continue
         blocks.extend(_convert(node, base_url))
 
     flush()
