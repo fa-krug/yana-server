@@ -92,6 +92,8 @@ Yana/
 │   │   ├── mein_mmo/            # MeinMMO (reference implementation)
 │   │   ├── caschys_blog/        # Caschys Blog
 │   │   ├── mactechnews/         # MacTechNews
+│   │   ├── the_verge/           # The Verge
+│   │   ├── ars_technica/        # Ars Technica
 │   │   ├── explosm/             # Cyanide & Happiness
 │   │   ├── dark_legacy/         # Dark Legacy Comics
 │   │   ├── oglaf/               # Oglaf comics
