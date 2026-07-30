@@ -370,6 +370,12 @@ def test_video_without_a_playable_source_is_dropped():
     assert blocks_from_html("<video controls>no source</video>") == []
 
 
+def test_video_with_an_unsafe_src_is_dropped_not_embedded_without_a_link():
+    """An unplayable stream URL is `no embed`, not `an embed with no link` --
+    the latter would be a video card that goes nowhere."""
+    assert blocks_from_html('<video src="javascript:alert(1)"></video>') == []
+
+
 def test_video_fallback_text_never_leaks_into_a_paragraph():
     html = "<p>before</p><video><source src='https://v/x.mp4'>Your browser…</video>"
     blocks = blocks_from_html(html)
@@ -403,6 +409,15 @@ def test_twitter_and_fxtwitter_hosts_are_recognized():
     for host in ("twitter.com", "mobile.twitter.com", "api.fxtwitter.com"):
         html = f'<blockquote><a href="https://{host}/w/status/1">t</a></blockquote>'
         assert blocks_from_html(html)[0].provider == "tweet", host
+
+
+def test_a_javascript_scheme_disguised_as_a_twitter_host_is_not_a_tweet_embed():
+    """`urlparse("javascript://twitter.com/...")` reports hostname
+    `twitter.com`, so the host check alone would wrongly accept this -- the
+    scheme must be checked too, and checked first."""
+    html = '<blockquote><a href="javascript://twitter.com/%0aalert(1)">t</a></blockquote>'
+    blocks = blocks_from_html(html)
+    assert not any(isinstance(block, EmbedBlock) for block in blocks)
 
 
 def test_blockquote_linking_elsewhere_stays_a_blockquote():

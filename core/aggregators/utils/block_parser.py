@@ -344,7 +344,10 @@ def _video_embed(element: Tag) -> EmbedBlock | None:
     src = str(source.get("src") or "") if source is not None else ""
     if not src:
         src = str(element.get("src") or "")
-    if not src:
+    # No playable source, or an unplayable one -- `javascript:`/`data:`/etc are
+    # not stream URLs, and a card with an unsafe `external_url` would be one
+    # that goes nowhere, so this is "no embed", not "an embed with no link".
+    if not src or not is_safe_url(src):
         return None
     return EmbedBlock(
         provider="video",
@@ -360,6 +363,12 @@ def _tweet_embed(element: Tag) -> EmbedBlock | None:
     """
     for anchor in element.find_all("a", href=True):
         href = str(anchor.get("href") or "")
+        # Checked before the host match, not after: `urlparse` happily returns
+        # a `twitter.com` hostname for a scheme like
+        # `javascript://twitter.com/%0aalert(1)`, so the host check alone
+        # cannot be trusted to keep a dangerous scheme out.
+        if not is_safe_url(href):
+            continue
         try:
             host = (urlparse(href).hostname or "").lower()
         except ValueError:
