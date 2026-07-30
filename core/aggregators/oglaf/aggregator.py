@@ -1,12 +1,11 @@
 """Oglaf aggregator implementation."""
 
-import base64
 import logging
 from typing import Any, Dict, Optional
 
 from bs4 import BeautifulSoup, Tag
 
-from ..services.image_extraction.fetcher import fetch_single_image
+from ..services.image_store import store_image_ref_from_url
 from ..utils import format_article_content, get_attr_str
 from ..website import FullWebsiteAggregator
 
@@ -18,7 +17,8 @@ class OglafAggregator(FullWebsiteAggregator):
     Aggregator for Oglaf webcomic.
 
     Ported from legacy TypeScript implementation.
-    Handles extraction of comic images and conversion to base64.
+    Handles extraction of the comic image, which is stored in the shared image
+    store and referenced by hash.
     """
 
     brand_site_url = "https://www.oglaf.com/"
@@ -51,12 +51,6 @@ class OglafAggregator(FullWebsiteAggregator):
                 help_text="Display the comic's 'title' text (often containing a second joke) below the image.",
                 required=False,
             ),
-            "convert_to_base64": forms.BooleanField(
-                initial=True,
-                label="Convert to Base64",
-                help_text="Download and embed the image as base64 to ensure it displays correctly in all readers.",
-                required=False,
-            ),
         }
 
     def get_source_url(self) -> str:
@@ -86,12 +80,8 @@ class OglafAggregator(FullWebsiteAggregator):
         return None
 
     def process_content(self, html: str, article: Dict[str, Any]) -> str:
-        """
-        Process Oglaf content by extracting the comic image and converting to base64.
-        """
-        # Get options
+        """Process Oglaf content by extracting and storing the comic image."""
         show_alt_text = self.feed.options.get("show_alt_text", True)
-        convert_to_base64 = self.feed.options.get("convert_to_base64", True)
 
         soup = BeautifulSoup(html, "html.parser")
 
@@ -114,17 +104,8 @@ class OglafAggregator(FullWebsiteAggregator):
             alt_text = get_attr_str(comic_img, "alt") or "Oglaf comic"
             joke_text = get_attr_str(comic_img, "title")
 
-            # Fetch image and convert to base64 if enabled
-            image_result = None
-            if convert_to_base64:
-                image_result = fetch_single_image(img_url)
-
-            if image_result:
-                b64_data = base64.b64encode(image_result["imageData"]).decode("utf-8")
-                data_uri = f"data:{image_result['contentType']};base64,{b64_data}"
-                img_src = data_uri
-            else:
-                img_src = img_url
+            # Store the comic once; fall back to the remote URL if that fails.
+            img_src = store_image_ref_from_url(img_url) or img_url
 
             new_html = (
                 f'<div style="text-align: center;">'

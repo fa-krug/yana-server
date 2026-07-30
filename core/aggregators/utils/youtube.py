@@ -7,12 +7,22 @@ Provides functions for:
 - Constructing thumbnail URLs
 """
 
+import contextlib
+import logging
 import re
 from typing import Optional
 
 from django.conf import settings
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
+
+logger = logging.getLogger(__name__)
+
+# WordPress' "Embed Privacy" plugin replaces a video <iframe> with a consent
+# gate. The real player lives only in a <script> template, which sanitization
+# strips, so the visible boilerplate is all that survives.
+EMBED_PRIVACY_CONTAINER_SELECTOR = ".embed-privacy-container"
+EMBED_PRIVACY_URL_SELECTOR = ".embed-privacy-url a[href]"
 
 
 def extract_youtube_video_id(url: str) -> Optional[str]:
@@ -148,13 +158,59 @@ def is_youtube_url(url: str) -> bool:
     return any(domain in url for domain in youtube_domains)
 
 
-def proxy_youtube_embeds(soup: BeautifulSoup) -> None:
+def recover_consent_gated_embeds(soup: BeautifulSoup) -> None:
     """
-    Find and replace YouTube iframes with proxy embeds.
+    Turn "Embed Privacy" consent gates back into YouTube iframes.
+
+    The gate's "open directly" footer link is a real anchor that survives
+    sanitization, so the canonical URL can be recovered from it. On failure the
+    container is removed rather than left in place -- otherwise its consent
+    boilerplate leaks into the article as stray paragraphs, which is the bug
+    this fixes.
 
     Args:
         soup: BeautifulSoup object to modify in-place
     """
+    for container in soup.select(EMBED_PRIVACY_CONTAINER_SELECTOR):
+        try:
+            link = container.select_one(EMBED_PRIVACY_URL_SELECTOR)
+            href = link.get("href") if isinstance(link, Tag) else None
+            if isinstance(href, list):
+                href = href[0] if href else None
+
+            video_id = extract_youtube_video_id(str(href)) if href else None
+            if not video_id:
+                container.decompose()
+                continue
+
+            replacement = BeautifulSoup(
+                f'<iframe src="https://www.youtube.com/embed/{video_id}"></iframe>',
+                "html.parser",
+            ).find("iframe")
+            if replacement is None:
+                container.decompose()
+                continue
+
+            container.replace_with(replacement)
+        except Exception as exc:
+            # One malformed gate must not abort the article.
+            logger.warning("Failed to recover a consent-gated embed: %s", exc)
+            with contextlib.suppress(Exception):
+                container.decompose()
+
+
+def proxy_youtube_embeds(soup: BeautifulSoup) -> None:
+    """
+    Find and replace YouTube iframes with proxy embeds.
+
+    Consent gates are recovered first so the iframes they hide go through the
+    same proxy rewrite as any other embed.
+
+    Args:
+        soup: BeautifulSoup object to modify in-place
+    """
+    recover_consent_gated_embeds(soup)
+
     for iframe in soup.find_all("iframe"):
         src = iframe.get("src", "")
         if not src:

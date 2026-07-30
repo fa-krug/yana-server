@@ -26,6 +26,8 @@ The aggregator system follows a modular architecture:
 - `MactechnewsAggregator` - MacTechNews
 - `OglafAggregator` - Oglaf web comics
 - `MeinMmoAggregator` - Mein-MMO gaming site
+- `TheVergeAggregator` - The Verge (first content match only: the page embeds related article bodies)
+- `ArsTechnicaAggregator` - Ars Technica (merges every in-page `.post-content` block)
 
 ### Social Aggregators
 - `YoutubeAggregator` - YouTube channels
@@ -148,9 +150,12 @@ wins), and duplicates are collapsed.
 | `content_selectors` | `Feed.options` | Per-feed override of the class list. Absent → class default; present-but-empty → deliberately empty |
 | `ignore_selectors` | `Feed.options` | Per-feed override of the removals. Absent → the shared defaults (`.advertisement`, `.ad`, `.ads`, `[class*='advert']`, `[class*='sponsor']`, `.social-share`, `.newsletter`, `.related-articles`); present-but-empty → no per-feed removals beyond the class `selectors_to_remove` and the mandatory set |
 
-A present-but-empty `content_selectors: []` is a surprising one: it means *nothing* matches, so
-extraction falls through to the whole `<body>` rather than any narrower container — the same
-outcome as when no selector matches at all.
+A present-but-empty `content_selectors: []` is a surprising one: it means *nothing* matches. What
+happens next depends on the aggregator's `extract_content`: a scraper still on
+`FullWebsiteAggregator`'s default (plain `extract_main_content`) falls through to the whole
+`<body>`, but Heise, The Verge, and Ars Technica override `extract_content` to degrade to the RSS
+summary instead (see below), so for those three a present-but-empty `content_selectors: []` yields
+the RSS summary, not `<body>`.
 
 `DEFAULT_IGNORE_SELECTORS` is applied on top of every managed scraper's own `selectors_to_remove`,
 not just `FullWebsiteAggregator`'s. Before this branch, a scraper that overrode `selectors_to_remove`
@@ -167,10 +172,7 @@ be disabled by any option. Iframes are an aggregator-level policy: `FullWebsiteA
 supports more embed hosts — Caschy's Blog allows Twitter/X — overrides that list and filters iframes
 itself in `process_content`.
 
-Two lower-level building blocks in `core/aggregators/utils/content_extractor.py`, available for a
-scraper to wire into its own `extract_content` / `enrich_articles` override. Neither is called
-automatically by `FullWebsiteAggregator` or any shipped scraper today — `extract_content` currently
-calls plain `extract_main_content` — so this is opt-in plumbing, not live behavior:
+Two lower-level building blocks live in `core/aggregators/utils/content_extractor.py`:
 
 - `extract_main_content_if_present(...)` returns `None` instead of falling back to `<body>`, so a
   paywall or gate page cannot surface site navigation as the article.
@@ -178,9 +180,74 @@ calls plain `extract_main_content` — so this is opt-in plumbing, not live beha
   requires at least 80 characters of real text — for syndicated pages on other domains that carry
   none of the scraper's markup.
 
-For a scraper that does opt in, the intended resolution order is: dedicated container → generic
-extraction (≥80 chars) → RSS summary. Wiring these into a specific scraper is out of scope here —
-see `docs/superpowers/specs/2026-07-29-aggregator-parity-2-scrapers-and-types-design.md`.
+`FullWebsiteAggregator`'s own default `extract_content` still calls plain `extract_main_content`
+(the `<body>` fallback), so a subclass has to opt out of it deliberately. Four scrapers do:
+
+- **The Verge** and **Ars Technica** inherit `RssSummaryFallbackAggregator` (`website.py`), a thin
+  `FullWebsiteAggregator` subclass whose `extract_content` calls `extract_main_content_if_present`
+  with the resolved `content_selectors` / `ignore_selectors` / `uses_first_content_match` and
+  degrades a miss to the RSS summary (`article["content"]`, still the untouched RSS value at this
+  point in `enrich_articles`). The two differ only in that flag: The Verge keeps the first match
+  (its page repeats the body class for related stories), while Ars unions every `.post-content`
+  block, because Ars serves every "page" of an article as siblings in one fetch.
+- **Heise** does the same thing with its own standalone `extract_content` — it does *not* use
+  `RssSummaryFallbackAggregator`, because it additionally strips now-empty `p`/`div`/`span` elements
+  from a successful extraction, which is Heise-specific. Editing the shared base does not affect
+  Heise, and vice versa.
+- **Tagesschau** keeps its bespoke `textabsatz` parser as tier one, adds
+  `generic_content_if_present` as a *middle* tier for syndicated external-broadcaster pages (mdr.de,
+  ndr.de, ...) that carry none of tagesschau.de's markup, and only then falls back to the RSS
+  summary. A media-player-only page (no `textabsatz` text, no generic match, but a `MediaPlayer`
+  header) keeps its header rather than losing it to a bogus fallback.
+
+Every other scraper still ends up with the whole document when nothing matches, whether it overrides
+`extract_content` or not: Merkur's override falls through to `super().extract_content` (so `<body>`),
+and mein_mmo's bespoke extractor returns the *entire fetched HTML* when `div.entry-content` is
+missing — a worse version of the same problem, and a candidate for the same treatment. (YouTube also
+defines `extract_content`, but it builds content from API data rather than scraping a page, so none
+of this applies to it.)
+
+## Image Storage
+
+Images are **stored once and referenced by hash**, never inlined as base64.
+
+`core/aggregators/services/image_store.py` is the only writer:
+
+```
+remote URL -> fetch (image_extraction) -> compress (compression.py)
+           -> sha256(compressed bytes) -> ArticleImage row -> return the hash
+```
+
+Article content carries the reference, not the bytes:
+
+```html
+<img src="yana-img://3f786850e387550fdab836ed7e6dc881de23001b...">
+```
+
+Key properties:
+
+- **The hash is over the compressed output**, so the same source image compresses to the same bytes,
+  finds the existing row, and stores nothing new. Deduplication is free; the unique constraint on
+  `content_hash` makes concurrent runs safe.
+- **A failed store means no image**, not no article. The header-element strategies return `None`, so
+  no header renders and the body publishes as usual. (Reddit and Oglaf are exceptions: both degrade
+  to the remote URL on a failed store, which still shows the image exactly once.)
+- **A failed compression stores the original bytes** and logs it -- a large stored image beats a
+  missing one.
+- Storage lives on local disk under `MEDIA_ROOT/article_images/YYYY/MM/`. Admin serves it via
+  `/media/` so images are verifiable by eye; the authenticated HTTP endpoint belongs to the new API.
+
+### Maintenance commands
+
+```bash
+# Convert legacy inline data URIs in existing articles (batched, idempotent)
+uv run python manage.py migrate_inline_images --dry-run
+uv run python manage.py migrate_inline_images
+
+# Delete images no article references any more (and report rows with missing files)
+uv run python manage.py prune_orphaned_images --dry-run
+uv run python manage.py prune_orphaned_images --min-age 30
+```
 
 ## Feed authoring
 

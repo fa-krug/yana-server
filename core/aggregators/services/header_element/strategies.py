@@ -3,7 +3,7 @@ Header element extraction strategies using Strategy Pattern.
 
 Provides strategies for extracting header elements (HTML) from different sources:
 1. RedditEmbedStrategy - Reddit video embeds (vxreddit.com, reddit.com/embed)
-2. RedditPostStrategy - Reddit post subreddit icons (fetches icon, compresses to base64)
+2. RedditPostStrategy - Reddit post subreddit icons (fetches icon, stores it in the image store)
 3. YouTubeStrategy - YouTube video iframes
 4. GenericImageStrategy - Fallback for all other sources (uses ImageExtractor)
 """
@@ -13,11 +13,9 @@ from abc import ABC, abstractmethod
 
 from core.aggregators.exceptions import ArticleSkipError
 from core.aggregators.services.header_element.context import HeaderElementContext, HeaderElementData
-from core.aggregators.services.image_extraction.compression import (
-    compress_and_encode_image,
-)
 from core.aggregators.services.image_extraction.extractor import ImageExtractor
 from core.aggregators.services.image_extraction.fetcher import fetch_single_image
+from core.aggregators.services.image_store import store_image_bytes
 from core.aggregators.utils.reddit import (
     extract_post_info_from_url,
     fetch_subreddit_icon,
@@ -105,21 +103,20 @@ class RedditPostStrategy(HeaderElementStrategy):
                 logger.debug(f"RedditPostStrategy: Failed to fetch icon from {icon_url}")
                 return None
 
-            # Compress and encode
-            encode_result = compress_and_encode_image(
+            content_hash = store_image_bytes(
                 image_result["imageData"],
                 image_result["contentType"],
             )
 
-            if not encode_result:
-                logger.debug("RedditPostStrategy: Failed to compress image")
+            if not content_hash:
+                logger.debug("RedditPostStrategy: Failed to store image")
                 return None
 
-            logger.debug("RedditPostStrategy: Successfully extracted and encoded icon")
+            logger.debug("RedditPostStrategy: Successfully extracted and stored icon")
             return HeaderElementData(
                 image_bytes=image_result["imageData"],
                 content_type=image_result["contentType"],
-                base64_data_uri=encode_result["dataUri"],
+                content_hash=content_hash,
             )
 
         except ArticleSkipError:
@@ -159,21 +156,20 @@ class YouTubeStrategy(HeaderElementStrategy):
                 logger.debug(f"YouTubeStrategy: Failed to fetch thumbnail for {video_id}")
                 return None
 
-            # Compress and encode
-            encode_result = compress_and_encode_image(
+            content_hash = store_image_bytes(
                 image_result["imageData"],
                 image_result["contentType"],
             )
 
-            if not encode_result:
-                logger.debug("YouTubeStrategy: Failed to compress image")
+            if not content_hash:
+                logger.debug("YouTubeStrategy: Failed to store image")
                 return None
 
-            logger.debug("YouTubeStrategy: Successfully fetched and encoded thumbnail")
+            logger.debug("YouTubeStrategy: Successfully fetched and stored thumbnail")
             return HeaderElementData(
                 image_bytes=image_result["imageData"],
                 content_type=image_result["contentType"],
-                base64_data_uri=encode_result["dataUri"],
+                content_hash=content_hash,
             )
 
         except Exception as e:
@@ -207,22 +203,21 @@ class GenericImageStrategy(HeaderElementStrategy):
                 logger.debug("GenericImageStrategy: No image extracted")
                 return None
 
-            # Compress and encode
-            encode_result = compress_and_encode_image(
+            content_hash = store_image_bytes(
                 image_result["imageData"],
                 image_result["contentType"],
                 is_header=True,
             )
 
-            if not encode_result:
-                logger.debug("GenericImageStrategy: Failed to compress image")
+            if not content_hash:
+                logger.debug("GenericImageStrategy: Failed to store image")
                 return None
 
-            logger.debug("GenericImageStrategy: Successfully extracted and encoded image")
+            logger.debug("GenericImageStrategy: Successfully extracted and stored image")
             return HeaderElementData(
                 image_bytes=image_result["imageData"],
                 content_type=image_result["contentType"],
-                base64_data_uri=encode_result["dataUri"],
+                content_hash=content_hash,
                 image_url=image_result.get("imageUrl"),
             )
 

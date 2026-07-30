@@ -3,11 +3,18 @@
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from bs4 import BeautifulSoup
+
 from ..website import FullWebsiteAggregator
 from .content_extraction import extract_tagesschau_content
 from .media_processor import extract_media_header
 
 logger = logging.getLogger(__name__)
+
+# Per-article cache for the parsed media header: extract_content needs it to
+# decide whether a page is genuinely empty, process_content needs it to render.
+# Parsing the page twice per article is pure waste.
+_MEDIA_HEADER_CACHE_KEY = "_tagesschau_media_header"
 
 
 class TagesschauAggregator(FullWebsiteAggregator):
@@ -18,11 +25,12 @@ class TagesschauAggregator(FullWebsiteAggregator):
     and filters out specific types of content (livestreams, podcasts).
     """
 
-    # NOTE: extract_content below bypasses the shared extractor entirely (it
-    # calls extract_tagesschau_content, a bespoke textabsatz-paragraph parser),
-    # so nothing in tagesschau/ ever reads these two attributes. They are inert
-    # until Spec 2 rewires this aggregator onto the shared extraction path --
-    # see docs/superpowers/specs/2026-07-29-aggregator-parity-2-scrapers-and-types-design.md.
+    # Extraction runs three tiers: the bespoke textabsatz parser below, then
+    # the shared generic extractor (Spec 2 / A3), then the RSS summary. Only
+    # the generic tier reads ``selectors_to_remove`` (via get_ignore_selectors);
+    # ``uses_first_content_match`` stays inert because the generic tier unions
+    # its matches by design. A feed's ``content_selectors`` option has no effect
+    # here -- the bespoke parser is the point of this aggregator.
 
     brand_site_url = "https://www.tagesschau.de/"
 
@@ -207,28 +215,68 @@ class TagesschauAggregator(FullWebsiteAggregator):
         return False
 
     def extract_content(self, html: str, article: Dict[str, Any]) -> str:
-        """Extract content using specialized Tagesschau logic."""
-        # The base FullWebsiteAggregator.enrich_articles calls extract_content
-        # We use our specialized textabsatz extraction
-        return extract_tagesschau_content(html)
+        """Extract content: textabsatz, then generic extraction, then RSS.
 
-    def process_content(self, html: str, article: Dict[str, Any]) -> str:
-        """Process content and add media header if available."""
-        # Get original HTML from article (stored in enrich_articles)
-        raw_html = article.get("raw_content", "")
+        Regional feeds syndicate items that link straight to an external ARD
+        broadcaster page (mdr.de, ndr.de, ...). Those templates carry none of
+        tagesschau.de's textabsatz/MediaPlayer markup, so tier 1 finds nothing
+        and the article used to land empty. Tier 2 is the shared generic
+        extractor with its 80-character floor; widget pages (the DWD weather
+        pages) match no container at all and correctly reach tier 3.
+        """
+        extracted = extract_tagesschau_content(html)
 
-        media_header = None
-        if raw_html:
+        if self._has_real_content(extracted) or self._media_header(html, article):
+            return extracted
+
+        generic = self.generic_content_if_present(html, article)
+        if generic:
+            self.logger.info(
+                "[extract_content] Using generic extraction for %s", article.get("identifier")
+            )
+            return generic
+
+        self.logger.info(
+            "[extract_content] No usable page content for %s -- using the RSS summary",
+            article.get("identifier"),
+        )
+        return article.get("content", "")
+
+    @staticmethod
+    def _has_real_content(html: str) -> bool:
+        """True when the bespoke extractor produced text or embedded media."""
+        soup = BeautifulSoup(html, "html.parser")
+        if soup.get_text(strip=True):
+            return True
+        return soup.find(["img", "iframe", "video", "audio"]) is not None
+
+    def _media_header(self, html: str, article: Dict[str, Any]) -> Optional[str]:
+        """Parse the MediaPlayer header once per article and cache the result."""
+        if _MEDIA_HEADER_CACHE_KEY in article:
+            cached: Optional[str] = article[_MEDIA_HEADER_CACHE_KEY]
+            return cached
+
+        media_header: Optional[str] = None
+        if html:
             try:
-                media_header = extract_media_header(raw_html)
+                media_header = extract_media_header(html)
             except Exception as e:
                 self.logger.debug(
                     f"Failed to extract media header for {article.get('identifier')}: {e}"
                 )
 
-        # Use base process_content for standard cleaning and formatting
-        # If we have a media_header, we temporarily remove header_data from the article
-        # so super().process_content() doesn't add a duplicate (and less specific) header image.
+        article[_MEDIA_HEADER_CACHE_KEY] = media_header
+        return media_header
+
+    def process_content(self, html: str, article: Dict[str, Any]) -> str:
+        """Process content and add media header if available."""
+        raw_html = article.get("raw_content", "")
+        media_header = self._media_header(raw_html, article)
+        # The cache is per-run scratch space; don't let it reach the ORM layer.
+        article.pop(_MEDIA_HEADER_CACHE_KEY, None)
+
+        # If we have a media_header, temporarily remove header_data so
+        # super().process_content() doesn't add a duplicate (less specific) header image.
         header_data = article.get("header_data")
         if media_header and header_data:
             article["header_data"] = None
@@ -236,7 +284,6 @@ class TagesschauAggregator(FullWebsiteAggregator):
         try:
             processed = super().process_content(html, article)
         finally:
-            # Restore header_data
             if media_header and header_data:
                 article["header_data"] = header_data
 

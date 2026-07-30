@@ -99,6 +99,7 @@ replace it. Third-party RSS readers are not supported in the meantime.
 -   **Background Processing:** Automatic feed updates using `django-q2`.
 -   **Easy Feed Setup:** Paste a homepage URL like `golem.de` when adding a feed -- Yana resolves it to the site's advertised feed on save, and fetches a logo for it automatically.
 -   **Admin Interface:** Manage feeds, view fetching status, and trigger updates directly from the Django admin, including **Resolve & test** (check a feed without saving) and **Refresh feed logo** actions.
+-   **Deduplicated Image Storage:** Article images are stored once, content-addressed by hash, and referenced from article content -- no base64 bloat in the database.
 
 ---
 
@@ -165,10 +166,11 @@ See **CLAUDE.md** for more detailed debugging workflows.
 
 ### Project Architecture
 
--   **`core/models.py`**: `Feed`, `Article`, `FeedGroup`.
+-   **`core/models.py`**: `Feed`, `Article`, `ArticleImage`, `FeedGroup`.
 -   **`core/aggregators/`**: Content fetching logic.
     -   `registry.py`: Factory pattern for aggregators.
     -   `base.py`: Base classes for RSS, Full Website, etc.
+    -   `services/image_store.py`: Content-addressed image storage (`yana-img://<hash>` references).
 -   **`core/services/`**: Business logic (aggregation triggers, article maintenance).
 
 ### Running Tests

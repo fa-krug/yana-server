@@ -94,21 +94,26 @@ class TestFirstMatchOptOut:
         assert "two" in result
 
     def test_scrapers_with_a_dedicated_container_opt_out(self):
+        from core.aggregators.ars_technica import ArsTechnicaAggregator
         from core.aggregators.mactechnews.aggregator import MactechnewsAggregator
         from core.aggregators.registry import AggregatorRegistry
 
         assert FullWebsiteAggregator.uses_first_content_match is False
+
+        # Scrapers whose page legitimately holds the body in SIBLING containers,
+        # where keeping only the first match would truncate the article:
+        #   MacTechNews -- fetch_all_pages combines pages into sibling
+        #     .MtnArticle containers (one per fetched page).
+        #   Ars Technica -- the single fetched page already contains sibling
+        #     .post-content blocks, one per article "page".
+        union_scrapers = {MactechnewsAggregator, ArsTechnicaAggregator}
 
         for name, agg_class in AggregatorRegistry.get_all().items():
             if agg_class is FullWebsiteAggregator or not issubclass(
                 agg_class, FullWebsiteAggregator
             ):
                 continue
-            if agg_class is MactechnewsAggregator:
-                # MacTechNews multipage articles are combined into sibling
-                # .MtnArticle containers by fetch_all_pages, so extraction
-                # must union every match instead of keeping only the first
-                # -- see FIX 1 / core/aggregators/mactechnews/aggregator.py.
+            if agg_class in union_scrapers:
                 assert agg_class.uses_first_content_match is False, name
                 continue
             assert agg_class.uses_first_content_match is True, name
@@ -170,11 +175,11 @@ class TestManagedScrapersHonorSelectorOptions:
         assert "evil()" not in result  # extractor's MANDATORY_REMOVE_SELECTORS
 
     def test_mein_mmo_currently_ignores_content_selectors_option(self, rss_feed):
-        """Documented gap for Spec 2: MeinMmoAggregator.extract_content bypasses
-        the shared extractor (and get_content_selectors()) entirely -- it always
-        looks for div.entry-content. A feed's content_selectors option has no
-        effect until this is rewired. See
-        docs/superpowers/specs/2026-07-29-aggregator-parity-2-scrapers-and-types-design.md.
+        """MeinMmoAggregator.extract_content bypasses the shared extractor (and
+        get_content_selectors()) entirely -- it always looks for
+        div.entry-content. A feed's content_selectors option has no effect.
+        Spec 2 deliberately left this alone; the bespoke extractor is the point
+        of the aggregator.
         """
         from core.aggregators.mein_mmo import MeinMmoAggregator
 
@@ -190,12 +195,12 @@ class TestManagedScrapersHonorSelectorOptions:
         assert "real mein-mmo body" in result
         assert "option target, ignored today" not in result
 
-    def test_tagesschau_currently_ignores_content_selectors_option(self, rss_feed):
-        """Documented gap for Spec 2: TagesschauAggregator.extract_content
-        bypasses the shared extractor (and get_content_selectors()) entirely --
-        it always extracts textabsatz paragraphs. A feed's content_selectors
-        option has no effect until this is rewired. See
-        docs/superpowers/specs/2026-07-29-aggregator-parity-2-scrapers-and-types-design.md.
+    def test_tagesschau_ignores_the_content_selectors_option_by_design(self, rss_feed):
+        """TagesschauAggregator.extract_content runs its bespoke textabsatz
+        parser first and only falls back to the shared generic extractor (which
+        uses DEFAULT_CONTENT_SELECTORS, not get_content_selectors()). A feed's
+        content_selectors option therefore has no effect -- deliberate as of
+        Spec 2 / A3, not a gap.
         """
         from core.aggregators.tagesschau import TagesschauAggregator
 

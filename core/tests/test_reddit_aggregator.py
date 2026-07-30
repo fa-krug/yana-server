@@ -827,3 +827,123 @@ class TestContentFormatterYouTubeEmbed:
 
         assert "<iframe" in result
         assert "youtube-embed-container" in result
+
+
+class TestBuildHeaderHtml:
+    """`None` (no header possible) must stay distinguishable from `""`."""
+
+    def test_returns_none_without_a_url(self):
+        from core.aggregators.utils.content_formatter import build_header_html
+
+        assert build_header_html(None, title="T") is None
+        assert build_header_html("", title="T") is None
+
+    def test_returns_none_when_the_tweet_embed_cannot_be_fetched(self):
+        from core.aggregators.utils.content_formatter import build_header_html
+
+        with patch(
+            "core.aggregators.utils.content_formatter.build_tweet_embed_html", return_value=None
+        ):
+            assert build_header_html("https://x.com/a/status/1", title="T") is None
+
+    def test_renders_an_image_header(self):
+        from core.aggregators.utils.content_formatter import build_header_html
+
+        header = build_header_html("https://i.redd.it/a.jpg", title="Title")
+
+        assert header is not None
+        assert '<img src="https://i.redd.it/a.jpg"' in header
+        assert header.startswith("<header")
+
+    def test_renders_a_youtube_header(self):
+        from core.aggregators.utils.content_formatter import build_header_html
+
+        header = build_header_html("https://youtu.be/sl2YybDiluQ", title="Title")
+
+        assert header is not None
+        assert "youtube-embed-container" in header
+
+    def test_format_article_content_uses_a_prebuilt_header_verbatim(self):
+        from core.aggregators.utils.content_formatter import format_article_content
+
+        result = format_article_content(
+            content="<p>body</p>",
+            title="T",
+            url="https://example.com/a",
+            header_html="<header>prebuilt</header>",
+        )
+
+        assert "<header>prebuilt</header>" in result
+
+
+@pytest.mark.django_db
+class TestRedditDirectImagePostKeepsItsImage:
+    """A direct-image/GIF link post has its image ONLY in the body."""
+
+    @pytest.fixture
+    def reddit_agg(self, reddit_feed, user_with_settings):
+        return RedditAggregator(reddit_feed)
+
+    @staticmethod
+    def _gif_article():
+        return {
+            "name": "Cool GIF",
+            "identifier": "https://reddit.com/r/gifs/comments/abc123/cool/",
+            "raw_content": '<p><img src="https://i.redd.it/cool.gif"/></p>',
+            "content": '<p><img src="https://i.redd.it/cool.gif"/></p>',
+            "date": None,
+            "author": "someone",
+            "_reddit_header_image_url": "https://i.redd.it/cool.gif",
+            "_reddit_video_url": None,
+        }
+
+    def test_body_image_survives_when_header_images_are_disabled(self, reddit_agg):
+        reddit_agg.feed.options = {"include_header_image": False}
+
+        finalized = reddit_agg.finalize_articles([self._gif_article()])
+
+        assert "i.redd.it/cool.gif" in finalized[0]["content"]
+        assert "<header" not in finalized[0]["content"]
+
+    STORED_REF = f"yana-img://{'d' * 64}"
+
+    @patch("core.aggregators.reddit.aggregator.store_image_ref_from_url")
+    def test_body_copy_is_stripped_once_a_header_renders(self, mock_store, reddit_agg):
+        mock_store.return_value = self.STORED_REF
+
+        content = reddit_agg.finalize_articles([self._gif_article()])[0]["content"]
+
+        assert self.STORED_REF in content
+        assert "data:image" not in content
+        assert "i.redd.it/cool.gif" not in content
+
+    @patch("core.aggregators.reddit.aggregator.build_header_html", return_value=None)
+    @patch("core.aggregators.reddit.aggregator.store_image_ref_from_url")
+    def test_body_image_survives_when_no_header_can_be_rendered(
+        self, mock_store, mock_header, reddit_agg
+    ):
+        mock_store.return_value = self.STORED_REF
+
+        content = reddit_agg.finalize_articles([self._gif_article()])[0]["content"]
+
+        assert "i.redd.it/cool.gif" in content
+        assert "<header" not in content
+
+    @patch("core.aggregators.reddit.aggregator.store_image_ref_from_url", return_value=None)
+    def test_failed_download_still_renders_the_header_from_the_original_url(
+        self, mock_store, reddit_agg
+    ):
+        """Server behavior, deliberately kept: a failed store degrades to the
+        remote URL, which still shows the image exactly once."""
+        content = reddit_agg.finalize_articles([self._gif_article()])[0]["content"]
+
+        assert '<img src="https://i.redd.it/cool.gif"' in content
+        assert content.count("i.redd.it/cool.gif") == 1
+
+    def test_internal_keys_do_not_leak(self, reddit_agg):
+        reddit_agg.feed.options = {"include_header_image": False}
+
+        finalized = reddit_agg.finalize_articles([self._gif_article()])
+
+        assert "header_html" not in finalized[0]
+        assert "_reddit_header_image_url" not in finalized[0]

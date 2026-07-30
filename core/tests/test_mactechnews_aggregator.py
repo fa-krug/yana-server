@@ -1,6 +1,8 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from core.aggregators.mactechnews.aggregator import MactechnewsAggregator
 from core.aggregators.mactechnews.comment_extractor import extract_comments
 from core.aggregators.mactechnews.multipage_handler import (
@@ -408,6 +410,49 @@ class TestMactechnewsComments(unittest.TestCase):
         content = enriched[0]["content"]
 
         self.assertNotIn("article-comments", content)
+
+
+@pytest.mark.django_db
+class TestMactechnewsTechTickerFilter:
+    @pytest.fixture
+    def mtn_agg(self, rss_feed):
+        rss_feed.aggregator = "mactechnews"
+        rss_feed.identifier = "https://www.mactechnews.de/Rss/News.x"
+        return MactechnewsAggregator(rss_feed)
+
+    def test_techticker_roundups_are_skipped(self, mtn_agg):
+        articles = [
+            {"name": "Apple releases iOS 26.2", "date": None},
+            {"name": "TechTicker: Kurz notiert am Freitag", "date": None},
+        ]
+
+        filtered = mtn_agg.filter_articles(articles)
+
+        assert [a["name"] for a in filtered] == ["Apple releases iOS 26.2"]
+
+    def test_the_word_mid_title_is_kept(self, mtn_agg):
+        """Prefix match, not substring: a real article merely mentioning the
+        word must survive."""
+        articles = [{"name": "Warum der TechTicker beliebt ist", "date": None}]
+
+        filtered = mtn_agg.filter_articles(articles)
+
+        assert len(filtered) == 1
+
+    def test_the_match_is_case_sensitive(self, mtn_agg):
+        """Mirrors iOS's hasPrefix. Heise's skip-list is case-INsensitive
+        because its terms appear mid-title with varying case (commit 338e62a);
+        TechTicker is a generated prefix with a fixed form. Do not unify."""
+        articles = [{"name": "techticker: lowercase variant", "date": None}]
+
+        filtered = mtn_agg.filter_articles(articles)
+
+        assert len(filtered) == 1
+
+    def test_missing_title_does_not_raise(self, mtn_agg):
+        filtered = mtn_agg.filter_articles([{"date": None}])
+
+        assert len(filtered) == 1
 
 
 if __name__ == "__main__":

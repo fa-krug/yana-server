@@ -8,9 +8,9 @@ Tries strategies in specific order (RedditEmbed BEFORE RedditPost) until one suc
 import logging
 
 from ...exceptions import ArticleSkipError
-from ..image_extraction.compression import compress_and_encode_image
 from ..image_extraction.domain_overrides import get_override_image_url
 from ..image_extraction.fetcher import fetch_single_image
+from ..image_store import store_image_bytes
 from .context import HeaderElementContext, HeaderElementData
 from .strategies import (
     GenericImageStrategy,
@@ -65,7 +65,8 @@ class HeaderElementExtractor:
             user_id: Optional user ID for authenticated API calls (e.g. Reddit)
 
         Returns:
-            HeaderElementData containing raw bytes and base64 URI, or None if extraction fails
+            HeaderElementData containing raw bytes and the stored image's hash, or None if
+            extraction fails
 
         Raises:
             ArticleSkipError: On 4xx HTTP errors (article should be skipped)
@@ -136,20 +137,18 @@ class HeaderElementExtractor:
             )
             return None
 
-        encode_result = compress_and_encode_image(
+        content_hash = store_image_bytes(
             image_result["imageData"],
             image_result["contentType"],
             is_header=True,
         )
-        if not encode_result:
-            logger.warning(
-                f"HeaderElementExtractor: Failed to encode override image {override_url}"
-            )
+        if not content_hash:
+            logger.warning(f"HeaderElementExtractor: Failed to store override image {override_url}")
             return None
 
         return HeaderElementData(
             image_bytes=image_result["imageData"],
             content_type=image_result["contentType"],
-            base64_data_uri=encode_result["dataUri"],
+            content_hash=content_hash,
             image_url=override_url,
         )

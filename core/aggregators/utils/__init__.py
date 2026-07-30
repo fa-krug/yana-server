@@ -10,7 +10,7 @@ from .content_extractor import (
     extract_main_content_if_present,
     select_content_elements,
 )
-from .content_formatter import format_article_content
+from .content_formatter import build_header_html, format_article_content
 from .favicon import best_icon_url, resolve_site_icon
 from .feed_discovery import discover_feed_url, feed_url_in_html
 from .feed_url_resolver import normalize, resolve_feed_url
@@ -31,6 +31,7 @@ from .rss_parser import parse_rss_feed
 
 __all__ = [
     "best_icon_url",
+    "build_header_html",
     "clean_data_attributes",
     "clean_html",
     "convert_legacy_options",

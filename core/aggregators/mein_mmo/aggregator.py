@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from ..utils import clean_html, format_article_content, remove_image_by_url
 from ..utils.youtube import proxy_youtube_embeds
 from ..website import FullWebsiteAggregator
+from .comment_extractor import extract_comments
 from .content_extraction import extract_mein_mmo_content
 from .multipage_handler import detect_pagination, fetch_all_pages
 
@@ -17,6 +18,9 @@ class MeinMmoAggregator(FullWebsiteAggregator):
 
     def __init__(self, feed):
         super().__init__(feed)
+        # Comment source: fetch_all_pages returns only the combined
+        # entry-content blocks, so the multi-page raw_content has no thread.
+        self._first_page_html: Optional[str] = None
         # Use Mein-MMO RSS feed if identifier is not set
         if not self.identifier or self.identifier == "":
             self.identifier = "https://mein-mmo.de/feed/"
@@ -50,6 +54,20 @@ class MeinMmoAggregator(FullWebsiteAggregator):
                 label="Combine Multi-page Articles",
                 help_text="Automatically fetch and combine all pages of a multi-page article into one.",
                 required=False,
+            ),
+            "include_comments": forms.BooleanField(
+                initial=True,
+                label="Include Comments",
+                help_text="Extract wpDiscuz reader comments from the article page.",
+                required=False,
+            ),
+            "max_comments": forms.IntegerField(
+                initial=5,
+                label="Max Comments",
+                help_text="Maximum number of comments to extract per article.",
+                required=False,
+                min_value=0,
+                max_value=20,
             ),
         }
 
@@ -88,6 +106,7 @@ class MeinMmoAggregator(FullWebsiteAggregator):
         # Fetch first page to detect pagination
         self.logger.debug("[fetch_article_content] Fetching first page")
         first_page_html = super().fetch_article_content(url)
+        self._first_page_html = first_page_html
         self.logger.debug(
             f"[fetch_article_content] First page fetched ({len(first_page_html)} bytes)"
         )
@@ -163,18 +182,34 @@ class MeinMmoAggregator(FullWebsiteAggregator):
         cleaned = clean_html(html)
 
         # Determine header image URL for formatting
-        # Use base64-encoded data URI if available, otherwise use original URL
-        header_image_url = None
-        if header_data:
-            header_image_url = header_data.base64_data_uri or header_data.image_url
+        header_image_url = header_data.image_ref if header_data else None
 
-        # Format with header (image only) and footer
+        # wpDiscuz comments live on the article page outside the content div.
+        comments_html = None
+        include_comments = self.feed.options.get("include_comments", True)
+        max_comments = self.feed.options.get("max_comments", 5)
+
+        if include_comments:
+            try:
+                comment_source = self._first_page_html or article.get("raw_content", "")
+                if comment_source:
+                    comments_html = extract_comments(
+                        comment_source,
+                        article["identifier"],
+                        max_comments=max_comments,
+                        logger=self.logger,
+                    )
+            except Exception as e:
+                self.logger.warning(f"[process_content] Failed to extract comments: {e}")
+
+        # Format with header (image only), comments, and footer
         self.logger.debug("[process_content] Formatting content with header image only")
         formatted = format_article_content(
             cleaned,
             title=article["name"],
             url=article["identifier"],
             header_image_url=header_image_url,
+            comments_content=comments_html,
         )
 
         self.logger.info(f"[process_content] Completed, formatted size: {len(formatted)} bytes")

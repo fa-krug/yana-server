@@ -9,6 +9,9 @@ from django.contrib.auth.admin import GroupAdmin as BaseGroupAdmin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import Group, User
 from django.db import transaction
+from django.db.models import Sum
+from django.template.defaultfilters import filesizeformat
+from django.utils.html import format_html, format_html_join
 
 from django_q.admin import FailAdmin as BaseFailAdmin
 from django_q.admin import QueueAdmin as BaseQueueAdmin
@@ -19,9 +22,18 @@ from djangoql.admin import DjangoQLSearchMixin
 from import_export.admin import ImportExportMixin, ImportExportModelAdmin
 
 from .aggregators.feed_logo import store_feed_logo
+from .aggregators.services.image_store import find_image_refs
 from .aggregators.utils import parse_rss_feed, resolve_feed_url
 from .forms import FeedAdminForm, TextareaWithCopyButtonWidget, UserSettingsAdminForm
-from .models import Article, Feed, FeedGroup, RedditSubreddit, UserSettings, YouTubeChannel
+from .models import (
+    Article,
+    ArticleImage,
+    Feed,
+    FeedGroup,
+    RedditSubreddit,
+    UserSettings,
+    YouTubeChannel,
+)
 from .services import AggregatorService, ArticleService
 from .services.selector_suggester import (
     SelectorSuggestionError,
@@ -614,7 +626,7 @@ class ArticleAdmin(YanaDjangoQLMixin, ImportExportModelAdmin):
         "created_at",
     ]
     search_fields = ["name", "author", "identifier"]
-    readonly_fields = ["created_at", "updated_at"]
+    readonly_fields = ["created_at", "updated_at", "referenced_images"]
     actions = ["reload_selected_articles", "force_delete_selected"]
     save_as = True
     list_select_related = ["feed"]
@@ -622,6 +634,7 @@ class ArticleAdmin(YanaDjangoQLMixin, ImportExportModelAdmin):
     fieldsets = (
         (None, {"fields": ("name", "identifier", "feed")}),
         ("Content", {"fields": ("raw_content", "content")}),
+        ("Images", {"fields": ("referenced_images",)}),
         ("Metadata", {"fields": ("author", "icon", "date")}),
         ("Status", {"fields": ("read", "starred")}),
         ("Timestamps", {"fields": ("created_at", "updated_at"), "classes": ("collapse",)}),
@@ -686,6 +699,123 @@ class ArticleAdmin(YanaDjangoQLMixin, ImportExportModelAdmin):
         count = queryset.count()
         queryset.delete()
         self.message_user(request, f"Successfully deleted {count} articles.", messages.SUCCESS)
+
+    @admin.display(description="Referenced images")
+    def referenced_images(self, obj):
+        """Show the stored images this article references, so a missing one is
+        traceable to the article that wanted it."""
+        if not obj or not obj.pk:
+            return "-"
+
+        hashes = find_image_refs(obj.content or "")
+        if not hashes:
+            return "No hosted images referenced"
+
+        stored = {
+            image.content_hash: image
+            for image in ArticleImage.objects.filter(content_hash__in=hashes)
+        }
+
+        cells = []
+        for content_hash in sorted(hashes):
+            image = stored.get(content_hash)
+            if image and image.file:
+                cells.append(
+                    format_html(
+                        '<a href="{}" target="_blank"><img src="{}" '
+                        'style="max-height: 90px; margin: 0 8px 8px 0;"></a>',
+                        image.file.url,
+                        image.file.url,
+                    )
+                )
+            else:
+                cells.append(
+                    format_html('<span style="color: #ba2121;">missing: {}</span> ', content_hash)
+                )
+
+        return format_html_join("", "{}", ((cell,) for cell in cells))
+
+
+@admin.register(ArticleImage)
+class ArticleImageAdmin(YanaDjangoQLMixin, admin.ModelAdmin):
+    """
+    Read-only view of the content-addressed image store.
+
+    Rows are derived from aggregation: hand-editing one makes its hash a lie, so
+    adding and changing are disabled. Deletion stays available for manual
+    cleanup (``prune_orphaned_images`` is the automated path).
+    """
+
+    list_display = [
+        "thumbnail",
+        "short_hash",
+        "content_type",
+        "dimensions",
+        "byte_size",
+        "created_at",
+    ]
+    list_filter = ["content_type", "created_at"]
+    search_fields = ["content_hash"]
+    readonly_fields = [
+        "preview",
+        "content_hash",
+        "file",
+        "content_type",
+        "width",
+        "height",
+        "byte_size",
+        "created_at",
+    ]
+    fields = list(readonly_fields)
+    change_list_template = "admin/core/articleimage/change_list.html"
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="Preview")
+    def thumbnail(self, obj):
+        if not obj.file:
+            return "-"
+        return format_html(
+            '<img src="{}" style="max-height: 60px; max-width: 100px;">', obj.file.url
+        )
+
+    @admin.display(description="Image")
+    def preview(self, obj):
+        if not obj.file:
+            return "-"
+        return format_html(
+            '<a href="{}" target="_blank"><img src="{}" style="max-height: 400px; '
+            'max-width: 100%;"></a>',
+            obj.file.url,
+            obj.file.url,
+        )
+
+    @admin.display(description="Hash", ordering="content_hash")
+    def short_hash(self, obj):
+        return obj.content_hash[:12]
+
+    @admin.display(description="Dimensions")
+    def dimensions(self, obj):
+        if not obj.width or not obj.height:
+            return "-"
+        return f"{obj.width}x{obj.height}"
+
+    def changelist_view(self, request, extra_context=None):
+        """Add the stored-byte total -- the number that makes the savings visible."""
+        response = super().changelist_view(request, extra_context=extra_context)
+
+        context = getattr(response, "context_data", None)
+        if not context or "cl" not in context:
+            return response
+
+        total = context["cl"].queryset.aggregate(total=Sum("byte_size"))["total"] or 0
+        context["total_byte_size"] = total
+        context["total_byte_size_display"] = filesizeformat(total)
+        return response
 
 
 class UserSettingsInline(admin.StackedInline):

@@ -63,3 +63,25 @@ class TestMerkurAggregator:
         assert "<p></p>" not in processed
         assert "<span></span>" not in processed
         assert "<p>Text</p>" in processed
+
+    def test_extract_content_strips_follow_buttons(self, merkur_agg):
+        """Merkur embeds "Uns auf Google/YouTube folgen" as standalone
+        InteractionBar anchors inside the story flow; only the shared
+        FollowButton suffix covers every network."""
+        html = (
+            "<html><body><div class='idjs-Story'>"
+            "<p>Real story body.</p>"
+            "<a class='id-Story-googleFollowButton' href='https://news.google.com/x'>"
+            "Uns auf Google folgen</a>"
+            "<a class='id-Story-youtubeFollowButton' href='https://youtube.com/x'>"
+            "Uns auf YouTube folgen</a>"
+            "<a href='https://www.merkur.de/lokales/story'>Ordinary story link</a>"
+            "</div></body></html>"
+        )
+
+        result = merkur_agg.extract_content(html, {"name": "T", "identifier": "u"})
+
+        assert "Real story body." in result
+        assert "Uns auf Google folgen" not in result
+        assert "Uns auf YouTube folgen" not in result
+        assert "Ordinary story link" in result

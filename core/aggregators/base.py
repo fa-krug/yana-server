@@ -567,7 +567,8 @@ class BaseAggregator(ABC):
             article: Article dictionary with 'identifier' and 'name' keys
 
         Returns:
-            HeaderElementData containing raw bytes and base64 URI, or None if extraction fails
+            HeaderElementData containing raw bytes and the stored image's hash, or None if
+            extraction fails
 
         Raises:
             ArticleSkipError: On 4xx HTTP errors (article should be skipped)

@@ -1,16 +1,17 @@
 """
-Image compression and encoding utilities.
+Image compression utilities.
 
 Handles:
 - Image resizing and format conversion using Pillow
-- Base64 encoding for data URIs
 - Quality optimization
+
+Compressed bytes go to the content-addressed store
+(``core/aggregators/services/image_store.py``); nothing here produces base64.
 """
 
-import base64
 import io
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from PIL import Image
 
@@ -160,74 +161,3 @@ def compress_image(
     except Exception as e:
         logger.error(f"Error compressing image: {e}")
         return None
-
-
-def compress_and_encode_image(
-    image_data: bytes,
-    content_type: str,
-    is_header: bool = False,
-) -> Optional[Dict[str, Any]]:
-    """
-    Compress image and encode as base64 data URI.
-
-    Process:
-    1. Compress image using compress_image()
-    2. Base64 encode compressed data
-    3. Create data URI
-
-    Args:
-        image_data: Raw image bytes
-        content_type: Original MIME type
-        is_header: Whether this is a header image
-
-    Returns:
-        Dict with keys:
-            - dataUri: Complete data URI for HTML (data:image/...;base64,...)
-            - size: Compressed size in bytes
-            - outputType: Output MIME type
-        Returns None if compression fails
-    """
-    try:
-        result = compress_image(image_data, content_type, is_header=is_header)
-        if not result:
-            return None
-
-        compressed_data = result["data"]
-        output_type = result["contentType"]
-
-        # Base64 encode
-        b64_str = base64.b64encode(compressed_data).decode("utf-8")
-        data_uri = f"data:{output_type};base64,{b64_str}"
-
-        logger.debug(f"Created data URI ({len(data_uri)} chars)")
-
-        return {
-            "dataUri": data_uri,
-            "size": result["size"],
-            "outputType": output_type,
-        }
-
-    except Exception as e:
-        logger.error(f"Error encoding image to data URI: {e}")
-        return None
-
-
-def create_image_element(data_uri: str, alt: str = "Image") -> str:
-    """
-    Create HTML image element from data URI.
-
-    Wraps image in <p> tag with responsive styling.
-
-    Args:
-        data_uri: Base64 data URI
-        alt: Alt text for accessibility
-
-    Returns:
-        HTML string with <p><img></p>
-    """
-    # Escape alt text for HTML
-    alt_escaped = alt.replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
-
-    return (
-        f'<p><img src="{data_uri}" alt="{alt_escaped}" style="max-width: 100%; height: auto;"></p>'
-    )

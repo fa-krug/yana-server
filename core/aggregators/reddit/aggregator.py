@@ -14,9 +14,8 @@ from bs4 import BeautifulSoup
 
 from ..base import BaseAggregator
 from ..exceptions import ArticleSkipError
-from ..services.image_extraction.compression import compress_and_encode_image
-from ..services.image_extraction.fetcher import fetch_single_image
-from ..utils import format_article_content
+from ..services.image_store import store_image_ref_from_url
+from ..utils import build_header_html, format_article_content
 from ..utils.twitter import is_twitter_url
 from ..utils.youtube import extract_youtube_video_id
 from .auth import (
@@ -538,39 +537,24 @@ class RedditAggregator(BaseAggregator):
 
     def process_content(self, content: str, article: Dict[str, Any]) -> str:
         """
-        Process and format Reddit content.
-        Uses header_image_only=True to avoid redundant title/meta header.
+        Format Reddit content around the header prepared by finalize_articles.
+
+        Uses a header block only (no title/meta) to avoid a redundant masthead.
         """
-        # Check if we should include header image
-        include_header_image = self.feed.options.get("include_header_image", True)
+        header_html = article.get("header_html")
 
-        header_image_url = None
-        header_caption_html = None
-
-        if include_header_image:
-            # Get header image URL from article dict if available
-            header_image_url = article.get("header_image_url")
-
-            # Fallback to header_data if available (e.g. during article reloads)
-            if not header_image_url and article.get("header_data"):
-                header_data = article["header_data"]
-                header_image_url = getattr(header_data, "base64_data_uri", None) or getattr(
-                    header_data, "image_url", None
-                )
-
-            # Check for video URL to display in header
-            # Only show "View Video" link if header is NOT a YouTube embed (would be redundant)
-            video_url = article.get("_reddit_video_url")
-            is_youtube_embed = header_image_url and extract_youtube_video_id(header_image_url)
-            if video_url and not is_youtube_embed:
-                header_caption_html = f'<p><a href="{video_url}">▶ View Video</a></p>'
+        if header_html is None and self.feed.options.get("include_header_image", True):
+            # Article reloads go through the shared header-element extractor
+            # instead of the aggregation path, so no header was prepared.
+            header_data = article.get("header_data")
+            if header_data:
+                header_html = build_header_html(header_data.image_ref, title=article["name"])
 
         return format_article_content(
             content=content,
             title=article["name"],
             url=article["identifier"],
-            header_image_url=header_image_url,
-            header_caption_html=header_caption_html,
+            header_html=header_html,
         )
 
     def finalize_articles(self, articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -591,55 +575,58 @@ class RedditAggregator(BaseAggregator):
         finalized = []
 
         for article in articles:
-            # Move header image URL to a standard field for process_content
-            header_image_url = article.get("_reddit_header_image_url")
+            include_header_image = self.feed.options.get("include_header_image", True)
+            header_source_url = (
+                article.get("_reddit_header_image_url") if include_header_image else None
+            )
 
-            # Check if header is a YouTube or Twitter/X URL (will be embedded, not image)
-            is_youtube_header = header_image_url and extract_youtube_video_id(header_image_url)
-            is_twitter_header = header_image_url and is_twitter_url(header_image_url)
+            header_html = None
+            if header_source_url:
+                is_youtube_header = bool(extract_youtube_video_id(header_source_url))
+                is_twitter_header = is_twitter_url(header_source_url)
 
-            # Strip duplicate image from content before inlining header image
-            if header_image_url and article.get("content"):
-                article["content"] = self._strip_image_from_content(
-                    article["content"], header_image_url
+                # YouTube/Twitter headers are embedded from their source URL;
+                # plain images are stored and referenced by hash.
+                render_url = header_source_url
+                if not (is_youtube_header or is_twitter_header):
+                    render_url = self._store_header_image(header_source_url, article)
+
+                # Only show "View Video" when the header is not already the video.
+                header_caption_html = None
+                video_url = article.get("_reddit_video_url")
+                if video_url and not is_youtube_header:
+                    header_caption_html = f'<p><a href="{video_url}">▶ View Video</a></p>'
+
+                header_html = build_header_html(
+                    render_url,
+                    title=article["name"],
+                    header_caption_html=header_caption_html,
                 )
 
-            # Strip YouTube link from content if it's being embedded in header
-            if is_youtube_header and header_image_url and article.get("content"):
-                article["content"] = self._strip_youtube_link_from_content(
-                    article["content"], header_image_url
-                )
-
-            if header_image_url:
-                # Skip image fetching for YouTube/Twitter URLs (they'll be embedded)
-                if is_youtube_header or is_twitter_header:
-                    article["header_image_url"] = header_image_url
-                else:
-                    # Fetch and inline header image (user requirement: base64 encoded)
-                    try:
-                        # Check if it's already a Data URI or a regular URL
-                        if header_image_url.startswith("http"):
-                            image_data_result = fetch_single_image(header_image_url)
-                            if image_data_result:
-                                # Compress and encode
-                                encoded = compress_and_encode_image(
-                                    image_data_result["imageData"],
-                                    image_data_result["contentType"],
-                                    is_header=True,
-                                )
-                                if encoded:
-                                    header_image_url = encoded["dataUri"]
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to inline header image for {article.get('name')}: {e}"
+                if header_html and article.get("content"):
+                    # Strip the body's duplicate only now that a header was
+                    # actually rendered for it. For a direct-image/GIF link post
+                    # the image lives ONLY in the body (added by the link-media
+                    # step), so stripping it when the header is disabled or
+                    # unbuildable removed the sole image with nothing replacing
+                    # it -- the GIF vanished entirely.
+                    article["content"] = self._strip_image_from_content(
+                        article["content"], header_source_url
+                    )
+                    if is_youtube_header:
+                        article["content"] = self._strip_youtube_link_from_content(
+                            article["content"], header_source_url
                         )
-                        # Fallback to original URL if fetching/encoding fails
 
-                    article["header_image_url"] = header_image_url
+            article["header_html"] = header_html
 
-            # Process content with formatting
+            # Process content with formatting. A rendered header is enough on
+            # its own: for a direct-image post whose body was nothing but the
+            # duplicate image, the strip above empties the body, and skipping
+            # formatting here would drop the header too -- the same vanishing
+            # act, one step later.
             content = article.get("content", "")
-            if content:
+            if content or header_html:
                 article["content"] = self.process_content(content, article)
 
             # Clean up internal Reddit-specific fields
@@ -648,11 +635,32 @@ class RedditAggregator(BaseAggregator):
             article.pop("_reddit_is_cross_post", None)
             article.pop("_reddit_num_comments", None)
             article.pop("_reddit_header_image_url", None)
-            article.pop("header_image_url", None)
+            article.pop("_reddit_video_url", None)
+            article.pop("header_html", None)
 
             finalized.append(article)
 
         return finalized
+
+    def _store_header_image(self, header_image_url: str, article: Dict[str, Any]) -> str:
+        """
+        Store a header image and return its ``yana-img://`` reference.
+
+        Returns the original URL unchanged when the image cannot be stored: a
+        remote URL still renders the image exactly once, which is the behavior
+        Spec 2's A5 fix deliberately kept.
+        """
+        if not header_image_url.startswith("http"):
+            return header_image_url
+
+        try:
+            ref = store_image_ref_from_url(header_image_url, is_header=True)
+            if ref:
+                return ref
+        except Exception as e:
+            logger.warning(f"Failed to store header image for {article.get('name')}: {e}")
+
+        return header_image_url
 
     def _strip_image_from_content(self, content: str, image_url: str) -> str:
         """

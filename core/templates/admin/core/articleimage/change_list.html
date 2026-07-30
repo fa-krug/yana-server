@@ -1,0 +1,9 @@
+{% extends "admin/change_list.html" %}
+
+{% block result_list %}
+  <p class="help">
+    Total stored: {{ total_byte_size_display }} ({{ total_byte_size }} bytes)
+    across {{ cl.result_count }} image(s).
+  </p>
+  {{ block.super }}
+{% endblock %}

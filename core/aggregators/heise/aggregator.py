@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup, Tag
 
 from ..utils import (
     clean_html,
+    extract_main_content_if_present,
     fetch_html,
     format_article_content,
     remove_image_by_url,
@@ -168,13 +169,31 @@ class HeiseAggregator(FullWebsiteAggregator):
         return final_articles
 
     def extract_content(self, html: str, article: Dict[str, Any]) -> str:
-        """Extract Heise specific content and remove empty elements."""
-        extracted = super().extract_content(html, article)
+        """Extract the Heise story container, degrading to the RSS summary.
 
-        # Process content - remove empty elements (similar to cheerio logic in TS)
+        Heise pages carry many sibling ``<article>`` teaser cards and a
+        page-chrome ``.article-content`` container, so a ``<body>`` fallback
+        surfaces the whole site as the article -- magazine and paywall gate
+        pages have a different DOM and hit that path routinely. Report the miss
+        instead and let the RSS summary stand.
+        """
+        extracted = extract_main_content_if_present(
+            html,
+            content_selectors=self.get_content_selectors(),
+            remove_selectors=self.get_ignore_selectors(),
+            first_match_only=self.uses_first_content_match,
+        )
+
+        if extracted is None:
+            self.logger.info(
+                "[extract_content] No Heise story container for %s -- using the RSS summary",
+                article.get("identifier"),
+            )
+            return article.get("content", "")
+
+        # Remove empty elements (p/div/span with no text and no images).
         soup = BeautifulSoup(extracted, "html.parser")
         for tag in soup.find_all(["p", "div", "span"]):
-            # Remove if it has no text and no images
             if not tag.get_text(strip=True) and not tag.find_all("img"):
                 tag.decompose()
 
@@ -204,9 +223,7 @@ class HeiseAggregator(FullWebsiteAggregator):
         cleaned = clean_html(str(soup))
 
         # Determine header image URL for formatting
-        header_image_url = None
-        if header_data:
-            header_image_url = header_data.base64_data_uri or header_data.image_url
+        header_image_url = header_data.image_ref if header_data else None
 
         # 2. Extract Comments (Heise Specific)
         comments_html = None

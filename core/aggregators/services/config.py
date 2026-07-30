@@ -59,6 +59,3 @@ ENABLE_HEADER_EXTRACTION = getattr(settings, "YANA_ENABLE_HEADER_EXTRACTION", Tr
 
 # Enable image compression
 ENABLE_IMAGE_COMPRESSION = getattr(settings, "YANA_ENABLE_IMAGE_COMPRESSION", True)
-
-# Enable base64 encoding (for embedded images)
-ENABLE_BASE64_ENCODING = getattr(settings, "YANA_ENABLE_BASE64_ENCODING", True)
