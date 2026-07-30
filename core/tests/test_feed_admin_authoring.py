@@ -2,11 +2,14 @@
 
 from unittest.mock import patch
 
+from django.contrib import admin as django_admin
+
 import pytest
 
 from core.admin import FeedAdmin
 from core.forms import FeedAdminForm
-from core.models import Feed
+from core.models import Feed, UserSettings
+from core.services.selector_suggester import SelectorSuggestionError
 
 
 def _form_data(**overrides):
@@ -157,3 +160,86 @@ def test_refresh_logo_action_reports_per_feed(rf, user):
         admin_instance.refresh_feed_logos(request, Feed.objects.filter(pk=feed.pk))
 
     assert any("Golem" in message for message in messages)
+
+
+SUGGEST_ACTIONS = ("suggest_content_selectors", "suggest_ignore_selectors")
+
+
+@pytest.mark.django_db
+def test_suggest_actions_are_hidden_without_an_ai_provider(rf, user):
+    # A real AdminSite is required here (unlike the other tests in this file, which call
+    # actions directly): Django's base get_actions() unconditionally reads
+    # self.admin_site.actions, which raises AttributeError against admin_site=None.
+    admin_instance = FeedAdmin(Feed, django_admin.site)
+    request = rf.get("/admin/core/feed/")
+    request.user = user
+
+    actions = admin_instance.get_actions(request)
+
+    assert all(name not in actions for name in SUGGEST_ACTIONS)
+
+
+@pytest.mark.django_db
+def test_suggest_actions_are_available_with_an_ai_provider(rf, user):
+    UserSettings.objects.create(user=user, active_ai_provider="openai", openai_enabled=True)
+    admin_instance = FeedAdmin(Feed, django_admin.site)
+    request = rf.get("/admin/core/feed/")
+    request.user = user
+
+    actions = admin_instance.get_actions(request)
+
+    assert all(name in actions for name in SUGGEST_ACTIONS)
+
+
+@pytest.mark.django_db
+def test_suggest_ignore_action_reports_the_change(rf, user):
+    feed = Feed.objects.create(
+        name="Golem", aggregator="full_website", identifier="https://golem.de/rss.php", user=user
+    )
+    admin_instance = FeedAdmin(Feed, None)
+    request = rf.post("/admin/core/feed/")
+    request.user = user
+    messages = []
+
+    with (
+        patch(
+            "core.admin.apply_suggested_selectors", return_value=([".ad"], ["aside"])
+        ) as apply_suggestion,
+        patch.object(
+            FeedAdmin, "message_user", lambda self, req, msg, *a, **kw: messages.append(msg)
+        ),
+    ):
+        admin_instance.suggest_ignore_selectors(request, Feed.objects.filter(pk=feed.pk))
+
+    assert apply_suggestion.call_args.args[1] == "ignore"
+    assert any("aside" in message for message in messages)
+
+
+@pytest.mark.django_db
+def test_suggest_action_reports_a_failure_without_touching_options(rf, user):
+    feed = Feed.objects.create(
+        name="Golem",
+        aggregator="full_website",
+        identifier="https://golem.de/rss.php",
+        user=user,
+        options={"content_selectors": ["article"]},
+    )
+    admin_instance = FeedAdmin(Feed, None)
+    request = rf.post("/admin/core/feed/")
+    request.user = user
+    messages = []
+
+    with (
+        patch(
+            "core.admin.apply_suggested_selectors",
+            side_effect=SelectorSuggestionError("provider down"),
+        ),
+        patch.object(
+            FeedAdmin, "message_user", lambda self, req, msg, *a, **kw: messages.append(msg)
+        ),
+    ):
+        admin_instance.suggest_content_selectors(request, Feed.objects.filter(pk=feed.pk))
+
+    feed.refresh_from_db()
+    assert feed.options["content_selectors"] == ["article"]
+    assert any("provider down" in message for message in messages)

@@ -21,6 +21,11 @@ from .aggregators.utils import parse_rss_feed, resolve_feed_url
 from .forms import FeedAdminForm, TextareaWithCopyButtonWidget, UserSettingsAdminForm
 from .models import Article, Feed, FeedGroup, RedditSubreddit, UserSettings, YouTubeChannel
 from .services import AggregatorService, ArticleService
+from .services.selector_suggester import (
+    SelectorSuggestionError,
+    apply_suggested_selectors,
+    has_ai_provider,
+)
 
 # Customize Admin Site
 admin.site.site_header = "Yana"
@@ -164,7 +169,10 @@ class FeedAdmin(YanaDjangoQLMixin, ImportExportModelAdmin):
         "force_delete_selected",
         "delete_all_articles",
         "clear_raw_article_content",
+        "suggest_content_selectors",
+        "suggest_ignore_selectors",
     ]
+    SUGGEST_ACTIONS = ("suggest_content_selectors", "suggest_ignore_selectors")
     autocomplete_fields = ["reddit_subreddit", "youtube_channel"]
     save_as = True
     list_select_related = ["user", "group", "reddit_subreddit", "youtube_channel"]
@@ -524,6 +532,40 @@ class FeedAdmin(YanaDjangoQLMixin, ImportExportModelAdmin):
         count = queryset.count()
         queryset.delete()
         self.message_user(request, f"Successfully deleted {count} feeds.", messages.SUCCESS)
+
+    def get_actions(self, request):
+        """Hide the AI suggest actions entirely when no provider is configured.
+
+        Hidden rather than disabled, matching the iOS client.
+        """
+        actions = super().get_actions(request)
+        if not has_ai_provider(getattr(request, "user", None)):
+            for name in self.SUGGEST_ACTIONS:
+                actions.pop(name, None)
+        return actions
+
+    def _suggest_selectors(self, request, queryset, kind):
+        """Ask the configured AI provider for ``kind`` selectors, per feed."""
+        for feed in queryset:
+            try:
+                previous, new = apply_suggested_selectors(feed, kind)
+            except SelectorSuggestionError as exc:
+                self.message_user(request, f"{feed.name}: {exc}", messages.ERROR)
+                continue
+
+            self.message_user(
+                request, f"{feed.name}: {kind} selectors {previous} -> {new}", messages.SUCCESS
+            )
+
+    @admin.action(description="Suggest content selectors")
+    def suggest_content_selectors(self, request, queryset):
+        """Ask the configured AI provider for content selectors."""
+        self._suggest_selectors(request, queryset, "content")
+
+    @admin.action(description="Suggest ignore selectors")
+    def suggest_ignore_selectors(self, request, queryset):
+        """Ask the configured AI provider for ignore selectors."""
+        self._suggest_selectors(request, queryset, "ignore")
 
 
 @admin.register(Article)
