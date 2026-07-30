@@ -14,6 +14,7 @@ AGGREGATOR_CHOICES = [
     ("mactechnews", "MacTechNews"),
     ("oglaf", "Oglaf"),
     ("mein_mmo", "Mein-MMO"),
+    ("the_verge", "The Verge"),
     # Social aggregators
     ("youtube", "YouTube"),
     ("reddit", "Reddit"),

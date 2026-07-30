@@ -15,6 +15,7 @@ from .oglaf import OglafAggregator
 from .podcast.aggregator import PodcastAggregator
 from .reddit import RedditAggregator
 from .tagesschau import TagesschauAggregator
+from .the_verge import TheVergeAggregator
 from .website import FullWebsiteAggregator
 from .youtube.aggregator import YouTubeAggregator
 
@@ -34,6 +35,7 @@ class AggregatorRegistry:
         "mactechnews": MactechnewsAggregator,
         "oglaf": OglafAggregator,
         "mein_mmo": MeinMmoAggregator,
+        "the_verge": TheVergeAggregator,
         "youtube": YouTubeAggregator,
         "reddit": RedditAggregator,
         "podcast": PodcastAggregator,
