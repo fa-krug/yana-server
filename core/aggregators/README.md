@@ -181,26 +181,31 @@ Two lower-level building blocks live in `core/aggregators/utils/content_extracto
   none of the scraper's markup.
 
 `FullWebsiteAggregator`'s own default `extract_content` still calls plain `extract_main_content`
-(the `<body>` fallback), so a subclass has to opt in by overriding `extract_content` itself. Four
-scrapers do:
+(the `<body>` fallback), so a subclass has to opt out of it deliberately. Four scrapers do:
 
-- **Heise**, **The Verge** (via the shared `RssSummaryFallbackAggregator` base in `website.py`) call
-  `extract_main_content_if_present` with their own `content_selectors` /
-  `uses_first_content_match`; a miss degrades straight to the RSS summary (`article["content"]`,
-  still the untouched RSS value at this point in `enrich_articles`). Heise additionally strips
-  now-empty `p`/`div`/`span` elements from a successful extraction — that cleanup is Heise-specific,
-  not part of the shared base.
-- **Ars Technica** uses the same `RssSummaryFallbackAggregator` base, but with
-  `uses_first_content_match = False`: Ars serves every "page" of an article as sibling
-  `.post-content` blocks in one fetch, so unioning them (not keeping only the first) is correct.
+- **The Verge** and **Ars Technica** inherit `RssSummaryFallbackAggregator` (`website.py`), a thin
+  `FullWebsiteAggregator` subclass whose `extract_content` calls `extract_main_content_if_present`
+  with the resolved `content_selectors` / `ignore_selectors` / `uses_first_content_match` and
+  degrades a miss to the RSS summary (`article["content"]`, still the untouched RSS value at this
+  point in `enrich_articles`). The two differ only in that flag: The Verge keeps the first match
+  (its page repeats the body class for related stories), while Ars unions every `.post-content`
+  block, because Ars serves every "page" of an article as siblings in one fetch.
+- **Heise** does the same thing with its own standalone `extract_content` — it does *not* use
+  `RssSummaryFallbackAggregator`, because it additionally strips now-empty `p`/`div`/`span` elements
+  from a successful extraction, which is Heise-specific. Editing the shared base does not affect
+  Heise, and vice versa.
 - **Tagesschau** keeps its bespoke `textabsatz` parser as tier one, adds
   `generic_content_if_present` as a *middle* tier for syndicated external-broadcaster pages (mdr.de,
   ndr.de, ...) that carry none of tagesschau.de's markup, and only then falls back to the RSS
   summary. A media-player-only page (no `textabsatz` text, no generic match, but a `MediaPlayer`
   header) keeps its header rather than losing it to a bogus fallback.
 
-Every other scraper is still on the `FullWebsiteAggregator` default and falls back to the whole
-`<body>` when nothing matches.
+Every other scraper still ends up with the whole document when nothing matches, whether it overrides
+`extract_content` or not: Merkur's override falls through to `super().extract_content` (so `<body>`),
+and mein_mmo's bespoke extractor returns the *entire fetched HTML* when `div.entry-content` is
+missing — a worse version of the same problem, and a candidate for the same treatment. (YouTube also
+defines `extract_content`, but it builds content from API data rather than scraping a page, so none
+of this applies to it.)
 
 ## Creating a New Aggregator
 
