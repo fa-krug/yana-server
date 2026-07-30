@@ -175,11 +175,11 @@ class TestManagedScrapersHonorSelectorOptions:
         assert "evil()" not in result  # extractor's MANDATORY_REMOVE_SELECTORS
 
     def test_mein_mmo_currently_ignores_content_selectors_option(self, rss_feed):
-        """Documented gap for Spec 2: MeinMmoAggregator.extract_content bypasses
-        the shared extractor (and get_content_selectors()) entirely -- it always
-        looks for div.entry-content. A feed's content_selectors option has no
-        effect until this is rewired. See
-        docs/superpowers/specs/2026-07-29-aggregator-parity-2-scrapers-and-types-design.md.
+        """MeinMmoAggregator.extract_content bypasses the shared extractor (and
+        get_content_selectors()) entirely -- it always looks for
+        div.entry-content. A feed's content_selectors option has no effect.
+        Spec 2 deliberately left this alone; the bespoke extractor is the point
+        of the aggregator.
         """
         from core.aggregators.mein_mmo import MeinMmoAggregator
 
@@ -195,12 +195,12 @@ class TestManagedScrapersHonorSelectorOptions:
         assert "real mein-mmo body" in result
         assert "option target, ignored today" not in result
 
-    def test_tagesschau_currently_ignores_content_selectors_option(self, rss_feed):
-        """Documented gap for Spec 2: TagesschauAggregator.extract_content
-        bypasses the shared extractor (and get_content_selectors()) entirely --
-        it always extracts textabsatz paragraphs. A feed's content_selectors
-        option has no effect until this is rewired. See
-        docs/superpowers/specs/2026-07-29-aggregator-parity-2-scrapers-and-types-design.md.
+    def test_tagesschau_ignores_the_content_selectors_option_by_design(self, rss_feed):
+        """TagesschauAggregator.extract_content runs its bespoke textabsatz
+        parser first and only falls back to the shared generic extractor (which
+        uses DEFAULT_CONTENT_SELECTORS, not get_content_selectors()). A feed's
+        content_selectors option therefore has no effect -- deliberate as of
+        Spec 2 / A3, not a gap.
         """
         from core.aggregators.tagesschau import TagesschauAggregator
 

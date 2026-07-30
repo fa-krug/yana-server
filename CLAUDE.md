@@ -10,7 +10,7 @@ This file provides guidance for AI assistants working on the Yana codebase.
 - Python 3.13+ / Django 6.0
 - SQLite only, via a tuned custom backend (no other engine is supported)
 - Background task processing with django-q2 (ORM broker, no Redis required)
-- 14 pluggable aggregator implementations
+- 16 pluggable aggregator implementations
 - Comprehensive test suite with pytest
 
 ## Quick Reference
@@ -74,7 +74,7 @@ Yana/
 ├── core/                          # Main application
 │   ├── models.py                 # FeedGroup, Feed, Article, UserSettings
 │   ├── admin.py                  # Django admin with DjangoQL, bulk actions
-│   ├── choices.py                # AGGREGATOR_CHOICES (14 types)
+│   ├── choices.py                # AGGREGATOR_CHOICES (16 types)
 │   ├── forms.py                  # FeedAdminForm, UserSettingsAdminForm
 │   ├── ai_client.py              # AI integration (OpenAI, Anthropic, Gemini)
 │   │
@@ -216,7 +216,7 @@ def test_feed_creation(user):
 | Model | Key Fields | Notes |
 |-------|-----------|-------|
 | `FeedGroup` | name, user | Unique per (name, user) |
-| `Feed` | name, aggregator, identifier, user, group, enabled, daily_limit | 14 aggregator types |
+| `Feed` | name, aggregator, identifier, user, group, enabled, daily_limit | 16 aggregator types |
 | `Article` | name, identifier, content, raw_content, date, read, starred, feed | Use `select_related("feed")` |
 | `UserSettings` | user, youtube_api_key, reddit_*, openai_* | API credentials |
 | `RedditSubreddit` | name, user | Reddit feed reference |

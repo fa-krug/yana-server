@@ -26,6 +26,8 @@ The aggregator system follows a modular architecture:
 - `MactechnewsAggregator` - MacTechNews
 - `OglafAggregator` - Oglaf web comics
 - `MeinMmoAggregator` - Mein-MMO gaming site
+- `TheVergeAggregator` - The Verge (first content match only: the page embeds related article bodies)
+- `ArsTechnicaAggregator` - Ars Technica (merges every in-page `.post-content` block)
 
 ### Social Aggregators
 - `YoutubeAggregator` - YouTube channels
