@@ -227,13 +227,23 @@ def _list_block(element: Tag, ordered: bool, base_url: str) -> ListBlock | None:
 
 
 def _figure_blocks(element: Tag, base_url: str) -> list[Block]:
-    img = _first(element, "img")
-    if img is not None:
+    imgs = element.select("img")
+    if imgs:
         figcaption = _first(element, "figcaption")
         caption = _trimmed(_inline_runs(figcaption, base_url)) if figcaption is not None else []
-        block = _image_block(img, caption)
-        if block is not None:
-            return [block]
+        # The figcaption describes the figure as a whole, but a block is one
+        # image with its own caption slot -- there is nowhere to attach a
+        # shared caption to every image without duplicating it. Give it to
+        # the first image only, the common case (one image, one caption).
+        blocks: list[Block] = [
+            block
+            for block in (
+                _image_block(img, caption if index == 0 else ()) for index, img in enumerate(imgs)
+            )
+            if block is not None
+        ]
+        if blocks:
+            return blocks
     return _convert(element, base_url)
 
 
@@ -399,12 +409,22 @@ def _tweet_embed(element: Tag) -> EmbedBlock | None:
 def _convert(container: Tag, base_url: str) -> list[Block]:
     blocks: list[Block] = []
     inline: list[InlineRun] = []
+    # Images found inside an inline element (e.g. a lightbox `<a><img></a>`
+    # with no `<p>`/`<figure>` ancestor) can't be spliced into `blocks`
+    # immediately -- that would land the image before text that is still
+    # buffering in `inline` and hasn't been emitted as a paragraph yet.
+    # Queue them here and let the next `flush()` place them right after the
+    # paragraph they were found alongside.
+    pending_images: list[ImageBlock] = []
 
     def flush() -> None:
         runs = _trimmed(inline)
         if runs:
             blocks.append(Paragraph(runs=runs))
         inline.clear()
+        if pending_images:
+            blocks.extend(pending_images)
+            pending_images.clear()
 
     for node in _child_nodes(container):
         if isinstance(node, _NON_TEXT_STRINGS):
@@ -426,6 +446,15 @@ def _convert(container: Tag, base_url: str) -> list[Block]:
 
         if tag in INLINE_TAGS:
             inline.extend(_inline_runs(node, base_url))
+            # _inline_runs drops images (media cannot live inside a text
+            # run) -- recover them the same way the <p> branch does, so an
+            # image wrapped in a lightbox anchor or other inline element
+            # with no <p>/<figure> ancestor is not lost outright. Queued
+            # rather than appended directly: see `pending_images` above.
+            for img in node.select("img"):
+                block = _image_block(img)
+                if block is not None:
+                    pending_images.append(block)
             continue
 
         if tag == "br":

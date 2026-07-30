@@ -1,7 +1,17 @@
 """HTML -> blocks: the Python port of iOS's BlockParser."""
 
+import os
+
+import pytest
+
+from core.aggregators.caschys_blog.aggregator import CaschysBlogAggregator
+from core.aggregators.explosm.aggregator import ExplosmAggregator
+from core.aggregators.mactechnews.aggregator import MactechnewsAggregator
 from core.aggregators.utils.block_parser import blocks_from_html, plain_text
+from core.aggregators.utils.content_extractor import extract_main_content
+from core.aggregators.utils.html_cleaner import clean_html
 from core.blocks.types import (
+    Block,
     Blockquote,
     CodeBlock,
     Divider,
@@ -12,6 +22,8 @@ from core.blocks.types import (
     ListBlock,
     Paragraph,
 )
+
+_FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 
 
 def test_empty_and_blank_html_yields_nothing():
@@ -251,6 +263,40 @@ def test_figure_without_an_image_is_recursed():
     ]
 
 
+def test_figure_with_two_images_yields_both():
+    """A <figure> is not always one image -- the second must not be dropped.
+    The figcaption, which describes the figure as a whole, attaches only to
+    the first image; there is nowhere to put a shared caption twice."""
+    ref1 = "yana-img://" + "1" * 64
+    ref2 = "yana-img://" + "2" * 64
+    html = f'<figure><img src="{ref1}"><img src="{ref2}"><figcaption>Two</figcaption></figure>'
+    assert blocks_from_html(html) == [
+        ImageBlock(ref=ref1, caption=[InlineRun(text="Two")]),
+        ImageBlock(ref=ref2),
+    ]
+
+
+def test_lightbox_wrapped_image_with_no_paragraph_ancestor_survives():
+    """A body image wrapped in a plain <a> (a lightbox link, with no <p> or
+    <figure> ancestor) must not vanish -- MacTechNews wraps every body image
+    exactly this way."""
+    ref = "yana-img://" + "3" * 64
+    html = f'<a href="https://example.com/full" rel="lightbox"><img src="{ref}"></a>'
+    assert blocks_from_html(html) == [ImageBlock(ref=ref)]
+
+
+def test_inline_wrapped_image_keeps_its_surrounding_text_in_order():
+    """Media can't live inside a text run, so an image found while buffering
+    inline content is deferred to the paragraph's next flush -- it must not
+    fragment the paragraph, and the text must still come out whole."""
+    ref = "yana-img://" + "4" * 64
+    html = f'before <a href="https://example.com/full"><img src="{ref}"></a> after'
+    assert blocks_from_html(html) == [
+        Paragraph(runs=[InlineRun(text="before "), InlineRun(text=" after")]),
+        ImageBlock(ref=ref),
+    ]
+
+
 def test_plain_text_walks_lists_quotes_captions_and_code():
     html = (
         "<ul><li>item</li></ul>"
@@ -486,3 +532,47 @@ def test_plain_text_uses_an_embed_title():
         '<blockquote><p>tweet text</p><a href="https://x.com/w/status/1">View on X</a></blockquote>'
     )
     assert "tweet text" in plain_text(blocks_from_html(html))
+
+
+def _count_image_blocks(blocks: list[Block]) -> int:
+    total = 0
+    for block in blocks:
+        if isinstance(block, ImageBlock):
+            total += 1
+        elif isinstance(block, ListBlock):
+            for item in block.items:
+                total += _count_image_blocks(item)
+        elif isinstance(block, Blockquote):
+            total += _count_image_blocks(block.blocks)
+    return total
+
+
+@pytest.mark.parametrize(
+    "fixture_name, aggregator_cls",
+    [
+        ("mactechnews.html", MactechnewsAggregator),
+        ("caschys_blog.html", CaschysBlogAggregator),
+        ("explosm.html", ExplosmAggregator),
+    ],
+)
+def test_real_fixtures_keep_every_body_image(fixture_name, aggregator_cls):
+    """Regression guard for the lightbox/inline-image loss: every <img> that
+    survives the aggregator's own extraction (content selectors, then its
+    ``selectors_to_remove``) must also survive into the block tree. MacTechNews
+    wraps every body image in a lightbox anchor with no <p>/<figure> ancestor,
+    which is exactly the shape that used to vanish."""
+    with open(os.path.join(_FIXTURES_DIR, fixture_name)) as f:
+        html = f.read()
+
+    extracted = extract_main_content(
+        html,
+        aggregator_cls.content_selectors,
+        aggregator_cls.selectors_to_remove,
+        first_match_only=aggregator_cls.uses_first_content_match,
+    )
+    cleaned = clean_html(extracted)
+    img_count = cleaned.count("<img")
+    assert img_count > 0
+
+    blocks = blocks_from_html(cleaned, base_url="https://example.com/article")
+    assert _count_image_blocks(blocks) == img_count
