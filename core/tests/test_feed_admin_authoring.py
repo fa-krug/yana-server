@@ -3,6 +3,7 @@
 from unittest.mock import patch
 
 from django.contrib import admin as django_admin
+from django.urls import reverse
 
 import pytest
 
@@ -139,6 +140,121 @@ def test_form_save_survives_a_logo_failure(user):
         feed = form.save()
 
     assert feed.pk is not None
+
+
+@pytest.fixture
+def logged_in_admin(client, admin_user):
+    """An admin client plus the admin user, for real add/change view POSTs."""
+    client.force_login(admin_user)
+    return client, admin_user
+
+
+@pytest.mark.django_db
+def test_admin_add_view_resolves_the_logo(logged_in_admin):
+    """The logo must be resolved through the real admin lifecycle.
+
+    ``ModelAdmin.save_form()`` calls ``form.save(commit=False)``, so a refresh
+    that only runs in the form's ``commit=True`` branch never happens in the
+    admin -- which is the only surface this feature has.
+    """
+    client, admin_user = logged_in_admin
+
+    with (
+        patch("core.forms.resolve_feed_url", side_effect=lambda identifier: identifier),
+        patch("core.forms.store_feed_logo", return_value=True) as store,
+    ):
+        response = client.post(
+            reverse("admin:core_feed_add"),
+            {"name": "Golem", "aggregator": "full_website"},
+        )
+
+    assert response.status_code == 302, "the add POST did not validate"
+    feed = Feed.objects.get(name="Golem")
+    store.assert_called_once_with(feed)
+
+
+@pytest.mark.django_db
+def test_admin_change_view_resolves_the_logo_when_the_identifier_changes(logged_in_admin):
+    client, admin_user = logged_in_admin
+    feed = Feed.objects.create(
+        name="Golem",
+        aggregator="full_website",
+        identifier="https://golem.de/rss.php",
+        user=admin_user,
+        logo="feed_logos/feed-existing.png",
+    )
+
+    with (
+        patch("core.forms.resolve_feed_url", side_effect=lambda identifier: identifier),
+        patch("core.forms.store_feed_logo", return_value=True) as store,
+    ):
+        response = client.post(
+            reverse("admin:core_feed_change", args=[feed.pk]),
+            {
+                "name": "Golem",
+                "aggregator": "full_website",
+                "identifier": "https://golem.de/atom.xml",
+                "enabled": "on",
+                "daily_limit": 20,
+                "user": admin_user.pk,
+                "group": "",
+            },
+        )
+
+    assert response.status_code == 302, "the change POST did not validate"
+    feed.refresh_from_db()
+    assert feed.identifier == "https://golem.de/atom.xml"
+    store.assert_called_once_with(feed)
+
+
+@pytest.mark.django_db
+def test_admin_change_view_keeps_an_existing_logo_when_nothing_changed(logged_in_admin):
+    client, admin_user = logged_in_admin
+    feed = Feed.objects.create(
+        name="Golem",
+        aggregator="full_website",
+        identifier="https://golem.de/rss.php",
+        user=admin_user,
+        logo="feed_logos/feed-existing.png",
+    )
+
+    with (
+        patch("core.forms.resolve_feed_url", side_effect=lambda identifier: identifier),
+        patch("core.forms.store_feed_logo", return_value=True) as store,
+    ):
+        response = client.post(
+            reverse("admin:core_feed_change", args=[feed.pk]),
+            {
+                "name": "Golem",
+                "aggregator": "full_website",
+                "identifier": "https://golem.de/rss.php",
+                "enabled": "on",
+                "daily_limit": 20,
+                "user": admin_user.pk,
+                "group": "",
+            },
+        )
+
+    assert response.status_code == 302, "the change POST did not validate"
+    store.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_admin_save_survives_a_logo_failure(logged_in_admin):
+    """A broken logo resolution must not turn into a save error."""
+    client, admin_user = logged_in_admin
+
+    with (
+        patch("core.forms.resolve_feed_url", side_effect=lambda identifier: identifier),
+        patch("core.forms.store_feed_logo", side_effect=OSError("dead")),
+    ):
+        response = client.post(
+            reverse("admin:core_feed_add"),
+            {"name": "Golem", "aggregator": "full_website"},
+        )
+
+    assert response.status_code == 302
+    assert Feed.objects.filter(name="Golem").exists()
 
 
 @pytest.mark.django_db

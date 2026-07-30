@@ -1,6 +1,7 @@
 """Admin configuration for the application."""
 
 import contextlib
+import logging
 
 from django.contrib import admin, messages
 from django.contrib.admin.sites import NotRegistered  # type: ignore
@@ -26,6 +27,8 @@ from .services.selector_suggester import (
     apply_suggested_selectors,
     has_ai_provider,
 )
+
+logger = logging.getLogger(__name__)
 
 # Customize Admin Site
 admin.site.site_header = "Yana"
@@ -385,6 +388,18 @@ class FeedAdmin(YanaDjangoQLMixin, ImportExportModelAdmin):
                 obj.options[field_name] = form.cleaned_data[field_name]
 
         super().save_model(request, obj, form, change)
+
+        # The logo is resolved here, not in the form: ModelAdmin.save_form() calls
+        # form.save(commit=False), so the form's commit=True branch never runs in
+        # the admin. ``obj`` has a pk by now and ``form.changed_data`` is still
+        # available, which is what the refresh needs.
+        refresh_logo = getattr(form, "refresh_logo_if_needed", None)
+        if refresh_logo is None:
+            return
+        try:
+            refresh_logo(obj)
+        except Exception:
+            logger.exception(f"Logo resolution failed for feed {obj.pk}")
 
     def response_add(self, request, obj, post_url_continue=None):
         """

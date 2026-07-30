@@ -14,15 +14,20 @@ from core.models import Feed, FeedGroup
 
 @pytest.fixture(autouse=True)
 def _no_network_resolve(monkeypatch):
-    """Keep identifier resolution a no-op here.
+    """Keep identifier resolution and logo resolution no-ops here.
 
     ``test_feed`` uses the ``feed_content`` aggregator, which resolves feed
     URLs on save (see ``FeedAdminForm.clean_identifier``). These tests are
     about 'Save as new' field preservation, not resolution, so patch
     ``resolve_feed_url`` to the identity function to avoid a real network
     call to ``https://example.com/feed.xml``.
+
+    ``store_feed_logo`` is patched for the same reason: these tests POST
+    through the real admin, and ``FeedAdmin.save_model`` resolves the logo on
+    every save -- which would fetch ``https://example.com/`` for its icon.
     """
     monkeypatch.setattr("core.forms.resolve_feed_url", lambda identifier: identifier)
+    monkeypatch.setattr("core.forms.store_feed_logo", lambda feed: False)
 
 
 @pytest.fixture

@@ -250,12 +250,18 @@ class FeedAdminForm(forms.ModelForm):
         if commit:
             instance.save()
             self.save_m2m()
-            self._refresh_logo_if_needed(instance)
+            # Direct (non-admin) callers save with commit=True and never reach
+            # FeedAdmin.save_model, so the logo is resolved here for them.
+            self.refresh_logo_if_needed(instance)
 
         return instance
 
-    def _refresh_logo_if_needed(self, instance) -> None:
+    def refresh_logo_if_needed(self, instance) -> None:
         """Resolve the logo when the identifier or aggregator changed, or none is set.
+
+        Called from ``save(commit=True)`` for direct callers and from
+        ``FeedAdmin.save_model`` for the admin, whose ``save_form()`` saves with
+        ``commit=False`` and would otherwise skip it entirely.
 
         Best-effort: a failure here must never surface as a save error.
         """
