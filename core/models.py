@@ -158,6 +158,40 @@ class Article(models.Model):
         return self.name
 
 
+class ArticleImage(models.Model):
+    """
+    A content-addressed image referenced from article content.
+
+    Article bodies reference images as ``yana-img://<content_hash>`` instead of
+    inlining a base64 data URI: one row per distinct byte sequence, so the same
+    image across ten articles is stored once. The hash is SHA-256 over the
+    *stored* (compressed) bytes -- see
+    ``core/aggregators/services/image_store.py``.
+    """
+
+    content_hash = models.CharField(
+        max_length=64,
+        unique=True,
+        db_index=True,
+        help_text="SHA-256 hex digest of the stored bytes",
+    )
+    file = models.FileField(upload_to="article_images/%Y/%m/")
+    content_type = models.CharField(max_length=100)
+    width = models.PositiveIntegerField(null=True, blank=True)
+    height = models.PositiveIntegerField(null=True, blank=True)
+    byte_size = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Article Image"
+        verbose_name_plural = "Article Images"
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["-created_at"])]
+
+    def __str__(self):
+        return f"{self.content_hash[:12]} ({self.content_type}, {self.byte_size} B)"
+
+
 class UserSettings(models.Model):
     """User settings for API credentials and preferences."""
 
