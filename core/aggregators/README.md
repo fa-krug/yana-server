@@ -205,6 +205,11 @@ For a resolving aggregator, `FeedAdminForm.clean_identifier()` runs the pasted v
   both). It never raises — a dead site, an unreachable host, or a page with no feed link all just
   return the normalized input, so a bad paste never blocks saving the feed.
 
+Because this runs inside an admin request, both network steps are bounded: the feed probe passes
+`timeout=RESOLVE_TIMEOUT` to `parse_rss_feed()`, which then fetches the bytes itself instead of
+letting feedparser do its own timeout-less HTTP, and discovery gets the same timeout with a single
+attempt. The background aggregation path passes no timeout and keeps feedparser's own fetch.
+
 Pasting `golem.de` into a `full_website` feed's identifier and saving therefore stores the
 resolved feed URL, not the homepage. `FeedAdmin`'s **Resolve & test** action runs the same
 resolution and reports the entry count without saving anything, so it is safe on a feed you are
@@ -234,12 +239,22 @@ never parses as a feed.
 Only the site's own domain is ever contacted — there is no third-party favicon service, which
 would otherwise leak every subscribed URL to it. Favicon selection (`utils/favicon.py`) prefers an
 `apple-touch-icon`, then the largest declared `sizes`, then falls back to `/favicon.ico`
-unverified. A downloaded logo with a flood-fillable white border (`utils/logo_background.py`, the
-same 240 / 0.85 thresholds as the iOS client) gets that background stripped to transparent; a logo
-that isn't white-backed is stored as downloaded.
+unverified. A declared icon is *dropped* unless it resolves onto the site's own domain (the base
+host minus a leading `www.`, plus its subdomains) over http(s), so a page cannot use its icon link
+to point the server at a cloud-metadata endpoint or a loopback port.
+
+The download is bounded and validated: `fetch_bytes()` streams and refuses a body over
+`MAX_FETCH_BYTES`, and a payload Pillow cannot decode (an HTML soft-404 from `/favicon.ico`, an
+SVG, a decompression bomb) is not stored at all — `logo` stays as it was. A logo with a
+flood-fillable white border (`utils/logo_background.py`, the same 240 / 0.85 thresholds as the iOS
+client) gets that background stripped to transparent; a logo that isn't white-backed, or one over
+`MAX_FILL_PIXELS` (the pure-Python fill is O(pixels)), is stored as downloaded.
 
 Logos resolve on save — when the identifier or aggregator changed, or none is stored yet — never
-on every aggregation run. `FeedAdmin`'s **Refresh feed logo** action re-runs resolution manually.
+on every aggregation run. The call lives in `FeedAdmin.save_model()`, not in the form: the admin
+saves the form with `commit=False`, so a refresh in `FeedAdminForm.save()`'s commit branch would
+never run from the admin. The form still refreshes for direct (non-admin) callers.
+`FeedAdmin`'s **Refresh feed logo** action re-runs resolution manually.
 
 ### AI selector suggestions
 
