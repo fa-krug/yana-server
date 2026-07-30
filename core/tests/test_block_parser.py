@@ -355,20 +355,40 @@ def test_a_dailymotion_facade_with_no_iframe_still_yields_an_embed():
 # Pre-Task-12 stored Article.content may have only a proxy iframe as the id
 # source (no data-embed, no watch link -- that is exactly what the old
 # create_youtube_embed_html/proxy_youtube_embeds/mein_mmo producers emitted).
-# Task 12 deletes proxy-URL parsing entirely with no fallback for this shape,
-# so re-parsing such a row (e.g. via the admin re-convert action or
-# `convert_articles_to_blocks --force`) now drops the embed instead of
-# recovering it. Kept as the single explicit guard documenting that accepted
-# trade-off -- see task-12-brief.md Step 7.
+# Task 12 removed the proxy views and stopped producing this markup, but the
+# id-extraction regexes stay as a legacy fallback: Task 10's backfill (plus
+# the admin re-convert action and `convert_articles_to_blocks --force`)
+# re-parses stored Article.content rather than re-fetching from the source, so
+# the whole pre-Task-12 corpus depends on this shape still resolving to an
+# embed. Do not delete these regexes or this test as "dead code" -- they are
+# live for exactly this stored-content case until Article.content itself is
+# retired (a follow-up release per the spec).
 LEGACY_PROXY_FACADE = (
     '<div data-sanitized-class="youtube-embed-container">'
     '<iframe src="https://yana.example/api/youtube-proxy?v=dQw4w9WgXcQ"></iframe>'
     "</div>"
 )
 
+LEGACY_DAILYMOTION_PROXY_FACADE = (
+    '<div class="dailymotion-embed-container">'
+    '<iframe src="https://yana.example/api/dailymotion-proxy?v=x8abcde"></iframe>'
+    "</div>"
+)
 
-def test_a_legacy_proxy_only_facade_yields_no_embed():
-    assert blocks_from_html(LEGACY_PROXY_FACADE) == []
+
+def test_a_legacy_proxy_only_facade_still_yields_an_embed():
+    """Stored content from before the proxy was removed has no data-embed and
+    no watch link -- the proxy iframe's src is the only id source. Re-parsing
+    it (backfill / re-convert / --force) must still recover the embed."""
+    assert blocks_from_html(LEGACY_PROXY_FACADE) == [
+        EmbedBlock(provider="youtube", external_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    ]
+
+
+def test_a_legacy_dailymotion_proxy_only_facade_still_yields_an_embed():
+    assert blocks_from_html(LEGACY_DAILYMOTION_PROXY_FACADE) == [
+        EmbedBlock(provider="dailymotion", external_url="https://www.dailymotion.com/video/x8abcde")
+    ]
 
 
 def test_unrecognizable_facade_recurses_instead_of_vanishing():

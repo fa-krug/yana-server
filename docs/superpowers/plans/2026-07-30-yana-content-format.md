@@ -4424,19 +4424,73 @@ with:
 Update the function's docstring line "Removes style and iframe elements" if it now misstates the
 behavior.
 
-- [ ] **Step 7: Delete the dead proxy regexes from the parser**
+- [ ] **Step 7: Demote the proxy regexes to a legacy fallback — do NOT delete them**
 
-In `core/aggregators/utils/block_parser.py`, delete `_YOUTUBE_PROXY_ID` and `_DAILYMOTION_PROXY_ID` and
-remove them from the two `_first_match` tuples in `_embed_facade`, leaving
-`(_YOUTUBE_EMBED_ID, _YOUTUBE_WATCH_ID)` and `(_DAILYMOTION_VIDEO_ID,)`. Update `_embed_facade`'s
-docstring: the proxy iframe is no longer the primary id source, `data-embed` is. Keep
-`test_youtube_facade_external_url_never_points_at_the_proxy` — it is now a regression guard against
-reintroducing the proxy rather than a check on a live path.
+**Corrected mid-execution.** An earlier version of this step said to delete `_YOUTUBE_PROXY_ID` and
+`_DAILYMOTION_PROXY_ID` while also keeping a legacy-content guard, which contradicts itself. Deleting
+them is wrong, and expensively so: `git show ca6f69e:core/aggregators/utils/youtube.py` shows the old
+`create_youtube_embed_html` emitted
 
-If any Task 4 test feeds `_embed_facade` a proxy-URL fixture, keep **one** of them as an explicit
-legacy-content guard (articles converted before this task have proxy iframes in `Article.content`, and
-`--force` re-conversion or the admin re-convert action will re-parse them) and delete the rest. Say in
-your report which you kept.
+```html
+<div class="youtube-embed-container"><iframe src="{BASE_URL}/api/youtube-proxy?v=<id>" …></iframe></div>
+```
+
+— an iframe and nothing else, with no `data-embed` and no anchor. So for **every** article imported
+before this task, the proxy URL is the *only* id source in its stored `Article.content`. Deleting the
+regexes would make the entire existing corpus lose its video embeds the moment it is converted, and
+converting that corpus is exactly what Task 10's backfill is for. `Article.content` is kept for one
+release precisely so re-conversion stays possible.
+
+So in `core/aggregators/utils/block_parser.py`, **keep** both regexes and move them to **last** in
+`_embed_facade`'s two `_first_match` tuples — the proxy is no longer a live producer, so it is the
+fallback the current shapes fall through to, not the primary path:
+
+- `_first_match((_YOUTUBE_EMBED_ID, _YOUTUBE_WATCH_ID, _YOUTUBE_PROXY_ID), markup)`
+- `_first_match((_DAILYMOTION_VIDEO_ID, _DAILYMOTION_PROXY_ID), markup)`
+
+Comment them as what they are — neither dead code nor a live path: they match the pre-facade markup
+still sitting in `Article.content` for articles imported before the proxy was removed, and they can go
+once `Article.content` is dropped (a follow-up release, per the spec's "Does `Article.content`
+survive?"). Update `_embed_facade`'s docstring to say the current producers use `data-embed`/anchor and
+that the proxy pattern is retained only for legacy stored content.
+
+Keep `test_youtube_facade_external_url_never_points_at_the_proxy` — with the regexes retained it is a
+real assertion rather than trivially true. And keep an explicit legacy guard for **both** providers,
+asserting a proxy-only facade still yields an embed whose `external_url` is the canonical public URL:
+
+```python
+def test_a_legacy_proxy_only_facade_still_yields_an_embed():
+    """Stored content from before the proxy was removed: an iframe pointing at
+    the dead /api/youtube-proxy route, with no data-embed and no anchor. This is
+    what the whole existing corpus looks like, and re-conversion must still find
+    the video id in it."""
+    html = (
+        '<div data-sanitized-class="youtube-embed-container">'
+        '<iframe src="https://yana.example/api/youtube-proxy?v=dQw4w9WgXcQ"></iframe>'
+        "</div>"
+    )
+    assert blocks_from_html(html) == [
+        EmbedBlock(
+            provider="youtube", external_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        )
+    ]
+
+
+def test_a_legacy_dailymotion_proxy_facade_still_yields_an_embed():
+    html = (
+        '<div data-sanitized-class="dailymotion-embed-container">'
+        '<iframe src="https://yana.example/api/dailymotion-proxy?v=x8abcde"></iframe>'
+        "</div>"
+    )
+    assert blocks_from_html(html) == [
+        EmbedBlock(
+            provider="dailymotion", external_url="https://www.dailymotion.com/video/x8abcde"
+        )
+    ]
+```
+
+Their docstrings must say they cover stored content from before the proxy was removed, so nobody deletes
+them as obsolete.
 
 - [ ] **Step 8: Delete the views, exports and routes**
 

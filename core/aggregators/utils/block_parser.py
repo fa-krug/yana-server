@@ -241,6 +241,18 @@ _YOUTUBE_EMBED_ID = re.compile(r"(?:youtube\.com|youtube-nocookie\.com)/embed/([
 _YOUTUBE_WATCH_ID = re.compile(r"(?:youtube\.com/watch\?(?:.*&)?v=|youtu\.be/)([A-Za-z0-9_-]{6,})")
 _DAILYMOTION_VIDEO_ID = re.compile(r"dailymotion\.com/(?:video|embed/video)/([A-Za-z0-9]+)")
 
+#: Legacy id sources: Task 12 removed the proxy views and stopped producing
+#: this markup, but articles converted before that removal have only a proxy
+#: iframe in stored ``Article.content`` -- no ``data-embed``, no watch link --
+#: and Task 10's backfill (plus the admin re-convert action and
+#: ``convert_articles_to_blocks --force``) re-parses that stored HTML rather
+#: than re-fetching from the source. Kept as the last-resort fallback in
+#: ``_embed_facade``'s ``_first_match`` tuples below so that corpus keeps its
+#: embeds. Safe to delete once ``Article.content`` itself is dropped (a
+#: follow-up release per the spec), not before.
+_YOUTUBE_PROXY_ID = re.compile(r"/api/youtube-proxy\?(?:.*&)?v=([A-Za-z0-9_-]{6,})")
+_DAILYMOTION_PROXY_ID = re.compile(r"/api/dailymotion-proxy\?(?:.*&)?v=([A-Za-z0-9]+)")
+
 _TWEET_HOST_SUFFIXES = ("twitter.com", "x.com", "fxtwitter.com")
 
 #: Attributes an embed's class name can hide in: the sanitizer moves ``class``
@@ -297,12 +309,15 @@ def _embed_facade(element: Tag) -> EmbedBlock | None:
 
     The video id is read from a stashed ``data-embed`` payload first -- that is
     what `build_youtube_facade_html`/`build_dailymotion_facade_html` emit, and
-    what the pipeline actually produces now that there is no proxy iframe --
-    with a descendant watch link as a fallback for content that took another
-    route. The result carries the canonical public watch URL. Note there is no
-    proxy-URL fallback: content stored before the proxy was removed that relied
-    solely on a proxy iframe as its id source (no ``data-embed``, no watch link)
-    no longer parses into an embed -- see ``test_a_legacy_proxy_only_facade_yields_no_embed``.
+    what the current producers actually produce now that there is no proxy
+    iframe -- with a descendant watch link as a fallback for content that took
+    another route. The proxy-URL patterns are tried last: they are not a live
+    producer any more, but articles converted before the proxy was removed
+    have *only* a proxy iframe in stored ``Article.content`` (no ``data-embed``,
+    no watch link), and re-parsing that stored HTML -- via Task 10's backfill,
+    the admin re-convert action, or ``convert_articles_to_blocks --force`` --
+    must still recover their embed. The result always carries the canonical
+    public watch URL, never the proxy path.
     """
     classes = _class_names(element)
     is_youtube = "youtube-embed" in classes
@@ -314,7 +329,7 @@ def _embed_facade(element: Tag) -> EmbedBlock | None:
     thumbnail = _facade_thumbnail(element)
 
     if is_youtube:
-        video_id = _first_match((_YOUTUBE_EMBED_ID, _YOUTUBE_WATCH_ID), markup)
+        video_id = _first_match((_YOUTUBE_EMBED_ID, _YOUTUBE_WATCH_ID, _YOUTUBE_PROXY_ID), markup)
         if video_id:
             return EmbedBlock(
                 provider="youtube",
@@ -322,7 +337,7 @@ def _embed_facade(element: Tag) -> EmbedBlock | None:
                 thumbnail_ref=thumbnail,
             )
     else:
-        video_id = _first_match((_DAILYMOTION_VIDEO_ID,), markup)
+        video_id = _first_match((_DAILYMOTION_VIDEO_ID, _DAILYMOTION_PROXY_ID), markup)
         if video_id:
             return EmbedBlock(
                 provider="dailymotion",
