@@ -44,6 +44,23 @@ class BaseAggregator(ABC):
             return False
         return not cls.get_identifier_choices()
 
+    # Fixed-brand scrapers point at their own site so the logo comes from the
+    # brand's favicon rather than whichever feed URL the identifier happens to
+    # be. None for free-form URL types (the identifier's origin is used) and for
+    # reddit/youtube (their API provides an image).
+    # Spec 2 adds the_verge -> https://www.theverge.com/ and
+    # ars_technica -> https://arstechnica.com/ when those aggregators land.
+    brand_site_url: Optional[str] = None
+
+    def logo_image_url(self) -> Optional[str]:
+        """API-provided logo image URL, when the source has one.
+
+        Overridden by aggregators whose API exposes an avatar or icon (Reddit
+        subreddit icon, YouTube channel avatar). Returning None means "fall
+        through to the favicon tiers".
+        """
+        return None
+
     # Scrapers whose body lives in one known container set this True: extraction
     # then keeps only the first match instead of unioning every match.
     uses_first_content_match = False

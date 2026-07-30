@@ -13,6 +13,7 @@ class MeinMmoAggregator(FullWebsiteAggregator):
     """Specialized aggregator for Mein-MMO.de gaming news."""
 
     MEIN_MMO_URL = "https://mein-mmo.de/"
+    brand_site_url = "https://mein-mmo.de/"
 
     def __init__(self, feed):
         super().__init__(feed)

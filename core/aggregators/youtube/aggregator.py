@@ -160,6 +160,15 @@ class YouTubeAggregator(BaseAggregator):
         except UserSettings.DoesNotExist as e:
             raise YouTubeAPIError("User settings not found") from e
 
+    def logo_image_url(self) -> Optional[str]:
+        """Channel avatar from the YouTube Data API."""
+        channel_id = self.identifier
+        if not channel_id:
+            return None
+        client = self._get_client()
+        channels = client.fetch_channels_data([channel_id])
+        return channels[0].get("channel_icon_url") if channels else None
+
     def validate(self) -> None:
         """Validate and resolve channel identifier."""
         super().validate()

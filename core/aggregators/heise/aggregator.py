@@ -21,6 +21,7 @@ class HeiseAggregator(FullWebsiteAggregator):
     """Specialized aggregator for Heise.de German tech news."""
 
     HEISE_URL = "https://www.heise.de/"
+    brand_site_url = "https://www.heise.de/"
 
     def __init__(self, feed):
         super().__init__(feed)

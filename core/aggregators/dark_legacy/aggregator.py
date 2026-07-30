@@ -12,6 +12,8 @@ from ..website import FullWebsiteAggregator
 class DarkLegacyAggregator(FullWebsiteAggregator):
     """Aggregator for Dark Legacy Comics."""
 
+    brand_site_url = "https://darklegacycomics.com/"
+
     def __init__(self, feed):
         super().__init__(feed)
         if not self.identifier or self.identifier == "":

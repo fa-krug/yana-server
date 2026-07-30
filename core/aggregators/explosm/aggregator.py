@@ -10,6 +10,8 @@ from ..website import FullWebsiteAggregator
 class ExplosmAggregator(FullWebsiteAggregator):
     """Aggregator for Explosm (Cyanide & Happiness)."""
 
+    brand_site_url = "https://explosm.net/"
+
     def __init__(self, feed):
         super().__init__(feed)
         if not self.identifier or self.identifier == "":

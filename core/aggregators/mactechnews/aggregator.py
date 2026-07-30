@@ -21,6 +21,8 @@ from .multipage_handler import detect_pagination, fetch_all_pages
 class MactechnewsAggregator(FullWebsiteAggregator):
     """Aggregator for MacTechNews (mactechnews.de)."""
 
+    brand_site_url = "https://www.mactechnews.de/"
+
     def __init__(self, feed):
         super().__init__(feed)
         if not self.identifier or self.identifier == "":

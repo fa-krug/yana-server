@@ -21,6 +21,8 @@ class OglafAggregator(FullWebsiteAggregator):
     Handles extraction of comic images and conversion to base64.
     """
 
+    brand_site_url = "https://www.oglaf.com/"
+
     def __init__(self, feed):
         super().__init__(feed)
         # Set default identifier if not provided

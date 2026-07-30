@@ -59,6 +59,14 @@ class RedditAggregator(BaseAggregator):
             return f"https://www.reddit.com/r/{subreddit}"
         return "https://www.reddit.com"
 
+    def logo_image_url(self) -> Optional[str]:
+        """Subreddit icon from the Reddit API."""
+        user_id = getattr(getattr(self.feed, "user", None), "id", None)
+        if not user_id or not self.identifier:
+            return None
+        info = fetch_subreddit_info(self.identifier, user_id)
+        return info.get("iconUrl")
+
     @classmethod
     def get_identifier_choices(
         cls, query: Optional[str] = None, user: Optional[Any] = None

@@ -24,6 +24,8 @@ class TagesschauAggregator(FullWebsiteAggregator):
     # until Spec 2 rewires this aggregator onto the shared extraction path --
     # see docs/superpowers/specs/2026-07-29-aggregator-parity-2-scrapers-and-types-design.md.
 
+    brand_site_url = "https://www.tagesschau.de/"
+
     # Body lives in one known container -- keep the first match, never union.
     uses_first_content_match = True
 

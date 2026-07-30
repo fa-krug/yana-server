@@ -11,6 +11,8 @@ from ..website import FullWebsiteAggregator
 class CaschysBlogAggregator(FullWebsiteAggregator):
     """Aggregator for Caschy's Blog (stadt-bremerhaven.de)."""
 
+    brand_site_url = "https://stadt-bremerhaven.de/"
+
     def __init__(self, feed):
         super().__init__(feed)
         if not self.identifier or self.identifier == "":

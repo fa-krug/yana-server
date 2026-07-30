@@ -18,6 +18,7 @@ class MerkurAggregator(FullWebsiteAggregator):
     """Specialized aggregator for Merkur.de (German news)."""
 
     MERKUR_URL = "https://www.merkur.de"
+    brand_site_url = "https://www.merkur.de/"
 
     def __init__(self, feed):
         super().__init__(feed)
