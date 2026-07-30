@@ -98,6 +98,7 @@ replace it. Third-party RSS readers are not supported in the meantime.
     -   Specialized scrapers for websites
 -   **Background Processing:** Automatic feed updates using `django-q2`.
 -   **Admin Interface:** Manage feeds, view fetching status, and trigger updates directly from the Django admin.
+-   **Deduplicated Image Storage:** Article images are stored once, content-addressed by hash, and referenced from article content -- no base64 bloat in the database.
 
 ---
 
@@ -164,10 +165,11 @@ See **CLAUDE.md** for more detailed debugging workflows.
 
 ### Project Architecture
 
--   **`core/models.py`**: `Feed`, `Article`, `FeedGroup`.
+-   **`core/models.py`**: `Feed`, `Article`, `ArticleImage`, `FeedGroup`.
 -   **`core/aggregators/`**: Content fetching logic.
     -   `registry.py`: Factory pattern for aggregators.
     -   `base.py`: Base classes for RSS, Full Website, etc.
+    -   `services/image_store.py`: Content-addressed image storage (`yana-img://<hash>` references).
 -   **`core/services/`**: Business logic (aggregation triggers, article maintenance).
 
 ### Running Tests

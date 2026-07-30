@@ -207,6 +207,48 @@ missing — a worse version of the same problem, and a candidate for the same tr
 defines `extract_content`, but it builds content from API data rather than scraping a page, so none
 of this applies to it.)
 
+## Image Storage
+
+Images are **stored once and referenced by hash**, never inlined as base64.
+
+`core/aggregators/services/image_store.py` is the only writer:
+
+```
+remote URL -> fetch (image_extraction) -> compress (compression.py)
+           -> sha256(compressed bytes) -> ArticleImage row -> return the hash
+```
+
+Article content carries the reference, not the bytes:
+
+```html
+<img src="yana-img://3f786850e387550fdab836ed7e6dc881de23001b...">
+```
+
+Key properties:
+
+- **The hash is over the compressed output**, so the same source image compresses to the same bytes,
+  finds the existing row, and stores nothing new. Deduplication is free; the unique constraint on
+  `content_hash` makes concurrent runs safe.
+- **A failed store means no image**, not no article. The header-element strategies return `None`, so
+  no header renders and the body publishes as usual. (Reddit's own header path is the documented
+  exception: it degrades to the remote URL, which still shows the image exactly once.)
+- **A failed compression stores the original bytes** and logs it -- a large stored image beats a
+  missing one.
+- Storage lives on local disk under `MEDIA_ROOT/article_images/YYYY/MM/`. Admin serves it via
+  `/media/` so images are verifiable by eye; the authenticated HTTP endpoint belongs to the new API.
+
+### Maintenance commands
+
+```bash
+# Convert legacy inline data URIs in existing articles (batched, idempotent)
+uv run python manage.py migrate_inline_images --dry-run
+uv run python manage.py migrate_inline_images
+
+# Delete images no article references any more (and report rows with missing files)
+uv run python manage.py prune_orphaned_images --dry-run
+uv run python manage.py prune_orphaned_images --min-age 30
+```
+
 ## Creating a New Aggregator
 
 To add a new aggregator type:

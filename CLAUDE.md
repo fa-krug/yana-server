@@ -97,6 +97,8 @@ Yana/
 │   │   ├── explosm/             # Cyanide & Happiness
 │   │   ├── dark_legacy/         # Dark Legacy Comics
 │   │   ├── oglaf/               # Oglaf comics
+│   │   ├── services/
+│   │   │   └── image_store.py       # Content-addressed image storage
 │   │   └── utils/               # Shared utilities
 │   │       ├── html_fetcher.py      # HTTP with retries
 │   │       ├── content_extractor.py # HTML extraction
@@ -122,7 +124,9 @@ Yana/
 │   │   ├── test_aggregator.py       # Primary debugging tool
 │   │   ├── trigger_aggregator.py    # Manual feed trigger
 │   │   ├── optimize_sqlite.py       # DB optimization
-│   │   └── verify_sqlite_optimizations.py
+│   │   ├── verify_sqlite_optimizations.py
+│   │   ├── migrate_inline_images.py  # Backfill inline data URIs -> stored images
+│   │   └── prune_orphaned_images.py  # Delete unreferenced images
 │   │
 │   └── tests/                       # Test suite (34+ test files)
 │       ├── conftest.py              # Pytest fixtures
@@ -220,6 +224,7 @@ def test_feed_creation(user):
 | `FeedGroup` | name, user | Unique per (name, user) |
 | `Feed` | name, aggregator, identifier, user, group, enabled, daily_limit | 16 aggregator types |
 | `Article` | name, identifier, content, raw_content, date, read, starred, feed | Use `select_related("feed")` |
+| `ArticleImage` | content_hash, file, content_type, width, height, byte_size | Content-addressed; referenced from content as `yana-img://<hash>` |
 | `UserSettings` | user, youtube_api_key, reddit_*, openai_* | API credentials |
 | `RedditSubreddit` | name, user | Reddit feed reference |
 | `YouTubeChannel` | channel_id, channel_name, user | YouTube feed reference |
@@ -229,6 +234,11 @@ Use `created_at` (indexed with `id` as tie-breaker) for stable, append-only orde
 cursors, and for retention (`ArticleService.delete_old_articles`) — `date` is for display only.
 Keying retention off `date` would delete articles almost immediately after import whenever their
 publish date is already close to the retention cutoff.
+
+**Article images:** images are stored once as `ArticleImage` (SHA-256 of the *compressed* bytes) and
+referenced from `Article.content` as `yana-img://<hash>`. Nothing inlines base64 — `core/tests/test_no_inline_base64.py`
+guards that. `migrate_inline_images` backfills legacy content; `prune_orphaned_images` reaps
+unreferenced rows.
 
 ## Aggregator System
 
@@ -294,7 +304,7 @@ The server has no article API. What is reachable:
 |---|---|
 | `/admin/` | Django admin — the verification surface for the current phase |
 | `/health/` | Health check |
-| `/media/…` | Media files |
+| `/media/…` | Media files — including the stored article images, which is how admin previews them this phase |
 | `/static/…` | Static assets (admin CSS/JS) — Django serves them in `DEBUG`, whitenoise in production |
 | `/api/youtube-proxy`, `/api/dailymotion-proxy` | Embed proxies (interim) |
 | `/*` | Catch-all redirect to admin |
