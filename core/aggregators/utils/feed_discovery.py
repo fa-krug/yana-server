@@ -56,15 +56,27 @@ def feed_url_in_html(html: str, base_url: str | None) -> str | None:
     return None
 
 
-def discover_feed_url(page_url: str) -> str | None:
+def discover_feed_url(
+    page_url: str, timeout: int | None = None, retries: int | None = None
+) -> str | None:
     """Fetch ``page_url`` and return its advertised feed URL, or ``None``.
+
+    ``timeout`` and ``retries`` override ``fetch_html``'s defaults (30 s, three
+    attempts with backoff -- up to ~93 s). Interactive callers pass tighter
+    bounds; the background aggregation path keeps the defaults.
 
     Best-effort: any fetch failure is logged and reported as ``None``.
     """
+    overrides: dict[str, int] = {}
+    if timeout is not None:
+        overrides["timeout"] = timeout
+    if retries is not None:
+        overrides["retries"] = retries
+
     try:
-        html = fetch_html(page_url)
+        html = fetch_html(page_url, **overrides)
     except Exception as exc:
-        logger.debug(f"Feed discovery could not fetch {page_url}: {exc}")
+        logger.info(f"Feed discovery could not fetch {page_url}: {exc}")
         return None
 
     return feed_url_in_html(html, page_url)

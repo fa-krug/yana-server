@@ -19,6 +19,13 @@ SIZES_PATTERN = re.compile(r"(\d+)\s*[xX]\s*(\d+)")
 
 ALLOWED_SCHEMES = ("http", "https")
 
+# resolve_site_icon runs on the feed-save path (FeedAdmin.save_model ->
+# store_feed_logo) and in the Refresh feed logo action, both interactive.
+# fetch_html's defaults (30 s, three attempts with backoff) would let one dead
+# site hold an admin save for ~93 s.
+ICON_TIMEOUT = 5
+ICON_RETRIES = 1
+
 
 def _sizes_area(sizes: str) -> int:
     """Largest declared area in a ``sizes`` attribute; 0 when undeclared or malformed."""
@@ -105,7 +112,7 @@ def resolve_site_icon(site_url: str) -> str | None:
     failed download as "no logo", so probing it first would only cost a request.
     """
     try:
-        html = fetch_html(site_url)
+        html = fetch_html(site_url, timeout=ICON_TIMEOUT, retries=ICON_RETRIES)
     except Exception as exc:
         logger.debug(f"Could not fetch {site_url} for its icon: {exc}")
         html = ""

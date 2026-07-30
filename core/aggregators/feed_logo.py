@@ -21,6 +21,11 @@ from .utils.logo_background import remove_white_background
 
 logger = logging.getLogger(__name__)
 
+# store_feed_logo runs on the feed-save path, so the download is bounded well
+# below fetch_bytes' 30 s default. An icon that cannot be had in 10 s is not
+# worth holding an admin save for.
+LOGO_FETCH_TIMEOUT = 10
+
 
 def _identifier_origin(identifier: str) -> str | None:
     """``scheme://host/`` for a URL identifier, or ``None`` for anything else."""
@@ -115,7 +120,7 @@ def store_feed_logo(feed) -> bool:
         return False
 
     try:
-        data = fetch_bytes(source_url)
+        data = fetch_bytes(source_url, timeout=LOGO_FETCH_TIMEOUT)
     except Exception as exc:
         logger.warning(f"Logo download failed for feed {feed.pk} ({source_url}): {exc}")
         return False

@@ -9,7 +9,11 @@ from django.db import OperationalError
 import pytest
 from PIL import Image
 
-from core.aggregators.feed_logo import resolve_feed_logo_url, store_feed_logo
+from core.aggregators.feed_logo import (
+    LOGO_FETCH_TIMEOUT,
+    resolve_feed_logo_url,
+    store_feed_logo,
+)
 from core.aggregators.registry import AggregatorRegistry
 from core.models import Feed
 
@@ -148,7 +152,7 @@ def test_store_feed_logo_downloads_and_records_the_source(user):
     ):
         assert store_feed_logo(feed) is True
 
-    fetch.assert_called_once_with("https://golem.de/favicon.png")
+    fetch.assert_called_once_with("https://golem.de/favicon.png", timeout=LOGO_FETCH_TIMEOUT)
     feed.refresh_from_db()
     assert feed.logo
     assert feed.logo_source_url == "https://golem.de/favicon.png"

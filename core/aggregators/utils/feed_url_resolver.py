@@ -15,6 +15,13 @@ logger = logging.getLogger(__name__)
 FEED_SCHEME = "feed://"
 HTTPS_SCHEME = "https://"
 
+# ``resolve_feed_url`` runs inside a form's clean(), i.e. inside an admin
+# request. Both network steps are therefore bounded to a few seconds and a single
+# attempt: the default path (feedparser's own timeout-less HTTP plus fetch_html's
+# 3 attempts with backoff) could keep a save waiting for minutes.
+RESOLVE_TIMEOUT = 5
+RESOLVE_RETRIES = 1
+
 
 def normalize(raw: str) -> str:
     """Trim, prepend ``https://`` when no scheme is present, rewrite ``feed://``.
@@ -41,23 +48,24 @@ def resolve_feed_url(raw: str) -> str:
     Never raises. Returns the normalized input when it already parses as a feed,
     when discovery finds nothing, or on any network or parse failure -- a resolve
     failure must not block saving a feed, which is what makes this safe to call
-    from a form's ``clean()``.
+    from a form's ``clean()``. Both network steps are bounded (see
+    ``RESOLVE_TIMEOUT``), so an unreachable host costs seconds, not minutes.
     """
     normalized = normalize(raw)
     if not normalized:
         return normalized
 
     try:
-        parse_rss_feed(normalized)
+        parse_rss_feed(normalized, timeout=RESOLVE_TIMEOUT)
         return normalized
     except Exception:
         # Not a feed (or unreachable) -- fall through to discovery.
         pass
 
     try:
-        discovered = discover_feed_url(normalized)
+        discovered = discover_feed_url(normalized, timeout=RESOLVE_TIMEOUT, retries=RESOLVE_RETRIES)
     except Exception as exc:
-        logger.debug(f"Feed resolution failed for {normalized}: {exc}")
+        logger.info(f"Feed resolution failed for {normalized}: {exc}")
         return normalized
 
     return discovered or normalized

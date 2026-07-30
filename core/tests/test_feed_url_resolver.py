@@ -6,7 +6,12 @@ import pytest
 import requests
 
 from core.aggregators.registry import AggregatorRegistry
-from core.aggregators.utils.feed_url_resolver import normalize, resolve_feed_url
+from core.aggregators.utils.feed_url_resolver import (
+    RESOLVE_RETRIES,
+    RESOLVE_TIMEOUT,
+    normalize,
+    resolve_feed_url,
+)
 
 
 def test_bare_domain_gains_https():
@@ -93,6 +98,25 @@ def test_empty_input_never_hits_the_network():
     with patch("core.aggregators.utils.feed_url_resolver.parse_rss_feed") as parse:
         assert resolve_feed_url("  ") == ""
     parse.assert_not_called()
+
+
+def test_the_interactive_probe_and_discovery_are_bounded():
+    """An admin save must not be able to hang on a black-holed host."""
+    with (
+        patch(
+            "core.aggregators.utils.feed_url_resolver.parse_rss_feed",
+            side_effect=ValueError("No entries found in feed"),
+        ) as parse,
+        patch(
+            "core.aggregators.utils.feed_url_resolver.discover_feed_url",
+            return_value="https://golem.de/rss.php",
+        ) as discover,
+    ):
+        assert resolve_feed_url("golem.de") == "https://golem.de/rss.php"
+
+    assert parse.call_args.kwargs["timeout"] == RESOLVE_TIMEOUT
+    assert discover.call_args.kwargs["timeout"] == RESOLVE_TIMEOUT
+    assert discover.call_args.kwargs["retries"] == RESOLVE_RETRIES
 
 
 @pytest.mark.parametrize("aggregator_type", ["full_website", "feed_content", "podcast"])

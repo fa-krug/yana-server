@@ -4,7 +4,12 @@ from unittest.mock import patch
 
 import requests
 
-from core.aggregators.utils.favicon import best_icon_url, resolve_site_icon
+from core.aggregators.utils.favicon import (
+    ICON_RETRIES,
+    ICON_TIMEOUT,
+    best_icon_url,
+    resolve_site_icon,
+)
 
 
 def _page(*links: str) -> str:
@@ -131,3 +136,12 @@ def test_resolve_site_icon_falls_back_when_the_declared_icon_is_cross_host():
     html = _page('<link rel="icon" href="http://169.254.169.254/latest/meta-data">')
     with patch("core.aggregators.utils.favicon.fetch_html", return_value=html):
         assert resolve_site_icon("https://heise.de/") == "https://heise.de/favicon.ico"
+
+
+def test_resolve_site_icon_bounds_its_page_fetch():
+    """Icon resolution runs on the save path, so it must not use the 93 s default."""
+    with patch("core.aggregators.utils.favicon.fetch_html", return_value=_page()) as fetch:
+        resolve_site_icon("https://heise.de/")
+
+    assert fetch.call_args.kwargs["timeout"] == ICON_TIMEOUT
+    assert fetch.call_args.kwargs["retries"] == ICON_RETRIES
