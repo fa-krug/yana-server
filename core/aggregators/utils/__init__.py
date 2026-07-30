@@ -10,7 +10,7 @@ from .content_extractor import (
     extract_main_content_if_present,
     select_content_elements,
 )
-from .content_formatter import format_article_content
+from .content_formatter import build_header_html, format_article_content
 from .html_cleaner import (
     clean_data_attributes,
     clean_html,
@@ -45,6 +45,7 @@ __all__ = [
     "sanitize_class_names",
     "sanitize_html_attributes",
     "remove_sanitized_attributes",
+    "build_header_html",
     "format_article_content",
     "get_attr_str",
     "get_attr_list",
