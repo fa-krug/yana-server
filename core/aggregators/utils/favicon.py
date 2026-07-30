@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 SIZES_PATTERN = re.compile(r"(\d+)\s*[xX]\s*(\d+)")
 
+ALLOWED_SCHEMES = ("http", "https")
+
 
 def _sizes_area(sizes: str) -> int:
     """Largest declared area in a ``sizes`` attribute; 0 when undeclared or malformed."""
@@ -26,14 +28,45 @@ def _sizes_area(sizes: str) -> int:
     return best
 
 
+def _is_same_site(candidate: str, base_url: str) -> bool:
+    """Whether ``candidate`` is an http(s) URL on the site's own domain.
+
+    ``urljoin`` keeps an absolute href as-is, so without this check a page
+    declaring ``<link rel="icon" href="http://169.254.169.254/...">`` would turn
+    the icon lookup into an SSRF probe against our own network (cloud metadata,
+    loopback ports, RFC1918).
+
+    The match is "the base host with a leading ``www.`` stripped, plus any of its
+    subdomains": a site is allowed to serve its icon from its own CDN subdomain
+    (``static.heise.de`` for ``www.heise.de``), which several of the brand sites
+    in ``brand_site_url`` do, while a different registrable domain is never
+    allowed. Deliberately *not* a "last two labels match" rule -- that would
+    treat every ``*.co.uk`` host as the same site. Erring narrow is safe: a
+    rejected candidate just falls back to ``/favicon.ico`` on the site's origin.
+    """
+    base_host = (urlparse(base_url).hostname or "").lower()
+    if not base_host:
+        return False
+
+    parsed = urlparse(candidate)
+    if parsed.scheme.lower() not in ALLOWED_SCHEMES:
+        return False
+
+    host = (parsed.hostname or "").lower()
+    base_domain = base_host.removeprefix("www.")
+    return host == base_domain or host.endswith(f".{base_domain}")
+
+
 def best_icon_url(html: str, base_url: str) -> str | None:
     """Best icon advertised by ``html``, resolved absolute. Pure -- no network.
 
     ``apple-touch-icon`` wins outright (first one encountered); otherwise the
     plain icon with the largest declared ``sizes`` area, earliest winning ties.
+    Candidates that do not resolve onto the site's own domain are dropped -- see
+    ``_is_same_site``.
     """
     soup = BeautifulSoup(html or "", "html.parser")
-    best_href: str | None = None
+    best_url: str | None = None
     best_area = -1
 
     for link in soup.find_all("link"):
@@ -45,18 +78,24 @@ def best_icon_url(html: str, base_url: str) -> str | None:
         if not href:
             continue
 
-        if any("apple-touch-icon" in rel for rel in rels):
-            return urljoin(base_url, href)
-
-        if "icon" not in rels:
+        is_apple = any("apple-touch-icon" in rel for rel in rels)
+        if not is_apple and "icon" not in rels:
             continue
+
+        candidate = urljoin(base_url, href)
+        if not _is_same_site(candidate, base_url):
+            logger.info(f"Ignoring off-site icon {candidate} declared by {base_url}")
+            continue
+
+        if is_apple:
+            return candidate
 
         area = _sizes_area(get_attr_str(link, "sizes"))
         if area > best_area:
             best_area = area
-            best_href = href
+            best_url = candidate
 
-    return urljoin(base_url, best_href) if best_href else None
+    return best_url
 
 
 def resolve_site_icon(site_url: str) -> str | None:
