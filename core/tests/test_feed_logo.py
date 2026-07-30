@@ -1,7 +1,10 @@
 """Tests for per-feed logo resolution and storage."""
 
 import io
+import os
 from unittest.mock import patch
+
+from django.db import OperationalError
 
 import pytest
 from PIL import Image
@@ -203,3 +206,99 @@ def test_store_feed_logo_is_a_noop_when_nothing_resolves(user):
         assert store_feed_logo(feed) is False
 
     assert not feed.logo
+
+
+@pytest.mark.django_db
+def test_store_feed_logo_replaces_the_previous_file(user, settings, tmp_path):
+    """Storing a new logo must not orphan the file it replaces."""
+    settings.MEDIA_ROOT = tmp_path
+    feed = Feed.objects.create(
+        name="Golem", aggregator="full_website", identifier="https://golem.de/rss.php", user=user
+    )
+
+    with (
+        patch(
+            "core.aggregators.feed_logo.resolve_feed_logo_url",
+            return_value="https://golem.de/favicon.png",
+        ),
+        patch("core.aggregators.feed_logo.fetch_bytes", return_value=_white_backed_png()),
+    ):
+        assert store_feed_logo(feed) is True
+
+    feed.refresh_from_db()
+    first_path = feed.logo.path
+    assert os.path.exists(first_path)
+
+    with (
+        patch(
+            "core.aggregators.feed_logo.resolve_feed_logo_url",
+            return_value="https://golem.de/favicon.png",
+        ),
+        patch("core.aggregators.feed_logo.fetch_bytes", return_value=_white_backed_png()),
+    ):
+        assert store_feed_logo(feed) is True
+
+    feed.refresh_from_db()
+    assert not os.path.exists(first_path)
+    assert feed.logo.path != first_path
+    assert os.path.exists(feed.logo.path)
+
+
+@pytest.mark.django_db
+def test_store_feed_logo_removes_the_file_when_the_db_save_fails(user, settings, tmp_path):
+    """A DB save failure after a successful write must not orphan the new file."""
+    settings.MEDIA_ROOT = tmp_path
+    feed = Feed.objects.create(
+        name="Golem", aggregator="full_website", identifier="https://golem.de/rss.php", user=user
+    )
+
+    with (
+        patch(
+            "core.aggregators.feed_logo.resolve_feed_logo_url",
+            return_value="https://golem.de/favicon.png",
+        ),
+        patch("core.aggregators.feed_logo.fetch_bytes", return_value=_white_backed_png()),
+        patch.object(Feed, "save", side_effect=OperationalError("database is locked")),
+    ):
+        assert store_feed_logo(feed) is False
+
+    assert not feed.logo
+    assert feed.logo_source_url == ""
+    feed.refresh_from_db()
+    assert not feed.logo
+    assert feed.logo_source_url == ""
+    assert not any(tmp_path.rglob("feed-*"))
+
+
+@pytest.mark.django_db
+def test_store_feed_logo_survives_the_old_file_already_being_gone(user, settings, tmp_path):
+    """A missing previous file during cleanup must not fail or raise."""
+    settings.MEDIA_ROOT = tmp_path
+    feed = Feed.objects.create(
+        name="Golem", aggregator="full_website", identifier="https://golem.de/rss.php", user=user
+    )
+
+    with (
+        patch(
+            "core.aggregators.feed_logo.resolve_feed_logo_url",
+            return_value="https://golem.de/favicon.png",
+        ),
+        patch("core.aggregators.feed_logo.fetch_bytes", return_value=_white_backed_png()),
+    ):
+        assert store_feed_logo(feed) is True
+
+    feed.refresh_from_db()
+    os.remove(feed.logo.path)
+
+    with (
+        patch(
+            "core.aggregators.feed_logo.resolve_feed_logo_url",
+            return_value="https://golem.de/favicon.png",
+        ),
+        patch("core.aggregators.feed_logo.fetch_bytes", return_value=_white_backed_png()),
+    ):
+        assert store_feed_logo(feed) is True
+
+    feed.refresh_from_db()
+    assert feed.logo
+    assert os.path.exists(feed.logo.path)

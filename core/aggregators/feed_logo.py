@@ -66,6 +66,16 @@ def _logo_filename(feed, source_url: str, is_png: bool) -> str:
     return f"feed-{feed.pk}{extension}"
 
 
+def _delete_stored_file(storage, name: str) -> None:
+    """Best-effort delete of ``name`` from ``storage``. Never raises."""
+    if not name:
+        return
+    try:
+        storage.delete(name)
+    except Exception as exc:
+        logger.warning(f"Could not delete logo file {name}: {exc}")
+
+
 def store_feed_logo(feed) -> bool:
     """Resolve, download, and store ``feed.logo``. Returns True when one was stored.
 
@@ -91,16 +101,33 @@ def store_feed_logo(feed) -> bool:
     stripped = remove_white_background(data)
     payload = stripped or data
 
+    storage = feed.logo.storage
+    old_name = feed.logo.name
+    old_source_url = feed.logo_source_url
+
     try:
         feed.logo.save(
             _logo_filename(feed, source_url, is_png=stripped is not None),
             ContentFile(payload),
             save=False,
         )
-        feed.logo_source_url = source_url
-        feed.save(update_fields=["logo", "logo_source_url", "updated_at"])
     except Exception as exc:
         logger.warning(f"Storing the logo failed for feed {feed.pk}: {exc}")
         return False
+
+    new_name = feed.logo.name
+    feed.logo_source_url = source_url
+
+    try:
+        feed.save(update_fields=["logo", "logo_source_url", "updated_at"])
+    except Exception as exc:
+        logger.warning(f"Saving the feed after storing the logo failed for feed {feed.pk}: {exc}")
+        _delete_stored_file(storage, new_name)
+        feed.logo.name = old_name
+        feed.logo_source_url = old_source_url
+        return False
+
+    if old_name and old_name != new_name:
+        _delete_stored_file(storage, old_name)
 
     return True
