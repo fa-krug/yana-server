@@ -426,11 +426,7 @@ class TestMactechnewsTechTickerFilter:
             {"name": "TechTicker: Kurz notiert am Freitag", "date": None},
         ]
 
-        with patch(
-            "core.aggregators.website.FullWebsiteAggregator.filter_articles",
-            side_effect=lambda x: x,
-        ):
-            filtered = mtn_agg.filter_articles(articles)
+        filtered = mtn_agg.filter_articles(articles)
 
         assert [a["name"] for a in filtered] == ["Apple releases iOS 26.2"]
 
@@ -439,11 +435,7 @@ class TestMactechnewsTechTickerFilter:
         word must survive."""
         articles = [{"name": "Warum der TechTicker beliebt ist", "date": None}]
 
-        with patch(
-            "core.aggregators.website.FullWebsiteAggregator.filter_articles",
-            side_effect=lambda x: x,
-        ):
-            filtered = mtn_agg.filter_articles(articles)
+        filtered = mtn_agg.filter_articles(articles)
 
         assert len(filtered) == 1
 
@@ -453,20 +445,12 @@ class TestMactechnewsTechTickerFilter:
         TechTicker is a generated prefix with a fixed form. Do not unify."""
         articles = [{"name": "techticker: lowercase variant", "date": None}]
 
-        with patch(
-            "core.aggregators.website.FullWebsiteAggregator.filter_articles",
-            side_effect=lambda x: x,
-        ):
-            filtered = mtn_agg.filter_articles(articles)
+        filtered = mtn_agg.filter_articles(articles)
 
         assert len(filtered) == 1
 
     def test_missing_title_does_not_raise(self, mtn_agg):
-        with patch(
-            "core.aggregators.website.FullWebsiteAggregator.filter_articles",
-            side_effect=lambda x: x,
-        ):
-            filtered = mtn_agg.filter_articles([{"date": None}])
+        filtered = mtn_agg.filter_articles([{"date": None}])
 
         assert len(filtered) == 1
 
