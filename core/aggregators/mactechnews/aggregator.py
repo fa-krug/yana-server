@@ -1,7 +1,7 @@
 """MacTechNews aggregator implementation."""
 
 import re
-from typing import Any, Dict
+from typing import Any, Dict, List
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -16,6 +16,12 @@ from ..utils.youtube import proxy_youtube_embeds
 from ..website import FullWebsiteAggregator
 from .comment_extractor import extract_comments
 from .multipage_handler import detect_pagination, fetch_all_pages
+
+# Recurring "TechTicker:" link-roundup posts are noise. Prefix match, case
+# sensitive -- mirroring iOS's shouldInclude. A looser `contains` would drop
+# legitimate articles that merely mention the word. Heise's title skip-list is
+# deliberately the opposite (substring, case-insensitive); do not unify them.
+TECHTICKER_TITLE_PREFIX = "TechTicker:"
 
 
 class MactechnewsAggregator(FullWebsiteAggregator):
@@ -56,6 +62,21 @@ class MactechnewsAggregator(FullWebsiteAggregator):
                 max_value=20,
             ),
         }
+
+    def filter_articles(self, articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Drop TechTicker link roundups, then apply the base age filter."""
+        articles = super().filter_articles(articles)
+
+        kept = []
+        for article in articles:
+            if article.get("name", "").startswith(TECHTICKER_TITLE_PREFIX):
+                self.logger.info(
+                    f"[filter_articles] Skipping TechTicker roundup: {article.get('name')}"
+                )
+                continue
+            kept.append(article)
+
+        return kept
 
     # Multipage articles are combined by fetch_all_pages into sibling
     # .MtnArticle containers (one per page), so every match must be kept --
