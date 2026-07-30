@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
-from core.aggregators.tagesschau.aggregator import TagesschauAggregator
+from core.aggregators.tagesschau.aggregator import _MEDIA_HEADER_CACHE_KEY, TagesschauAggregator
 
 
 @pytest.mark.django_db
@@ -172,3 +172,27 @@ class TestTagesschauAggregator:
 
         assert self.BROADCASTER_BODY not in result
         assert "rss" not in result
+
+    @patch("core.aggregators.tagesschau.aggregator.extract_media_header")
+    def test_media_header_is_parsed_once_and_shared_with_process_content(
+        self, mock_media, tages_agg
+    ):
+        """extract_content and process_content run on the same article dict
+        during a real aggregation pass. The media header must be parsed once
+        and shared between them -- not re-parsed by process_content -- and
+        the cache key must not survive past process_content."""
+        mock_media.return_value = "<video>player</video>"
+        html = f"<html><body><article><p>{self.BROADCASTER_BODY}</p></article></body></html>"
+        article = {"name": "T", "identifier": "u", "content": "<p>rss</p>", "raw_content": html}
+
+        tages_agg.extract_content(html, article)
+
+        with patch(
+            "core.aggregators.website.FullWebsiteAggregator.process_content",
+            side_effect=lambda x, y: x,
+        ):
+            processed = tages_agg.process_content("Body", article)
+
+        assert mock_media.call_count == 1
+        assert _MEDIA_HEADER_CACHE_KEY not in article
+        assert "<video>player</video>Body" in processed
