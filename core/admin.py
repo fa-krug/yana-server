@@ -8,6 +8,7 @@ from django.contrib.admin.sites import NotRegistered  # type: ignore
 from django.contrib.auth.admin import GroupAdmin as BaseGroupAdmin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import Group, User
+from django.db import transaction
 
 from django_q.admin import FailAdmin as BaseFailAdmin
 from django_q.admin import QueueAdmin as BaseQueueAdmin
@@ -35,6 +36,11 @@ admin.site.site_header = "Yana"
 admin.site.site_title = "Yana Admin"
 admin.site.index_title = "Welcome to Yana"
 admin.site.site_url = None
+
+# The "Resolve & test" action fetches each feed from inside an admin request.
+# parse_rss_feed's default lets feedparser do its own HTTP, which has no timeout
+# at all, so one black-holed host would hang the request indefinitely.
+RESOLVE_TEST_TIMEOUT = 5
 
 
 class YanaDjangoQLMixin(DjangoQLSearchMixin):
@@ -393,13 +399,24 @@ class FeedAdmin(YanaDjangoQLMixin, ImportExportModelAdmin):
         # form.save(commit=False), so the form's commit=True branch never runs in
         # the admin. ``obj`` has a pk by now and ``form.changed_data`` is still
         # available, which is what the refresh needs.
+        #
+        # It is deferred to on_commit because resolving a logo does network I/O
+        # (icon page + download). save_model runs inside changeform_view's
+        # atomic block, and with transaction_mode="IMMEDIATE" that would hold
+        # SQLite's write lock for the whole fetch.
         refresh_logo = getattr(form, "refresh_logo_if_needed", None)
         if refresh_logo is None:
             return
-        try:
-            refresh_logo(obj)
-        except Exception:
-            logger.exception(f"Logo resolution failed for feed {obj.pk}")
+
+        def resolve_logo_after_commit() -> None:
+            # Still best-effort: an on_commit callback that raises would
+            # propagate out of the atomic block and surface as a save error.
+            try:
+                refresh_logo(obj)
+            except Exception:
+                logger.exception(f"Logo resolution failed for feed {obj.pk}")
+
+        transaction.on_commit(resolve_logo_after_commit)
 
     def response_add(self, request, obj, post_url_continue=None):
         """
@@ -473,7 +490,7 @@ class FeedAdmin(YanaDjangoQLMixin, ImportExportModelAdmin):
             )
 
             try:
-                data = parse_rss_feed(resolved)
+                data = parse_rss_feed(resolved, timeout=RESOLVE_TEST_TIMEOUT)
             except Exception as exc:
                 self.message_user(
                     request, f"{feed.name}: {resolved} failed -- {exc}", messages.ERROR

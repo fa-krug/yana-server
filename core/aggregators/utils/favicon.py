@@ -35,13 +35,17 @@ def _sizes_area(sizes: str) -> int:
     return best
 
 
-def _is_same_site(candidate: str, base_url: str) -> bool:
+def is_same_site(candidate: str, base_url: str) -> bool:
     """Whether ``candidate`` is an http(s) URL on the site's own domain.
 
     ``urljoin`` keeps an absolute href as-is, so without this check a page
     declaring ``<link rel="icon" href="http://169.254.169.254/...">`` would turn
     the icon lookup into an SSRF probe against our own network (cloud metadata,
     loopback ports, RFC1918).
+
+    Also applied to every redirect hop when the icon is downloaded (see
+    ``fetch_bytes``'s ``is_allowed_url``) -- checking only the declared URL would
+    leave a 302 to that same metadata endpoint wide open.
 
     The match is "the base host with a leading ``www.`` stripped, plus any of its
     subdomains": a site is allowed to serve its icon from its own CDN subdomain
@@ -70,7 +74,7 @@ def best_icon_url(html: str, base_url: str) -> str | None:
     ``apple-touch-icon`` wins outright (first one encountered); otherwise the
     plain icon with the largest declared ``sizes`` area, earliest winning ties.
     Candidates that do not resolve onto the site's own domain are dropped -- see
-    ``_is_same_site``.
+    ``is_same_site``.
     """
     soup = BeautifulSoup(html or "", "html.parser")
     best_url: str | None = None
@@ -90,7 +94,7 @@ def best_icon_url(html: str, base_url: str) -> str | None:
             continue
 
         candidate = urljoin(base_url, href)
-        if not _is_same_site(candidate, base_url):
+        if not is_same_site(candidate, base_url):
             logger.info(f"Ignoring off-site icon {candidate} declared by {base_url}")
             continue
 

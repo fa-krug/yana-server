@@ -43,6 +43,11 @@ KIND_INSTRUCTIONS: dict[str, str] = {
     ),
 }
 
+# Suggestion runs from an admin action, so the feed fetch that finds an article
+# page is bounded: parse_rss_feed's default hands the URL to feedparser, whose
+# own HTTP has no timeout, and a black-holed host would hang the request.
+FEED_FETCH_TIMEOUT = 5
+
 CHROME_TAGS = ("script", "style", "noscript", "svg", "template")
 MAX_TEXT_NODE_CHARS = 80
 MAX_DIGEST_CHARS = 40000
@@ -95,7 +100,7 @@ def _page_url(feed: Any) -> str:
         return str(article.identifier)
 
     try:
-        data = parse_rss_feed(feed.identifier)
+        data = parse_rss_feed(feed.identifier, timeout=FEED_FETCH_TIMEOUT)
     except Exception as exc:
         raise SelectorSuggestionError(f"No article page to inspect: {exc}") from exc
 

@@ -9,13 +9,15 @@ raised into feed saving.
 import io
 import logging
 import os
+from collections.abc import Callable
+from typing import NamedTuple
 from urllib.parse import urlparse
 
 from django.core.files.base import ContentFile
 
 from PIL import Image
 
-from .utils.favicon import resolve_site_icon
+from .utils.favicon import is_same_site, resolve_site_icon
 from .utils.html_fetcher import fetch_bytes
 from .utils.logo_background import remove_white_background
 
@@ -27,6 +29,20 @@ logger = logging.getLogger(__name__)
 LOGO_FETCH_TIMEOUT = 10
 
 
+class LogoSource(NamedTuple):
+    """A logo URL plus the site the download has to stay on.
+
+    ``same_site_base`` is the site whose page advertised the icon: the download
+    must not redirect off it, or the check ``is_same_site`` already applied to
+    the declared URL would only cover the first hop. It is ``None`` for an
+    API-provided image, which legitimately lives on the provider's own CDN and
+    was never subject to that check.
+    """
+
+    url: str
+    same_site_base: str | None
+
+
 def _identifier_origin(identifier: str) -> str | None:
     """``scheme://host/`` for a URL identifier, or ``None`` for anything else."""
     parsed = urlparse(identifier or "")
@@ -35,8 +51,23 @@ def _identifier_origin(identifier: str) -> str | None:
     return f"{parsed.scheme}://{parsed.netloc}/"
 
 
-def resolve_feed_logo_url(feed) -> str | None:
-    """Best logo URL for ``feed``, or ``None`` when no tier yields one."""
+def _same_site_guard(base_url: str) -> Callable[[str], bool]:
+    """Predicate for ``fetch_bytes`` that keeps a download on ``base_url``'s site."""
+
+    def is_allowed(candidate: str) -> bool:
+        return is_same_site(candidate, base_url)
+
+    return is_allowed
+
+
+def _icon_source(site_url: str) -> LogoSource | None:
+    """Site icon for ``site_url``, pinned to that site for the download."""
+    icon = resolve_site_icon(site_url)
+    return LogoSource(icon, site_url) if icon else None
+
+
+def resolve_feed_logo_url(feed) -> LogoSource | None:
+    """Best logo source for ``feed``, or ``None`` when no tier yields one."""
     from . import get_aggregator
 
     try:
@@ -52,17 +83,17 @@ def resolve_feed_logo_url(feed) -> str | None:
         api_image = None
 
     if api_image:
-        return api_image
+        return LogoSource(api_image, None)
 
     brand_site = type(aggregator).brand_site_url
     if brand_site:
-        return resolve_site_icon(brand_site)
+        return _icon_source(brand_site)
 
     origin = _identifier_origin(feed.identifier)
     if not origin:
         return None
 
-    return resolve_site_icon(origin)
+    return _icon_source(origin)
 
 
 def _logo_filename(feed, source_url: str, is_png: bool) -> str:
@@ -110,17 +141,24 @@ def store_feed_logo(feed) -> bool:
     logged and leave ``logo`` as it was.
     """
     try:
-        source_url = resolve_feed_logo_url(feed)
+        source = resolve_feed_logo_url(feed)
     except Exception as exc:
         logger.warning(f"Logo resolution failed for feed {feed.pk}: {exc}")
         return False
 
-    if not source_url:
+    if not source:
         logger.info(f"No logo resolved for feed {feed.pk}")
         return False
 
+    source_url = source.url
+    base = source.same_site_base
+
     try:
-        data = fetch_bytes(source_url, timeout=LOGO_FETCH_TIMEOUT)
+        data = fetch_bytes(
+            source_url,
+            timeout=LOGO_FETCH_TIMEOUT,
+            is_allowed_url=_same_site_guard(base) if base else None,
+        )
     except Exception as exc:
         logger.warning(f"Logo download failed for feed {feed.pk} ({source_url}): {exc}")
         return False

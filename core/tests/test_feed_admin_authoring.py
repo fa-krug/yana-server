@@ -7,7 +7,7 @@ from django.urls import reverse
 
 import pytest
 
-from core.admin import FeedAdmin
+from core.admin import RESOLVE_TEST_TIMEOUT, FeedAdmin
 from core.forms import FeedAdminForm
 from core.models import Feed, UserSettings
 from core.services.selector_suggester import SelectorSuggestionError
@@ -95,6 +95,35 @@ def test_resolve_and_test_action_reports_entry_count_without_saving(rf, user):
 
 
 @pytest.mark.django_db
+def test_resolve_and_test_action_bounds_the_feed_fetch(rf, user):
+    """The action runs in an admin request, so the fetch must not be open-ended.
+
+    Without a ``timeout`` ``parse_rss_feed`` hands the URL to feedparser, whose
+    own HTTP has no timeout at all -- one black-holed host would hang the
+    request until the worker is killed.
+    """
+    feed = Feed.objects.create(
+        name="Golem", aggregator="full_website", identifier="golem.de", user=user
+    )
+    admin_instance = FeedAdmin(Feed, None)
+    request = rf.post("/admin/core/feed/")
+    request.user = user
+
+    with (
+        patch("core.admin.resolve_feed_url", return_value="https://golem.de/rss.php"),
+        patch(
+            "core.admin.parse_rss_feed",
+            return_value={"entries": [{"title": "a"}], "feed": {}, "version": "rss20"},
+        ) as parse,
+        patch.object(FeedAdmin, "message_user", lambda *args, **kwargs: None),
+    ):
+        admin_instance.resolve_and_test_feeds(request, Feed.objects.filter(pk=feed.pk))
+
+    assert parse.call_args.kwargs["timeout"] == RESOLVE_TEST_TIMEOUT
+    assert 0 < RESOLVE_TEST_TIMEOUT <= 10, "an admin request must not wait longer than this"
+
+
+@pytest.mark.django_db
 def test_resolve_and_test_action_reports_a_failure(rf, user):
     feed = Feed.objects.create(
         name="Dead", aggregator="full_website", identifier="dead.example", user=user
@@ -150,18 +179,22 @@ def logged_in_admin(client, admin_user):
 
 
 @pytest.mark.django_db
-def test_admin_add_view_resolves_the_logo(logged_in_admin):
+def test_admin_add_view_resolves_the_logo(logged_in_admin, django_capture_on_commit_callbacks):
     """The logo must be resolved through the real admin lifecycle.
 
     ``ModelAdmin.save_form()`` calls ``form.save(commit=False)``, so a refresh
     that only runs in the form's ``commit=True`` branch never happens in the
     admin -- which is the only surface this feature has.
+
+    The refresh is deferred with ``transaction.on_commit`` so the network I/O
+    stays outside the admin's write transaction, hence the capture fixture.
     """
     client, admin_user = logged_in_admin
 
     with (
         patch("core.forms.resolve_feed_url", side_effect=lambda identifier: identifier),
         patch("core.forms.store_feed_logo", return_value=True) as store,
+        django_capture_on_commit_callbacks(execute=True) as callbacks,
     ):
         response = client.post(
             reverse("admin:core_feed_add"),
@@ -169,12 +202,15 @@ def test_admin_add_view_resolves_the_logo(logged_in_admin):
         )
 
     assert response.status_code == 302, "the add POST did not validate"
+    assert callbacks, "the logo refresh was not deferred to on_commit"
     feed = Feed.objects.get(name="Golem")
     store.assert_called_once_with(feed)
 
 
 @pytest.mark.django_db
-def test_admin_change_view_resolves_the_logo_when_the_identifier_changes(logged_in_admin):
+def test_admin_change_view_resolves_the_logo_when_the_identifier_changes(
+    logged_in_admin, django_capture_on_commit_callbacks
+):
     client, admin_user = logged_in_admin
     feed = Feed.objects.create(
         name="Golem",
@@ -187,6 +223,7 @@ def test_admin_change_view_resolves_the_logo_when_the_identifier_changes(logged_
     with (
         patch("core.forms.resolve_feed_url", side_effect=lambda identifier: identifier),
         patch("core.forms.store_feed_logo", return_value=True) as store,
+        django_capture_on_commit_callbacks(execute=True) as callbacks,
     ):
         response = client.post(
             reverse("admin:core_feed_change", args=[feed.pk]),
@@ -202,13 +239,16 @@ def test_admin_change_view_resolves_the_logo_when_the_identifier_changes(logged_
         )
 
     assert response.status_code == 302, "the change POST did not validate"
+    assert callbacks, "the logo refresh was not deferred to on_commit"
     feed.refresh_from_db()
     assert feed.identifier == "https://golem.de/atom.xml"
     store.assert_called_once_with(feed)
 
 
 @pytest.mark.django_db
-def test_admin_change_view_keeps_an_existing_logo_when_nothing_changed(logged_in_admin):
+def test_admin_change_view_keeps_an_existing_logo_when_nothing_changed(
+    logged_in_admin, django_capture_on_commit_callbacks
+):
     client, admin_user = logged_in_admin
     feed = Feed.objects.create(
         name="Golem",
@@ -221,6 +261,7 @@ def test_admin_change_view_keeps_an_existing_logo_when_nothing_changed(logged_in
     with (
         patch("core.forms.resolve_feed_url", side_effect=lambda identifier: identifier),
         patch("core.forms.store_feed_logo", return_value=True) as store,
+        django_capture_on_commit_callbacks(execute=True),
     ):
         response = client.post(
             reverse("admin:core_feed_change", args=[feed.pk]),
@@ -240,13 +281,18 @@ def test_admin_change_view_keeps_an_existing_logo_when_nothing_changed(logged_in
 
 
 @pytest.mark.django_db
-def test_admin_save_survives_a_logo_failure(logged_in_admin):
-    """A broken logo resolution must not turn into a save error."""
+def test_admin_save_survives_a_logo_failure(logged_in_admin, django_capture_on_commit_callbacks):
+    """A broken logo resolution must not turn into a save error.
+
+    The refresh runs as an ``on_commit`` callback, where an escaping exception
+    would propagate out of the atomic block -- so it stays caught there.
+    """
     client, admin_user = logged_in_admin
 
     with (
         patch("core.forms.resolve_feed_url", side_effect=lambda identifier: identifier),
         patch("core.forms.store_feed_logo", side_effect=OSError("dead")),
+        django_capture_on_commit_callbacks(execute=True),
     ):
         response = client.post(
             reverse("admin:core_feed_add"),

@@ -210,6 +210,10 @@ Because this runs inside an admin request, both network steps are bounded: the f
 letting feedparser do its own timeout-less HTTP, and discovery gets the same timeout with a single
 attempt. The background aggregation path passes no timeout and keeps feedparser's own fetch.
 
+The other two `parse_rss_feed()` calls that run inside an admin request are bounded the same way:
+`FeedAdmin.resolve_and_test_feeds` (`RESOLVE_TEST_TIMEOUT`) and `selector_suggester._page_url`
+(`FEED_FETCH_TIMEOUT`), which falls back to the feed when a feed has no article to learn from.
+
 Pasting `golem.de` into a `full_website` feed's identifier and saving therefore stores the
 resolved feed URL, not the homepage. `FeedAdmin`'s **Resolve & test** action runs the same
 resolution and reports the entry count without saving anything, so it is safe on a feed you are
@@ -243,8 +247,18 @@ unverified. A declared icon is *dropped* unless it resolves onto the site's own 
 host minus a leading `www.`, plus its subdomains) over http(s), so a page cannot use its icon link
 to point the server at a cloud-metadata endpoint or a loopback port.
 
+That rule has to survive the download, or a declared icon could simply 302 to the endpoint it was
+not allowed to name. `resolve_feed_logo_url()` therefore returns a `LogoSource` — the URL plus the
+site it was resolved against — and the download passes that site to `fetch_bytes()` as
+`is_allowed_url`. `fetch_bytes()` follows redirects itself (`allow_redirects=False`, at most
+`MAX_REDIRECTS` hops) so a hop can be refused *before* it is requested: letting requests follow
+them would issue the off-site request first, which is exactly what a blind SSRF wants. The API
+tier carries no site (`same_site_base=None`) — a provider's avatar legitimately lives on its own
+CDN and was never subject to the same-site rule.
+
 The download is bounded and validated: `fetch_bytes()` streams and refuses a body over
-`MAX_FETCH_BYTES`, and a payload Pillow cannot decode (an HTML soft-404 from `/favicon.ico`, an
+`MAX_FETCH_BYTES` (`fetch_html()` does the same against `MAX_HTML_BYTES`, without retrying an
+oversized body), and a payload Pillow cannot decode (an HTML soft-404 from `/favicon.ico`, an
 SVG, a decompression bomb) is not stored at all — `logo` stays as it was. A logo with a
 flood-fillable white border (`utils/logo_background.py`, the same 240 / 0.85 thresholds as the iOS
 client) gets that background stripped to transparent; a logo that isn't white-backed, or one over
@@ -255,6 +269,12 @@ on every aggregation run. The call lives in `FeedAdmin.save_model()`, not in the
 saves the form with `commit=False`, so a refresh in `FeedAdminForm.save()`'s commit branch would
 never run from the admin. The form still refreshes for direct (non-admin) callers.
 `FeedAdmin`'s **Refresh feed logo** action re-runs resolution manually.
+
+The admin defers the call with `transaction.on_commit()`: `save_model()` runs inside
+`changeform_view`'s atomic block, and the fetch does network I/O (icon page plus download), which
+would hold SQLite's write lock — acquired up front by `transaction_mode="IMMEDIATE"` — for its
+whole duration. Tests that assert on the refresh through an admin POST therefore need
+`django_capture_on_commit_callbacks`.
 
 ### AI selector suggestions
 

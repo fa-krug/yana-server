@@ -7,6 +7,7 @@ import pytest
 
 from core.models import Article, Feed, UserSettings
 from core.services.selector_suggester import (
+    FEED_FETCH_TIMEOUT,
     SelectorSuggestionError,
     apply_suggested_selectors,
     has_ai_provider,
@@ -191,6 +192,35 @@ def test_has_ai_provider_reflects_settings(ai_feed, user):
 @pytest.mark.django_db
 def test_has_ai_provider_is_false_without_settings(user):
     assert has_ai_provider(user) is False
+
+
+@pytest.mark.django_db
+def test_page_url_lookup_bounds_the_feed_fetch(user):
+    """Suggestion runs from an admin action, so the fallback feed fetch is bounded.
+
+    Without a ``timeout`` ``parse_rss_feed`` lets feedparser do its own HTTP,
+    which has none -- a black-holed host would hang the admin request.
+    """
+    UserSettings.objects.create(user=user, active_ai_provider="openai", openai_enabled=True)
+    # No articles, so the page URL has to come from the feed itself.
+    feed = Feed.objects.create(
+        name="Golem", aggregator="full_website", identifier="https://golem.de/rss.php", user=user
+    )
+    client = MagicMock()
+    client.generate_response.return_value = _ai_response("article")
+
+    with (
+        patch("core.services.selector_suggester.AIClient", return_value=client),
+        patch("core.services.selector_suggester.fetch_html", return_value=PAGE),
+        patch(
+            "core.services.selector_suggester.parse_rss_feed",
+            return_value={"entries": [{"link": "https://golem.de/a"}]},
+        ) as parse,
+    ):
+        suggest_selectors(feed, "content")
+
+    assert parse.call_args.kwargs["timeout"] == FEED_FETCH_TIMEOUT
+    assert 0 < FEED_FETCH_TIMEOUT <= 10, "an admin request must not wait longer than this"
 
 
 @pytest.mark.django_db

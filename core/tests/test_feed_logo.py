@@ -3,7 +3,7 @@
 import io
 import logging
 import os
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import OperationalError
 
@@ -12,6 +12,7 @@ from PIL import Image
 
 from core.aggregators.feed_logo import (
     LOGO_FETCH_TIMEOUT,
+    LogoSource,
     resolve_feed_logo_url,
     store_feed_logo,
 )
@@ -67,7 +68,10 @@ def test_api_image_wins_over_brand_favicon(user_with_settings):
         ),
         patch("core.aggregators.feed_logo.resolve_site_icon") as resolve_icon,
     ):
-        assert resolve_feed_logo_url(feed) == "https://styles.redditmedia.com/swift.png"
+        # No site pin: an API image legitimately lives on the provider's CDN.
+        assert resolve_feed_logo_url(feed) == LogoSource(
+            "https://styles.redditmedia.com/swift.png", None
+        )
     resolve_icon.assert_not_called()
 
 
@@ -81,7 +85,9 @@ def test_brand_favicon_wins_over_identifier_favicon(user):
         "core.aggregators.feed_logo.resolve_site_icon",
         return_value="https://www.heise.de/favicon.ico",
     ) as resolve_icon:
-        assert resolve_feed_logo_url(feed) == "https://www.heise.de/favicon.ico"
+        assert resolve_feed_logo_url(feed) == LogoSource(
+            "https://www.heise.de/favicon.ico", "https://www.heise.de/"
+        )
     resolve_icon.assert_called_once_with("https://www.heise.de/")
 
 
@@ -95,7 +101,9 @@ def test_url_feed_without_a_brand_uses_the_identifier_origin(user):
         "core.aggregators.feed_logo.resolve_site_icon",
         return_value="https://golem.de/favicon.ico",
     ) as resolve_icon:
-        assert resolve_feed_logo_url(feed) == "https://golem.de/favicon.ico"
+        assert resolve_feed_logo_url(feed) == LogoSource(
+            "https://golem.de/favicon.ico", "https://golem.de/"
+        )
     resolve_icon.assert_called_once_with("https://golem.de/")
 
 
@@ -147,17 +155,120 @@ def test_store_feed_logo_downloads_and_records_the_source(user):
     with (
         patch(
             "core.aggregators.feed_logo.resolve_feed_logo_url",
-            return_value="https://golem.de/favicon.png",
+            return_value=LogoSource("https://golem.de/favicon.png", "https://golem.de/"),
         ),
         patch("core.aggregators.feed_logo.fetch_bytes", return_value=png) as fetch,
     ):
         assert store_feed_logo(feed) is True
 
-    fetch.assert_called_once_with("https://golem.de/favicon.png", timeout=LOGO_FETCH_TIMEOUT)
+    fetch.assert_called_once()
+    assert fetch.call_args.args == ("https://golem.de/favicon.png",)
+    assert fetch.call_args.kwargs["timeout"] == LOGO_FETCH_TIMEOUT
+    # The download stays on the site whose page advertised the icon.
+    stays_on_site = fetch.call_args.kwargs["is_allowed_url"]
+    assert stays_on_site("https://static.golem.de/favicon.png") is True
+    assert stays_on_site("http://169.254.169.254/latest/meta-data/") is False
     feed.refresh_from_db()
     assert feed.logo
     assert feed.logo_source_url == "https://golem.de/favicon.png"
     feed.logo.delete(save=False)
+
+
+@pytest.mark.django_db
+def test_store_feed_logo_does_not_pin_an_api_image_to_a_site(user_with_settings):
+    """A provider's own CDN host is not the feed's site, and must not be treated as one."""
+    feed = Feed.objects.create(
+        name="Swift", aggregator="reddit", identifier="swift", user=user_with_settings
+    )
+
+    with (
+        patch(
+            "core.aggregators.feed_logo.resolve_feed_logo_url",
+            return_value=LogoSource("https://styles.redditmedia.com/swift.png", None),
+        ),
+        patch("core.aggregators.feed_logo.fetch_bytes", return_value=_white_backed_png()) as fetch,
+    ):
+        assert store_feed_logo(feed) is True
+
+    assert fetch.call_args.kwargs["is_allowed_url"] is None
+    feed.refresh_from_db()
+    feed.logo.delete(save=False)
+
+
+def _redirect_to(location: str):
+    response = MagicMock()
+    response.is_redirect = True
+    response.headers = {"Location": location}
+    response.__enter__.return_value = response
+    response.__exit__.return_value = False
+    return response
+
+
+def _body(payload: bytes):
+    response = MagicMock()
+    response.is_redirect = False
+    response.headers = {}
+    response.raise_for_status.return_value = None
+    response.iter_content.return_value = [payload]
+    response.__enter__.return_value = response
+    response.__exit__.return_value = False
+    return response
+
+
+@pytest.mark.django_db
+def test_store_feed_logo_refuses_an_icon_that_redirects_off_the_site(user, caplog):
+    """The same-site check on the declared icon URL has to survive the redirect chain.
+
+    Exercises the real ``fetch_bytes``, mocking only the HTTP layer: the off-site
+    hop must never be requested, since that request is itself the SSRF.
+    """
+    feed = Feed.objects.create(
+        name="Golem", aggregator="full_website", identifier="https://golem.de/rss.php", user=user
+    )
+
+    with (
+        patch(
+            "core.aggregators.feed_logo.resolve_feed_logo_url",
+            return_value=LogoSource("https://golem.de/favicon.png", "https://golem.de/"),
+        ),
+        patch("core.aggregators.utils.html_fetcher.requests.get") as http_get,
+    ):
+        http_get.side_effect = [
+            _redirect_to("http://169.254.169.254/latest/meta-data/"),
+            _body(_white_backed_png()),
+        ]
+        assert store_feed_logo(feed) is False
+
+    assert http_get.call_count == 1
+    feed.refresh_from_db()
+    assert not feed.logo
+    assert feed.logo_source_url == ""
+
+
+@pytest.mark.django_db
+def test_store_feed_logo_follows_a_redirect_that_stays_on_the_site(user, settings, tmp_path):
+    """The guard must not break the ordinary case: an icon redirected to the site's CDN."""
+    settings.MEDIA_ROOT = tmp_path
+    feed = Feed.objects.create(
+        name="Golem", aggregator="full_website", identifier="https://golem.de/rss.php", user=user
+    )
+
+    with (
+        patch(
+            "core.aggregators.feed_logo.resolve_feed_logo_url",
+            return_value=LogoSource("https://golem.de/favicon.png", "https://golem.de/"),
+        ),
+        patch("core.aggregators.utils.html_fetcher.requests.get") as http_get,
+    ):
+        http_get.side_effect = [
+            _redirect_to("https://static.golem.de/favicon.png"),
+            _body(_white_backed_png()),
+        ]
+        assert store_feed_logo(feed) is True
+
+    assert http_get.call_count == 2
+    feed.refresh_from_db()
+    assert feed.logo
 
 
 @pytest.mark.django_db
@@ -169,7 +280,7 @@ def test_store_feed_logo_strips_a_white_background(user):
     with (
         patch(
             "core.aggregators.feed_logo.resolve_feed_logo_url",
-            return_value="https://golem.de/favicon.png",
+            return_value=LogoSource("https://golem.de/favicon.png", "https://golem.de/"),
         ),
         patch("core.aggregators.feed_logo.fetch_bytes", return_value=_white_backed_png()),
     ):
@@ -191,7 +302,7 @@ def test_store_feed_logo_keeps_the_feed_saveable_when_the_download_fails(user):
     with (
         patch(
             "core.aggregators.feed_logo.resolve_feed_logo_url",
-            return_value="https://golem.de/favicon.png",
+            return_value=LogoSource("https://golem.de/favicon.png", "https://golem.de/"),
         ),
         patch("core.aggregators.feed_logo.fetch_bytes", side_effect=OSError("dead")),
     ):
@@ -212,7 +323,7 @@ def test_store_feed_logo_rejects_a_payload_that_is_not_an_image(user, settings, 
     with (
         patch(
             "core.aggregators.feed_logo.resolve_feed_logo_url",
-            return_value="https://golem.de/favicon.ico",
+            return_value=LogoSource("https://golem.de/favicon.ico", "https://golem.de/"),
         ),
         patch(
             "core.aggregators.feed_logo.fetch_bytes",
@@ -250,7 +361,7 @@ def test_store_feed_logo_replaces_the_previous_file(user, settings, tmp_path):
     with (
         patch(
             "core.aggregators.feed_logo.resolve_feed_logo_url",
-            return_value="https://golem.de/favicon.png",
+            return_value=LogoSource("https://golem.de/favicon.png", "https://golem.de/"),
         ),
         patch("core.aggregators.feed_logo.fetch_bytes", return_value=_white_backed_png()),
     ):
@@ -263,7 +374,7 @@ def test_store_feed_logo_replaces_the_previous_file(user, settings, tmp_path):
     with (
         patch(
             "core.aggregators.feed_logo.resolve_feed_logo_url",
-            return_value="https://golem.de/favicon.png",
+            return_value=LogoSource("https://golem.de/favicon.png", "https://golem.de/"),
         ),
         patch("core.aggregators.feed_logo.fetch_bytes", return_value=_white_backed_png()),
     ):
@@ -286,7 +397,7 @@ def test_store_feed_logo_removes_the_file_when_the_db_save_fails(user, settings,
     with (
         patch(
             "core.aggregators.feed_logo.resolve_feed_logo_url",
-            return_value="https://golem.de/favicon.png",
+            return_value=LogoSource("https://golem.de/favicon.png", "https://golem.de/"),
         ),
         patch("core.aggregators.feed_logo.fetch_bytes", return_value=_white_backed_png()),
         patch.object(Feed, "save", side_effect=OperationalError("database is locked")),
@@ -312,7 +423,7 @@ def test_store_feed_logo_survives_the_old_file_already_being_gone(user, settings
     with (
         patch(
             "core.aggregators.feed_logo.resolve_feed_logo_url",
-            return_value="https://golem.de/favicon.png",
+            return_value=LogoSource("https://golem.de/favicon.png", "https://golem.de/"),
         ),
         patch("core.aggregators.feed_logo.fetch_bytes", return_value=_white_backed_png()),
     ):
@@ -324,7 +435,7 @@ def test_store_feed_logo_survives_the_old_file_already_being_gone(user, settings
     with (
         patch(
             "core.aggregators.feed_logo.resolve_feed_logo_url",
-            return_value="https://golem.de/favicon.png",
+            return_value=LogoSource("https://golem.de/favicon.png", "https://golem.de/"),
         ),
         patch("core.aggregators.feed_logo.fetch_bytes", return_value=_white_backed_png()),
     ):
