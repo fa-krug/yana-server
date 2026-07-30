@@ -1,0 +1,43 @@
+{
+  "article": {
+    "author": "",
+    "created_at": "2026-07-30T21:47:24.422553+00:00",
+    "date": "2026-07-22T18:12:39+00:00",
+    "icon": null,
+    "id": 96,
+    "identifier": "https://explosm.net/comics/something-special",
+    "name": "Comic for 2026.07.22 - Something Special",
+    "plainTextLength": 0,
+    "plainTextPreview": ""
+  },
+  "blockKindCounts": {
+    "image": 1
+  },
+  "document": {
+    "blocks": [
+      {
+        "caption": [],
+        "ref": "yana-img://a4744954b2bd46fad6f83ced6a925d6f25080065e0291d0f1d492e9f66b21841",
+        "type": "image"
+      }
+    ],
+    "version": 1
+  },
+  "feed": {
+    "aggregator": "explosm",
+    "id": 7,
+    "identifier": "",
+    "name": "Cyanide & Happiness",
+    "options": {}
+  },
+  "images": [
+    {
+      "byteSize": 82802,
+      "contentHash": "a4744954b2bd46fad6f83ced6a925d6f25080065e0291d0f1d492e9f66b21841",
+      "contentType": "image/webp",
+      "height": 865,
+      "missing": false,
+      "width": 820
+    }
+  ]
+}

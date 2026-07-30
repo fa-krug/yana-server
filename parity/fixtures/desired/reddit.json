@@ -1,0 +1,775 @@
+{
+  "aggregator": "reddit",
+  "article": {
+    "author": "hassanwithanh",
+    "created_at": "2026-07-30T21:59:50.024119+00:00",
+    "date": "2026-07-27T07:32:18+00:00",
+    "icon": null,
+    "id": 137,
+    "identifier": "https://reddit.com/r/Python/comments/1v7tfx9/python_automations_are_so_much_better_than_ai/",
+    "name": "Python automations are so much better than AI Agents and LLMs",
+    "plainTextLength": 8930
+  },
+  "curation": {
+    "desiredBlockCount": 20,
+    "rawBlockCount": 20,
+    "remoteRefsNeedingLocalization": [],
+    "removed": [],
+    "warnings": []
+  },
+  "document": {
+    "blocks": [
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "This is gonna be more of a rant than anything else"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "I build automations for businesses and I've lost count of the amount of times they've asked me to write them an AI agent when in fact a simple Python automation would work 100 times better."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "I don't understand the hype behind AI agents and LLMs. They're non-deterministic, they're unreliable, they always need a human to babysit them because they are going to hallucinate bad output sooner or later."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "I've made more money from simple Python automations than I have with AI agents, even though the latter gets so much hype and marketing behind it."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Most people who say they want an AI agent don't really want an AI agent. They just want some code that automatically does some repetitive task for them. And 9 times out of 10, simple Python code can do that for you."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Now, one caveat, I love using AI to write Python code for me. That is actually very helpful, but that is very different from using an AI agent."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "I've built many automations for other businesses and I've also automated 20-30 hours of my own work week. and I still haven't had to build a complete AI agent. There are certain steps in my automations where some sort of judgement is required and I use an LLM for that very specific tiny task. But pretty much everything that I write is pure Python automation. Just simple deterministic code that's guaranteed to work the same way every single time."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Seriously, people have the choice between a reliable automation that doesn't need babysitting and a magic crystal ball that might sometimes work and might fail and crash in other times and yet they somehow keep picking the crystal ball. It's baffling to me."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Anyway, rant over."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "level": 3,
+        "runs": [
+          {
+            "link": "https://reddit.com/r/Python/comments/1v7tfx9/python_automations_are_so_much_better_than_ai/",
+            "styles": [],
+            "text": "Comments"
+          }
+        ],
+        "type": "heading"
+      },
+      {
+        "blocks": [
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [
+                  "bold"
+                ],
+                "text": "Zealousideal-Bid462"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": " | "
+              },
+              {
+                "link": "https://reddit.com/r/Python/comments/1v7tfx9/python_automations_are_so_much_better_than_ai/p00n6zh/",
+                "styles": [],
+                "text": "source"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "Automate it with python and charge for LLM subscription"
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "blockquote"
+      },
+      {
+        "blocks": [
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [
+                  "bold"
+                ],
+                "text": "CorpusculantCortex"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": " | "
+              },
+              {
+                "link": "https://reddit.com/r/Python/comments/1v7tfx9/python_automations_are_so_much_better_than_ai/p00vo4r/",
+                "styles": [],
+                "text": "source"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "1000%"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "Struggling with this at work rn. Everything is \"i built this Claude project to do this thing that needs to be repeated record wise at a 3$ cost\" and I'm over here like everything in that flow is a standard and batchable op. I can run it every 5 minutes for free, why are we paying Claude for this."
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "blockquote"
+      },
+      {
+        "blocks": [
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [
+                  "bold"
+                ],
+                "text": "Leodip"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": " | "
+              },
+              {
+                "link": "https://reddit.com/r/Python/comments/1v7tfx9/python_automations_are_so_much_better_than_ai/p00qadj/",
+                "styles": [],
+                "text": "source"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "This is consultancy 101, by the way."
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "In an ideal world, the client states the problem and the desired outcome (e.g., \"I have data from forms coming in everyday and I don't want a human to handle those manually\"), and the consultant figures out a solution."
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "However, in the real world, the client often ends up proposing the solution as well, which is... usually outside their expertise. Trick 1 in the book is not saying no: \"yes, I implemented an AI here as you requested. It is a locally-run, deterministic AI that is extremely resource-efficient and is able to determine when an input it receives is outside the original intent\" (it's a switch-case that throws errors when something is not covered by the cases)."
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "blockquote"
+      },
+      {
+        "blocks": [
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [
+                  "bold"
+                ],
+                "text": "tehsilentwarrior"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": " | "
+              },
+              {
+                "link": "https://reddit.com/r/Python/comments/1v7tfx9/python_automations_are_so_much_better_than_ai/p00opw9/",
+                "styles": [],
+                "text": "source"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "As someone who has 20+ years experience but uses AI daily: you use AI to figure out the workflow. Then codify it into a set of solid repeatable and stable functions/modules/scripts."
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "Even if they are just AI skills, have them backed by scripts and simply have more arguments to those scripts and teach AI to use it."
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "The goal is stability of outcomes. The flexibility of AI plus the stability of code is what wins the day."
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "It’s often that I make a set of skills with just text and once they complement each other correctly I start to refine parts of them into scripts to solidify behavior."
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "For example I wanted to have an agent talk with my wife over WhatsApp to generate some ideas for event proposals based on a bunch of rules and dynamic constrains (stuff like: check this excel file for which servers are already assign to some event), this would affect the number of servers at a given date and therefore what could be done last minute. If it’s finger food event, then you don’t need that many people to serve a larger amount of guests but if the event is slightly more pompous, then you need to increase the number of them but you can’t just get anyone since depending on customer you want servers with much more experience and sometimes you need servers who will act more like concierge, are well spoken, can figure out dramas, can oblige to requests like “lookout for what my wife’s drinking problem” with tact and not loose lips, or charm some difficult “important” jerk to ensure the event goes smooth. Thus, if there’s a need to address personality levels of staff too. Or calculate how many vehicles will be needed at a specific location and time so we can rent more on demand and issue transport permits and all that stuff. This takes mental effort so for last minute things, like a customer coming in and wanting an event for tomorrow because “secretary forgot to note it down” and now they are desperate. There’s no room for failure so all the aid we can get is important."
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "This complex stuff is what an LLM can solve easily with some skills but it will be all over the place in terms of consistency. So, you need to replace parts of it with scripts or MCPs to ensure things are solid."
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "- An example of said script is calculations of dynamic limits of vehicles: given a list of items we can estimate size to see how many vehicles are needed (weight isn’t really a concern for these) as it will give an accurate estimate."
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "- Another is generating PDF documents, why bother AI and waste context if you have a template you just need to fill? Have scripts that take things like a vehicle type and what type of things it will transport (2 arguments to a script) and have it save the document in a file store in the right event namespace and return the file store link, the AI doesn’t even have to read the doc at all, simply link it as a uuid ref and the UI part (in this case the code that writes to WhatsApp downloads the file and sends it over WhatsApp)"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "- Read the excel for who is available, first just an array of dates and number of people of said constraints (so we can propose other dates, sometimes it’s possible, specially if people are doing the events at their private homes) and another for the exact people and their strengths. And also if they work well together as unfortunately some people mesh well and others don’t ( specially when you are working with “rockstar” waiters who are really good at what they do since they will add too many decisions and become frustrated if there’s “too many cooks” type scenario) so you need this extra step too: AI won’t put the correct weight on it or respect these hard boundaries, which can mean the difference between the normal 7 out of 5 stars feedback and a 4/5 feedback."
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "The ultimate goal is for my wife to have a “yes/no/constraints” answer in seconds from a voice message she sends from her phone while in the middle of a busy day, on the go, rather than having to stop, block the noise, sit down and open her laptop."
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "blockquote"
+      },
+      {
+        "blocks": [
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [
+                  "bold"
+                ],
+                "text": "PerfectSituation1668"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": " | "
+              },
+              {
+                "link": "https://reddit.com/r/Python/comments/1v7tfx9/python_automations_are_so_much_better_than_ai/p00vr9e/",
+                "styles": [],
+                "text": "source"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "Every time the automation goes off, make it send a message from an LLM. Congratulations, you now made an agent."
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "blockquote"
+      },
+      {
+        "blocks": [
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [
+                  "bold"
+                ],
+                "text": "viitorfermier"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": " | "
+              },
+              {
+                "link": "https://reddit.com/r/Python/comments/1v7tfx9/python_automations_are_so_much_better_than_ai/p00nudk/",
+                "styles": [],
+                "text": "source"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "When the decisions can't be made with just simple if/else or traditional ML that's when LLMs can help."
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "For example: I've built a prospecting tool which takes data from social media screenshots and adds in into a CRM. Making some script in bs4, running some regex won't work."
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "blockquote"
+      },
+      {
+        "blocks": [
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [
+                  "bold"
+                ],
+                "text": "HommeMusical"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": " | "
+              },
+              {
+                "link": "https://reddit.com/r/Python/comments/1v7tfx9/python_automations_are_so_much_better_than_ai/p017l0g/",
+                "styles": [],
+                "text": "source"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "You aren't doing a good job of selling it to your managers, who are probably not as bright as you are. :-)"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "You should look wise and say this:"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "Do not use LLMs for automations - get the LLMs to write the automations!"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "items": [
+              [
+                {
+                  "runs": [
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": "It dramatically reduces our token spend: a fixed initial cost, and then zero for each additional query."
+                    }
+                  ],
+                  "type": "paragraph"
+                }
+              ],
+              [
+                {
+                  "runs": [
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": "It reduces our dependency on external providers and increases our value by owning our own tooling."
+                    }
+                  ],
+                  "type": "paragraph"
+                }
+              ],
+              [
+                {
+                  "runs": [
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": "The LLM will write tests that will guarantee that the automation will work exactly the same way every time."
+                    }
+                  ],
+                  "type": "paragraph"
+                }
+              ],
+              [
+                {
+                  "runs": [
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": "If we find an issue or an edge case, the LLM will fix the script, and write more tests so the problem can never come back"
+                    }
+                  ],
+                  "type": "paragraph"
+                }
+              ],
+              [
+                {
+                  "runs": [
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": "If you need to change what it does, the LLM will do that too."
+                    }
+                  ],
+                  "type": "paragraph"
+                }
+              ]
+            ],
+            "ordered": false,
+            "type": "list"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "You will note that everything is technically totally true, but I also gloss the role of the LLM up so that management understands that's going on."
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "blockquote"
+      },
+      {
+        "blocks": [
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [
+                  "bold"
+                ],
+                "text": "DanielTheTechie"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": " | "
+              },
+              {
+                "link": "https://reddit.com/r/Python/comments/1v7tfx9/python_automations_are_so_much_better_than_ai/p00mw3e/",
+                "styles": [],
+                "text": "source"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "Totally agreed. It's curious how the hype, or the FOMO, for something, can annullate people's rationality and make them choose the poorer option for their own interests."
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "Off-topic:"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "blocks": [
+              {
+                "runs": [
+                  {
+                    "link": null,
+                    "styles": [],
+                    "text": "I love using AI to write Python code for me (...) but..."
+                  }
+                ],
+                "type": "paragraph"
+              }
+            ],
+            "type": "blockquote"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "This reminded me Trump saying things like \"I love Ukraine, but...\", or \"I love Europe, but...\" right before attacking them."
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "Like, come on, if your reasoning is legit, you don't have to justify yourself to seek validation."
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "blockquote"
+      },
+      {
+        "blocks": [
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [
+                  "bold"
+                ],
+                "text": "oroberos"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": " | "
+              },
+              {
+                "link": "https://reddit.com/r/Python/comments/1v7tfx9/python_automations_are_so_much_better_than_ai/p00twoz/",
+                "styles": [],
+                "text": "source"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "Sell agents, deliver Python scripts."
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "blockquote"
+      },
+      {
+        "blocks": [
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [
+                  "bold"
+                ],
+                "text": "gacsinger"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": " | "
+              },
+              {
+                "link": "https://reddit.com/r/Python/comments/1v7tfx9/python_automations_are_so_much_better_than_ai/p01e8vz/",
+                "styles": [],
+                "text": "source"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "When AI isn't 95% subsidized by investors and users have to pay the true cost, I think we'll see a more judicious implementation of the technology."
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "blockquote"
+      }
+    ],
+    "version": 1
+  },
+  "feed": {
+    "aggregator": "reddit",
+    "id": 16,
+    "identifier": "python",
+    "name": "r/python",
+    "options": {}
+  },
+  "images": []
+}

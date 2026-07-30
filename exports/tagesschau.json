@@ -1,0 +1,200 @@
+{
+  "article": {
+    "author": "",
+    "created_at": "2026-07-30T22:00:13.671264+00:00",
+    "date": "2026-07-30T18:21:12+00:00",
+    "icon": "article_icons/753b6eac-0cfc-4063-9388-c9d376c6bb86.jpg",
+    "id": 141,
+    "identifier": "https://www.tagesschau.de/wirtschaft/unternehmen/bahn-schiene-verkehrsminister-100.html",
+    "name": "Deutsche Bahn mit Gewinn, doch die Baustellen bleiben",
+    "plainTextLength": 5615,
+    "plainTextPreview": "Erstmals seit 2019 hat die Deutsche Bahn (DB) wieder schwarze Zahlen vorgelegt: Unterm Strich gab es ein Plus von 147 Millionen Euro, wie der Konzern heute für seine Halbjahresbilanz mitteilte. Und auch bei den Fahrgästen gab es einen deutlichen Anstieg: Rund 960 Millionen Reisende fuhren im ersten Halbjahr mit den Zügen der DB und damit 17 Millionen mehr als im Vorjahreszeitraum.\n\nFür sie sei ein"
+  },
+  "blockKindCounts": {
+    "embed": 1,
+    "paragraph": 13
+  },
+  "document": {
+    "blocks": [
+      {
+        "externalURL": "https://tagesschau-progressive.ard-mcdn.de/video/2026/0730/TV-20260730-2012-2700.webs.h264.mp4",
+        "provider": "video",
+        "thumbnailRef": "yana-img://989cf6cd59dec35d2da040eadc75801d1d8aaf468460bfb7a3d1f07837ca0d33",
+        "title": null,
+        "type": "embed"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Erstmals seit 2019 hat die Deutsche Bahn (DB) wieder schwarze Zahlen vorgelegt: Unterm Strich gab es ein Plus von 147 Millionen Euro, wie der Konzern heute für seine Halbjahresbilanz mitteilte. Und auch bei den Fahrgästen gab es einen deutlichen Anstieg: Rund 960 Millionen Reisende fuhren im ersten Halbjahr mit den Zügen der DB und damit 17 Millionen mehr als im Vorjahreszeitraum."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Für sie sei eine wichtige Wegmarke erreicht, kommentierte Evelyn Palla, DB-Vorstandsvorsitzende, die Halbjahresbilanz. In der Pressemitteilung hieß es weiter: \"Ich freue mich sehr über diesen wichtigen Meilenstein, aber ich bin erst zufrieden, wenn auch die Qualität im täglichen Eisenbahnverkehr überzeugt!\" Gleichzeitig räumt die Bahnchefin ein, dass die Sanierung des Konzerns noch Jahre dauern werde."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Auch Ende 2025 war das operative Ergebnis der Bahn nach Steuern schon im Plus mit 297 Millionen Euro. Unter dem Strich stand aber ein Verlust von 2,3 Milliarden. Darin enthalten war eine Abschreibung in der Fernverkehrssparte, weil die Bahn aufgrund ihrer Probleme mit der Schieneninfrastruktur und wegen der langwierigen Sanierungsarbeiten davon ausging, dass dieser Bereich über Jahre weniger Erträge abwerfen werde als angenommen: laut Unternehmen 1,4 Milliarden Euro."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Diese Verluste, die über Jahre aufgelaufen wären, hat die Bahn im Vorjahr auf einmal abgeschrieben. Das hat das Jahresergebnis 2025 nach unten gezogen und lässt künftige Bilanzen wie die jetzige besser aussehen."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Ist mein Zug pünktlich? Die Antwort auf diese Frage ist am Ende für viele Reisende ausschlaggebend dafür, wie zufrieden sie mit der Bahn sind. Hier lässt das Ergebnis weiter zu wünschen übrig. So sind in den ersten sechs Monaten dieses Jahres nur 59 Prozent der Fernzüge pünktlich gewesen. Das heißt, sie sind weniger als sechs Minuten später an ihrem Ziel angekommen. 76 Prozent hatten weniger als 15 Minuten Verspätung."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Im Regionalverkehr lag die Pünktlichkeitsquote bei 88,2 Prozent. Als hauptsächliche Ursachen für die Verspätungen nennt die Bahn neben den vielen Baustellen und dem vielfach sanierungsbedürftigen Schienennetz auch die Wintereinbrüche im Januar und Februar sowie die Hitzeperiode im Juni."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Die Modernisierung und Sanierung der Schieneninfrastruktur ist für Jahre die größte Baustelle der Bahn, und die kostet Geld. So stiegen der aktuellen Bilanz zufolge die Brutto-Investitionen der Bahn um ein Sechstel im Vergleich zum ersten Halbjahr 2025 auf 8,7 Milliarden Euro."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "\"Noch nie haben Bund und Bahn in einem Halbjahr so viel Geld in die Schieneninfrastruktur investiert. Wenn wir auf diesem Niveau weiterbauen, legen wir das Fundament für eine nachhaltig stabile Bahn\", kommentierte Palla diese Zahl. Das meiste Geld sei in die Sanierung des jahrzehntelang vernachlässigten Schienennetzes geflossen. Von den 28.000 in diesem Jahr geplanten Baustellen sei bisher die Hälfte abgeschlossen, heißt es in der Bilanz. Als ein Beispiel wird die Sanierung der Strecke Berlin-Hamburg genannt, die Mitte Juni abgeschlossen werden konnte, allerdings mit rund sechs Wochen Verspätung und teils erheblichen Anlaufschwierigkeiten etwa bei der Pünktlichkeit."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Insgesamt sollen in den nächsten zehn Jahren nach und nach rund 40 solcher stark belasteten Streckenkorridore saniert werden. Diese werden dafür monatelang gesperrt, mit erheblichen Auswirkungen auf den Personen- und Güterverkehr. Auch haben die hohen Ausgaben zu mehr Schulden geführt. Die sind laut Bahn von Jahresbeginn bis Ende Juni um rund eine Milliarde Euro auf 21,6 Milliarden Euro gestiegen."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Angesichts der langen Zeit, die für die Ertüchtigung der Schieneninfrastruktur vorgesehen ist, dringt das Verkehrsbündnis Allianz pro Schiene auf einen langfristigen Geschäftsplan für die Infrastruktur. Bisher werde jährlich im Bundeshaushalt über die Mittel für den Aus- und Neubau von Bahnstrecken entschieden. Allianz Pro-Schiene-Geschäftsführer Dirk Flege sieht hier den neuen Verkehrsminister Steffen Bilger von der CDU gefordert. \"Seine wohl wichtigste Aufgabe ist es, die Entwicklung der Schiene in Deutschland zu steuern.\" Für die Investitionen heißt das, weg von den jährlichen Schwankungen des Bundeshaushalts zu kommen und hin zu einem finanziell abgesicherten Infraplan für mehrere Jahre zu kommen."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "\"Im Bundesverkehrsministerium wird daran seit Monaten gearbeitet. Steffen Bilger sollte den Infraplan zur Chefsache machen und zügig zum Abschluss bringen\", sagte Flege zu "
+          },
+          {
+            "link": null,
+            "styles": [
+              "italic"
+            ],
+            "text": "tagesschau.de"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": ". Auch der der ökologische Verkehrsclub Deutschland (VCD) sieht hier Handlungsbedarf für den neuen Verkehrsminister. Zwar seien für den Aus- und Neubau mehr Mittel vorgesehen, doch sie würden bei weitem nicht ausreichen, sagt Alexander Kaas Elias, Bahnsprecher des VCD. \"Steffen Bilger muss deshalb zügig die Sanierung sowie den Aus- und Neubau des Schienennetzes vorantreiben und die Zuverlässigkeit der Bahn verbessern. Im Vergleich zu Österreich und der Schweiz ist die Deutsche Bahn insbesondere im Fernverkehr bei der Pünktlichkeit noch immer nicht konkurrenzfähig\", so der VCD-Sprecher weiter."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Im "
+          },
+          {
+            "link": null,
+            "styles": [
+              "italic"
+            ],
+            "text": "ARD-Morgenmagazin"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": " hat Bilger mit Blick auf die Halbjahresbilanz der Bahn von \"erfreulichen Zahlen\" gesprochen. \"Ich weiß, dass es viele negative Erlebnisse gibt, wenn man mit der Bahn unterwegs ist”, räumte der Minister ein. Doch es gebe auch viel Positives. Darauf wolle er aufbauen und die Probleme \"nach und nach\" lösen."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Für \"nach und nach\" gibt es bereits einen Zeithorizont: Bis 2035 zum 200-jährigen Jubiläum der Eisenbahn in Deutschland will die Bahn wieder leistungsfähig und kundenorientiert aufgestellt sein. So steht es in ihrer aktuellen Konzernstrategie."
+          }
+        ],
+        "type": "paragraph"
+      }
+    ],
+    "version": 1
+  },
+  "feed": {
+    "aggregator": "tagesschau",
+    "id": 4,
+    "identifier": "",
+    "name": "Test tagesschau",
+    "options": {}
+  },
+  "images": [
+    {
+      "byteSize": 288652,
+      "contentHash": "989cf6cd59dec35d2da040eadc75801d1d8aaf468460bfb7a3d1f07837ca0d33",
+      "contentType": "image/webp",
+      "height": 525,
+      "missing": false,
+      "width": 1200
+    }
+  ]
+}

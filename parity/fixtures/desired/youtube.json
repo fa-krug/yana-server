@@ -1,0 +1,566 @@
+{
+  "aggregator": "youtube",
+  "article": {
+    "author": "@computerphile",
+    "created_at": "2026-07-30T22:00:19.792612+00:00",
+    "date": "2026-07-16T14:32:23+00:00",
+    "icon": null,
+    "id": 159,
+    "identifier": "https://www.youtube.com/watch?v=2Q6OvYjOJi0",
+    "name": "GPS Hidden Messages - Computerphile",
+    "plainTextLength": 3696
+  },
+  "curation": {
+    "desiredBlockCount": 13,
+    "rawBlockCount": 13,
+    "remoteRefsNeedingLocalization": [],
+    "removed": [],
+    "warnings": []
+  },
+  "document": {
+    "blocks": [
+      {
+        "externalURL": "https://www.youtube.com/watch?v=2Q6OvYjOJi0",
+        "provider": "youtube",
+        "thumbnailRef": null,
+        "title": null,
+        "type": "embed"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Something odd was going on with the signals broadcast by the GPS satellites. Steven Murdoch of University College London explains how he used statistical analysis to work out what might be going on. "
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": "\n"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": "\n"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": "To read more about Steven's findings: https://sjmurdoch.github.io/gps-special-messages/ "
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": "\n"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": "\n"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": "Computerphile is supported by Jane Street. Learn more about them (and exciting career opportunities) at: https://jane-st.co/computerphile"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": "\n"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": "\n"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": "This video was filmed and edited by Sean Riley."
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": "\n"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": "\n"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": "Computerphile is a sister project to Brady Haran's Numberphile. More at https://www.bradyharanblog.com"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "level": 3,
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Comments"
+          }
+        ],
+        "type": "heading"
+      },
+      {
+        "blocks": [
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [
+                  "bold"
+                ],
+                "text": "@wallyhall"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": " | "
+              },
+              {
+                "link": "https://www.youtube.com/watch?v=2Q6OvYjOJi0&lc=UgxOww_nRugFfABGyXl4AaABAg",
+                "styles": [],
+                "text": "source"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "It's a guess - but the random data pre-2011 may have been intentional to prevent/discourage anyone hard-coding assumptions about the data in these \"discretionary\" fields."
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "blockquote"
+      },
+      {
+        "blocks": [
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [
+                  "bold"
+                ],
+                "text": "@cda32"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": " | "
+              },
+              {
+                "link": "https://www.youtube.com/watch?v=2Q6OvYjOJi0&lc=UgwLM6GQ4rZ16B0UdtR4AaABAg",
+                "styles": [],
+                "text": "source"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "Some say that's the last time Steven was ever seen"
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "blockquote"
+      },
+      {
+        "blocks": [
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [
+                  "bold"
+                ],
+                "text": "@LegendaryKenneth"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": " | "
+              },
+              {
+                "link": "https://www.youtube.com/watch?v=2Q6OvYjOJi0&lc=UgwXW2ER39GIPnU1sCd4AaABAg",
+                "styles": [],
+                "text": "source"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "I used to work in data analysis, and i do miss those projects that start with a \"What am i looking at here' phase. So fun."
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "blockquote"
+      },
+      {
+        "blocks": [
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [
+                  "bold"
+                ],
+                "text": "@minxythemerciless"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": " | "
+              },
+              {
+                "link": "https://www.youtube.com/watch?v=2Q6OvYjOJi0&lc=UgxOn6B-qdps1sQOihl4AaABAg",
+                "styles": [],
+                "text": "source"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "Yeah but. The bit that matters isn't the broadcast — it's OTAR. The receiver holds a Key Encryption Key, and what's transmitted are traffic keys encrypted under it. So you can record every GPS transmission ever sent and still have nothing, because the KEK is loaded physically at a keying facility and never goes over the air. The whole scheme's security collapses onto one question: can you extract that KEK from a captured receiver? That's why these units use tamper-responsive modules that zeroize on intrusion, and why doctrine is to rekey the fleet the moment a unit's at risk. Defeat the anti-tamper hardware and yes — your recordings plus the extracted key unwind everything until the next rotation. The interesting target is the physical key material, not the signal."
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "blockquote"
+      },
+      {
+        "blocks": [
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [
+                  "bold"
+                ],
+                "text": "@martijnvds"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": " | "
+              },
+              {
+                "link": "https://www.youtube.com/watch?v=2Q6OvYjOJi0&lc=UgyIopBtGVN3boPxaSx4AaABAg",
+                "styles": [],
+                "text": "source"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "This kind of \"key encrypting a key\" distribution scheme is also how TV smartcards for satellite TV generally work."
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "blockquote"
+      },
+      {
+        "blocks": [
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [
+                  "bold"
+                ],
+                "text": "@G8TIC"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": " | "
+              },
+              {
+                "link": "https://www.youtube.com/watch?v=2Q6OvYjOJi0&lc=UgwILIyYePlBpCqV3kJ4AaABAg",
+                "styles": [],
+                "text": "source"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "Firstly, GPS sends data on the air interface at 50bps (not 500bps). Next are you referring to the \"GPS System Message\" which is 22-bytes of ASCII and is defined in ICD-200-GPS:"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": "\n"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": "\n"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": "20.3.3.5.1.8 Special Messages "
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": "\n"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": "Page 17 of subframe 4 shall be reserved for special messages with the specific contents at the discretion of the Operating Command. It shall accommodate the transmission of 22 eight-bit ASCII characters. "
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": "\n"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": "The requisite 176 bits shall occupy bits 9 through 24 of word three, the 24 MSBs of words four through nine, plus the 16 MSBs of word ten. "
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": "\n"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": "The eight MSBs of word three shall contain the data ID and SV ID, while bits 17 through 22 of word ten shall be reserved for system use. The remaining 50 bits of words three through ten are used for parity (six bits/word) and parity computation (two bits in word ten)."
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": "\n"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": "\n"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": "If so then this message is output by Trimble GPS receivers using the TSIP binary protocol via message opcode 0x48 and I was told that this was intended to be used for key distribution 30+ years ago. Is this what you have discovered through traffic analysis or somwthing else?"
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "blockquote"
+      },
+      {
+        "blocks": [
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [
+                  "bold"
+                ],
+                "text": "@NoUserForOldMen"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": " | "
+              },
+              {
+                "link": "https://www.youtube.com/watch?v=2Q6OvYjOJi0&lc=UgyMJ-_PWco-ZTCfmIJ4AaABAg",
+                "styles": [],
+                "text": "source"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "From the title, I was hoping this would be a launching off point for a discussion on CDMA encoding. All the satellites are sending data in the same frequency band below the noise floor, so all data is kind of “hidden” behind a code."
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": "\n"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": "\n"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": "The magic of CDMA would be a good computerphile or numberphile video."
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "blockquote"
+      },
+      {
+        "blocks": [
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [
+                  "bold"
+                ],
+                "text": "@ZERR0R"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": " | "
+              },
+              {
+                "link": "https://www.youtube.com/watch?v=2Q6OvYjOJi0&lc=UgxEsxwg_UZ6BgnyMQB4AaABAg",
+                "styles": [],
+                "text": "source"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "Steganography always fascinated me. So many ways to hide in plain sight."
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "blockquote"
+      },
+      {
+        "blocks": [
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [
+                  "bold"
+                ],
+                "text": "@togamid"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": " | "
+              },
+              {
+                "link": "https://www.youtube.com/watch?v=2Q6OvYjOJi0&lc=UgwA9ymWixAibYhIvDF4AaABAg",
+                "styles": [],
+                "text": "source"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "It's wild that this video is released on the exact same day as the video by 3Blue1Brown that explains the analysis methods used here"
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "blockquote"
+      },
+      {
+        "blocks": [
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [
+                  "bold"
+                ],
+                "text": "@fussyboy2000"
+              },
+              {
+                "link": null,
+                "styles": [],
+                "text": " | "
+              },
+              {
+                "link": "https://www.youtube.com/watch?v=2Q6OvYjOJi0&lc=UgzaB6pn8kTnlkcd4Th4AaABAg",
+                "styles": [],
+                "text": "source"
+              }
+            ],
+            "type": "paragraph"
+          },
+          {
+            "runs": [
+              {
+                "link": null,
+                "styles": [],
+                "text": "Harvest now, decrypt later"
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "blockquote"
+      }
+    ],
+    "version": 1
+  },
+  "feed": {
+    "aggregator": "youtube",
+    "id": 15,
+    "identifier": "https://www.youtube.com/@Computerphile",
+    "name": "Computerphile",
+    "options": {}
+  },
+  "images": []
+}
