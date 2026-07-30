@@ -201,11 +201,11 @@ def _first(element: Tag, selector: str) -> Tag | None:
     return element.select_one(selector)
 
 
-def _image_block(img: Tag, caption: Sequence[InlineRun] = ()) -> ImageBlock | None:
+def _image_block(img: Tag) -> ImageBlock | None:
     src = str(img.get("src") or "")
     if not src:
         return None
-    return ImageBlock(ref=src, caption=list(caption))
+    return ImageBlock(ref=src)
 
 
 def _has_dropped_ancestor(element: Tag, scanned: Tag) -> bool:
@@ -238,18 +238,17 @@ def _recoverable_media(scanned: Tag) -> list[Tag]:
     return [el for el in scanned.select("img, video") if not _has_dropped_ancestor(el, scanned)]
 
 
-def _media_block(element: Tag, caption: Sequence[InlineRun] = ()) -> Block | None:
+def _media_block(element: Tag) -> Block | None:
     """
     An ``<img>`` or ``<video>`` -> its block, dispatched by tag name.
 
     Shared by every path that recovers media split out of running text: the
-    ``<p>`` branch, the ``INLINE_TAGS`` branch, and ``_figure_blocks``.
-    ``caption`` only applies to images -- ``EmbedBlock`` has no caption slot --
-    so it is simply unused for a ``<video>``.
+    ``<p>`` branch, the ``INLINE_TAGS`` branch, and (via ``_convert``, since
+    ``_figure_blocks`` no longer special-cases media) figures too.
     """
     tag = (element.name or "").lower()
     if tag == "img":
-        return _image_block(element, caption)
+        return _image_block(element)
     if tag == "video":
         return _video_embed(element)
     return None
@@ -274,26 +273,44 @@ def _list_block(element: Tag, ordered: bool, base_url: str) -> ListBlock | None:
 
 
 def _figure_blocks(element: Tag, base_url: str) -> list[Block]:
-    media = _recoverable_media(element)
-    if media:
-        figcaption = _first(element, "figcaption")
-        caption = _trimmed(_inline_runs(figcaption, base_url)) if figcaption is not None else []
-        # The figcaption describes the figure as a whole, but a block is one
-        # item with its own caption slot -- there is nowhere to attach a
-        # shared caption to every item without duplicating it. Give it to the
-        # first item only, the common case (one image, one caption); a
-        # leading <video> has nowhere to put it since EmbedBlock has no
-        # caption slot, so `_media_block` simply drops it there.
-        blocks: list[Block] = [
-            block
-            for block in (
-                _media_block(el, caption if index == 0 else ()) for index, el in enumerate(media)
-            )
-            if block is not None
-        ]
-        if blocks:
-            return blocks
-    return _convert(element, base_url)
+    """
+    A ``<figure>`` -> its blocks, in document order, with any ``<figcaption>``
+    reattached to the figure's own media rather than walked as a stray
+    paragraph.
+
+    A direct ``<figcaption>`` child only: a caption nested inside a figure
+    *within* this figure describes that inner figure, not this one, and must
+    be left for the recursive ``_convert`` call below to deal with on its own.
+    """
+    figcaption = _first(element, ":scope > figcaption")
+    caption = _trimmed(_inline_runs(figcaption, base_url)) if figcaption is not None else []
+    if figcaption is not None:
+        # Pulled out of the tree before the walk below, so `_convert` doesn't
+        # also emit it as a plain paragraph. `Tag.extract()` mutates the
+        # parsed tree, which would be a bug in most places, but not here:
+        # `blocks_from_html` parses a fresh `BeautifulSoup` per call and
+        # nothing re-reads `element` after this function returns.
+        figcaption.extract()
+
+    blocks = _convert(element, base_url)
+
+    if caption:
+        # The figcaption describes the figure as a whole, but a block has one
+        # caption slot each -- there is nowhere to attach a shared caption to
+        # every item without duplicating it. Give it to the first image that
+        # doesn't already carry one (an inner figure's own figcaption, just
+        # attached by the recursive `_convert` call above, takes priority
+        # over this one). If no image claims it -- a video-only figure, since
+        # `EmbedBlock` has no caption slot, or a figure with no media at all
+        # -- surface it as a trailing paragraph instead of losing the text.
+        for block in blocks:
+            if isinstance(block, ImageBlock) and not block.caption:
+                block.caption = caption
+                break
+        else:
+            blocks.append(Paragraph(runs=caption))
+
+    return blocks
 
 
 _YOUTUBE_EMBED_ID = re.compile(r"(?:youtube\.com|youtube-nocookie\.com)/embed/([A-Za-z0-9_-]{6,})")

@@ -276,6 +276,57 @@ def test_figure_with_two_images_yields_both():
     ]
 
 
+def test_figure_with_a_figcaption_and_no_media_becomes_a_paragraph():
+    """A <figcaption> with nothing to attach to must still surface as text,
+    not vanish -- the same rule that keeps the video-only case below alive."""
+    assert blocks_from_html("<figure><figcaption>only a caption</figcaption></figure>") == [
+        Paragraph(runs=[InlineRun(text="only a caption")])
+    ]
+
+
+def test_figure_with_leading_text_and_an_image_keeps_the_text():
+    """The defect: the old shortcut returned only the recovered image blocks,
+    discarding any text in the figure that wasn't inside a <figcaption>."""
+    ref = "yana-img://" + "7" * 64
+    html = f'<figure><p>lead text<img src="{ref}"></p></figure>'
+    assert blocks_from_html(html) == [
+        Paragraph(runs=[InlineRun(text="lead text")]),
+        ImageBlock(ref=ref),
+    ]
+
+
+def test_figure_with_leading_text_and_a_video_keeps_the_text():
+    """Same defect, video flavor -- also confirms EmbedBlock survives the walk."""
+    html = '<figure><p>lead text<video src="https://v/x.mp4"></video></p></figure>'
+    blocks = blocks_from_html(html)
+    assert blocks == [
+        Paragraph(runs=[InlineRun(text="lead text")]),
+        EmbedBlock(provider="video", external_url="https://v/x.mp4"),
+    ]
+
+
+def test_figure_with_leading_paragraph_and_trailing_figcaption_keeps_both():
+    """The figcaption must still find and attach to the image even though a
+    <p> comes before it in document order."""
+    ref = "yana-img://" + "8" * 64
+    html = f"<figure><p>lead</p><img src='{ref}'><figcaption>cap</figcaption></figure>"
+    assert blocks_from_html(html) == [
+        Paragraph(runs=[InlineRun(text="lead")]),
+        ImageBlock(ref=ref, caption=[InlineRun(text="cap")]),
+    ]
+
+
+def test_figure_with_a_video_and_a_figcaption_moves_the_caption_to_a_paragraph():
+    """EmbedBlock has no caption slot, so a figcaption on a video-only figure
+    would otherwise be lost outright -- it must surface as a trailing
+    paragraph instead."""
+    html = '<figure><video src="https://v/y.mp4"></video><figcaption>cap</figcaption></figure>'
+    assert blocks_from_html(html) == [
+        EmbedBlock(provider="video", external_url="https://v/y.mp4"),
+        Paragraph(runs=[InlineRun(text="cap")]),
+    ]
+
+
 def test_lightbox_wrapped_image_with_no_paragraph_ancestor_survives():
     """A body image wrapped in a plain <a> (a lightbox link, with no <p> or
     <figure> ancestor) must not vanish -- MacTechNews wraps every body image
