@@ -30,6 +30,11 @@ class MactechnewsAggregator(FullWebsiteAggregator):
         return "https://www.mactechnews.de"
 
     @classmethod
+    def resolves_feed_url(cls) -> bool:
+        """Fixed-brand scraper: the identifier is its own hardcoded feed URL."""
+        return False
+
+    @classmethod
     def get_configuration_fields(cls) -> Dict[str, Any]:
         """Configuration options for MacTechNews aggregator."""
         from django import forms

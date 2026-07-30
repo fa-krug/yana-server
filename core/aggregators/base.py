@@ -30,6 +30,20 @@ class BaseAggregator(ABC):
     # (i.e. uses the query parameter in get_identifier_choices)
     supports_identifier_search = False
 
+    @classmethod
+    def resolves_feed_url(cls) -> bool:
+        """Whether a pasted identifier should be normalized and resolved.
+
+        True only for free-form URL types (full_website, feed_content, podcast).
+        Managed feeds pick their identifier from fixed ``identifier_choices``, and
+        the non-URL kinds hold a subreddit name or a channel id -- normalizing
+        ``swift`` into ``https://swift`` would be a real bug. Override per
+        aggregator when the default reads the wrong way.
+        """
+        if cls.identifier_field != "identifier":
+            return False
+        return not cls.get_identifier_choices()
+
     # Scrapers whose body lives in one known container set this True: extraction
     # then keeps only the first match instead of unioning every match.
     uses_first_content_match = False

@@ -11,6 +11,8 @@ from .content_extractor import (
     select_content_elements,
 )
 from .content_formatter import format_article_content
+from .feed_discovery import discover_feed_url, feed_url_in_html
+from .feed_url_resolver import normalize, resolve_feed_url
 from .html_cleaner import (
     clean_data_attributes,
     clean_html,
@@ -48,4 +50,8 @@ __all__ = [
     "format_article_content",
     "get_attr_str",
     "get_attr_list",
+    "discover_feed_url",
+    "feed_url_in_html",
+    "normalize",
+    "resolve_feed_url",
 ]
