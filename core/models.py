@@ -87,6 +87,17 @@ class Feed(models.Model):
     options = models.JSONField(
         default=dict, blank=True, help_text="Aggregator-specific configuration"
     )
+    logo = models.ImageField(
+        upload_to="feed_logos/",
+        blank=True,
+        null=True,
+        help_text="Resolved feed logo. Refresh via the admin action.",
+    )
+    logo_source_url = models.TextField(
+        blank=True,
+        default="",
+        help_text="URL the logo was resolved from, kept for re-resolution.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
