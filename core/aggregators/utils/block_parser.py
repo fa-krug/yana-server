@@ -68,6 +68,13 @@ DROPPED_TAGS: frozenset[str] = frozenset(
 
 _HEADING_TAGS = {"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}
 
+#: Schemes a stored link is allowed to carry. Allowlisted, not blocklisted, so
+#: `javascript:`, `data:`, `vbscript:` and `file:` are rejected without having
+#: to enumerate every hostile scheme. No scheme at all (a relative or
+#: scheme-relative URL) is permitted too -- those resolve against the
+#: article's own URL and are how real relative links show up here.
+_SAFE_URL_SCHEMES: frozenset[str] = frozenset({"http", "https", "mailto"})
+
 #: bs4 string subclasses that are markup, not text. ``Comment`` and friends are
 #: ``NavigableString`` subclasses, so they must be rejected before the
 #: text-node check or an HTML comment becomes visible body text.
@@ -142,13 +149,34 @@ def _make_run(text: str, styles: frozenset[str], link: str) -> InlineRun:
     )
 
 
-def _resolve_url(href: str, base_url: str) -> str:
-    if not base_url:
-        return href
+def is_safe_url(url: str) -> bool:
+    """
+    True if ``url`` is safe to render as a clickable link.
+
+    Used both here (to decide what gets stored as a run's ``link`` at all) and
+    by ``core.blocks.render`` (to decide what gets rendered as an anchor for
+    rows written before this check existed). See ``_SAFE_URL_SCHEMES``.
+    """
+    if not url:
+        return False
     try:
-        return urljoin(base_url, href)
+        scheme = urlparse(url).scheme
     except ValueError:
-        return href
+        return False
+    return not scheme or scheme.lower() in _SAFE_URL_SCHEMES
+
+
+def _resolve_url(href: str, base_url: str) -> str:
+    resolved = href
+    if base_url:
+        try:
+            resolved = urljoin(base_url, href)
+        except ValueError:
+            resolved = href
+    # A resolved URL with a dangerous scheme (`javascript:`, `data:`, ...) is
+    # dropped here rather than stored -- these `link` values are also what a
+    # future API serves to the iOS client, not just what admin renders.
+    return resolved if is_safe_url(resolved) else ""
 
 
 def _trimmed(runs: Sequence[InlineRun]) -> list[InlineRun]:

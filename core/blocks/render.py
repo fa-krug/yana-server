@@ -8,7 +8,10 @@ serving path -- the client renders blocks natively.
 
 All text goes through Django's escaping. Image refs are resolved against
 ``ArticleImage`` in one query so a dangling reference shows up as such rather
-than as a broken image icon.
+than as a broken image icon. Link and embed URLs are checked against
+``block_parser.is_safe_url`` before becoming a clickable anchor -- a defensive
+second check, since the parser already refuses to store a dangerous scheme,
+but rows written before that check existed are still live data.
 """
 
 from collections.abc import Sequence
@@ -17,6 +20,7 @@ from django.utils.html import escape, format_html
 from django.utils.safestring import SafeString, mark_safe
 
 from core.aggregators.services.image_store import IMAGE_REF_SCHEME
+from core.aggregators.utils.block_parser import is_safe_url
 from core.models import ArticleImage
 
 from .types import (
@@ -81,7 +85,7 @@ def _render_runs(runs: Sequence[InlineRun]) -> str:
             text = f"<em>{text}</em>"
         if run.bold:
             text = f"<strong>{text}</strong>"
-        if run.link:
+        if run.link and is_safe_url(run.link):
             text = (
                 format_html('<a href="{}" target="_blank" rel="noopener">', run.link)
                 + text
@@ -129,16 +133,22 @@ def _render(blocks: Sequence[Block], urls: dict[str, str]) -> str:
                     if poster_url
                     else ""
                 )
+                if external_url and not is_safe_url(external_url):
+                    link_html = format_html(
+                        '<span style="color:#ba2121;">unsafe link: {}</span>', external_url
+                    )
+                else:
+                    link_html = format_html(
+                        '<a href="{}" target="_blank" rel="noopener">{}</a>',
+                        external_url,
+                        external_url,
+                    )
                 parts.append(
                     '<div style="border:1px solid #ccc;padding:8px;margin:8px 0;">'
                     + format_html("<strong>{}</strong> embed", provider)
                     + (format_html(" &mdash; {}", title) if title else "")
                     + "<br>"
-                    + format_html(
-                        '<a href="{}" target="_blank" rel="noopener">{}</a>',
-                        external_url,
-                        external_url,
-                    )
+                    + link_html
                     + poster
                     + "</div>"
                 )
@@ -147,6 +157,18 @@ def _render(blocks: Sequence[Block], urls: dict[str, str]) -> str:
                 parts.append(f'{label}<pre style="white-space:pre-wrap;">{escape(text)}</pre>')
             case Divider():
                 parts.append("<hr>")
+            case _:
+                # Guards against silent drift: if core/blocks/types.py ever
+                # gains a new Block variant without a matching branch here,
+                # this makes the gap visible instead of rendering nothing --
+                # the one failure mode this module exists to prevent. Do not
+                # delete this as unreachable; it is a deliberate tripwire.
+                parts.append(
+                    format_html(
+                        '<p style="color:#ba2121;">unrenderable block kind: {}</p>',
+                        type(block).__name__,
+                    )
+                )
     return "".join(parts)
 
 

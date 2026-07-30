@@ -72,6 +72,15 @@ def test_render_links_a_run():
     assert 'href="https://x/"' in html
 
 
+def test_render_refuses_to_link_an_unsafe_scheme():
+    """Defense in depth: rows written before the parser rejected dangerous
+    schemes (or written by anything else that skips the parser) must still
+    never become a clickable anchor here."""
+    html = render_blocks_html([Paragraph(runs=[InlineRun(text="t", link="javascript:alert(1)")])])
+    assert "<a href" not in html
+    assert "t" in html
+
+
 @pytest.mark.django_db
 def test_render_resolves_a_stored_image(settings, tmp_path):
     settings.MEDIA_ROOT = tmp_path

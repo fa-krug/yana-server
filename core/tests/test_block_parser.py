@@ -103,6 +103,20 @@ def test_style_carries_through_a_link():
     assert blocks == [Paragraph(runs=[InlineRun(text="bl", bold=True, link="https://x/")])]
 
 
+def test_a_javascript_href_is_dropped_but_the_text_survives():
+    """A dangerous scheme must never reach storage -- these `link` values are
+    also what a future API serves to the iOS client, not just what admin
+    renders."""
+    blocks = blocks_from_html('<p><a href="javascript:alert(document.cookie)">here</a></p>')
+    assert blocks == [Paragraph(runs=[InlineRun(text="here", link="")])]
+
+
+def test_http_https_mailto_and_relative_hrefs_all_keep_their_link():
+    for href in ("http://x/", "https://x/", "mailto:a@x.test", "/rel"):
+        blocks = blocks_from_html(f'<p><a href="{href}">here</a></p>')
+        assert blocks == [Paragraph(runs=[InlineRun(text="here", link=href)])], href
+
+
 def test_dropped_tags_produce_nothing_and_neither_do_their_children():
     """Table cells must not leak in as stray paragraphs -- that is the whole
     reason drop-vs-recurse exists."""
