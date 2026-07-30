@@ -1,0 +1,2762 @@
+<!doctype html>
+<html class="js no-touch csstransforms3d video audio" lang="en" style="">
+  <head>
+    <!-- OneTrust Cookies Consent Notice start for npr.org -->
+    <script
+      type="text/javascript"
+      async=""
+      src="//cdn.piano.io/api/tinypass.min.js"
+    ></script>
+    <script
+      data-ot-ignore=""
+      async=""
+      src="https://www.googletagmanager.com/gtm.js?id=GTM-MVD397M"
+    ></script>
+    <script
+      src="https://geolocation.onetrust.com/cookieconsentpub/v1/geo/location/dnsfeed"
+      async=""
+      type="text/javascript"
+    ></script>
+    <script
+      type="text/javascript"
+      src="https://cdn.cookielaw.org/consent/82089dfe-410c-4e1b-a7f9-698174b62a86/OtAutoBlock.js"
+    ></script>
+    <script
+      src="https://cdn.cookielaw.org/scripttemplates/otSDKStub.js"
+      type="text/javascript"
+      charset="UTF-8"
+      data-domain-script="82089dfe-410c-4e1b-a7f9-698174b62a86"
+    ></script>
+
+    <script type="text/javascript">
+      function OptanonWrapper() {
+        NPR_OptanonWrapper = true;
+        document.dispatchEvent(new CustomEvent("npr:DataConsentAvailable"));
+
+        OneTrust.OnConsentChanged(function () {
+          document.dispatchEvent(new CustomEvent("npr:DataConsentChanged"));
+        });
+      }
+    </script>
+    <!-- OneTrust Cookies Consent Notice end for npr.org -->
+    <script
+      src="https://cdn.cookielaw.org/opt-out/otCCPAiab.js"
+      type="text/javascript"
+      charset="UTF-8"
+      ccpa-opt-out-ids="C0004"
+      ccpa-opt-out-geo="us"
+      ccpa-opt-out-lspa="false"
+    ></script>
+    <script type="text/plain" class="optanon-category-C0004">
+      document.cookie = "__adblocker=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
+      var setNptTechAdblockerCookie = function(adblocker) {
+          var d = new Date();
+          d.setTime(d.getTime() + 60 * 5 * 1000);
+          document.cookie = "__adblocker=" + (adblocker ? "true" : "false") + "; expires=" + d.toUTCString() + "; path=/";
+      };
+      (() => {
+          var script = document.createElement("script");
+          script.setAttribute("async", true);
+          script.setAttribute("src", "//www.npttech.com/advertising.js");
+          script.setAttribute("onerror", "setNptTechAdblockerCookie(true);");
+          document.getElementsByTagName("head")[0].appendChild(script);
+      })();
+    </script>
+    <script>
+      (function (e, o, n, i) {
+        if (!e) {
+          ((e = e || {}), (window.permutive = e), (e.q = []));
+          var t = function () {
+            return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(
+              /[018]/g,
+              function (e) {
+                return (
+                  e ^
+                  ((window.crypto || window.msCrypto).getRandomValues(
+                    new Uint8Array(1),
+                  )[0] &
+                    (15 >> (e / 4)))
+                ).toString(16);
+              },
+            );
+          };
+          ((e.config = i || {}),
+            (e.config.apiKey = o),
+            (e.config.workspaceId = n),
+            (e.config.environment = e.config.environment || "production"),
+            (window.crypto || window.msCrypto) && (e.config.viewId = t()));
+          for (
+            var g = [
+                "addon",
+                "identify",
+                "track",
+                "trigger",
+                "query",
+                "segment",
+                "segments",
+                "ready",
+                "on",
+                "once",
+                "user",
+                "consent",
+              ],
+              r = 0;
+            r < g.length;
+            r++
+          ) {
+            var w = g[r];
+            e[w] = (function (o) {
+              return function () {
+                var n = Array.prototype.slice.call(arguments, 0);
+                e.q.push({ functionName: o, arguments: n });
+              };
+            })(w);
+          }
+        }
+      })(
+        window.permutive,
+        "12730e07-f09d-4a69-93da-99b43983b663",
+        "e1cef1f0-495f-4973-ba1c-880786e73a66",
+        { consentRequired: true },
+      );
+    </script>
+
+    <!--
+
+nnnnnnnnnnnnnnnnnn ppppppppppppppppppp rrrrrrrrrrrrrrrrrr
+nnnnnnnnnnnnnnnnnn ppppppppppppppppppp rrrrrrrrrrrrrrrrrr
+nnn         nnnnnn ppp          pppppp rrr           rrrr
+nnn   nnnn    nnnn ppp   pppppp   pppp rrr   rrrrrr   rrr
+nnn   nnnnnn   nnn ppp   ppppppp   ppp rrr   rrrrrrrrrrrr
+nnn   nnnnnn   nnn ppp   ppppp    pppp rrr   rrrrrrrrrrrr
+nnn   nnnnnn   nnn ppp           ppppp rrr   rrrrrrrrrrrr
+nnn   nnnnnn   nnn ppp   ppppppppppppp rrr   rrrrrrrrrrrr
+nnnnnnnnnnnnnnnnnn ppp   ppppppppppppp rrrrrrrrrrrrrrrrrr
+nnnnnnnnnnnnnnnnnn ppppppppppppppppppp rrrrrrrrrrrrrrrrrr
+
+We are hiring!
+
+https://boards.greenhouse.io/nationalpublicradioinc
+
+-->
+
+    <script>
+      dataLayer = [];
+    </script>
+    <!-- Google Tag Manager -->
+    <script>
+      (function (w, d, s, l, i) {
+        w[l] = w[l] || [];
+        w[l].push({ "gtm.start": new Date().getTime(), event: "gtm.js" });
+        var f = d.getElementsByTagName(s)[0],
+          j = d.createElement(s),
+          dl = l != "dataLayer" ? "&l=" + l : "";
+        j.setAttributeNode(d.createAttribute("data-ot-ignore"));
+        j.async = true;
+        j.src = "https://www.googletagmanager.com/gtm.js?id=" + i + dl;
+        f.parentNode.insertBefore(j, f);
+      })(window, document, "script", "dataLayer", "GTM-MVD397M");
+    </script>
+    <!-- End Google Tag Manager -->
+    <script>
+      try {
+        var _sf_startpt = new Date().getTime();
+      } catch (e) {}
+    </script>
+    <meta
+      itemscope=""
+      itemtype="https://schema.org/SpeakableSpecification"
+      itemref="speakable"
+    />
+    <title>
+      How Chicago lost (and is still losing) a fortune privatizing its parking :
+      Planet Money : NPR
+    </title>
+    <meta id="speakable" itemprop="cssSelector" content="[data-is-speakable]" />
+    <meta
+      id="google-site-verification"
+      name="google-site-verification"
+      content="1VqzbDm4ukeFVHOoq5LjIKA2fVKZD-EYv8cXZhKXSfU"
+    />
+    <meta charset="utf-8" />
+    <meta
+      name="robots"
+      content="noarchive,index,follow,max-image-preview:large"
+    />
+    <meta
+      name="apple-itunes-app"
+      content="app-id=324906251, app-argument=https://www.npr.org/2025/12/12/nx-s1-5642708/chicago-parking-meter-privitization"
+    />
+    <meta name="Rating" content="General" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, shrink-to-fit=no"
+    />
+    <meta name="npr-pjax" />
+    <meta name="date" content="2025-12-12" />
+    <link
+      rel="canonical"
+      href="https://www.npr.org/2025/12/12/nx-s1-5642708/chicago-parking-meter-privitization"
+    />
+    <meta
+      name="description"
+      content="In 2008, Chicago’s budget was in a bad place. The city needed money. One way to raise money was to increase property taxes, but what politician wants to do that? So instead, Mayor Richard M. Daley’s administration looked around at the resources the city had, and thought, ‘Any of this worth anything?’ They opted to lease out the city’s metered parking system — to privatize all 36,000 of its parking meters.&nbsp;The plan: have private companies bid on operating the meters, modernizing the system, and keeping the profits for a certain number of years. In exchange, they would give Chicago a big lump sum payment. The winning bid was $1.16 billion dollars for a 75-year lease.&nbsp;Today’s episode is the story of how that bid got put together, and how it came to be hated. There are kidnapped parking meters, foot chases through City Hall, and trashbags filled with secret documents.&nbsp;Pre-order the Planet Money book and get a free gift. /&nbsp; Subscribe to Planet Money+Listen free: Apple Podcasts, Spotify, the NPR app or anywhere you get podcasts.Facebook / Instagram / TikTok / Our weekly Newsletter.This episode was produced by Willa Rubin with help from Luis Gallo and Sam Yellowhorse Kesler. It was edited by Jess Jiang, fact-checked by Vito Emmanuel and engineered by Cena Loffredo and Robert Rodriguez. Alex Goldmark is our executive producer.Music: NPR Source Audio - “Smoke Rings,” “Reverend,” and “Sniffin Glue.” "
+    />
+    <link
+      rel="alternate"
+      type="application/rss+xml"
+      title="Economy"
+      href="https://feeds.npr.org/1017/rss.xml"
+    />
+    <meta name="cXenseParse:pageclass" content="article" />
+    <meta name="cXenseParse:publishtime" content="2025-12-12T18:59:37-05:00" />
+    <meta name="cXenseParse:zbq-eyebrowText" content="Planet Money" />
+    <meta
+      name="cXenseParse:zbq-eyebrowUrl"
+      content="https://www.npr.org/podcasts/510289/planet-money"
+    />
+    <meta name="cXenseParse:taxonomy" content="News/Business/Economy" />
+    <meta
+      name="cXenseParse:author"
+      content="Nick Fountain|Alexi Horowitz-Ghazi|Jess Jiang|Willa Rubin"
+      data-separator="|"
+    />
+    <link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="https://media.npr.org/chrome/favicon/favicon-180x180.png"
+    />
+    <link
+      rel="shortcut icon"
+      href="https://media.npr.org/chrome/favicon/favicon.ico"
+    />
+    <link
+      rel="icon"
+      sizes="96x96"
+      href="https://media.npr.org/chrome/favicon/favicon-96x96.png"
+    />
+    <link
+      rel="icon"
+      sizes="48x48"
+      href="https://media.npr.org/chrome/favicon/favicon-48x48.png"
+    />
+    <link
+      rel="icon"
+      sizes="32x32"
+      href="https://media.npr.org/chrome/favicon/favicon-32x32.png"
+    />
+    <link
+      rel="icon"
+      sizes="16x16"
+      href="https://media.npr.org/chrome/favicon/favicon-16x16.png"
+    />
+    <meta
+      property="og:title"
+      content="When Chicago pawned its parking meters : Planet Money"
+    />
+    <meta
+      property="og:url"
+      content="https://www.npr.org/2025/12/12/nx-s1-5642708/chicago-parking-meter-privitization"
+    />
+    <meta property="og:type" content="article" />
+    <meta
+      property="og:description"
+      content="In 2008, Chicago’s budget was in a bad place. The city needed money. One way to raise money was to increase property taxes, but what politician wants to do that? So instead, Mayor Richard M. Daley’s administration looked around at the resources the city had, and thought, ‘Any of this worth anything?’ They opted to lease out the city’s metered parking system — to privatize all 36,000 of its parking meters.&nbsp;The plan: have private companies bid on operating the meters, modernizing the system, and keeping the profits for a certain number of years. In exchange, they would give Chicago a big lump sum payment. The winning bid was $1.16 billion dollars for a 75-year lease.&nbsp;Today’s episode is the story of how that bid got put together, and how it came to be hated. There are kidnapped parking meters, foot chases through City Hall, and trashbags filled with secret documents.&nbsp;Pre-order the Planet Money book and get a free gift. /&nbsp; Subscribe to Planet Money+Listen free: Apple Podcasts, Spotify, the NPR app or anywhere you get podcasts.Facebook / Instagram / TikTok / Our weekly Newsletter.This episode was produced by Willa Rubin with help from Luis Gallo and Sam Yellowhorse Kesler. It was edited by Jess Jiang, fact-checked by Vito Emmanuel and engineered by Cena Loffredo and Robert Rodriguez. Alex Goldmark is our executive producer.Music: NPR Source Audio - “Smoke Rings,” “Reverend,” and “Sniffin Glue.” "
+    />
+    <meta
+      property="og:image"
+      content="https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3378x1900+0+0/resize/1400/quality/100/format/jpeg/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg"
+    />
+    <meta property="og:site_name" content="NPR" />
+    <meta property="fb:app_id" content="138837436154588" />
+    <meta property="fb:pages" content="10643211755" />
+    <meta property="article:content_tier" content="free" />
+    <meta property="article:opinion" content="false" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="When Chicago pawned its parking meters : Planet Money"
+    />
+    <meta name="twitter:site" content="@NPR" />
+    <meta name="twitter:domain" content="npr.org" />
+    <meta
+      name="twitter:image:src"
+      content="https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3378x1900+0+0/resize/1400/quality/100/format/jpeg/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg"
+    />
+    <script id="npr-vars">
+      window.NPR = window.NPR || {};
+      NPR.ServerConstants = {
+        cbHost: "npr.org",
+        webHost: "https:\/\/www.npr.org",
+        geolocationHost: "https:\/\/www.npr.org",
+        legacyWebHost: "https:\/\/legacy.npr.org",
+        stripeServiceHost: "https:\/\/stripe.npr.org",
+        plusDonationPageHost: "https:\/\/plus.npr.org\/",
+        recaptchaV3SiteKey: "6LcdN9IZAAAAAOHT985BJjbzjkBjKSxdxK3GeKSt",
+        placesApiKey: "AIzaSyB_wzlXPVwS4kHRAZsM6scMzUAIsJ6aMZ4",
+        embedHost: "https:\/\/www.npr.org",
+        webHostSecure: "https:\/\/secure.npr.org",
+        identityHost: "https:\/\/identity.api.npr.org",
+        apiHost: "https:\/\/api.npr.org",
+        stationApiHost: "https:\/\/station.api.npr.org",
+        environment: "prod",
+        serverMediaCache: "https:\/\/media.npr.org",
+        googleAnalyticsAccount: "UA-5828686-4",
+        gtmKey: "GTM-MVD397M",
+        nielsenSFCode: "dcr",
+        nielsenAPN: "NPR-dcr",
+        shouldShowHPLocalContent: true,
+        cookieDomain: ".npr.org",
+        organizationV4Host: "https:\/\/organization.api.npr.org",
+        staticAssetsHost: "https:\/\/prod-eks-static-assets.npr.org",
+        stripeAPIVersion: "2025-02-24.acacia",
+      };
+      NPR.serverVars = {
+        storyId: "nx-s1-5642708",
+        storyCategory: "Business",
+        sponsorship: {
+          baseAdConfig: {
+            network: "\/6735\/",
+            zone: "podcasts_Planet_Money",
+            targets: {
+              testserver: "false",
+              isPodcastEpisode: "true",
+              storyId: "nx-s1-5642708",
+              agg: ["94427042", "191676894", "434975886"],
+              blog: "93559255",
+              orgId: "1",
+            },
+          },
+          "end-of-story": {
+            site: { desktop: "NPREndStory", mobile: "NPRMobileEndStory" },
+            hasRefreshEnabled: true,
+            isOutstreamVideoEnabled: false,
+            deferred: true,
+          },
+        },
+        podcastEpisodeRawType: "FULL",
+        podcastChannelParentId: "510289",
+        podcastEpisodeDerivedPlusType: null,
+        hasPremiumPodcastChannelContent: true,
+        podcastInitialEpisodeContentCharacteristicsList: {
+          "nx-s1-5642708:nx-s1-mx-5642708-1": {
+            podcastEpisodeRawType: "FULL",
+            podcastEpisodeDerivedPlusType: null,
+            podcastChannelParentId: "510289",
+          },
+        },
+        isHiring: true,
+        facebookAppId: "138837436154588",
+        webpackPublicPath:
+          "https:\/\/prod-eks-bundles.npr.org\/dist\/bundles\/",
+        persistenceVersion: "aa05a647f1232f742fcbd9ca3972e8e2",
+        isBuildOut: true,
+        pageLayoutName: "ShowEpisodeLayout",
+        bingeModeId: "",
+        isPreviewMode: false,
+        topicIds: ["P1017", "1001", "1006"],
+        primaryTopic: "Economy",
+        topics: ["Economy", "Business", "News"],
+        blog: "Planet Money",
+        theme: "510289",
+        aggIds: [
+          "1001",
+          "1006",
+          "1017",
+          "510289",
+          "93559255",
+          "94427042",
+          "127413729",
+          "191676894",
+          "348779974",
+          "421149614",
+          "434975886",
+          "532960536",
+          "728280517",
+        ],
+        byline: [
+          "Nick Fountain",
+          "Alexi Horowitz-Ghazi",
+          "Jess Jiang",
+          "Willa Rubin",
+        ],
+        contentPartnerOrgFullName: "1 | NPR",
+        pubDate: "2025121218",
+        fullPubDate: "Fri, 12 Dec 2025 18:59:37 -0500",
+        pageTypeId: "15",
+        title: "When Chicago pawned its parking meters",
+        publisherOrgId: "1",
+      };
+    </script>
+    <script
+      type="text/plain"
+      src="https://cdn.optimizely.com/js/11107397707.js"
+      class="optanon-category-C0002-C0004"
+    ></script>
+    <script
+      type="text/javascript"
+      src="https://prod-eks-static-assets.npr.org/static/javascript/lib/modernizr/modernizr.custom.js"
+    ></script>
+    <script
+      type="text/javascript"
+      src="https://prod-eks-static-assets.npr.org/static/javascript/lib/svg-loader.min.js"
+    ></script>
+    <script
+      type="text/javascript"
+      async=""
+      src="https://js.stripe.com/v3/"
+    ></script>
+    <script>
+      !(function (e) {
+        function r(r) {
+          for (
+            var c, f, o = r[0], d = r[1], b = r[2], i = 0, l = [];
+            i < o.length;
+            i++
+          )
+            ((f = o[i]),
+              Object.prototype.hasOwnProperty.call(n, f) &&
+                n[f] &&
+                l.push(n[f][0]),
+              (n[f] = 0));
+          for (c in d)
+            Object.prototype.hasOwnProperty.call(d, c) && (e[c] = d[c]);
+          for (u && u(r); l.length; ) l.shift()();
+          return (a.push.apply(a, b || []), t());
+        }
+        function t() {
+          for (var e, r = 0; r < a.length; r++) {
+            for (var t = a[r], c = !0, o = 1; o < t.length; o++) {
+              var d = t[o];
+              0 !== n[d] && (c = !1);
+            }
+            c && (a.splice(r--, 1), (e = f((f.s = t[0]))));
+          }
+          return e;
+        }
+        var c = {},
+          n = { 0: 0 },
+          a = [];
+        function f(r) {
+          if (c[r]) return c[r].exports;
+          var t = (c[r] = { i: r, l: !1, exports: {} });
+          return (e[r].call(t.exports, t, t.exports, f), (t.l = !0), t.exports);
+        }
+        ((f.e = function (e) {
+          var r = [],
+            t = n[e];
+          if (0 !== t)
+            if (t) r.push(t[2]);
+            else {
+              var c = new Promise(function (r, c) {
+                t = n[e] = [r, c];
+              });
+              r.push((t[2] = c));
+              var a,
+                o = document.createElement("script");
+              ((o.charset = "utf-8"),
+                (o.timeout = 120),
+                f.nc && o.setAttribute("nonce", f.nc),
+                (o.src = (function (e) {
+                  return (
+                    f.p +
+                    "" +
+                    e +
+                    "." +
+                    {
+                      1: "a043065d0f71b50c7249",
+                      2: "be79cdf968f1896f1e77",
+                      3: "cf5521cc0b3ef0e71e15",
+                      4: "f5fe8d36a7224dd6ba85",
+                      5: "5dc8c1e710376e7de76b",
+                      6: "5e7c0cee6f1de0a4feba",
+                      7: "09a66e3ea77b36927ab0",
+                      8: "77d9c92bcab267e93b6b",
+                      9: "99c1ca8f532c69eb6b95",
+                      10: "64b7e0188ec0c026b183",
+                      11: "988b5853204a65a0b179",
+                      76: "4dc89ab5fe04b56afd6b",
+                      77: "b24898b287362b243fdc",
+                      78: "2a761d6416f3909633f5",
+                      79: "a52c0c0ffd861d0e73ec",
+                      80: "e3e50d87d86ac9ebc026",
+                      81: "0d59f5a6f219d565fb1e",
+                      82: "8afcd9674b0f95659220",
+                      83: "898505cf285e6ba0ee0e",
+                      84: "a347c8bd20316fb98ab0",
+                      85: "ed96cda89f6e27ec6dc7",
+                      86: "70da2f00aa1027672d93",
+                      87: "506ce36f80d4558cf03a",
+                      88: "29f7410b919f1ede504e",
+                      89: "951e617e6ba8c010c3ce",
+                      90: "f6fa3eeea8006f6ea437",
+                      91: "e41c88f2868c2c7583fe",
+                      92: "8e55f5cc4feb1e9b5376",
+                      93: "64d3da9a5e4f96e931e1",
+                      94: "9fdba66bd306d5b04ad5",
+                      95: "8bb7ada0f0314ed0b74a",
+                      96: "8b3070b4e293f3645025",
+                      97: "dec0ced884f192132d8c",
+                      98: "9d687bb4114ce686b4e9",
+                      99: "3b0bb4ca2e7b10fd0e6f",
+                      100: "93df0946f7a395fd5e73",
+                      101: "2e0d4ca019003368535f",
+                      102: "cf110e8c3b32c08279cc",
+                      103: "377c17bed2cebcf68fa5",
+                    }[e] +
+                    ".chunk.js"
+                  );
+                })(e)));
+              var d = new Error();
+              a = function (r) {
+                ((o.onerror = o.onload = null), clearTimeout(b));
+                var t = n[e];
+                if (0 !== t) {
+                  if (t) {
+                    var c = r && ("load" === r.type ? "missing" : r.type),
+                      a = r && r.target && r.target.src;
+                    ((d.message =
+                      "Loading chunk " +
+                      e +
+                      " failed.\n(" +
+                      c +
+                      ": " +
+                      a +
+                      ")"),
+                      (d.name = "ChunkLoadError"),
+                      (d.type = c),
+                      (d.request = a),
+                      t[1](d));
+                  }
+                  n[e] = void 0;
+                }
+              };
+              var b = setTimeout(function () {
+                a({ type: "timeout", target: o });
+              }, 12e4);
+              ((o.onerror = o.onload = a), document.head.appendChild(o));
+            }
+          return Promise.all(r);
+        }),
+          (f.m = e),
+          (f.c = c),
+          (f.d = function (e, r, t) {
+            f.o(e, r) ||
+              Object.defineProperty(e, r, { enumerable: !0, get: t });
+          }),
+          (f.r = function (e) {
+            ("undefined" != typeof Symbol &&
+              Symbol.toStringTag &&
+              Object.defineProperty(e, Symbol.toStringTag, { value: "Module" }),
+              Object.defineProperty(e, "__esModule", { value: !0 }));
+          }),
+          (f.t = function (e, r) {
+            if ((1 & r && (e = f(e)), 8 & r)) return e;
+            if (4 & r && "object" == typeof e && e && e.__esModule) return e;
+            var t = Object.create(null);
+            if (
+              (f.r(t),
+              Object.defineProperty(t, "default", { enumerable: !0, value: e }),
+              2 & r && "string" != typeof e)
+            )
+              for (var c in e)
+                f.d(
+                  t,
+                  c,
+                  function (r) {
+                    return e[r];
+                  }.bind(null, c),
+                );
+            return t;
+          }),
+          (f.n = function (e) {
+            var r =
+              e && e.__esModule
+                ? function () {
+                    return e.default;
+                  }
+                : function () {
+                    return e;
+                  };
+            return (f.d(r, "a", r), r);
+          }),
+          (f.o = function (e, r) {
+            return Object.prototype.hasOwnProperty.call(e, r);
+          }),
+          (f.p = "/dist/bundles/"),
+          (f.oe = function (e) {
+            throw (console.error(e), e);
+          }));
+        var o = (window.webpackJsonp = window.webpackJsonp || []),
+          d = o.push.bind(o);
+        ((o.push = r), (o = o.slice()));
+        for (var b = 0; b < o.length; b++) r(o[b]);
+        var u = d;
+        t();
+      })([]);
+    </script>
+    <script
+      type="text/javascript"
+      src="https://prod-eks-bundles.npr.org/dist/bundles/33.63ef0ae8404cbdbb478e.chunk.js"
+    ></script>
+    <link
+      rel="stylesheet"
+      data-persist="true"
+      media="screen, print"
+      href="https://prod-eks-bundles.npr.org/dist/bundles/persistent-css-59c3cd87def25a3783bc.css"
+    />
+    <link
+      rel="stylesheet"
+      data-persist="true"
+      media="screen and (min-width: 768px)"
+      href="https://prod-eks-bundles.npr.org/dist/bundles/persistent_medium-css-59c3cd87def25a3783bc.css"
+    />
+    <link
+      rel="stylesheet"
+      data-persist="true"
+      media="screen and (min-width: 1025px)"
+      href="https://prod-eks-bundles.npr.org/dist/bundles/persistent_large-css-59c3cd87def25a3783bc.css"
+    />
+    <link
+      rel="stylesheet"
+      data-persist="true"
+      media="screen, print"
+      href="https://prod-eks-bundles.npr.org/dist/bundles/fonts-css-59c3cd87def25a3783bc.css"
+      as="style"
+      onload="
+        this.onload = null;
+        this.rel = 'stylesheet';
+      "
+    />
+    <link
+      rel="stylesheet"
+      media="screen, print"
+      href="https://prod-eks-bundles.npr.org/dist/bundles/newsStory-css-59c3cd87def25a3783bc.css"
+    />
+    <script type="application/ld+json">
+      {
+        "@type": "NewsArticle",
+        "publisher": {
+          "@type": "Organization",
+          "name": "NPR",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https:\/\/media.npr.org\/chrome\/npr-logo-2025.jpg"
+          }
+        },
+        "headline": "When Chicago pawned its parking meters",
+        "mainEntityOfPage": {
+          "@type": "WebPage",
+          "@id": "https:\/\/www.npr.org\/2025\/12\/12\/nx-s1-5642708\/chicago-parking-meter-privitization"
+        },
+        "datePublished": "2025-12-12T18:59:37-05:00",
+        "dateModified": "2025-12-12T18:59:37-05:00",
+        "author": { "@type": "Person", "name": ["Nick Fountain"] },
+        "description": "<p dir=\"ltr\">In 2008, Chicago\u2019s budget was in a bad place. The city needed money. One way to raise money was to increase property taxes, but what politician wants to do that? So instead, Mayor Richard M. Daley\u2019s administration looked around at the resources the city had, and thought, \u2018Any of this worth anything?\u2019 They opted to lease out the city\u2019s metered parking system \u2014 to privatize all 36,000 of its parking meters.\u00a0<br><p dir=\"ltr\">The plan: have private companies bid on operating the meters, modernizing the system, and keeping the profits for a certain number of years. In exchange, they would give Chicago a big lump sum payment. The winning bid was $1.16 billion dollars for a 75-year lease.\u00a0<br><p dir=\"ltr\">Today\u2019s episode is the story of how that bid got put together, and how it came to be hated. There are <a href=\"https:\/\/www.npr.org\/sections\/thetwo-way\/2010\/10\/25\/130811940\/chicago-s-new-parking-meters-go-missing-tears-are-not-shed\"target=\"_blank\"   >kidnapped parking meters<\/a>, foot chases through City Hall, and trashbags filled with secret documents.\u00a0<em><br><\/em><p dir=\"ltr\"><em><a href=\"https:\/\/www.planetmoneybook.com\/\"target=\"_blank\"   >Pre-order the Planet Money book and get a free gift<\/a>. \/\u00a0 <a href=\"https:\/\/n.pr\/3HlREPz\"target=\"_blank\"   >Subscribe to Planet Money+<\/a><\/em><em><br><\/em><p dir=\"ltr\"><em>Listen free: <a href=\"http:\/\/n.pr\/PM-digital\"target=\"_blank\"   >Apple Podcasts<\/a>, <a href=\"https:\/\/n.pr\/3gTkQlR\"target=\"_blank\"   >Spotify<\/a>, <a href=\"https:\/\/n.pr\/3Bkb17W\"target=\"_blank\"   >the NPR app<\/a> or anywhere you get podcasts.<\/em><em><br><\/em><p dir=\"ltr\"><em><a href=\"https:\/\/n.pr\/3h92GwS\"target=\"_blank\"   >Facebook<\/a> \/ <a href=\"https:\/\/n.pr\/3FqLuws\"target=\"_blank\"   >Instagram<\/a> \/ <a href=\"https:\/\/n.pr\/3sGZdrq\"target=\"_blank\"   >TikTok<\/a> \/ Our weekly <a href=\"https:\/\/n.pr\/3zrFvUB\"target=\"_blank\"   >Newsletter<\/a>.<\/em><em><br><\/em><p dir=\"ltr\"><em>This episode was produced by Willa Rubin with help from Luis Gallo and Sam Yellowhorse Kesler. It was edited by Jess Jiang, fact-checked by Vito Emmanuel and engineered by Cena Loffredo and Robert Rodriguez. Alex Goldmark is our executive producer.<\/em><em><br><\/em><p dir=\"ltr\"><em>Music: NPR Source Audio - \u201cSmoke Rings,\u201d \u201cReverend,\u201d and \u201cSniffin Glue.\u201d <\/em>",
+        "image": {
+          "@type": "ImageObject",
+          "url": "https:\/\/npr.brightspotcdn.com\/dims3\/default\/strip\/false\/crop\/3378x1900+0+0\/resize\/3378x1900!\/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg"
+        },
+        "@context": "http:\/\/schema.org"
+      }
+    </script>
+    <script type="text/javascript">
+      document.domain = "www.npr.org";
+    </script>
+    <script id="piano-aid" type="text/javascript" data-piano-aid="9ENxKQ58pu">
+      (function (src) {
+        var a = document.createElement("script");
+        a.type = "text/javascript";
+        a.async = true;
+        a.src = src;
+        var b = document.getElementsByTagName("script")[0];
+        b.parentNode.insertBefore(a, b);
+      })("//cdn.piano.io/api/tinypass.min.js");
+
+      window.pdl = window.pdl || {};
+      window.pdl.requireConsent = true;
+
+      tp = window.tp || [];
+
+      tp.push([
+        "init",
+        function () {
+          tp.enableGACrossDomainLinking();
+        },
+      ]);
+    </script>
+    <script>
+      !(function (e) {
+        var n = "https://s.go-mpulse.net/boomerang/";
+        if ("False" == "True")
+          ((e.BOOMR_config = e.BOOMR_config || {}),
+            (e.BOOMR_config.PageParams = e.BOOMR_config.PageParams || {}),
+            (e.BOOMR_config.PageParams.pci = !0),
+            (n = "https://s2.go-mpulse.net/boomerang/"));
+        if (
+          ((window.BOOMR_API_key = "MBVDT-3L9KY-36ZMJ-SPSAR-JR833"),
+          (function () {
+            function e() {
+              if (!o) {
+                var e = document.createElement("script");
+                ((e.id = "boomr-scr-as"),
+                  (e.src = window.BOOMR.url),
+                  (e.async = !0),
+                  i.parentNode.appendChild(e),
+                  (o = !0));
+              }
+            }
+            function t(e) {
+              o = !0;
+              var n,
+                t,
+                a,
+                r,
+                d = document,
+                O = window;
+              if (
+                ((window.BOOMR.snippetMethod = e ? "if" : "i"),
+                (t = function (e, n) {
+                  var t = d.createElement("script");
+                  ((t.id = n || "boomr-if-as"),
+                    (t.src = window.BOOMR.url),
+                    (BOOMR_lstart = new Date().getTime()),
+                    (e = e || d.body),
+                    e.appendChild(t));
+                }),
+                !window.addEventListener &&
+                  window.attachEvent &&
+                  navigator.userAgent.match(/MSIE [67]\./))
+              )
+                return (
+                  (window.BOOMR.snippetMethod = "s"),
+                  void t(i.parentNode, "boomr-async")
+                );
+              ((a = document.createElement("IFRAME")),
+                (a.src = "about:blank"),
+                (a.title = ""),
+                (a.role = "presentation"),
+                (a.loading = "eager"),
+                (r = (a.frameElement || a).style),
+                (r.width = 0),
+                (r.height = 0),
+                (r.border = 0),
+                (r.display = "none"),
+                i.parentNode.appendChild(a));
+              try {
+                ((O = a.contentWindow), (d = O.document.open()));
+              } catch (_) {
+                ((n = document.domain),
+                  (a.src =
+                    "javascript:var d=document.open();d.domain='" +
+                    n +
+                    "';void(0);"),
+                  (O = a.contentWindow),
+                  (d = O.document.open()));
+              }
+              if (n)
+                ((d._boomrl = function () {
+                  ((this.domain = n), t());
+                }),
+                  d.write("<bo" + "dy onload='document._boomrl();'>"));
+              else if (
+                ((O._boomrl = function () {
+                  t();
+                }),
+                O.addEventListener)
+              )
+                O.addEventListener("load", O._boomrl, !1);
+              else if (O.attachEvent) O.attachEvent("onload", O._boomrl);
+              d.close();
+            }
+            function a(e) {
+              window.BOOMR_onload = (e && e.timeStamp) || new Date().getTime();
+            }
+            if (
+              !window.BOOMR ||
+              (!window.BOOMR.version && !window.BOOMR.snippetExecuted)
+            ) {
+              ((window.BOOMR = window.BOOMR || {}),
+                (window.BOOMR.snippetStart = new Date().getTime()),
+                (window.BOOMR.snippetExecuted = !0),
+                (window.BOOMR.snippetVersion = 12),
+                (window.BOOMR.url = n + "MBVDT-3L9KY-36ZMJ-SPSAR-JR833"));
+              var i =
+                  document.currentScript ||
+                  document.getElementsByTagName("script")[0],
+                o = !1,
+                r = document.createElement("link");
+              if (
+                r.relList &&
+                "function" == typeof r.relList.supports &&
+                r.relList.supports("preload") &&
+                "as" in r
+              )
+                ((window.BOOMR.snippetMethod = "p"),
+                  (r.href = window.BOOMR.url),
+                  (r.rel = "preload"),
+                  (r.as = "script"),
+                  r.addEventListener("load", e),
+                  r.addEventListener("error", function () {
+                    t(!0);
+                  }),
+                  setTimeout(function () {
+                    if (!o) t(!0);
+                  }, 3e3),
+                  (BOOMR_lstart = new Date().getTime()),
+                  i.parentNode.appendChild(r));
+              else t(!1);
+              if (window.addEventListener)
+                window.addEventListener("load", a, !1);
+              else if (window.attachEvent) window.attachEvent("onload", a);
+            }
+          })(),
+          "".length > 0)
+        )
+          if (
+            e &&
+            "performance" in e &&
+            e.performance &&
+            "function" == typeof e.performance.setResourceTimingBufferSize
+          )
+            e.performance.setResourceTimingBufferSize();
+        !(function () {
+          if (
+            ((BOOMR = e.BOOMR || {}),
+            (BOOMR.plugins = BOOMR.plugins || {}),
+            !BOOMR.plugins.AK)
+          ) {
+            var n = "" == "true" ? 1 : 0,
+              t = "",
+              a =
+                "fibicdklsopaakqce3yccaaaabut32oo-f-cb7e6b1cc-clienttons-s.akamaihd.net",
+              i = "false" == "true" ? 2 : 1,
+              o = {
+                "ak.v": "39",
+                "ak.cp": "55818",
+                "ak.ai": parseInt("290690", 10),
+                "ak.ol": "0",
+                "ak.cr": 11,
+                "ak.ipv": 6,
+                "ak.proto": "h2",
+                "ak.rid": "20c0a1e9",
+                "ak.r": 36964,
+                "ak.a2": n,
+                "ak.m": "dsca",
+                "ak.n": "essl",
+                "ak.bpcip": "2a02:810d:4b93:9e00::",
+                "ak.cport": 54846,
+                "ak.gh": "88.221.196.93",
+                "ak.quicv": "",
+                "ak.tlsv": "tls1.3",
+                "ak.0rtt": "",
+                "ak.0rtt.ed": "",
+                "ak.csrc": "-",
+                "ak.acc": "",
+                "ak.t": "1765665230",
+                "ak.ak":
+                  "hOBiQwZUYzCg5VSAfCLimQ==vAw7B6DtLgQd6X+25nGx/kN5Q3Lo924ijcottWtAL41ClmE5sF10cJMTIjQTpVWUZfuGGYk/vdB4x0h8Q/FiLVTHe+AElDGdd5ROfXGx3P0LNOWt7DUvymN/RNRxU7Lu+wZ29FGzXgiqYmNJluHpTL5X/44ZLa71t8z+SsmBmhw9mIT+v/uGfWYBIjuNsuxvjn4MVpeTay3cCzISUQ3L+9CxfJIvr9PS+axoz0LtV9CakxU8CGf0z459WuFuFvS4UpyxUu0TS71swwXSXJGpKLXeyZVA9hraqpoQmcG1QDBTeC0zl/D+TsqVL1ATP5jjr2ezR2B4NQH6Doxyx5WyRyazoVfQAARI4VVWfO4jSnmKfZp2C85KTf8uTzbvZdUkJX9rfIUFf4Guy3sCsdBEfnN2ytqsWwzDrFQAWx/UUio=",
+                "ak.pv": "111",
+                "ak.dpoabenc": "",
+                "ak.tf": i,
+              };
+            if ("" !== t) o["ak.ruds"] = t;
+            var r = {
+              i: !1,
+              av: function (n) {
+                var t = "http.initiator";
+                if (n && (!n[t] || "spa_hard" === n[t]))
+                  ((o["ak.feo"] = void 0 !== e.aFeoApplied ? 1 : 0),
+                    BOOMR.addVar(o));
+              },
+              rv: function () {
+                var e = [
+                  "ak.bpcip",
+                  "ak.cport",
+                  "ak.cr",
+                  "ak.csrc",
+                  "ak.gh",
+                  "ak.ipv",
+                  "ak.m",
+                  "ak.n",
+                  "ak.ol",
+                  "ak.proto",
+                  "ak.quicv",
+                  "ak.tlsv",
+                  "ak.0rtt",
+                  "ak.0rtt.ed",
+                  "ak.r",
+                  "ak.acc",
+                  "ak.t",
+                  "ak.tf",
+                ];
+                BOOMR.removeVar(e);
+              },
+            };
+            BOOMR.plugins.AK = {
+              akVars: o,
+              akDNSPreFetchDomain: a,
+              init: function () {
+                if (!r.i) {
+                  var e = BOOMR.subscribe;
+                  (e("before_beacon", r.av, null, null),
+                    e("onbeacon", r.rv, null, null),
+                    (r.i = !0));
+                }
+                return this;
+              },
+              is_complete: function () {
+                return !0;
+              },
+            };
+          }
+        })();
+      })(window);
+    </script>
+    <link
+      href="https://s.go-mpulse.net/boomerang/MBVDT-3L9KY-36ZMJ-SPSAR-JR833"
+      rel="preload"
+      as="script"
+    />
+  </head>
+  <body
+    id="news"
+    class="news tmplShowEpisode story-layout is-buildout has-transcript has-no-branding has-podcast-tools idnx-s1-5642708"
+    data-pjax-modules="util/env images/lazy-load data-consent data-management-platform header-bidding metrics nielsen nielsenDCR copyright auto-refresh navigation/global-navigation fitvids googletag dfp globalfooter persistent-audio story-list-item-mounter player/more-options player/audio-module-clickable what-input metrics/doubleclickFloodlight callout/on-page-callouts global-alerts right-rail-content-widgets we-are-hiring npr-plus-get-access-modal piano datadog ecommerce recommendations/end-of-story-recommendations-callout jw social/share slideshow images/enlargement contentfooter story/date-tooltip social/sharepop podcast-cards search/faceting-param recaptcha-v3"
+    data-nav-overlay-menu-system="false"
+  >
+    <!-- Google Tag Manager (noscript) -->
+    <noscript
+      ><iframe
+        src="https://www.googletagmanager.com/ns.html?id=GTM-MVD397M"
+        height="0"
+        width="0"
+        style="display: none; visibility: hidden"
+      ></iframe
+    ></noscript>
+    <!-- End Google Tag Manager (noscript) -->
+    <div class="skip-links">
+      <span>Accessibility links</span>
+      <ul>
+        <li>
+          <a href="#mainContent" class="skiplink">Skip to main content</a>
+        </li>
+        <li>
+          <a
+            href="https://help.npr.org/contact/s/article?name=what-are-the-keyboard-shortcuts-for-using-the-npr-org-audio-player"
+            class="skiplink"
+            >Keyboard shortcuts for audio player</a
+          >
+        </li>
+      </ul>
+    </div>
+    <div
+      id="global-header-sticky-cta-wrap"
+      class="global-header-sticky-cta-wrap"
+    >
+      <div
+        id="global-header-sticky-cta-mount"
+        class="global-header-sticky-cta-mount"
+      ></div>
+    </div>
+    <div id="global-header-cta-wrap" class="global-header-cta-wrap">
+      <div id="global-header-cta-mount" class="global-header-cta-mount"></div>
+    </div>
+    <header class="npr-header" id="globalheader" aria-label="NPR header">
+      <nav class="navigation">
+        <div
+          class="navigation__top-level-wrap"
+          data-metrics-category-ga4="recirculation"
+        >
+          <ul class="navigation__top-level">
+            <li class="navigation__toggle-wrap">
+              <button
+                id="navigation__toggle--open"
+                class="navigation__toggle navigation__toggle--open"
+                aria-haspopup="true"
+                aria-expanded="false"
+                data-metrics-ga4='{"action":"global_navigation_click","clickName":"open navigation menu","clickType":"global navigation"}'
+              >
+                Open Navigation Menu
+              </button>
+            </li>
+
+            <li class="navigation__home">
+              <a
+                href="/"
+                data-metrics-ga4='{"action":"global_navigation_click","clickName":"npr logo","clickType":"global navigation","clickUrl":"\/"}'
+              >
+                <img
+                  src="https://prod-eks-static-assets.npr.org/chrome_svg/npr-logo-2025.svg"
+                  alt="NPR logo"
+                />
+              </a>
+            </li>
+
+            <li id="navigation__station-mount"></li>
+
+            <li class="navigation__newsletters">
+              <div class="navigation__newsletters-inner">
+                <a
+                  href="/newsletters/"
+                  data-metrics-ga4='{"action":"global_navigation_click","clickName":"newsletters","clickType":"global navigation","clickUrl":"/newsletters/"}'
+                  target="_blank"
+                  >Newsletters</a
+                >
+              </div>
+            </li>
+
+            <li
+              id="user-account-dropdown-mount"
+              class="navigation__account"
+            ></li>
+
+            <li class="navigation__shop">
+              <a
+                href="https://shopnpr.org"
+                data-metrics-ga4='{"action":"global_navigation_click","clickName":"npr shop","clickType":"global navigation","clickUrl":"https://shopnpr.org"}'
+                >NPR Shop</a
+              >
+            </li>
+
+            <li id="navigation__station-donate-mount"></li>
+          </ul>
+        </div>
+        <section
+          id="main-menu"
+          class="menu menu--main"
+          data-metrics-category-ga4="recirculation"
+        >
+          <div class="menu__inner">
+            <header class="menu__header">
+              <button
+                id="navigation__toggle--close"
+                class="navigation__toggle navigation__toggle--close"
+                aria-haspopup="true"
+                aria-expanded="true"
+                data-metrics-ga4='{"action":"global_navigation_click","clickName":"close navigation menu","clickType":"global navigation"}'
+              >
+                Close <span>Navigation Menu</span>
+              </button>
+            </header>
+            <ul class="menu__list">
+              <li class="menu__item menu__item--home">
+                <div class="menu__item-inner">
+                  <a
+                    href="/"
+                    data-metrics-ga4='{"action":"global_navigation_click","clickName":"npr logo","clickType":"global navigation","clickUrl":"\/"}'
+                    >Home</a
+                  >
+                </div>
+              </li>
+              <li
+                class="menu__item menu__item--news menu__item--has-submenu"
+                aria-haspopup="true"
+                aria-expanded="false"
+              >
+                <div class="menu__item-inner">
+                  <a
+                    href="/sections/news/"
+                    data-metrics-ga4='{"action":"global_navigation_click","clickName":"news","clickType":"global navigation","clickUrl":"/sections/news/"}'
+                    >News</a
+                  >
+                  <button
+                    class="menu__toggle-submenu"
+                    data-metrics-ga4='{"action":"global_navigation_click","clickName":"toggle news drawer","clickType":"global navigation"}'
+                  >
+                    Expand/collapse submenu for News
+                  </button>
+                </div>
+
+                <ul class="submenu submenu--news">
+                  <li class="submenu__item">
+                    <a
+                      href="/sections/national/"
+                      data-metrics-ga4='{"action":"global_navigation_click","clickName":"national","clickType":"global navigation","clickUrl":"/sections/national/"}'
+                      >National</a
+                    >
+                  </li>
+                  <li class="submenu__item">
+                    <a
+                      href="/sections/world/"
+                      data-metrics-ga4='{"action":"global_navigation_click","clickName":"world","clickType":"global navigation","clickUrl":"/sections/world/"}'
+                      >World</a
+                    >
+                  </li>
+                  <li class="submenu__item">
+                    <a
+                      href="/sections/politics/"
+                      data-metrics-ga4='{"action":"global_navigation_click","clickName":"politics","clickType":"global navigation","clickUrl":"/sections/politics/"}'
+                      >Politics</a
+                    >
+                  </li>
+                  <li class="submenu__item">
+                    <a
+                      href="/sections/business/"
+                      data-metrics-ga4='{"action":"global_navigation_click","clickName":"business","clickType":"global navigation","clickUrl":"/sections/business/"}'
+                      >Business</a
+                    >
+                  </li>
+                  <li class="submenu__item">
+                    <a
+                      href="/sections/health/"
+                      data-metrics-ga4='{"action":"global_navigation_click","clickName":"health","clickType":"global navigation","clickUrl":"/sections/health/"}'
+                      >Health</a
+                    >
+                  </li>
+                  <li class="submenu__item">
+                    <a
+                      href="/sections/science/"
+                      data-metrics-ga4='{"action":"global_navigation_click","clickName":"science","clickType":"global navigation","clickUrl":"/sections/science/"}'
+                      >Science</a
+                    >
+                  </li>
+                  <li class="submenu__item">
+                    <a
+                      href="/sections/climate/"
+                      data-metrics-ga4='{"action":"global_navigation_click","clickName":"climate","clickType":"global navigation","clickUrl":"/sections/climate/"}'
+                      >Climate</a
+                    >
+                  </li>
+                  <li class="submenu__item">
+                    <a
+                      href="/sections/codeswitch/"
+                      data-metrics-ga4='{"action":"global_navigation_click","clickName":"race","clickType":"global navigation","clickUrl":"/sections/codeswitch/"}'
+                      >Race</a
+                    >
+                  </li>
+                </ul>
+              </li>
+              <li
+                class="menu__item menu__item--culture menu__item--has-submenu"
+                aria-haspopup="true"
+                aria-expanded="false"
+              >
+                <div class="menu__item-inner">
+                  <a
+                    href="/sections/culture/"
+                    data-metrics-ga4='{"action":"global_navigation_click","clickName":"culture","clickType":"global navigation","clickUrl":"/sections/culture/"}'
+                    >Culture</a
+                  >
+                  <button
+                    class="menu__toggle-submenu"
+                    data-metrics-ga4='{"action":"global_navigation_click","clickName":"toggle culture drawer","clickType":"global navigation"}'
+                  >
+                    Expand/collapse submenu for Culture
+                  </button>
+                </div>
+
+                <ul class="submenu submenu--culture">
+                  <li class="submenu__item">
+                    <a
+                      href="/books/"
+                      data-metrics-ga4='{"action":"global_navigation_click","clickName":"books","clickType":"global navigation","clickUrl":"/books/"}'
+                      >Books</a
+                    >
+                  </li>
+                  <li class="submenu__item">
+                    <a
+                      href="/sections/movies/"
+                      data-metrics-ga4='{"action":"global_navigation_click","clickName":"movies","clickType":"global navigation","clickUrl":"/sections/movies/"}'
+                      >Movies</a
+                    >
+                  </li>
+                  <li class="submenu__item">
+                    <a
+                      href="/sections/television/"
+                      data-metrics-ga4='{"action":"global_navigation_click","clickName":"television","clickType":"global navigation","clickUrl":"/sections/television/"}'
+                      >Television</a
+                    >
+                  </li>
+                  <li class="submenu__item">
+                    <a
+                      href="/sections/pop-culture/"
+                      data-metrics-ga4='{"action":"global_navigation_click","clickName":"pop culture","clickType":"global navigation","clickUrl":"/sections/pop-culture/"}'
+                      >Pop Culture</a
+                    >
+                  </li>
+                  <li class="submenu__item">
+                    <a
+                      href="/sections/food/"
+                      data-metrics-ga4='{"action":"global_navigation_click","clickName":"food","clickType":"global navigation","clickUrl":"/sections/food/"}'
+                      >Food</a
+                    >
+                  </li>
+                  <li class="submenu__item">
+                    <a
+                      href="/sections/art-design/"
+                      data-metrics-ga4='{"action":"global_navigation_click","clickName":"art &amp; design","clickType":"global navigation","clickUrl":"/sections/art-design/"}'
+                      >Art &amp; Design</a
+                    >
+                  </li>
+                  <li class="submenu__item">
+                    <a
+                      href="/sections/performing-arts/"
+                      data-metrics-ga4='{"action":"global_navigation_click","clickName":"performing arts","clickType":"global navigation","clickUrl":"/sections/performing-arts/"}'
+                      >Performing Arts</a
+                    >
+                  </li>
+                  <li class="submenu__item">
+                    <a
+                      href="/lifekit/"
+                      data-metrics-ga4='{"action":"global_navigation_click","clickName":"life kit","clickType":"global navigation","clickUrl":"/lifekit/"}'
+                      >Life Kit</a
+                    >
+                  </li>
+                  <li class="submenu__item">
+                    <a
+                      href="/sections/gaming/"
+                      data-metrics-ga4='{"action":"global_navigation_click","clickName":"gaming","clickType":"global navigation","clickUrl":"/sections/gaming/"}'
+                      >Gaming</a
+                    >
+                  </li>
+                </ul>
+              </li>
+              <li
+                class="menu__item menu__item--music menu__item--has-submenu"
+                aria-haspopup="true"
+                aria-expanded="false"
+              >
+                <div class="menu__item-inner">
+                  <a
+                    href="/music/"
+                    data-metrics-ga4='{"action":"global_navigation_click","clickName":"music","clickType":"global navigation","clickUrl":"/music/"}'
+                    >Music</a
+                  >
+                  <button
+                    class="menu__toggle-submenu"
+                    data-metrics-ga4='{"action":"global_navigation_click","clickName":"toggle music drawer","clickType":"global navigation"}'
+                  >
+                    Expand/collapse submenu for Music
+                  </button>
+                </div>
+
+                <ul class="submenu submenu--music">
+                  <li class="submenu__item">
+                    <a
+                      href="https://www.npr.org/2025/12/10/g-s1-99930/best-music-of-2025"
+                      data-metrics-ga4='{"category":"recirculation","action":"global_navigation_click","clickName":"the best music of 2025","clickType":"music ecosystem navigation","clickUrl":"https:\/\/www.npr.org\/2025\/12\/10\/g-s1-99930\/best-music-of-2025"}'
+                    >
+                      The Best Music of 2025
+                    </a>
+                  </li>
+                  <li class="submenu__item">
+                    <a
+                      href="https://www.npr.org/sections/allsongs/"
+                      data-metrics-ga4='{"category":"recirculation","action":"global_navigation_click","clickName":"all songs considered","clickType":"music ecosystem navigation","clickUrl":"https:\/\/www.npr.org\/sections\/allsongs\/"}'
+                    >
+                      All Songs Considered
+                    </a>
+                  </li>
+                  <li class="submenu__item">
+                    <a
+                      href="https://www.npr.org/series/tiny-desk-concerts/"
+                      data-metrics-ga4='{"category":"recirculation","action":"global_navigation_click","clickName":"tiny desk","clickType":"music ecosystem navigation","clickUrl":"https:\/\/www.npr.org\/series\/tiny-desk-concerts\/"}'
+                    >
+                      Tiny Desk
+                    </a>
+                  </li>
+                  <li class="submenu__item">
+                    <a
+                      href="https://www.npr.org/sections/music-features"
+                      data-metrics-ga4='{"category":"recirculation","action":"global_navigation_click","clickName":"music features","clickType":"music ecosystem navigation","clickUrl":"https:\/\/www.npr.org\/sections\/music-features"}'
+                    >
+                      Music Features
+                    </a>
+                  </li>
+                  <li class="submenu__item">
+                    <a
+                      href="https://www.npr.org/series/770565791/npr-music-live-sessions"
+                      data-metrics-ga4='{"category":"recirculation","action":"global_navigation_click","clickName":"live sessions","clickType":"music ecosystem navigation","clickUrl":"https:\/\/www.npr.org\/series\/770565791\/npr-music-live-sessions"}'
+                    >
+                      Live Sessions
+                    </a>
+                  </li>
+                </ul>
+              </li>
+              <li
+                class="menu__item menu__item--shows-podcasts menu__item--has-submenu"
+                aria-haspopup="true"
+                aria-expanded="false"
+              >
+                <div class="menu__item-inner">
+                  <a
+                    href="/podcasts-and-shows/"
+                    data-metrics-ga4='{"action":"global_navigation_click","clickName":"podcasts &amp; shows","clickType":"global navigation","clickUrl":"/podcasts-and-shows/"}'
+                    >Podcasts &amp; Shows</a
+                  >
+                  <button
+                    class="menu__toggle-submenu"
+                    data-metrics-ga4='{"action":"global_navigation_click","clickName":"toggle podcasts &amp; shows drawer","clickType":"global navigation"}'
+                  >
+                    Expand/collapse submenu for Podcasts &amp; Shows
+                  </button>
+                </div>
+
+                <div class="submenu submenu--shows-podcasts">
+                  <span class="submenu__category submenu__category--daily"
+                    >Daily</span
+                  >
+                  <ul class="submenu__list submenu__list--daily">
+                    <li
+                      class="submenu__item submenu__item--timed submenu__item--weekday hidden"
+                    >
+                      <a
+                        href="/programs/morning-edition/"
+                        data-metrics-action="click morning edition"
+                        data-metrics-ga4='{"action":"global_navigation_click","clickName":"morning edition","clickType":"global navigation","clickUrl":"/programs/morning-edition/"}'
+                      >
+                        <img
+                          src="https://media.npr.org/chrome/programs/logos/morning-edition.jpg"
+                          loading="lazy"
+                          alt=""
+                        />
+                        Morning Edition
+                      </a>
+                    </li>
+                    <li
+                      class="submenu__item submenu__item--timed submenu__item--saturday"
+                    >
+                      <a
+                        href="/programs/weekend-edition-saturday/"
+                        data-metrics-action="click weekend edition saturday"
+                        data-metrics-ga4='{"action":"global_navigation_click","clickName":"weekend edition saturday","clickType":"global navigation","clickUrl":"/programs/weekend-edition-saturday/"}'
+                      >
+                        <img
+                          src="https://media.npr.org/assets/img/2019/02/26/we_otherentitiestemplatesat_sq-cbde87a2fa31b01047441e6f34d2769b0287bcd4-s100-c85.png"
+                          loading="lazy"
+                          alt=""
+                        />
+                        Weekend Edition Saturday
+                      </a>
+                    </li>
+                    <li
+                      class="submenu__item submenu__item--timed submenu__item--sunday hidden"
+                    >
+                      <a
+                        href="/programs/weekend-edition-sunday/"
+                        data-metrics-action="click weekend edition sunday"
+                        data-metrics-ga4='{"action":"global_navigation_click","clickName":"weekend edition sunday","clickType":"global navigation","clickUrl":"/programs/weekend-edition-sunday/"}'
+                      >
+                        <img
+                          src="https://media.npr.org/assets/img/2019/02/26/we_otherentitiestemplatesun_sq-4a03b35e7e5adfa446aec374523a578d54dc9bf5-s100-c85.png"
+                          loading="lazy"
+                          alt=""
+                        />
+                        Weekend Edition Sunday
+                      </a>
+                    </li>
+                    <li class="submenu__item">
+                      <a
+                        href="/programs/all-things-considered/"
+                        data-metrics-action="click all things considered"
+                        data-metrics-ga4='{"action":"global_navigation_click","clickName":"all things considered","clickType":"global navigation","clickUrl":"/programs/all-things-considered/"}'
+                      >
+                        <img
+                          src="https://media.npr.org/chrome/programs/logos/all-things-considered.png"
+                          loading="lazy"
+                          alt=""
+                        />
+                        All Things Considered
+                      </a>
+                    </li>
+                    <li class="submenu__item">
+                      <a
+                        href="/programs/fresh-air/"
+                        data-metrics-action="click fresh air"
+                        data-metrics-ga4='{"action":"global_navigation_click","clickName":"fresh air","clickType":"global navigation","clickUrl":"/programs/fresh-air/"}'
+                      >
+                        <img
+                          src="https://media.npr.org/chrome/programs/logos/fresh-air.png"
+                          loading="lazy"
+                          alt=""
+                        />
+                        Fresh Air
+                      </a>
+                    </li>
+                    <li class="submenu__item">
+                      <a
+                        href="/podcasts/510318/up-first/"
+                        data-metrics-action="click up first"
+                        data-metrics-ga4='{"action":"global_navigation_click","clickName":"up first","clickType":"global navigation","clickUrl":"/podcasts/510318/up-first/"}'
+                      >
+                        <img
+                          src="https://media.npr.org/chrome/programs/logos/up-first.jpg?version=2"
+                          loading="lazy"
+                          alt=""
+                        />
+                        Up First
+                      </a>
+                    </li>
+                  </ul>
+                  <span class="submenu__category submenu__category--featured"
+                    >Featured</span
+                  >
+
+                  <ul class="submenu__list submenu__list--featured">
+                    <li class="submenu__item">
+                      <a
+                        href="https://www.npr.org/podcasts/510311/embedded"
+                        data-metrics-ga4='{"category":"recirculation","action":"global_navigation_click","clickName":"embedded","clickType":"music ecosystem navigation","clickUrl":"https:\/\/www.npr.org\/podcasts\/510311\/embedded"}'
+                      >
+                        <img
+                          src="https://media.npr.org/assets/img/2024/08/01/embedded_podcast-tile_sq-21d8f227c811e4f3a0e28b4aa774dd17e39287db-s100-c100.jpeg"
+                          data-original="https://media.npr.org/assets/img/2024/08/01/embedded_podcast-tile_sq-21d8f227c811e4f3a0e28b4aa774dd17e39287db-s100.jpeg"
+                          class="lazy"
+                          alt=""
+                          loading="lazy"
+                        />
+                        Embedded
+                      </a>
+                    </li>
+                    <li class="submenu__item">
+                      <a
+                        href="https://www.npr.org/podcasts/510310/npr-politics-podcast"
+                        data-metrics-ga4='{"category":"recirculation","action":"global_navigation_click","clickName":"the npr politics podcast","clickType":"music ecosystem navigation","clickUrl":"https:\/\/www.npr.org\/podcasts\/510310\/npr-politics-podcast"}'
+                      >
+                        <img
+                          src="https://media.npr.org/assets/img/2024/01/11/podcast-politics_2023_update1_sq-eaabdbd6adb312e163cb96909efd902cc2e9e004-s100-c100.jpg"
+                          data-original="https://media.npr.org/assets/img/2024/01/11/podcast-politics_2023_update1_sq-eaabdbd6adb312e163cb96909efd902cc2e9e004-s100.jpg"
+                          class="lazy"
+                          alt=""
+                          loading="lazy"
+                        />
+                        The NPR Politics Podcast
+                      </a>
+                    </li>
+                    <li class="submenu__item">
+                      <a
+                        href="https://www.npr.org/podcasts/510333/throughline"
+                        data-metrics-ga4='{"category":"recirculation","action":"global_navigation_click","clickName":"throughline","clickType":"music ecosystem navigation","clickUrl":"https:\/\/www.npr.org\/podcasts\/510333\/throughline"}'
+                      >
+                        <img
+                          src="https://media.npr.org/assets/img/2024/05/15/throughline_tile-art_sq-a59d7da2ea2bf97562aeec6440ddf837e8f7de65-s100-c100.jpg"
+                          data-original="https://media.npr.org/assets/img/2024/05/15/throughline_tile-art_sq-a59d7da2ea2bf97562aeec6440ddf837e8f7de65-s100.jpg"
+                          class="lazy"
+                          alt=""
+                          loading="lazy"
+                        />
+                        Throughline
+                      </a>
+                    </li>
+                    <li class="submenu__item">
+                      <a
+                        href="https://www.npr.org/podcasts/510374/trumps-terms"
+                        data-metrics-ga4='{"category":"recirculation","action":"global_navigation_click","clickName":"trump&apos;s terms ","clickType":"music ecosystem navigation","clickUrl":"https:\/\/www.npr.org\/podcasts\/510374\/trumps-terms"}'
+                      >
+                        <img
+                          src="https://media.npr.org/assets/img/2024/11/20/trumps-terms_tile-art_sq-a562bd2ad2a39113dc7da18658fc1e25d0664257-s100-c100.jpg"
+                          data-original="https://media.npr.org/assets/img/2024/11/20/trumps-terms_tile-art_sq-a562bd2ad2a39113dc7da18658fc1e25d0664257-s100.jpg"
+                          class="lazy"
+                          alt=""
+                          loading="lazy"
+                        />
+                        Trump's Terms
+                      </a>
+                    </li>
+                  </ul>
+
+                  <ul class="submenu__list submenu__list--directories">
+                    <li class="submenu__item">
+                      <a
+                        href="/podcasts-and-shows/"
+                        data-metrics-action="click podcasts &amp; shows"
+                        data-metrics-ga4='{"action":"global_navigation_click","clickName":"podcasts &amp; shows","clickType":"global navigation","clickUrl":"/podcasts-and-shows/"}'
+                        >More Podcasts &amp; Shows</a
+                      >
+                    </li>
+                  </ul>
+                </div>
+              </li>
+              <li class="menu__item menu__item--search">
+                <div class="menu__item-inner">
+                  <a
+                    href="/search/"
+                    id="navigation_dropdown-search"
+                    data-metrics-action="click search"
+                    data-metrics-ga4='{"action":"global_navigation_click","clickName":"search","clickType":"global navigation","clickUrl":"/search/"}'
+                    >Search</a
+                  >
+                </div>
+              </li>
+              <li class="menu__item menu__item--newsletters">
+                <div class="menu__item-inner">
+                  <a
+                    href="/newsletters/"
+                    data-metrics-action="click newsletters"
+                    data-metrics-ga4='{"action":"global_navigation_click","clickName":"newsletters","clickType":"global navigation","clickUrl":"/newsletters/"}'
+                    target="_blank"
+                    >Newsletters</a
+                  >
+                </div>
+              </li>
+              <li class="menu__item menu__item--shop">
+                <div class="menu__item-inner">
+                  <a
+                    href="https://shopnpr.org"
+                    data-metrics-action="click npr shop"
+                    data-metrics-ga4='{"action":"global_navigation_click","clickName":"npr shop","clickType":"global navigation","clickUrl":"https://shopnpr.org"}'
+                    >NPR Shop</a
+                  >
+                </div>
+              </li>
+              <li
+                id="user-account-dropdown-mount-two"
+                class="menu__item menu__item--account"
+              ></li>
+            </ul>
+          </div>
+        </section>
+        <section
+          class="menu menu--music"
+          data-metrics-category-ga4="recirculation"
+        >
+          <div class="menu__list-wrap">
+            <ul class="menu__list menu__list--ecosystem menu__list--music">
+              <li class="menu__item menu__item--music-home">
+                <a
+                  href="/music/"
+                  data-metrics-action="click npr music logo"
+                  data-metrics-ga4='{"action":"global_navigation_click","clickName":"npr music logo","clickType":"global navigation","clickUrl":"/music/"}'
+                >
+                  <img
+                    src="https://prod-eks-static-assets.npr.org/chrome_svg/music-logo-dark.svg"
+                    class="music-logo"
+                    alt="NPR Music"
+                  />
+                  <img
+                    src="https://prod-eks-static-assets.npr.org/chrome_svg/music-logo-light.svg"
+                    class="music-logo-alt"
+                    alt="NPR Music"
+                  />
+                </a>
+              </li>
+
+              <li class="menu__item">
+                <a
+                  href="https://www.npr.org/2025/12/10/g-s1-99930/best-music-of-2025"
+                  data-metrics-ga4='{"category":"recirculation","action":"global_navigation_click","clickName":"the best music of 2025","clickType":"music ecosystem navigation","clickUrl":"https:\/\/www.npr.org\/2025\/12\/10\/g-s1-99930\/best-music-of-2025"}'
+                >
+                  The Best Music of 2025
+                </a>
+              </li>
+              <li class="menu__item">
+                <a
+                  href="https://www.npr.org/sections/allsongs/"
+                  data-metrics-ga4='{"category":"recirculation","action":"global_navigation_click","clickName":"all songs considered","clickType":"music ecosystem navigation","clickUrl":"https:\/\/www.npr.org\/sections\/allsongs\/"}'
+                >
+                  All Songs Considered
+                </a>
+              </li>
+              <li class="menu__item">
+                <a
+                  href="https://www.npr.org/series/tiny-desk-concerts/"
+                  data-metrics-ga4='{"category":"recirculation","action":"global_navigation_click","clickName":"tiny desk","clickType":"music ecosystem navigation","clickUrl":"https:\/\/www.npr.org\/series\/tiny-desk-concerts\/"}'
+                >
+                  Tiny Desk
+                </a>
+              </li>
+              <li class="menu__item">
+                <a
+                  href="https://www.npr.org/sections/music-features"
+                  data-metrics-ga4='{"category":"recirculation","action":"global_navigation_click","clickName":"music features","clickType":"music ecosystem navigation","clickUrl":"https:\/\/www.npr.org\/sections\/music-features"}'
+                >
+                  Music Features
+                </a>
+              </li>
+              <li class="menu__item">
+                <a
+                  href="https://www.npr.org/series/770565791/npr-music-live-sessions"
+                  data-metrics-ga4='{"category":"recirculation","action":"global_navigation_click","clickName":"live sessions","clickType":"music ecosystem navigation","clickUrl":"https:\/\/www.npr.org\/series\/770565791\/npr-music-live-sessions"}'
+                >
+                  Live Sessions
+                </a>
+              </li>
+            </ul>
+          </div>
+        </section>
+        <section
+          class="menu menu--about"
+          data-metrics-category-ga4="recirculation"
+        >
+          <div class="menu__list-wrap">
+            <ul class="menu__list menu__list--ecosystem menu__list--about">
+              <li class="menu__item menu__item--about-home">
+                <a
+                  href="/about/"
+                  data-metrics-action="click about npr"
+                  data-metrics-ga4='{"action":"global_navigation_click","clickName":"about npr","clickType":"about ecosystem navigation","clickUrl":"/about/"}'
+                  >About NPR</a
+                >
+              </li>
+              <li class="menu__item menu__item--about-diversity">
+                <a
+                  href="/diversity/"
+                  data-metrics-action="click diversity"
+                  data-metrics-ga4='{"action":"global_navigation_click","clickName":"diversity","clickType":"about ecosystem navigation","clickUrl":"/diversity/"}'
+                  >Diversity</a
+                >
+              </li>
+              <li class="menu__item menu__item--about-support">
+                <a
+                  href="/support/"
+                  data-metrics-action="click support"
+                  data-metrics-ga4='{"action":"global_navigation_click","clickName":"support","clickType":"about ecosystem navigation","clickUrl":"/support/"}'
+                  >Support</a
+                >
+              </li>
+              <li class="menu__item menu__item--about-careers">
+                <a
+                  href="/careers/"
+                  data-metrics-action="click careers"
+                  data-metrics-ga4='{"action":"global_navigation_click","clickName":"careers","clickType":"about ecosystem navigation","clickUrl":"/careers/"}'
+                  >Careers</a
+                >
+              </li>
+              <li class="menu__item menu__item--about-press">
+                <a
+                  href="/series/750003/press-room/"
+                  data-metrics-action="click press"
+                  data-metrics-ga4='{"action":"global_navigation_click","clickName":"press","clickType":"about ecosystem navigation","clickUrl":"/series/750003/press-room/"}'
+                  >Press</a
+                >
+              </li>
+              <li class="menu__item menu__item--about-ethics">
+                <a
+                  href="/ethics/"
+                  data-metrics-action="click ethics"
+                  data-metrics-ga4='{"action":"global_navigation_click","clickName":"ethics","clickType":"about ecosystem navigation","clickUrl":"/ethics/"}'
+                  >Ethics</a
+                >
+              </li>
+            </ul>
+          </div>
+        </section>
+      </nav>
+    </header>
+    <main aria-label="main content">
+      <div class="speakable">
+        <b data-is-speakable=""
+          >How Chicago lost (and is still losing) a fortune privatizing its
+          parking : Planet Money</b
+        >
+        <b data-is-speakable=""
+          ><p dir="ltr">
+            In 2008, Chicago’s budget was in a bad place. The city needed money.
+            One way to raise money was to increase property taxes, but what
+            politician wants to do that? So instead, Mayor Richard M. Daley’s
+            administration looked around at the resources the city had, and
+            thought, ‘Any of this worth anything?’ They opted to lease out the
+            city’s metered parking system — to privatize all 36,000 of its
+            parking meters.&nbsp;<br />
+          </p>
+          <p dir="ltr">
+            The plan: have private companies bid on operating the meters,
+            modernizing the system, and keeping the profits for a certain number
+            of years. In exchange, they would give Chicago a big lump sum
+            payment. The winning bid was $1.16 billion dollars for a 75-year
+            lease.&nbsp;<br />
+          </p>
+          <p dir="ltr">
+            Today’s episode is the story of how that bid got put together, and
+            how it came to be hated. There are
+            <a
+              href="https://www.npr.org/sections/thetwo-way/2010/10/25/130811940/chicago-s-new-parking-meters-go-missing-tears-are-not-shed"
+              target="_blank"
+              >kidnapped parking meters</a
+            >, foot chases through City Hall, and trashbags filled with secret
+            documents.&nbsp;<em><br /></em>
+          </p>
+          <p dir="ltr">
+            <em
+              ><a href="https://www.planetmoneybook.com/" target="_blank"
+                >Pre-order the Planet Money book and get a free gift</a
+              >. /&nbsp;
+              <a href="https://n.pr/3HlREPz" target="_blank"
+                >Subscribe to Planet Money+</a
+              ></em
+            ><em><br /></em>
+          </p>
+          <p dir="ltr">
+            <em
+              >Listen free:
+              <a href="http://n.pr/PM-digital" target="_blank">Apple Podcasts</a
+              >, <a href="https://n.pr/3gTkQlR" target="_blank">Spotify</a>,
+              <a href="https://n.pr/3Bkb17W" target="_blank">the NPR app</a> or
+              anywhere you get podcasts.</em
+            ><em><br /></em>
+          </p>
+          <p dir="ltr">
+            <em
+              ><a href="https://n.pr/3h92GwS" target="_blank">Facebook</a> /
+              <a href="https://n.pr/3FqLuws" target="_blank">Instagram</a> /
+              <a href="https://n.pr/3sGZdrq" target="_blank">TikTok</a> / Our
+              weekly
+              <a href="https://n.pr/3zrFvUB" target="_blank">Newsletter</a>.</em
+            ><em><br /></em>
+          </p>
+          <p dir="ltr">
+            <em
+              >This episode was produced by Willa Rubin with help from Luis
+              Gallo and Sam Yellowhorse Kesler. It was edited by Jess Jiang,
+              fact-checked by Vito Emmanuel and engineered by Cena Loffredo and
+              Robert Rodriguez. Alex Goldmark is our executive producer.</em
+            ><em><br /></em></p
+        ></b>
+        <p dir="ltr">
+          <b data-is-speakable=""
+            ><em
+              >Music: NPR Source Audio - “Smoke Rings,” “Reverend,” and “Sniffin
+              Glue.”
+            </em></b
+          >
+        </p>
+      </div>
+      <div id="wrapper">
+        <header class="contentheader contentheader--one"></header>
+        <section id="main-section">
+          <article class="story">
+            <a id="mainContent"></a>
+            <div class="slug-wrap">
+              <h3 class="slug">
+                <a href="https://www.npr.org/podcasts/510289/planet-money"
+                  >Planet Money</a
+                >
+              </h3>
+            </div>
+            <div class="podcast-tools podcast-tools--510289">
+              <div
+                class="imagewrap has-source-dimensions"
+                data-crop-type=""
+                style="--source-width: 6250; --source-height: 6250"
+              >
+                <picture>
+                  <source
+                    srcset="
+                      https://media.npr.org/assets/img/2022/10/24/pm_new_tile_2022_sq-e543deddd0a46a98be481b46e6a72efa6b52236f.jpg?s=1100&amp;c=85&amp;f=jpeg
+                    "
+                    data-original="https://media.npr.org/assets/img/2022/10/24/pm_new_tile_2022_sq-e543deddd0a46a98be481b46e6a72efa6b52236f.jpg?s=1100&amp;c=100&amp;f=jpeg"
+                    data-template="https://media.npr.org/assets/img/2022/10/24/pm_new_tile_2022_sq-e543deddd0a46a98be481b46e6a72efa6b52236f.jpg?s={width}&amp;c={quality}&amp;f={format}"
+                    data-format="webp"
+                    class="img lazyOnLoad"
+                    type="image/webp"
+                  />
+                  <source
+                    srcset="
+                      https://media.npr.org/assets/img/2022/10/24/pm_new_tile_2022_sq-e543deddd0a46a98be481b46e6a72efa6b52236f.jpg?s=1100&amp;c=85&amp;f=jpeg
+                    "
+                    data-original="https://media.npr.org/assets/img/2022/10/24/pm_new_tile_2022_sq-e543deddd0a46a98be481b46e6a72efa6b52236f.jpg?s=1100&amp;c=100&amp;f=jpeg"
+                    data-template="https://media.npr.org/assets/img/2022/10/24/pm_new_tile_2022_sq-e543deddd0a46a98be481b46e6a72efa6b52236f.jpg?s={width}&amp;c={quality}&amp;f={format}"
+                    data-format="jpeg"
+                    class="img lazyOnLoad"
+                    type="image/jpeg"
+                  />
+                  <img
+                    src="https://media.npr.org/assets/img/2022/10/24/pm_new_tile_2022_sq-e543deddd0a46a98be481b46e6a72efa6b52236f.jpg?s=1100&amp;c=85&amp;f=jpeg"
+                    data-original="https://media.npr.org/assets/img/2022/10/24/pm_new_tile_2022_sq-e543deddd0a46a98be481b46e6a72efa6b52236f.jpg?s=1100&amp;c=100&amp;f=jpeg"
+                    data-template="https://media.npr.org/assets/img/2022/10/24/pm_new_tile_2022_sq-e543deddd0a46a98be481b46e6a72efa6b52236f.jpg?s={width}&amp;c={quality}&amp;f={format}"
+                    data-format="jpeg"
+                    class="img lazyOnLoad"
+                    alt="Planet Money"
+                    loading="lazy"
+                  />
+                </picture>
+              </div>
+              <div class="credit-caption">
+                <div class="caption-wrap">
+                  <div class="caption" aria-label="Image caption"></div>
+                </div>
+
+                <span class="credit" aria-label="Image credit"> NPR </span>
+              </div>
+
+              <div class="podcast-tools__slugandmodal">
+                <div class="slug-wrap">
+                  <h3 class="slug">
+                    <a href="https://www.npr.org/podcasts/510289/planet-money"
+                      >Planet Money</a
+                    >
+                  </h3>
+                </div>
+
+                <div class="podcast-tools__modal">
+                  <div
+                    class="subscribe"
+                    data-sharepop=""
+                    data-selector=".sharepop.subscribe"
+                  >
+                    <button>
+                      LISTEN &amp; FOLLOW
+                      <svg
+                        data-src="https://media.npr.org/chrome_svg/podcasts/apple-podcasts.svg"
+                        class="subscribe-logo"
+                        id="applepods-icon"
+                        alt="Apple Podcasts Logo"
+                      ></svg>
+                      <svg
+                        data-src="https://media.npr.org/chrome_svg/podcasts/spotify.svg"
+                        class="subscribe-logo"
+                        alt="Spotify Logo"
+                      ></svg>
+                      <svg
+                        data-src="https://media.npr.org/chrome_svg/social-icons/story-pages/icon-email-333.svg"
+                        class="subscribe-logo email-icon"
+                        alt="Email icon"
+                      ></svg>
+                    </button>
+                  </div>
+
+                  <div class="podcast-tools__subscribe-links">
+                    <div class="sharepop-four">
+                      <div class="sharepop">
+                        <ul>
+                          <li>
+                            <a
+                              href="https://rpb3r.app.goo.gl/M4f5"
+                              data-analytics-allow-facebook="data-analytics-allow-facebook"
+                              data-metrics-ga4='{"category":"podcast","action":"podcast_follow_click","clickName":"npr one universal","clickType":"podcast follow button"}'
+                            >
+                              <span
+                                class="subscribe__imagecontainer subscribe__imagecontainer--NPR-One"
+                              >
+                              </span>
+                              NPR App</a
+                            >
+                          </li>
+                          <li>
+                            <a
+                              href="https://podcasts.apple.com/podcast/290783428?mt=2&amp;at=11l79Y&amp;ct=nprdirectory"
+                              data-analytics-allow-facebook="data-analytics-allow-facebook"
+                              data-metrics-ga4='{"category":"podcast","action":"podcast_follow_click","clickName":"itunes","clickType":"podcast follow button"}'
+                            >
+                              <span
+                                class="subscribe__imagecontainer subscribe__imagecontainer--apple-podcasts"
+                              >
+                              </span>
+                              Apple Podcasts</a
+                            >
+                          </li>
+                          <li>
+                            <a
+                              href="https://open.spotify.com/show/4FYpq3lSeQMAhqNI81O0Cn"
+                              data-analytics-allow-facebook="data-analytics-allow-facebook"
+                              data-metrics-ga4='{"category":"podcast","action":"podcast_follow_click","clickName":"Spotify","clickType":"podcast follow button"}'
+                            >
+                              <span
+                                class="subscribe__imagecontainer subscribe__imagecontainer--spotify"
+                              >
+                              </span>
+                              Spotify</a
+                            >
+                          </li>
+
+                          <li>
+                            <a
+                              href="https://music.amazon.com/podcasts/ed82f32a-6150-4bbe-bd80-90492cc2727d"
+                              data-analytics-allow-facebook="data-analytics-allow-facebook"
+                              data-metrics-ga4='{"category":"podcast","action":"podcast_follow_click","clickName":"amazon music","clickType":"podcast follow button"}'
+                            >
+                              <span
+                                class="subscribe__imagecontainer subscribe__imagecontainer--amazon-music"
+                              >
+                              </span>
+                              Amazon Music</a
+                            >
+                          </li>
+                          <li>
+                            <a
+                              href="https://www.iheart.com/podcast/28457189"
+                              data-analytics-allow-facebook="data-analytics-allow-facebook"
+                              data-metrics-ga4='{"category":"podcast","action":"podcast_follow_click","clickName":"iHeart Radio","clickType":"podcast follow button"}'
+                            >
+                              <span
+                                class="subscribe__imagecontainer subscribe__imagecontainer--iheart"
+                              >
+                              </span>
+                              iHeart Radio</a
+                            >
+                          </li>
+                          <li>
+                            <a
+                              href="https://music.youtube.com/library/podcasts?addrssfeed=https://feeds.npr.org/510289/podcast.xml"
+                              data-analytics-allow-facebook="data-analytics-allow-facebook"
+                              data-metrics-ga4='{"category":"podcast","action":"podcast_follow_click","clickName":"youtube music","clickType":"podcast follow button"}'
+                            >
+                              <span
+                                class="subscribe__imagecontainer subscribe__imagecontainer--youtube-music"
+                              >
+                              </span>
+                              YouTube Music</a
+                            >
+                          </li>
+
+                          <li>
+                            <a
+                              target="_blank"
+                              href="https://feeds.npr.org/510289/podcast.xml"
+                              data-analytics-allow-facebook="data-analytics-allow-facebook"
+                              data-metrics-ga4='{"category":"podcast","action":"podcast_follow_click","clickName":"rss","clickType":"podcast follow button"}'
+                            >
+                              <span
+                                class="subscribe__imagecontainer subscribe__imagecontainer--rss"
+                              >
+                              </span>
+                              RSS link</a
+                            >
+                          </li>
+                        </ul>
+                      </div>
+
+                      <!--
+              <div class="newsletter-placeholder">
+                Sign up for the [TITLE] Newsletter
+                <input type="text" id="emailfield" name="emailfield" value="my@email.com">
+              </div>
+
+              <div class="plusoffering-placeholder">
+                Get perks with [Podcast Title]+
+                <p>Your support helps make our show possible and unlocks access to our sponsor-free feed.</p>
+                <button>LEARN MORE</button>
+              </div>
+              -->
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="storytitle">
+              <h1>When Chicago pawned its parking meters</h1>
+              <input
+                type="hidden"
+                id="titlenx-s1-5642708"
+                value="When Chicago pawned its parking meters"
+              />
+              <input
+                type="hidden"
+                id="shortTitlenx-s1-5642708"
+                value="When Chicago pawned its parking meters"
+              />
+              <input
+                type="hidden"
+                id="modelFullUrlnx-s1-5642708"
+                value="https://www.npr.org/2025/12/12/nx-s1-5642708/chicago-parking-meter-privitization"
+              />
+            </div>
+
+            <!-- END CLASS="STORYTITLE" -->
+            <div id="story-meta" class="story-meta has-byline">
+              <div class="story-meta__one">
+                <div class="story-meta__one-inner">
+                  <div class="dateblock">
+                    <time datetime="2025-12-12T18:59:37-05:00">
+                      <span class="date">December 12, 2025</span
+                      ><span class="time">6:59 PM ET</span>
+                    </time>
+                  </div>
+                </div>
+
+                <!-- END CLASS="STORY-META__ONE-INNER" -->
+              </div>
+
+              <!-- END CLASS="STORY-META__ONE" -->
+              <div class="story-meta__two">
+                <div id="storybyline" class="storybyline-wrap linkLocation">
+                  <div class="bucketwrap byline">
+                    <div
+                      class="byline-container--block byline-container--block-nophoto"
+                    >
+                      <p class="byline__name--block">By&nbsp;</p>
+                      <div
+                        class="byline byline--block byline--has-link"
+                        aria-label="Byline"
+                      >
+                        <div class="byline__photo">
+                          <a
+                            href="https://www.npr.org/people/348779974/nick-fountain"
+                            rel="author"
+                          >
+                            <picture
+                              ><source
+                                srcset="
+                                  https://media.npr.org/assets/img/2022/09/14/nickfountain_1_sq-d5de26b21fbe55adba6f8c86414bd65537f659a5.jpg?s=100&amp;c=85&amp;f=webp
+                                "
+                                class="img"
+                                type="image/webp"
+                                data-template="https://media.npr.org/assets/img/2022/09/14/nickfountain_1_sq-d5de26b21fbe55adba6f8c86414bd65537f659a5.jpg?s={width}&amp;c={quality}&amp;f={format}"
+                                data-format="webp" />
+                              <source
+                                srcset="
+                                  https://media.npr.org/assets/img/2022/09/14/nickfountain_1_sq-d5de26b21fbe55adba6f8c86414bd65537f659a5.jpg?s=100&amp;c=85&amp;f=jpeg
+                                "
+                                class="img"
+                                type="image/jpeg"
+                                data-template="https://media.npr.org/assets/img/2022/09/14/nickfountain_1_sq-d5de26b21fbe55adba6f8c86414bd65537f659a5.jpg?s={width}&amp;c={quality}&amp;f={format}"
+                                data-format="jpeg" />
+                              <img
+                                src="https://media.npr.org/assets/img/2022/09/14/nickfountain_1_sq-d5de26b21fbe55adba6f8c86414bd65537f659a5.jpg?s=100&amp;c=85&amp;f=jpeg"
+                                class="img"
+                                alt="Nick Fountain, photographed for NPR, 2 August 2022, in New York, NY. Photo by Mamadi Doumbouya for NPR."
+                                data-template="https://media.npr.org/assets/img/2022/09/14/nickfountain_1_sq-d5de26b21fbe55adba6f8c86414bd65537f659a5.jpg?s={width}&amp;c={quality}&amp;f={format}"
+                                data-format="jpeg"
+                            /></picture>
+                          </a>
+                        </div>
+                        <p class="byline__name byline__name--block">
+                          <a
+                            href="https://www.npr.org/people/348779974/nick-fountain"
+                            rel="author"
+                          >
+                            Nick Fountain
+                          </a>
+                        </p>
+                      </div>
+                      <p class="byline__name--block byline__comma">,&nbsp;</p>
+                      <div
+                        class="byline byline--block byline--has-link"
+                        aria-label="Byline"
+                      >
+                        <div class="byline__photo">
+                          <a
+                            href="https://www.npr.org/people/532960536/alexi-horowitz-ghazi"
+                            rel="author"
+                          >
+                            <picture
+                              ><source
+                                srcset="
+                                  https://media.npr.org/assets/img/2022/09/14/alexihorowitz_1_sq-4d3caa55eabf1537d9f1e806147925d76197b646.jpg?s=100&amp;c=85&amp;f=webp
+                                "
+                                class="img"
+                                type="image/webp"
+                                data-template="https://media.npr.org/assets/img/2022/09/14/alexihorowitz_1_sq-4d3caa55eabf1537d9f1e806147925d76197b646.jpg?s={width}&amp;c={quality}&amp;f={format}"
+                                data-format="webp" />
+                              <source
+                                srcset="
+                                  https://media.npr.org/assets/img/2022/09/14/alexihorowitz_1_sq-4d3caa55eabf1537d9f1e806147925d76197b646.jpg?s=100&amp;c=85&amp;f=jpeg
+                                "
+                                class="img"
+                                type="image/jpeg"
+                                data-template="https://media.npr.org/assets/img/2022/09/14/alexihorowitz_1_sq-4d3caa55eabf1537d9f1e806147925d76197b646.jpg?s={width}&amp;c={quality}&amp;f={format}"
+                                data-format="jpeg" />
+                              <img
+                                src="https://media.npr.org/assets/img/2022/09/14/alexihorowitz_1_sq-4d3caa55eabf1537d9f1e806147925d76197b646.jpg?s=100&amp;c=85&amp;f=jpeg"
+                                class="img"
+                                alt="Alexi Horowitz, photographed for NPR, 2 August 2022, in New York, NY. Photo by Mamadi Doumbouya for NPR."
+                                data-template="https://media.npr.org/assets/img/2022/09/14/alexihorowitz_1_sq-4d3caa55eabf1537d9f1e806147925d76197b646.jpg?s={width}&amp;c={quality}&amp;f={format}"
+                                data-format="jpeg"
+                            /></picture>
+                          </a>
+                        </div>
+                        <p class="byline__name byline__name--block">
+                          <a
+                            href="https://www.npr.org/people/532960536/alexi-horowitz-ghazi"
+                            rel="author"
+                          >
+                            Alexi Horowitz-Ghazi
+                          </a>
+                        </p>
+                      </div>
+                      <p class="byline__name--block byline__comma">,&nbsp;</p>
+                      <div
+                        class="byline byline--block byline--has-link"
+                        aria-label="Byline"
+                      >
+                        <div class="byline__photo">
+                          <a
+                            href="https://www.npr.org/people/421149614/jess-jiang"
+                            rel="author"
+                          >
+                            <picture
+                              ><source
+                                srcset="
+                                  https://media.npr.org/assets/img/2023/01/09/jessjiangheadshot_sq-e24ce8bb12e250a714033ba5d3afaee396c9e5f9.jpg?s=100&amp;c=85&amp;f=webp
+                                "
+                                class="img"
+                                type="image/webp"
+                                data-template="https://media.npr.org/assets/img/2023/01/09/jessjiangheadshot_sq-e24ce8bb12e250a714033ba5d3afaee396c9e5f9.jpg?s={width}&amp;c={quality}&amp;f={format}"
+                                data-format="webp" />
+                              <source
+                                srcset="
+                                  https://media.npr.org/assets/img/2023/01/09/jessjiangheadshot_sq-e24ce8bb12e250a714033ba5d3afaee396c9e5f9.jpg?s=100&amp;c=85&amp;f=jpeg
+                                "
+                                class="img"
+                                type="image/jpeg"
+                                data-template="https://media.npr.org/assets/img/2023/01/09/jessjiangheadshot_sq-e24ce8bb12e250a714033ba5d3afaee396c9e5f9.jpg?s={width}&amp;c={quality}&amp;f={format}"
+                                data-format="jpeg" />
+                              <img
+                                src="https://media.npr.org/assets/img/2023/01/09/jessjiangheadshot_sq-e24ce8bb12e250a714033ba5d3afaee396c9e5f9.jpg?s=100&amp;c=85&amp;f=jpeg"
+                                class="img"
+                                alt="Headshot of Jess Jiang"
+                                data-template="https://media.npr.org/assets/img/2023/01/09/jessjiangheadshot_sq-e24ce8bb12e250a714033ba5d3afaee396c9e5f9.jpg?s={width}&amp;c={quality}&amp;f={format}"
+                                data-format="jpeg"
+                            /></picture>
+                          </a>
+                        </div>
+                        <p class="byline__name byline__name--block">
+                          <a
+                            href="https://www.npr.org/people/421149614/jess-jiang"
+                            rel="author"
+                          >
+                            Jess Jiang
+                          </a>
+                        </p>
+                      </div>
+                      <p class="byline__name--block byline__comma">,&nbsp;</p>
+                      <div
+                        class="byline byline--block byline--has-link"
+                        aria-label="Byline"
+                      >
+                        <div class="byline__photo">
+                          <a
+                            href="https://www.npr.org/people/728280517/willa-rubin"
+                            rel="author"
+                          >
+                            <picture
+                              ><source
+                                srcset="
+                                  https://npr.brightspotcdn.com/dims3/default/strip/false/crop/470x470+0+0/resize/100/quality/85/format/webp/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F09%2Fe3%2F2d2d15574e91bc4ca14372264ad8%2Fwilla-rubin.jpg
+                                "
+                                class="img"
+                                type="image/webp"
+                                data-template="https://npr.brightspotcdn.com/dims3/default/strip/false/crop/470x470+0+0/resize/{width}/quality/{quality}/format/{format}/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F09%2Fe3%2F2d2d15574e91bc4ca14372264ad8%2Fwilla-rubin.jpg"
+                                data-format="webp" />
+                              <source
+                                srcset="
+                                  https://npr.brightspotcdn.com/dims3/default/strip/false/crop/470x470+0+0/resize/100/quality/85/format/jpeg/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F09%2Fe3%2F2d2d15574e91bc4ca14372264ad8%2Fwilla-rubin.jpg
+                                "
+                                class="img"
+                                type="image/jpeg"
+                                data-template="https://npr.brightspotcdn.com/dims3/default/strip/false/crop/470x470+0+0/resize/{width}/quality/{quality}/format/{format}/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F09%2Fe3%2F2d2d15574e91bc4ca14372264ad8%2Fwilla-rubin.jpg"
+                                data-format="jpeg" />
+                              <img
+                                src="https://npr.brightspotcdn.com/dims3/default/strip/false/crop/470x470+0+0/resize/100/quality/85/format/jpeg/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F09%2Fe3%2F2d2d15574e91bc4ca14372264ad8%2Fwilla-rubin.jpg"
+                                class="img"
+                                alt="Headshot of Willa Rubin"
+                                data-template="https://npr.brightspotcdn.com/dims3/default/strip/false/crop/470x470+0+0/resize/{width}/quality/{quality}/format/{format}/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F09%2Fe3%2F2d2d15574e91bc4ca14372264ad8%2Fwilla-rubin.jpg"
+                                data-format="jpeg"
+                            /></picture>
+                          </a>
+                        </div>
+                        <p class="byline__name byline__name--block">
+                          <a
+                            href="https://www.npr.org/people/728280517/willa-rubin"
+                            rel="author"
+                          >
+                            Willa Rubin
+                          </a>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- END CLASS="BUCKETWRAP BYLINE" -->
+                </div>
+              </div>
+
+              <!-- END CLASS="STORY-META__TWO" -->
+            </div>
+
+            <!-- END ID="STORY-META" CLASS="STORY-META HAS-BYLINE" -->
+            <div id="headlineaudio" class="storylocation linkLocation">
+              <article
+                id="resnx-s1-mx-5642708-1"
+                class="bucketwrap resaudio"
+                aria-label="audio-module"
+              >
+                <div class="audio-module">
+                  <h4 class="audio-module-title">
+                    When Chicago pawned its parking meters
+                  </h4>
+                  <div
+                    class="audio-module-controls-wrap"
+                    data-audio='{"uid":"nx-s1-5642708:nx-s1-mx-5642708-1","available":true,"duration":1856,"title":"When Chicago pawned its parking meters","audioUrl":"https:\/\/prfx.byspotify.com\/e\/play.podtrac.com\/npr-510289\/traffic.megaphone.fm\/NPR8939912017.mp3?t=podcast&amp;e=nx-s1-5642708&amp;p=510289&amp;d=1856&amp;size=29699013&amp;sc=siteplayer&amp;aw_0_1st.playerid=siteplayer","storyUrl":"https:\/\/www.npr.org\/2025\/12\/12\/nx-s1-5642708\/chicago-parking-meter-privitization","slug":"","program":"Planet Money","affiliation":"","song":"","artist":"","album":"","track":0,"type":"segment","subtype":"other","skipSponsorship":true,"hasAdsWizz":true,"isStreamAudioType":false,"podcastEpisodeRawType":"FULL","podcastEpisodeDerivedPlusType":""}'
+                    data-audio-metrics="[]"
+                  >
+                    <div
+                      class="audio-module-controls audio-module-controls--no-js"
+                    >
+                      <a
+                        class="audio-module-listen"
+                        href="https://prfx.byspotify.com/e/play.podtrac.com/npr-510289/traffic.megaphone.fm/NPR8939912017.mp3?t=podcast&amp;e=nx-s1-5642708&amp;p=510289&amp;d=1856&amp;size=29699013&amp;sc=siteplayer&amp;aw_0_1st.playerid=siteplayer"
+                      >
+                        <b class="audio-module-listen-inner">
+                          <b class="audio-module-listen-icon icn-play"></b>
+                          <b class="audio-module-listen-text">
+                            <b class="audio-module-cta"> Listen </b>
+                            <b class="audio-module-listen-duration">
+                              <span>· </span>
+                              <span>30:56</span>
+                            </b>
+                          </b>
+                        </b>
+                      </a>
+
+                      <time class="audio-module-duration" datetime="P30M,56S">
+                        <span class="audio-module-duration__initial-value"
+                          >30:56</span
+                        >
+                      </time>
+                    </div>
+                  </div>
+
+                  <div class="audio-module-tools">
+                    <a
+                      class="audio-tool audio-tool-transcript"
+                      href="https://www.npr.org/transcripts/nx-s1-5642708"
+                      data-metrics-ga4='{"category":"audio","action":"audio_click_transcript","storyId":"nx-s1-5642708","mediaId":"nx-s1-mx-5642708-1","title":"When Chicago pawned its parking meters","type":"ondemand"}'
+                    >
+                      <b class="icn-transcript"></b>
+                      <b class="audio-tool-label">Transcript</b>
+                    </a>
+                    <button
+                      class="audio-module-tools-toggle"
+                      data-metrics-ga4='{"category":"audio","action":"audio_open_more_options","storyId":"nx-s1-5642708","mediaId":"nx-s1-mx-5642708-1","title":"When Chicago pawned its parking meters","type":"ondemand"}'
+                    >
+                      <b class="icn-toggle"></b>
+                      <b class="label">Toggle more options</b>
+                    </button>
+                    <ul class="audio-module-more-tools">
+                      <li class="audio-tool audio-tool-download">
+                        <a
+                          href="https://prfx.byspotify.com/e/play.podtrac.com/npr-510289/traffic.megaphone.fm/NPR8939912017.mp3?t=podcast&amp;e=nx-s1-5642708&amp;p=510289&amp;d=1856&amp;size=29699013&amp;sc=siteplayer&amp;aw_0_1st.playerid=siteplayer"
+                          data-metrics-ga4='{"category":"audio","action":"audio_download","storyId":"nx-s1-5642708","mediaId":"nx-s1-mx-5642708-1","title":"When Chicago pawned its parking meters","type":"ondemand"}'
+                          ><b class="icn-download"></b
+                          ><b class="audio-tool-label">Download</b></a
+                        >
+                      </li>
+
+                      <li class="audio-tool audio-tool-embed">
+                        <button
+                          data-embed-url="https://www.npr.org/player/embed/nx-s1-5642708/nx-s1-mx-5642708-1"
+                          data-metrics-ga4='{"category":"audio","action":"audio_embed","storyId":"nx-s1-5642708","mediaId":"nx-s1-mx-5642708-1","title":"When Chicago pawned its parking meters","type":"ondemand"}'
+                        >
+                          <b class="button-inner"
+                            ><b class="icn-embed"></b
+                            ><b class="audio-tool-label">Embed</b></b
+                          >
+                        </button>
+
+                        <div class="audio-embed-overlay">
+                          <button class="btn-close"></button>
+                          <label class="embed-label">
+                            <b class="audio-embed-overlay__icon"></b>
+                            <b class="label">Embed</b>
+                            <input
+                              class="embed-url embed-url-no-touch"
+                              readonly=""
+                              value='&lt;iframe src="https://www.npr.org/player/embed/nx-s1-5642708/nx-s1-mx-5642708-1" width="100%" height="290" frameborder="0" scrolling="no" title="NPR embedded audio player"&gt;&lt;/iframe&gt;'
+                            />
+                          </label>
+
+                          <b class="embed-url embed-url-touch">
+                            <code
+                              ><b class="punctuation">&lt;</b>iframe
+                              src="https://www.npr.org/player/embed/nx-s1-5642708/nx-s1-mx-5642708-1"
+                              width="100%" height="290" frameborder="0"
+                              scrolling="no" title="NPR embedded audio
+                              player"&gt;</code
+                            >
+                          </b>
+                        </div>
+                      </li>
+
+                      <li class="audio-tool audio-tool-transcript">
+                        <a
+                          href="https://www.npr.org/transcripts/nx-s1-5642708"
+                          data-metrics-ga4='{"category":"audio","action":"audio_click_transcript","storyId":"nx-s1-5642708","mediaId":"nx-s1-mx-5642708-1","title":"When Chicago pawned its parking meters","type":"ondemand"}'
+                        >
+                          <b class="icn-transcript"></b>
+                          <b class="audio-tool-label">Transcript</b>
+                        </a>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </article>
+            </div>
+            <div id="storytext" class="storytext storylocation linkLocation">
+              <div id="resg-s1-101760" class="bucketwrap image large">
+                <div
+                  class="imagewrap has-source-dimensions"
+                  data-crop-type=""
+                  style="--source-width: 3378; --source-height: 1900"
+                >
+                  <picture>
+                    <source
+                      srcset="
+                        https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3378x1900+0+0/resize/400/quality/85/format/webp/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg   400w,
+                        https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3378x1900+0+0/resize/600/quality/85/format/webp/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg   600w,
+                        https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3378x1900+0+0/resize/800/quality/85/format/webp/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg   800w,
+                        https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3378x1900+0+0/resize/900/quality/85/format/webp/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg   900w,
+                        https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3378x1900+0+0/resize/1200/quality/85/format/webp/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg 1200w,
+                        https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3378x1900+0+0/resize/1600/quality/85/format/webp/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg 1600w,
+                        https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3378x1900+0+0/resize/1800/quality/85/format/webp/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg 1800w
+                      "
+                      data-template="https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3378x1900+0+0/resize/{width}/quality/{quality}/format/{format}/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg"
+                      sizes="(min-width: 1025px) 650px, calc(100vw - 30px)"
+                      class="img"
+                      type="image/webp"
+                    />
+                    <source
+                      srcset="
+                        https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3378x1900+0+0/resize/400/quality/85/format/jpeg/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg   400w,
+                        https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3378x1900+0+0/resize/600/quality/85/format/jpeg/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg   600w,
+                        https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3378x1900+0+0/resize/800/quality/85/format/jpeg/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg   800w,
+                        https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3378x1900+0+0/resize/900/quality/85/format/jpeg/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg   900w,
+                        https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3378x1900+0+0/resize/1200/quality/85/format/jpeg/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg 1200w,
+                        https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3378x1900+0+0/resize/1600/quality/85/format/jpeg/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg 1600w,
+                        https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3378x1900+0+0/resize/1800/quality/85/format/jpeg/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg 1800w
+                      "
+                      data-template="https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3378x1900+0+0/resize/{width}/quality/{quality}/format/{format}/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg"
+                      sizes="(min-width: 1025px) 650px, calc(100vw - 30px)"
+                      class="img"
+                      type="image/jpeg"
+                    />
+                    <img
+                      src="https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3378x1900+0+0/resize/1100/quality/50/format/jpeg/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg"
+                      data-template="https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3378x1900+0+0/resize/{width}/quality/{quality}/format/{format}/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F75%2F66%2F6d54c7dc4bfeaac2d6365d5687d6%2Fchicago-parking-meter-wide-use.jpg"
+                      class="img"
+                      alt="A cyclist rides past a Chicago Parking Meters LLC pay station in the 1100 block of West 18th Street in Chicago’s Pilsen neighborhood on May 15, 2025."
+                      fetchpriority="high"
+                    />
+                  </picture>
+                </div>
+                <div class="credit-caption">
+                  <div class="caption-wrap">
+                    <div class="caption" aria-label="Image caption">
+                      <p>
+                        A cyclist rides past a Chicago Parking Meters LLC pay
+                        station in the 1100 block of West 18th Street in
+                        Chicago's Pilsen neighborhood on May 15, 2025.
+                        <b class="credit" aria-label="Image credit">
+                          Terrence Antonio James/Getty Images
+                        </b>
+                        <b class="hide-caption"><b>hide caption</b></b>
+                      </p>
+                    </div>
+
+                    <b class="toggle-caption"><b>toggle caption</b></b>
+                  </div>
+
+                  <span class="credit" aria-label="Image credit">
+                    Terrence Antonio James/Getty Images
+                  </span>
+                </div>
+              </div>
+              <p></p>
+              <p dir="ltr">
+                In 2008, Chicago’s budget was in a bad place. The city needed
+                money. One way to raise money was to increase property taxes,
+                but what politician wants to do that? So instead, Mayor Richard
+                M. Daley’s administration looked around at the resources the
+                city had, and thought, ‘Any of this worth anything?’ They opted
+                to lease out the city’s metered parking system — to privatize
+                all 36,000 of its parking meters.&nbsp;<br />
+              </p>
+              <p dir="ltr">
+                The plan: have private companies bid on operating the meters,
+                modernizing the system, and keeping the profits for a certain
+                number of years. In exchange, they would give Chicago a big lump
+                sum payment. The winning bid was $1.16 billion dollars for a
+                75-year lease.&nbsp;<br />
+              </p>
+              <p dir="ltr">
+                Today’s episode is the story of how that bid got put together,
+                and how it came to be hated. There are
+                <a
+                  href="https://www.npr.org/sections/thetwo-way/2010/10/25/130811940/chicago-s-new-parking-meters-go-missing-tears-are-not-shed"
+                  target="_blank"
+                  >kidnapped parking meters</a
+                >, foot chases through City Hall, and trashbags filled with
+                secret documents.&nbsp;<em><br /></em>
+              </p>
+              <p dir="ltr">
+                <em
+                  ><a href="https://www.planetmoneybook.com/" target="_blank"
+                    >Pre-order the Planet Money book and get a free gift</a
+                  >. /&nbsp;
+                  <a href="https://n.pr/3HlREPz" target="_blank"
+                    >Subscribe to Planet Money+</a
+                  ></em
+                ><em><br /></em>
+              </p>
+              <p dir="ltr">
+                <em
+                  >Listen free:
+                  <a href="http://n.pr/PM-digital" target="_blank"
+                    >Apple Podcasts</a
+                  >, <a href="https://n.pr/3gTkQlR" target="_blank">Spotify</a>,
+                  <a href="https://n.pr/3Bkb17W" target="_blank">the NPR app</a>
+                  or anywhere you get podcasts.</em
+                ><em><br /></em>
+              </p>
+              <p dir="ltr">
+                <em
+                  ><a href="https://n.pr/3h92GwS" target="_blank">Facebook</a> /
+                  <a href="https://n.pr/3FqLuws" target="_blank">Instagram</a> /
+                  <a href="https://n.pr/3sGZdrq" target="_blank">TikTok</a> /
+                  Our weekly
+                  <a href="https://n.pr/3zrFvUB" target="_blank">Newsletter</a
+                  >.</em
+                ><em><br /></em>
+              </p>
+              <p dir="ltr">
+                <em
+                  >This episode was produced by Willa Rubin with help from Luis
+                  Gallo and Sam Yellowhorse Kesler. It was edited by Jess Jiang,
+                  fact-checked by Vito Emmanuel and engineered by Cena Loffredo
+                  and Robert Rodriguez. Alex Goldmark is our executive
+                  producer.</em
+                ><em><br /></em>
+              </p>
+              <p dir="ltr">
+                <em
+                  >Music: NPR Source Audio - “Smoke Rings,” “Reverend,” and
+                  “Sniffin Glue.”
+                </em>
+              </p>
+              <aside
+                id="ad-backstage-wrap"
+                class="ad-wrap backstage"
+                aria-label="advertisement"
+              >
+                <div class="ad-header"><span>Sponsor Message</span></div>
+
+                <div class="ad-config-wrap">
+                  <div
+                    id="ad-backstage-podcasts_Planet_Money"
+                    class="ad-config ad-backstage has-refresh-enabled"
+                    data-ad-config='{"network":"\/6735\/","zone":"podcasts_Planet_Money","targets":{"testserver":"false","isPodcastEpisode":"true","storyId":"nx-s1-5642708","agg":["94427042","191676894","434975886"],"blog":"93559255","orgId":"1"},"site":{"desktop":"n6735.NPR","mobile":"n6735.NPRMOBILE"},"location":"backstage","deferred":false,"isBetweenContent":false,"hasRefreshEnabled":true,"isOutstreamVideoEnabled":true}'
+                  >
+                    <div style="min-height: 90px"></div>
+                  </div>
+                </div>
+
+                <div class="ad-footer"></div>
+              </aside>
+            </div>
+            <div
+              class="share-tools share-tools--secondary"
+              aria-label="Share tools"
+            >
+              <ul>
+                <li class="share-tools__service share-tools__service--facebook">
+                  <button
+                    class="fbStorynx-s1-5642708"
+                    data-share-facebook='{"storyId": "nx-s1-5642708" }'
+                    data-metrics-ga4='{"category":"share","action":"share","clickName":"facebook"}'
+                  >
+                    <b class="share-tools__service-name">Facebook</b>
+                  </button>
+                </li>
+                <li
+                  class="share-tools__service share-tools__service--flipboard"
+                >
+                  <button
+                    class="storynx-s1-5642708"
+                    data-share-flipboard='{"storyId": "nx-s1-5642708" }'
+                    data-metrics-ga4='{"category":"share","action":"share","clickName":"flipboard"}'
+                  >
+                    <b class="share-tools__service-name">Flipboard</b>
+                  </button>
+                </li>
+                <li class="share-tools__service share-tools__service--email">
+                  <button
+                    class="share-tools__email-link"
+                    data-story-id="nx-s1-5642708"
+                    data-metrics-ga4='{"category":"share","action":"share","clickName":"email"}'
+                  >
+                    <b class="share-tools__service-name">Email</b>
+                  </button>
+                </li>
+              </ul>
+            </div>
+
+            <!-- END CLASS="SHARE-TOOLS SHARE-TOOLS--SECONDARY" ARIA-LABEL="SHARE TOOLS" -->
+            <div
+              id="newsletter-acquisition-callout-data"
+              data-newsletter='{"newsletterId":"money","title":"Planet Money","marketingHeader":"Sign Up For The Planet Money Newsletter","frequency":"every week","shortDescription":"The world is confusing. Economics can help.","stickyDescription":"Sign up for the Planet Money newsletter. Just the right amount of economics, sent weekly.","contentImage":"https:\/\/npr.brightspotcdn.com\/13\/e2\/47d3ebe64fb99c00127695e97779\/planetmoneys.png","staticMarkupDir":"\/buckets\/blogs\/money\/subnav.html","brandingDir":"\/branding\/sections\/money\/","brandingLink":"https:\/\/www.npr.org\/sections\/money\/","recaptchaSiteKey":"6LcdN9IZAAAAAOHT985BJjbzjkBjKSxdxK3GeKSt"}'
+            ></div>
+
+            <!-- END ID="NEWSLETTER-ACQUISITION-CALLOUT-DATA" DATA-NEWSLETTER="{&QUOT;NEWSLETTERID&QUOT;:&QUOT;MONEY&QUOT;,&QUOT;TITLE&QUOT;:&QUOT;PLANET MONEY&QUOT;,&QUOT;MARKETINGHEADER&QUOT;:&QUOT;SIGN UP FOR THE PLANET MONEY NEWSLETTER&QUOT;,&QUOT;FREQUENCY&QUOT;:&QUOT;EVERY WEEK&QUOT;,&QUOT;SHORTDESCRIPTION&QUOT;:&QUOT;THE WORLD IS CONFUSING. ECONOMICS CAN HELP.&QUOT;,&QUOT;STICKYDESCRIPTION&QUOT;:&QUOT;SIGN UP FOR THE PLANET MONEY NEWSLETTER. JUST THE RIGHT AMOUNT OF ECONOMICS, SENT WEEKLY.&QUOT;,&QUOT;CONTENTIMAGE&QUOT;:&QUOT;HTTPS:\/\/NPR.BRIGHTSPOTCDN.COM\/13\/E2\/47D3EBE64FB99C00127695E97779\/PLANETMONEYS.PNG&QUOT;,&QUOT;STATICMARKUPDIR&QUOT;:&QUOT;\/BUCKETS\/BLOGS\/MONEY\/SUBNAV.HTML&QUOT;,&QUOT;BRANDINGDIR&QUOT;:&QUOT;\/BRANDING\/SECTIONS\/MONEY\/&QUOT;,&QUOT;BRANDINGLINK&QUOT;:&QUOT;HTTPS:\/\/WWW.NPR.ORG\/SECTIONS\/MONEY\/&QUOT;,&QUOT;RECAPTCHASITEKEY&QUOT;:&QUOT;6LCDN9IZAAAAAOHT985BJJBZJKBJKSXDXK3GEKST&QUOT;}" -->
+            <div
+              id="podcast-callout-data"
+              data-podcast='{"name":"Planet Money","itunesUrl":"https:\/\/podcasts.apple.com\/podcast\/290783428?mt=2&amp;at=11l79Y&amp;ct=nprdirectory","googlePodcastsUrl":"","rssUrl":"https:\/\/feeds.npr.org\/510289\/podcast.xml","nprOneUniversalUrl":"https:\/\/rpb3r.app.goo.gl\/M4f5","amazonAlexaUrl":"","spotifyUrl":"https:\/\/open.spotify.com\/show\/4FYpq3lSeQMAhqNI81O0Cn","brandingUrl":"https:\/\/media.npr.org\/assets\/img\/2022\/10\/24\/pm_new_tile_2022_sq-e543deddd0a46a98be481b46e6a72efa6b52236f.jpg?s=300&amp;c=85&amp;f=jpeg"}'
+            ></div>
+
+            <!-- END ID="PODCAST-CALLOUT-DATA" DATA-PODCAST="{&QUOT;NAME&QUOT;:&QUOT;PLANET MONEY&QUOT;,&QUOT;ITUNESURL&QUOT;:&QUOT;HTTPS:\/\/PODCASTS.APPLE.COM\/PODCAST\/290783428?MT=2&AMP;AT=11L79Y&AMP;CT=NPRDIRECTORY&QUOT;,&QUOT;GOOGLEPODCASTSURL&QUOT;:&QUOT;&QUOT;,&QUOT;RSSURL&QUOT;:&QUOT;HTTPS:\/\/FEEDS.NPR.ORG\/510289\/PODCAST.XML&QUOT;,&QUOT;NPRONEUNIVERSALURL&QUOT;:&QUOT;HTTPS:\/\/RPB3R.APP.GOO.GL\/M4F5&QUOT;,&QUOT;AMAZONALEXAURL&QUOT;:&QUOT;&QUOT;,&QUOT;SPOTIFYURL&QUOT;:&QUOT;HTTPS:\/\/OPEN.SPOTIFY.COM\/SHOW\/4FYPQ3LSEQMAHQNI81O0CN&QUOT;,&QUOT;BRANDINGURL&QUOT;:&QUOT;HTTPS:\/\/MEDIA.NPR.ORG\/ASSETS\/IMG\/2022\/10\/24\/PM_NEW_TILE_2022_SQ-E543DEDDD0A46A98BE481B46E6A72EFA6B52236F.JPG?S=300&AMP;C=85&AMP;F=JPEG&QUOT;}" -->
+            <div id="callout-end-of-story-mount"></div>
+
+            <!-- END ID="CALLOUT-END-OF-STORY-MOUNT" -->
+            <div
+              id="callout-end-of-story-mount-piano-wrap"
+              class="callout-end-of-story-mount-piano-wrap"
+            >
+              <div
+                id="callout-end-of-story-mount-piano"
+                class="callout-end-of-story-mount-piano"
+              ></div>
+
+              <!-- END ID="CALLOUT-END-OF-STORY-MOUNT-PIANO" CLASS="CALLOUT-END-OF-STORY-MOUNT-PIANO" -->
+            </div>
+
+            <!-- END ID="CALLOUT-END-OF-STORY-MOUNT-PIANO-WRAP" CLASS="CALLOUT-END-OF-STORY-MOUNT-PIANO-WRAP" -->
+            <aside
+              id="end-of-story-recommendations-mount-piano"
+              class="recommended-stories recommended-stories--piano"
+              aria-label="recommended stories"
+            ></aside>
+            <!-- END ID="END-OF-STORY-RECOMMENDATIONS-MOUNT-PIANO" CLASS="RECOMMENDED-STORIES RECOMMENDED-STORIES--PIANO" ARIA-LABEL="RECOMMENDED STORIES" -->
+            <aside
+              id="end-of-story-recommendations-mount"
+              class="recommended-stories"
+              aria-label="recommended stories"
+            ></aside>
+            <!-- END ID="END-OF-STORY-RECOMMENDATIONS-MOUNT" CLASS="RECOMMENDED-STORIES" ARIA-LABEL="RECOMMENDED STORIES" -->
+          </article>
+          <footer
+            id="npr-footer"
+            class="npr-footer"
+            role="contentinfo"
+            aria-label="NPR footer"
+          >
+            <div class="npr-footer__content">
+              <div class="npr-footer__module-group">
+                <div class="npr-footer__module">
+                  <h6 class="npr-footer__header">Read &amp; Listen</h6>
+
+                  <ul>
+                    <li class="npr-footer__item"><a href="/">Home</a></li>
+                    <li class="npr-footer__item">
+                      <a href="/sections/news/">News</a>
+                    </li>
+                    <li class="npr-footer__item">
+                      <a href="/sections/culture/">Culture</a>
+                    </li>
+                    <li class="npr-footer__item">
+                      <a href="/music/">Music</a>
+                    </li>
+                    <li class="npr-footer__item">
+                      <a href="/podcasts-and-shows">Podcasts &amp; Shows</a>
+                    </li>
+                  </ul>
+                </div>
+
+                <div class="npr-footer__module">
+                  <h6 class="npr-footer__header">Connect</h6>
+
+                  <ul>
+                    <li class="npr-footer__item">
+                      <a href="/newsletters/" target="_blank">Newsletters</a>
+                    </li>
+                    <li class="npr-footer__item">
+                      <a href="https://www.facebook.com/NPR/">Facebook</a>
+                    </li>
+                    <li class="npr-footer__item">
+                      <a href="https://www.instagram.com/npr/">Instagram</a>
+                    </li>
+                    <li class="npr-footer__item">
+                      <a href="/series/750003/press-room/">Press</a>
+                    </li>
+                    <li class="npr-footer__item">
+                      <a href="/sections/publiceditor/">Public Editor</a>
+                    </li>
+                    <li class="npr-footer__item">
+                      <a href="/corrections/">Corrections</a>
+                    </li>
+                    <li class="npr-footer__item">
+                      <a href="/transcripts/">Transcripts</a>
+                    </li>
+                    <li class="npr-footer__item">
+                      <a href="https://help.npr.org/contact/s/"
+                        >Contact &amp; Help</a
+                      >
+                    </li>
+                  </ul>
+                </div>
+
+                <div class="npr-footer__module">
+                  <h6 class="npr-footer__header">About NPR</h6>
+
+                  <ul>
+                    <li class="npr-footer__item">
+                      <a href="/about/">Overview</a>
+                    </li>
+                    <li class="npr-footer__item">
+                      <a href="/diversity/">Diversity</a>
+                    </li>
+                    <li class="npr-footer__item">
+                      <a href="/network/" target="_blank">NPR Network</a>
+                    </li>
+                    <li class="npr-footer__item">
+                      <a href="/about-npr/1136563345/accessibility"
+                        >Accessibility</a
+                      >
+                    </li>
+                    <li class="npr-footer__item">
+                      <a href="/ethics/">Ethics</a>
+                    </li>
+                    <li class="npr-footer__item">
+                      <a href="/about-npr/178660742/public-radio-finances"
+                        >Finances</a
+                      >
+                    </li>
+                  </ul>
+                </div>
+
+                <div class="npr-footer__module">
+                  <h6 class="npr-footer__header">Get Involved</h6>
+
+                  <ul>
+                    <li class="npr-footer__item">
+                      <a href="/support/">Support Public Radio</a>
+                    </li>
+                    <li class="npr-footer__item">
+                      <a href="/about-npr/186948703/corporate-sponsorship"
+                        >Sponsor NPR</a
+                      >
+                    </li>
+                    <li class="npr-footer__item">
+                      <a href="/careers/">NPR Careers</a>
+                    </li>
+                    <li class="npr-footer__item">
+                      <a href="https://shopnpr.org/">NPR Shop</a>
+                    </li>
+                    <li class="npr-footer__item">
+                      <a href="/sections/npr-extra/">NPR Extra</a>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              <div class="npr-footer__module npr-footer__module--secondary">
+                <ul>
+                  <li class="npr-footer__item">
+                    <a href="/about-npr/179876898/terms-of-use">Terms of Use</a>
+                  </li>
+                  <li class="npr-footer__item">
+                    <a href="/about-npr/179878450/privacy-policy">Privacy</a>
+                  </li>
+                  <li class="npr-footer__item">
+                    <a href="/about-npr/179878450/privacy-policy#yourchoices"
+                      >Your Privacy Choices</a
+                    >
+                  </li>
+                  <li class="npr-footer__item">
+                    <a href="https://text.npr.org/">Text Only</a>
+                  </li>
+                  <li class="npr-footer__item">
+                    <span class="copy-year"></span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </footer>
+          <div id="global-stickybar-mount" class="global-stickybar-mount"></div>
+          <div id="global-stickybar-mount-piano-wrap" class="global-stickybar">
+            <div
+              id="global-stickybar-mount-piano"
+              class="global-stickybar-mount-piano"
+            ></div>
+          </div>
+        </section>
+        <div id="main-sidebar">
+          <div id="right-rail-content-widgets-mount"></div>
+
+          <!-- END ID="RIGHT-RAIL-CONTENT-WIDGETS-MOUNT" -->
+          <aside
+            id="ad-standard-wrap"
+            class="ad-wrap standard"
+            aria-label="advertisement"
+          >
+            <div class="ad-header"><span>Sponsor Message</span></div>
+
+            <div
+              id="ad-standard-podcasts_Planet_Money"
+              class="ad-config ad-standard has-refresh-enabled"
+              data-ad-config='{"network":"\/6735\/","zone":"podcasts_Planet_Money","targets":{"testserver":"false","isPodcastEpisode":"true","storyId":"nx-s1-5642708","agg":["94427042","191676894","434975886"],"blog":"93559255","orgId":"1"},"site":{"desktop":"n6735.NPR","mobile":"n6735.NPRMOBILE"},"location":"standard","deferred":false,"isBetweenContent":false,"hasRefreshEnabled":true,"isOutstreamVideoEnabled":false}'
+            >
+              <div style="min-height: 90px"></div>
+            </div>
+
+            <div class="ad-footer">
+              <p class="left">Sponsor Message</p>
+              <p class="right">
+                <a href="/about-npr/186948703/corporate-sponsorship"
+                  >Become an NPR sponsor</a
+                >
+              </p>
+            </div>
+          </aside>
+        </div>
+
+        <!-- END ID="MAIN-SIDEBAR" -->
+      </div>
+
+      <!-- END ID="WRAPPER" -->
+      <section id="global-modal-mount"></section>
+      <!-- END ID="GLOBAL-MODAL-MOUNT" -->
+      <section id="npr-plus-get-access-modal-mount"></section>
+      <!-- END ID="NPR-PLUS-GET-ACCESS-MODAL-MOUNT" -->
+      <script type="text/javascript">
+        (function () {
+          var loadPageJs = function () {
+            (window.webpackJsonp = window.webpackJsonp || []).push([
+              [22],
+              {
+                1165: function (e, n, c) {
+                  e.exports = c(323);
+                },
+                323: function (e, n, c) {
+                  "use strict";
+                  ((c.p = NPR.serverVars.webpackPublicPath),
+                    Promise.all([c.e(1), c.e(2), c.e(3), c.e(4), c.e(84)])
+                      .then(
+                        function (e) {
+                          (c(3),
+                            c(1139),
+                            c(115),
+                            c(94),
+                            c(52),
+                            c(493),
+                            c(239),
+                            c(102),
+                            c(104),
+                            c(1140),
+                            c(141),
+                            c(1141),
+                            c(238),
+                            c(48),
+                            c(1142));
+                        }.bind(null, c),
+                      )
+                      .catch(c.oe));
+                },
+              },
+              [[1165, 0]],
+            ]);
+          };
+          if (document.readyState === "complete") {
+            loadPageJs();
+          } else {
+            window.addEventListener("load", function load() {
+              window.removeEventListener("load", load, false);
+              loadPageJs();
+            });
+          }
+        })();
+      </script>
+    </main>
+    <iframe
+      style="
+        display: none;
+        height: 0;
+        opacity: 0;
+        visibility: hidden;
+        border: 0;
+        width: 0;
+        height: 0;
+      "
+      name="__uspapiLocator"
+    ></iframe>
+  </body>
+</html>
