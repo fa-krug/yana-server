@@ -145,12 +145,21 @@ Not in scope for this route. Recorded so they are not mistaken for oversights.
 
 | Item | Why deferred |
 |---|---|
-| HTTP response size caps | iOS streams under 25 MB (HTML) / 64 MB (image) caps; server `html_fetcher` has **no limit**, so one hostile or broken response can exhaust memory. Explicitly deferred — a known robustness gap, not an accident. |
-| Retention cleanup | iOS deletes articles past a retention window, exempting starred. Server keeps articles forever. Needed once the server is the store of record for all clients, but it deletes user data and wants its own design (configurable window, dry-run). |
+| HTTP response size caps — **partly closed**, see below | `html_fetcher` now caps both its paths (`fetch_html` at 8 MB, `fetch_binary` at 2 MB), streaming the body and rejecting an oversized `Content-Length` before reading a byte. The gap that remains is `image_extraction/fetcher.py`'s `fetch_single_image`, which still reads `response.content` unbounded — and that is the highest-volume path (every article image and Reddit header, 15 call sites). iOS caps image fetches at 64 MB and deliberately *raised* that cap for large Reddit GIFs, so any server cap here has to be generous enough not to drop them. |
 | Flat run limit | iOS uses `dailyLimit − collectedToday`; the server's adaptive time-of-day quota is retained deliberately. Drip-feed pacing is more appropriate for a always-on server than for an app that syncs in bursts. |
 | AI provider expansion | iOS supports 7 providers (adds Mistral, Qwen, DeepSeek, Apple Intelligence) and maintains current model lists, noting the server's are stale. Server supports 3. This is the AI layer, cleanly separable from aggregation. |
 | AI options shape | Server uses flat `ai_summarize` / `ai_improve_writing` / `ai_translate` / `ai_translate_language` keys; iOS nests them under `ai`. Harmonize when the API spec pins the options contract. |
 | Deleting iOS `Yana/Aggregators/` | Happens after the new API ships and the server is proven authoritative. Premature deletion would leave no fallback mid-migration. |
+
+### Since closed
+
+**Retention cleanup.** This was listed as deferred on the claim that the server keeps articles
+forever. It does not: `ArticleService.delete_old_articles`
+([article_service.py](../../../core/services/article_service.py)) deletes articles past a window,
+exempts starred ones, and keys off `created_at` rather than `date` — so a just-imported article with
+an old publish date is not deleted on the next run. It runs daily via a django-q2 schedule seeded by
+`setup_periodic_tasks`, defaulting to two months. The window is a task kwarg rather than a user
+setting, and there is no dry-run; both remain open if the design ever wants them.
 
 ## Not portable to the server
 
