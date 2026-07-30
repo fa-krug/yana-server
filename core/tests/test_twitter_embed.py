@@ -2,6 +2,8 @@
 
 from unittest.mock import patch
 
+from bs4 import BeautifulSoup
+
 from core.aggregators.utils.twitter import (
     _escape,
     _format_count,
@@ -164,6 +166,129 @@ class TestBuildTweetEmbedHtml:
 
         assert result is not None
         assert "https://twitter.com/testuser/status/123456" in result
+
+
+class TestBuildTweetEmbedHtmlSecurity:
+    """HTML-injection regression tests for build_tweet_embed_html().
+
+    These assert on the PARSED structure (BeautifulSoup element counts and
+    attribute values), not just substring absence, so they prove the markup
+    stays well-formed rather than merely pattern-matching escaped text.
+    """
+
+    def _tweet_data(self, **overrides):
+        data = {
+            "text": "Just a normal tweet.",
+            "author": {"name": "Test User", "screen_name": "testuser"},
+            "likes": 10,
+            "retweets": 2,
+            "created_at": "",
+            "media": {},
+        }
+        data.update(overrides)
+        return {"tweet": data}
+
+    @patch("core.aggregators.utils.twitter.fetch_tweet_data")
+    def test_tweet_url_with_quote_is_escaped_in_href(self, mock_fetch):
+        mock_fetch.return_value = self._tweet_data()
+        # A tweet URL containing a literal double quote (e.g. reached via a
+        # malformed/attacker-influenced source URL upstream).
+        url = 'https://x.com/user/status/123456"><script>alert(1)</script>'
+
+        result = build_tweet_embed_html(url)
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        # No injected <script> element -- the quote must not have terminated
+        # the href attribute early.
+        assert soup.find_all("script") == []
+        anchors = soup.find_all("a")
+        assert len(anchors) == 1
+        assert anchors[0]["href"] == url.split("?")[0]
+
+    @patch("core.aggregators.utils.twitter.fetch_tweet_data")
+    def test_image_url_with_quote_and_markup_injects_nothing(self, mock_fetch):
+        mock_fetch.return_value = self._tweet_data(
+            media={
+                "photos": [
+                    {"url": 'https://pbs.twimg.com/media/x.jpg"><script>alert(1)</script>'},
+                ],
+            },
+        )
+
+        result = build_tweet_embed_html("https://x.com/user/status/123456")
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find_all("script") == []
+        imgs = soup.find_all("img")
+        assert len(imgs) == 1
+
+    @patch("core.aggregators.utils.twitter.fetch_tweet_data")
+    def test_javascript_tweet_url_is_not_rendered_as_href(self, mock_fetch):
+        mock_fetch.return_value = self._tweet_data()
+
+        result = build_tweet_embed_html("javascript:alert(1)//status/123")
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        for a in soup.find_all("a"):
+            assert not a.get("href", "").lower().startswith("javascript:")
+
+    @patch("core.aggregators.utils.twitter.fetch_tweet_data")
+    def test_javascript_image_url_is_skipped(self, mock_fetch):
+        mock_fetch.return_value = self._tweet_data(
+            media={"photos": [{"url": "javascript:alert(1)"}]},
+        )
+
+        result = build_tweet_embed_html("https://x.com/user/status/123456")
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find_all("img") == []
+
+    @patch("core.aggregators.utils.twitter.fetch_tweet_data")
+    def test_data_image_url_is_skipped(self, mock_fetch):
+        mock_fetch.return_value = self._tweet_data(
+            media={"photos": [{"url": "data:text/html,<script>alert(1)</script>"}]},
+        )
+
+        result = build_tweet_embed_html("https://x.com/user/status/123456")
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find_all("img") == []
+
+    @patch("core.aggregators.utils.twitter.fetch_tweet_data")
+    def test_author_and_text_with_apostrophe_and_script_are_escaped(self, mock_fetch):
+        mock_fetch.return_value = self._tweet_data(
+            text="It's a <script>alert(1)</script> tweet",
+            author={"name": "User", "screen_name": "o'brien"},
+        )
+
+        result = build_tweet_embed_html("https://x.com/user/status/123456")
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find_all("script") == []
+        assert "o'brien" not in result  # raw apostrophe must not survive unescaped
+        assert "@o&#x27;brien" in result
+        text_p = soup.find_all("p")[1]
+        assert text_p.get_text() == "It's a <script>alert(1)</script> tweet"
+
+    @patch("core.aggregators.utils.twitter.fetch_tweet_data")
+    def test_normal_tweet_regression(self, mock_fetch):
+        mock_fetch.return_value = self._tweet_data()
+
+        result = build_tweet_embed_html("https://x.com/user/status/123456")
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        assert len(soup.find_all("blockquote")) == 1
+        anchors = soup.find_all("a")
+        assert len(anchors) == 1
+        assert anchors[0]["href"] == "https://x.com/user/status/123456"
+        assert anchors[0].get_text() == "View on X"
 
 
 class TestHelperFunctions:

@@ -8,11 +8,14 @@ Provides functions for:
 - Extracting images from tweets
 """
 
+import html
 import logging
 import re
 from typing import Any, Dict, List, Optional
 
 import requests
+
+from .block_parser import is_safe_url
 
 logger = logging.getLogger(__name__)
 
@@ -211,12 +214,22 @@ def build_tweet_embed_html(url: str) -> Optional[str]:
         ' margin: 1em 0; background: #f7f9fa;">',
     ]
 
-    # Author line
+    # Author line. clean_url is attacker-reachable (it comes from the source
+    # feed/page URL) and lands inside an href attribute, so it needs both an
+    # escape (quotes could break out of the attribute) and a scheme check
+    # (a well-formed but unescaped `javascript:` URL is an XSS vector that
+    # escaping alone does not fix -- see is_safe_url).
     author_display = f"@{screen_name}" if screen_name else author_name
+    link_html = (
+        f'<a href="{html.escape(clean_url, quote=True)}" target="_blank" rel="noopener">'
+        f"View on X</a>"
+        if is_safe_url(clean_url)
+        else "View on X"
+    )
     parts.append(
         f'<p style="margin: 0 0 8px 0;">'
         f"<strong>{_escape(author_display)}</strong> · "
-        f'<a href="{clean_url}" target="_blank" rel="noopener">View on X</a>'
+        f"{link_html}"
         f"</p>"
     )
 
@@ -224,11 +237,15 @@ def build_tweet_embed_html(url: str) -> Optional[str]:
     if text:
         parts.append(f'<p style="margin: 0 0 8px 0;">{_escape(text)}</p>')
 
-    # Images
+    # Images. Same reasoning as clean_url above: escape for the attribute
+    # context, and skip the image entirely rather than render an unsafe
+    # scheme's URL.
     image_urls = extract_image_urls_from_tweet(data)
     for img_url in image_urls:
+        if not is_safe_url(img_url):
+            continue
         parts.append(
-            f'<p><img src="{img_url}" alt="Tweet image"'
+            f'<p><img src="{html.escape(img_url, quote=True)}" alt="Tweet image"'
             f' style="max-width: 100%; border-radius: 8px;"></p>'
         )
 
@@ -254,10 +271,15 @@ def build_tweet_embed_html(url: str) -> Optional[str]:
 
 
 def _escape(text: str) -> str:
-    """Escape HTML special characters."""
-    return (
-        text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
-    )
+    """Escape HTML special characters.
+
+    Delegates to the stdlib rather than hand-rolling the replace() chain: the
+    old version covered ``&``/``<``/``>``/``"`` but missed ``'``, which is
+    exploitable wherever the escaped value ends up inside a single-quoted
+    attribute (or is used to close out of one). ``html.escape(..., quote=True)``
+    covers all five.
+    """
+    return html.escape(text, quote=True)
 
 
 def _format_count(count: int) -> str:

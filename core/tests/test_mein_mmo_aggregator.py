@@ -1,4 +1,5 @@
 import pytest
+from bs4 import BeautifulSoup, Tag
 
 from core.aggregators.mein_mmo.aggregator import MeinMmoAggregator
 from core.aggregators.utils.block_parser import blocks_from_html
@@ -122,6 +123,138 @@ class TestMeinMmoCommentExtractor:
         from core.aggregators.mein_mmo.comment_extractor import extract_comments
 
         assert extract_comments("<div>no comments here</div>", self.ARTICLE_URL) is None
+
+
+class TestMeinMmoCommentSanitization:
+    """HTML-injection regression tests for scraped wpDiscuz comment rendering.
+
+    Comment HTML is spliced into stored article content with no sanitizer
+    downstream, so these assert on the PARSED structure, not just substring
+    absence, to prove the markup stays well-formed rather than merely
+    pattern-matching escaped text.
+    """
+
+    ARTICLE_URL = "https://mein-mmo.de/some-article/"
+
+    def _comment_el(self, inner_html: str) -> Tag:
+        soup = BeautifulSoup(f'<div class="wpd-comment">{inner_html}</div>', "html.parser")
+        element = soup.select_one("div.wpd-comment")
+        assert element is not None
+        return element
+
+    def test_author_with_script_is_escaped(self):
+        from core.aggregators.mein_mmo.comment_extractor import _process_comment
+
+        el = self._comment_el(
+            """
+            <div class="wpd-comment-right" id="comment-1">
+                <div class="wpd-comment-author">
+                    <a href="#">&lt;script&gt;alert(1)&lt;/script&gt;</a>
+                </div>
+                <div class="wpd-comment-text"><p>Nice comment.</p></div>
+            </div>
+            """
+        )
+
+        result = _process_comment(el, self.ARTICLE_URL)
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find_all("script") == []
+        assert soup.find("strong").get_text() == "<script>alert(1)</script>"
+
+    def test_timestamp_with_quote_and_markup_injects_nothing(self):
+        from core.aggregators.mein_mmo.comment_extractor import _process_comment
+
+        el = self._comment_el(
+            """
+            <div class="wpd-comment-right" id="comment-1">
+                <div class="wpd-comment-author"><a href="#">Spieler1</a></div>
+                <div class="wpd-comment-date" title='"quote" &lt;script&gt;alert(1)&lt;/script&gt;'>
+                    vor 3 Stunden
+                </div>
+                <div class="wpd-comment-text"><p>Nice comment.</p></div>
+            </div>
+            """
+        )
+
+        result = _process_comment(el, self.ARTICLE_URL)
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find_all("script") == []
+        # Exactly one blockquote injected -- no extra element from the timestamp.
+        assert len(soup.find_all("blockquote")) == 1
+
+    def test_content_script_and_onerror_removed_legit_markup_survives(self):
+        from core.aggregators.mein_mmo.comment_extractor import _process_comment
+
+        el = self._comment_el(
+            """
+            <div class="wpd-comment-right" id="comment-1">
+                <div class="wpd-comment-author"><a href="#">Spieler1</a></div>
+                <div class="wpd-comment-text">
+                    <p>Great <strong>comment</strong>!
+                    <a href="https://example.com/ref">link</a></p>
+                    <script>alert(1)</script>
+                    <img src="x.jpg" onerror="alert(2)">
+                </div>
+            </div>
+            """
+        )
+
+        result = _process_comment(el, self.ARTICLE_URL)
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find_all("script") == []
+        assert all("onerror" not in tag.attrs for tag in soup.find_all(True))
+        assert "alert(2)" not in result
+        assert soup.find_all("strong")[-1].get_text() == "comment"
+        ref_link = soup.find("a", href="https://example.com/ref")
+        assert ref_link is not None
+        assert ref_link.get_text() == "link"
+
+    def test_javascript_article_url_not_rendered_as_href(self):
+        from core.aggregators.mein_mmo.comment_extractor import _process_comment
+
+        el = self._comment_el(
+            """
+            <div class="wpd-comment-right" id="comment-1">
+                <div class="wpd-comment-author"><a href="#">Spieler1</a></div>
+                <div class="wpd-comment-text"><p>Nice comment.</p></div>
+            </div>
+            """
+        )
+
+        result = _process_comment(el, "javascript:alert(1)")
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        for a in soup.find_all("a"):
+            assert not a.get("href", "").lower().startswith("javascript:")
+
+    def test_header_link_javascript_article_url_not_rendered_as_href(self):
+        from core.aggregators.mein_mmo.comment_extractor import extract_comments
+
+        result = extract_comments(WPDISCUZ_THREAD, "javascript:alert(1)", max_comments=1)
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        for a in soup.find_all("a"):
+            assert not a.get("href", "").lower().startswith("javascript:")
+
+    def test_normal_comment_regression(self):
+        from core.aggregators.mein_mmo.comment_extractor import extract_comments
+
+        result = extract_comments(WPDISCUZ_THREAD, self.ARTICLE_URL, max_comments=1)
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        assert len(soup.find_all("blockquote")) == 1
+        assert soup.find_all("strong")[0].get_text() == "Spieler1"
+        assert "Erster Kommentar." in result
+        assert soup.find("a", href=f"{self.ARTICLE_URL}#comment-101") is not None
 
 
 @pytest.mark.django_db

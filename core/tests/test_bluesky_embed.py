@@ -194,6 +194,132 @@ class TestBuildBlueskyEmbedHtml:
         assert result is None
 
 
+class TestBuildBlueskyEmbedHtmlSecurity:
+    """HTML-injection regression tests for build_bluesky_embed_html().
+
+    Mirrors TestBuildTweetEmbedHtmlSecurity in test_twitter_embed.py -- asserts
+    on the PARSED structure (BeautifulSoup element counts and attribute
+    values), not just substring absence, so these prove the markup stays
+    well-formed rather than merely pattern-matching escaped text.
+    """
+
+    def _post_data(self, **overrides):
+        data = {
+            "author": {"handle": "user.bsky.social", "displayName": "Test User"},
+            "record": {"text": "Just a normal post.", "createdAt": ""},
+            "likeCount": 10,
+            "repostCount": 2,
+            "replyCount": 0,
+            "embed": {},
+        }
+        data.update(overrides)
+        return data
+
+    @patch("core.aggregators.utils.bluesky.fetch_bluesky_post")
+    def test_post_url_with_quote_is_escaped_in_href(self, mock_fetch):
+        mock_fetch.return_value = self._post_data()
+        url = 'https://bsky.app/profile/user/post/abc"><script>alert(1)</script>'
+
+        result = build_bluesky_embed_html(url)
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find_all("script") == []
+        anchors = soup.find_all("a")
+        assert len(anchors) == 1
+        assert anchors[0]["href"] == url.split("?")[0]
+
+    @patch("core.aggregators.utils.bluesky.fetch_bluesky_post")
+    def test_image_url_with_quote_and_markup_injects_nothing(self, mock_fetch):
+        mock_fetch.return_value = self._post_data(
+            embed={
+                "$type": "app.bsky.embed.images#view",
+                "images": [
+                    {"fullsize": 'https://cdn.bsky.app/img/1.jpg"><script>alert(1)</script>'},
+                ],
+            },
+        )
+
+        result = build_bluesky_embed_html("https://bsky.app/profile/user/post/abc")
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find_all("script") == []
+        assert len(soup.find_all("img")) == 1
+
+    @patch("core.aggregators.utils.bluesky.fetch_bluesky_post")
+    def test_javascript_post_url_is_not_rendered_as_href(self, mock_fetch):
+        mock_fetch.return_value = self._post_data()
+
+        result = build_bluesky_embed_html("javascript:alert(1)//profile/user/post/abc")
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        for a in soup.find_all("a"):
+            assert not a.get("href", "").lower().startswith("javascript:")
+
+    @patch("core.aggregators.utils.bluesky.fetch_bluesky_post")
+    def test_javascript_image_url_is_skipped(self, mock_fetch):
+        mock_fetch.return_value = self._post_data(
+            embed={
+                "$type": "app.bsky.embed.images#view",
+                "images": [{"fullsize": "javascript:alert(1)"}],
+            },
+        )
+
+        result = build_bluesky_embed_html("https://bsky.app/profile/user/post/abc")
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find_all("img") == []
+
+    @patch("core.aggregators.utils.bluesky.fetch_bluesky_post")
+    def test_data_image_url_is_skipped(self, mock_fetch):
+        mock_fetch.return_value = self._post_data(
+            embed={
+                "$type": "app.bsky.embed.images#view",
+                "images": [{"fullsize": "data:text/html,<script>alert(1)</script>"}],
+            },
+        )
+
+        result = build_bluesky_embed_html("https://bsky.app/profile/user/post/abc")
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find_all("img") == []
+
+    @patch("core.aggregators.utils.bluesky.fetch_bluesky_post")
+    def test_author_and_text_with_apostrophe_and_script_are_escaped(self, mock_fetch):
+        mock_fetch.return_value = self._post_data(
+            author={"handle": "o'brien.bsky.social", "displayName": ""},
+            record={"text": "It's a <script>alert(1)</script> post", "createdAt": ""},
+        )
+
+        result = build_bluesky_embed_html("https://bsky.app/profile/user/post/abc")
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find_all("script") == []
+        assert "o'brien" not in result  # raw apostrophe must not survive unescaped
+        assert "@o&#x27;brien.bsky.social" in result
+        text_p = soup.find_all("p")[1]
+        assert text_p.get_text() == "It's a <script>alert(1)</script> post"
+
+    @patch("core.aggregators.utils.bluesky.fetch_bluesky_post")
+    def test_normal_post_regression(self, mock_fetch):
+        mock_fetch.return_value = self._post_data()
+
+        result = build_bluesky_embed_html("https://bsky.app/profile/user/post/abc")
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        assert len(soup.find_all("blockquote")) == 1
+        anchors = soup.find_all("a")
+        assert len(anchors) == 1
+        assert anchors[0]["href"] == "https://bsky.app/profile/user/post/abc"
+        assert anchors[0].get_text() == "View on Bluesky"
+
+
 class TestHelperFunctions:
     """Tests for helper functions."""
 

@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 import pytest
+from bs4 import BeautifulSoup
 
 from core.aggregators.heise.aggregator import HeiseAggregator
 
@@ -160,3 +161,181 @@ class TestHeiseAggregator:
         assert "Comments" in comments
         assert "User1" in comments
         assert "Great article!" in comments
+
+
+@pytest.mark.django_db
+class TestHeiseCommentSanitization:
+    """HTML-injection regression tests for scraped forum-comment rendering.
+
+    Comment HTML is spliced into stored article content with no sanitizer
+    downstream (see ``process_content`` -- ``clean_html()`` already ran on the
+    article body *before* comments are extracted and appended). These assert
+    on the PARSED structure, not just substring absence, so they prove the
+    markup stays well-formed rather than merely pattern-matching escaped text.
+    """
+
+    @pytest.fixture
+    def heise_agg(self, rss_feed):
+        rss_feed.aggregator = "heise"
+        rss_feed.identifier = "https://www.heise.de/rss/heise.rdf"
+        return HeiseAggregator(rss_feed)
+
+    @patch("core.aggregators.heise.aggregator.fetch_html")
+    def test_list_item_author_with_script_is_escaped(self, mock_fetch_html, heise_agg):
+        article_html = """
+        <script type="application/ld+json">
+        {"discussionUrl": "https://www.heise.de/forum/news/1/comments"}
+        </script>
+        """
+        forum_html = """
+        <li class="posting_element">
+            <span class="pseudonym">&lt;script&gt;alert(1)&lt;/script&gt;</span>
+            <a class="posting_subject" href="/forum/thread/1">Normal title</a>
+        </li>
+        """
+        mock_fetch_html.return_value = forum_html
+
+        comments = heise_agg.extract_comments("https://example.com/art", article_html)
+
+        assert comments is not None
+        soup = BeautifulSoup(comments, "html.parser")
+        assert soup.find_all("script") == []
+        assert "<script>alert(1)</script>" not in comments
+        author_p = soup.find("strong")
+        assert author_p.get_text() == "<script>alert(1)</script>"
+
+    @patch("core.aggregators.heise.aggregator.fetch_html")
+    def test_list_item_title_with_quote_and_markup_injects_nothing(
+        self, mock_fetch_html, heise_agg
+    ):
+        article_html = """
+        <script type="application/ld+json">
+        {"discussionUrl": "https://www.heise.de/forum/news/1/comments"}
+        </script>
+        """
+        forum_html = """
+        <li class="posting_element">
+            <span class="pseudonym">User1</span>
+            <a class="posting_subject" href="/forum/thread/1">Nice "quote" &lt;script&gt;alert(1)&lt;/script&gt;</a>
+        </li>
+        """
+        mock_fetch_html.return_value = forum_html
+
+        comments = heise_agg.extract_comments("https://example.com/art", article_html)
+
+        assert comments is not None
+        soup = BeautifulSoup(comments, "html.parser")
+        assert soup.find_all("script") == []
+        # Exactly one blockquote injected -- no extra element from the title.
+        assert len(soup.find_all("blockquote")) == 1
+
+    def test_list_item_javascript_url_not_rendered_as_href(self, heise_agg):
+        soup = BeautifulSoup(
+            '<li class="posting_element">'
+            '<span class="pseudonym">User1</span>'
+            '<a class="posting_subject" href="javascript:alert(1)">Title</a>'
+            "</li>",
+            "html.parser",
+        )
+        el = soup.select_one("li.posting_element")
+
+        result = heise_agg._process_list_item_comment(el)
+
+        assert result is not None
+        result_soup = BeautifulSoup(result, "html.parser")
+        for a in result_soup.find_all("a"):
+            assert not a.get("href", "").lower().startswith("javascript:")
+
+    def test_full_view_content_script_and_onerror_removed_legit_markup_survives(self, heise_agg):
+        soup = BeautifulSoup(
+            """
+            <div id="posting_1">
+                <a href="/forum/heise-online/Meinungen/somebody">Alice</a>
+                <div class="text">
+                    <p>Great <strong>article</strong>!
+                    <a href="https://example.com/ref">link</a></p>
+                    <script>alert(1)</script>
+                    <img src="x.jpg" onerror="alert(2)">
+                </div>
+            </div>
+            """,
+            "html.parser",
+        )
+        el = soup.select_one("#posting_1")
+
+        result = heise_agg._process_full_view_comment(el, 0, "https://example.com/art")
+
+        assert result is not None
+        result_soup = BeautifulSoup(result, "html.parser")
+        # Dangerous parts removed.
+        assert result_soup.find_all("script") == []
+        assert all("onerror" not in tag.attrs for tag in result_soup.find_all(True))
+        assert "alert(2)" not in result
+        # Legitimate markup survives.
+        assert result_soup.find_all("strong")[-1].get_text() == "article"
+        ref_link = result_soup.find("a", href="https://example.com/ref")
+        assert ref_link is not None
+        assert ref_link.get_text() == "link"
+
+    def test_full_view_author_with_script_is_escaped(self, heise_agg):
+        soup = BeautifulSoup(
+            """
+            <div id="posting_1">
+                <a href="/forum/heise-online/Meinungen/somebody">
+                    &lt;script&gt;alert(1)&lt;/script&gt;
+                </a>
+                <div class="text"><p>Some comment body.</p></div>
+            </div>
+            """,
+            "html.parser",
+        )
+        el = soup.select_one("#posting_1")
+
+        result = heise_agg._process_full_view_comment(el, 0, "https://example.com/art")
+
+        assert result is not None
+        result_soup = BeautifulSoup(result, "html.parser")
+        assert result_soup.find_all("script") == []
+
+    def test_full_view_javascript_comment_url_not_rendered_as_href(self, heise_agg):
+        soup = BeautifulSoup(
+            """
+            <div id="posting_1">
+                <a href="/forum/heise-online/Meinungen/somebody">Alice</a>
+                <div class="text"><p>Some comment body.</p></div>
+            </div>
+            """,
+            "html.parser",
+        )
+        el = soup.select_one("#posting_1")
+
+        result = heise_agg._process_full_view_comment(el, 0, "javascript:alert(1)")
+
+        assert result is not None
+        result_soup = BeautifulSoup(result, "html.parser")
+        for a in result_soup.find_all("a"):
+            assert not a.get("href", "").lower().startswith("javascript:")
+
+    @patch("core.aggregators.heise.aggregator.fetch_html")
+    def test_normal_comment_regression(self, mock_fetch_html, heise_agg):
+        article_html = """
+        <script type="application/ld+json">
+        {"discussionUrl": "https://www.heise.de/forum/news/1/comments"}
+        </script>
+        """
+        forum_html = """
+        <div id="posting_1">
+            <a href="/forum/heise-online/Meinungen/somebody">Alice</a>
+            <div class="text"><p>Great <strong>article</strong>!</p></div>
+        </div>
+        """
+        mock_fetch_html.return_value = forum_html
+
+        comments = heise_agg.extract_comments("https://example.com/art", article_html)
+
+        assert comments is not None
+        soup = BeautifulSoup(comments, "html.parser")
+        assert len(soup.find_all("blockquote")) == 1
+        assert soup.find_all("strong")[0].get_text() == "Alice"
+        assert "Great" in comments
+        assert soup.find("a", href="https://example.com/art#posting_1") is not None

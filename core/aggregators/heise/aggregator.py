@@ -1,5 +1,6 @@
 """Heise aggregator implementation."""
 
+import html
 import json
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
@@ -12,10 +13,54 @@ from ..utils import (
     fetch_html,
     format_article_content,
     remove_image_by_url,
+    remove_sanitized_attributes,
     sanitize_class_names,
+    sanitize_html_attributes,
 )
+from ..utils.block_parser import is_safe_url
 from ..utils.youtube import proxy_youtube_embeds
 from ..website import FullWebsiteAggregator
+
+
+def _comment_source_link(url: str) -> str:
+    """Render the "source" link for a scraped comment, or bare text if ``url``
+    uses an unsafe scheme (see ``is_safe_url``) -- escaping alone does not
+    neutralize a well-formed ``javascript:`` href."""
+    if is_safe_url(url):
+        return f'<a href="{html.escape(url, quote=True)}">source</a>'
+    return "source"
+
+
+def _sanitize_comment_html(content_html: str) -> str:
+    """Sanitize a scraped forum comment's *body* HTML before it is spliced
+    into stored article content.
+
+    ``content`` is genuine HTML (a formatted forum post), so it can't just be
+    escaped -- that would turn it into literal text. It must be sanitized
+    instead. ``clean_html()`` alone is NOT enough here: it only strips HTML
+    comments, so a ``<script>``, an ``onerror=`` attribute, or a
+    ``javascript:``/``data:`` href or img src would pass through it
+    untouched. This layers on ``sanitize_html_attributes()`` (already used for
+    the same purpose on Merkur's article body -- removes script/object/embed/
+    style/iframe elements and every ``on*`` attribute) plus an explicit
+    ``is_safe_url`` scheme check on every ``href``/``src``, which
+    ``sanitize_html_attributes`` does not perform.
+    """
+    soup = BeautifulSoup(clean_html(content_html), "html.parser")
+    sanitize_html_attributes(soup)
+    remove_sanitized_attributes(soup)
+
+    for tag in soup.find_all("a"):
+        href = tag.get("href")
+        if href and not is_safe_url(href):
+            del tag["href"]
+
+    for tag in soup.find_all("img"):
+        src = tag.get("src")
+        if src and not is_safe_url(src):
+            tag.decompose()
+
+    return str(soup)
 
 
 class HeiseAggregator(FullWebsiteAggregator):
@@ -364,11 +409,15 @@ class HeiseAggregator(FullWebsiteAggregator):
         title = title_link.get_text(strip=True)
         comment_url = urljoin(self.HEISE_URL, title_link.get("href", ""))
 
+        # author and title are plain scraped text (not HTML) so they are
+        # escaped, not sanitized; comment_url is a scheme-checked href -- see
+        # _comment_source_link / _sanitize_comment_html.
         # Reddit-style styling (clean blockquote)
         return (
             f"<blockquote>"
-            f'<p><strong>{author}</strong> | <a href="{comment_url}">source</a></p>'
-            f"<div><p>{title}</p></div>"
+            f"<p><strong>{html.escape(author, quote=True)}</strong> | "
+            f"{_comment_source_link(comment_url)}</p>"
+            f"<div><p>{html.escape(title, quote=True)}</p></div>"
             f"</blockquote>"
         )
 
@@ -402,10 +451,14 @@ class HeiseAggregator(FullWebsiteAggregator):
         comment_id = el.get("id") or f"comment-{index}"
         comment_url = f"{article_url}#{comment_id}"
 
+        # content is genuine scraped HTML (a forum post body) -- it must be
+        # sanitized, not escaped, or it would render as literal text instead
+        # of markup. See _sanitize_comment_html.
         # Reddit-style styling (clean blockquote)
         return (
             f"<blockquote>"
-            f'<p><strong>{author}</strong> | <a href="{comment_url}">source</a></p>'
-            f"<div>{content}</div>"
+            f"<p><strong>{html.escape(author, quote=True)}</strong> | "
+            f"{_comment_source_link(comment_url)}</p>"
+            f"<div>{_sanitize_comment_html(content)}</div>"
             f"</blockquote>"
         )

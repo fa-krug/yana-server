@@ -2,9 +2,10 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 import pytest
+from bs4 import BeautifulSoup
 
 from core.aggregators.mactechnews.aggregator import MactechnewsAggregator
-from core.aggregators.mactechnews.comment_extractor import extract_comments
+from core.aggregators.mactechnews.comment_extractor import _process_comment, extract_comments
 from core.aggregators.mactechnews.multipage_handler import (
     _build_page_url,
     detect_pagination,
@@ -410,6 +411,127 @@ class TestMactechnewsComments(unittest.TestCase):
         content = enriched[0]["content"]
 
         self.assertNotIn("article-comments", content)
+
+
+class TestMactechnewsCommentSanitization(unittest.TestCase):
+    """HTML-injection regression tests for scraped MacTechNews comment rendering.
+
+    Comment HTML is spliced into stored article content with no sanitizer
+    downstream, so these assert on the PARSED structure, not just substring
+    absence, to prove the markup stays well-formed rather than merely
+    pattern-matching escaped text.
+    """
+
+    ARTICLE_URL = "https://www.mactechnews.de/news/article/Test-186238.html"
+
+    def _comment_el(self, inner_html, comment_id="comment1"):
+        soup = BeautifulSoup(
+            f'<div class="MtnComment" id="{comment_id}">{inner_html}</div>', "html.parser"
+        )
+        return soup.select_one("div.MtnComment")
+
+    def test_author_with_script_is_escaped(self):
+        el = self._comment_el(
+            """
+            <span class="MtnCommentAccountName">&lt;script&gt;alert(1)&lt;/script&gt;</span>
+            <div class="MtnCommentText"><p>Nice comment.</p></div>
+            """
+        )
+
+        result = _process_comment(el, self.ARTICLE_URL)
+
+        self.assertIsNotNone(result)
+        soup = BeautifulSoup(result, "html.parser")
+        self.assertEqual(soup.find_all("script"), [])
+        self.assertEqual(soup.find("strong").get_text(), "<script>alert(1)</script>")
+
+    def test_timestamp_with_quote_and_markup_injects_nothing(self):
+        el = self._comment_el(
+            """
+            <span class="MtnCommentAccountName">Nebula</span>
+            <span class="MtnCommentTime">
+                <span>"quote"</span><span>&lt;script&gt;alert(1)&lt;/script&gt;</span>
+            </span>
+            <div class="MtnCommentText"><p>Nice comment.</p></div>
+            """
+        )
+
+        result = _process_comment(el, self.ARTICLE_URL)
+
+        self.assertIsNotNone(result)
+        soup = BeautifulSoup(result, "html.parser")
+        self.assertEqual(soup.find_all("script"), [])
+        # Exactly one blockquote injected -- no extra element from the timestamp.
+        self.assertEqual(len(soup.find_all("blockquote")), 1)
+
+    def test_content_script_and_onerror_removed_legit_markup_survives(self):
+        el = self._comment_el(
+            """
+            <span class="MtnCommentAccountName">Nebula</span>
+            <div class="MtnCommentText">
+                <p>Great <strong>comment</strong>!
+                <a href="https://example.com/ref">link</a></p>
+                <script>alert(1)</script>
+                <img src="x.jpg" onerror="alert(2)">
+            </div>
+            """
+        )
+
+        result = _process_comment(el, self.ARTICLE_URL)
+
+        self.assertIsNotNone(result)
+        soup = BeautifulSoup(result, "html.parser")
+        self.assertEqual(soup.find_all("script"), [])
+        self.assertTrue(all("onerror" not in tag.attrs for tag in soup.find_all(True)))
+        self.assertNotIn("alert(2)", result)
+        self.assertEqual(soup.find_all("strong")[-1].get_text(), "comment")
+        ref_link = soup.find("a", href="https://example.com/ref")
+        self.assertIsNotNone(ref_link)
+        self.assertEqual(ref_link.get_text(), "link")
+
+    def test_javascript_article_url_not_rendered_as_href(self):
+        el = self._comment_el(
+            """
+            <span class="MtnCommentAccountName">Nebula</span>
+            <div class="MtnCommentText"><p>Nice comment.</p></div>
+            """
+        )
+
+        result = _process_comment(el, "javascript:alert(1)")
+
+        self.assertIsNotNone(result)
+        soup = BeautifulSoup(result, "html.parser")
+        for a in soup.find_all("a"):
+            self.assertFalse(a.get("href", "").lower().startswith("javascript:"))
+
+    def test_header_link_javascript_article_url_not_rendered_as_href(self):
+        with open("core/tests/fixtures/mactechnews.html", "r") as f:
+            fixture_html = f.read()
+
+        result = extract_comments(fixture_html, "javascript:alert(1)", max_comments=1)
+
+        self.assertIsNotNone(result)
+        soup = BeautifulSoup(result, "html.parser")
+        for a in soup.find_all("a"):
+            self.assertFalse(a.get("href", "").lower().startswith("javascript:"))
+
+    def test_normal_comment_regression(self):
+        el = self._comment_el(
+            """
+            <span class="MtnCommentAccountName">Nebula</span>
+            <div class="MtnCommentText"><p>Great <strong>article</strong>!</p></div>
+            """,
+            comment_id="newscomment1636159",
+        )
+
+        result = _process_comment(el, self.ARTICLE_URL)
+
+        self.assertIsNotNone(result)
+        soup = BeautifulSoup(result, "html.parser")
+        self.assertEqual(len(soup.find_all("blockquote")), 1)
+        self.assertEqual(soup.find_all("strong")[0].get_text(), "Nebula")
+        self.assertIn("Great", result)
+        self.assertIsNotNone(soup.find("a", href=f"{self.ARTICLE_URL}#newscomment1636159"))
 
 
 @pytest.mark.django_db
