@@ -135,6 +135,16 @@ def test_unknown_kind_raises(ai_feed):
 
 
 @pytest.mark.django_db
+def test_apply_unknown_kind_raises_value_error_and_leaves_options_untouched(ai_feed):
+    with pytest.raises(ValueError):
+        apply_suggested_selectors(ai_feed, "nonsense")
+
+    ai_feed.refresh_from_db()
+    assert ai_feed.options["content_selectors"] == ["article"]
+    assert ai_feed.options["ignore_selectors"] == [".ad"]
+
+
+@pytest.mark.django_db
 def test_apply_overwrites_only_the_requested_list(ai_feed):
     client = MagicMock()
     client.generate_response.return_value = _ai_response("aside", ".newsletter")

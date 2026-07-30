@@ -196,8 +196,12 @@ def apply_suggested_selectors(feed: Any, kind: SelectorKind) -> tuple[list[str],
         ``(previous, new)`` selector lists.
 
     Raises:
+        ValueError: If ``kind`` is not "content" or "ignore".
         SelectorSuggestionError: On failure -- ``feed.options`` is left untouched.
     """
+    if kind not in OPTION_KEYS:
+        raise ValueError(f"Unknown selector kind: {kind}")
+
     previous = _current_selectors(feed, kind)
     new = suggest_selectors(feed, kind)
 
