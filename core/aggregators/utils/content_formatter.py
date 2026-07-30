@@ -68,7 +68,7 @@ def format_article_content(
     header_html: Optional[str] = None,
 ) -> str:
     """
-    Format article content with an optional header, the main content, and a footer.
+    Format article content with an optional header, the main content, and optional comments.
 
     Note: Title, author, and date are NOT added to the content as these
     are typically handled by the RSS reader client.
@@ -76,7 +76,11 @@ def format_article_content(
     Args:
         content: Main article content HTML
         title: Article title (used for image alt text)
-        url: Article URL (used for footer source link)
+        url: Article URL. Retained for call-site compatibility only -- no longer
+            rendered. The source link used to live in a <footer> here, which
+            block conversion turned into a junk paragraph holding a bare URL at
+            the end of every article. Nothing renders Article.content directly
+            any more, and Article.identifier already carries the URL.
         header_image_url: Optional URL of a header image
         header_caption_html: Optional HTML to display below the header image
         comments_content: Optional HTML content for the comments section
@@ -105,10 +109,5 @@ def format_article_content(
         parts.append(
             f'<section data-sanitized-class="article-comments">{comments_content}</section>'
         )
-
-    # Footer section
-    parts.append(
-        f'<footer><p>Source: <a href="{url}" target="_blank" rel="noopener">{url}</a></p></footer>'
-    )
 
     return "\n\n".join(parts)
