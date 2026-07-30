@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from core.aggregators.utils.html_fetcher import fetch_html
+from core.aggregators.utils.html_fetcher import MAX_FETCH_BYTES, fetch_bytes, fetch_html
 
 
 class TestHtmlFetcher:
@@ -112,3 +112,62 @@ class TestHtmlFetcher:
         fetch_html("https://example.com")
 
         assert mock_response.encoding == "utf-8"
+
+
+class TestFetchBytes:
+    @staticmethod
+    def _streaming_response(chunks, headers=None):
+        response = MagicMock()
+        response.headers = headers if headers is not None else {}
+        response.raise_for_status.return_value = None
+        response.iter_content.return_value = chunks
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
+        return response
+
+    @patch("core.aggregators.utils.html_fetcher.requests.get")
+    def test_fetch_bytes_returns_a_small_body(self, mock_get):
+        mock_get.return_value = self._streaming_response([b"icon", b"-bytes"])
+
+        assert fetch_bytes("https://example.com/favicon.ico") == b"icon-bytes"
+        assert mock_get.call_args.kwargs["stream"] is True
+
+    @patch("core.aggregators.utils.html_fetcher.requests.get")
+    def test_fetch_bytes_refuses_an_oversized_body_without_reading_it_all(self, mock_get):
+        chunk_size = 64 * 1024
+        consumed = 0
+
+        def endless_chunks():
+            nonlocal consumed
+            while True:
+                consumed += 1
+                yield b"x" * chunk_size
+
+        mock_get.return_value = self._streaming_response(endless_chunks())
+
+        with pytest.raises(requests.RequestException, match="too large"):
+            fetch_bytes("https://example.com/huge.png")
+
+        # Aborted as soon as the cap was passed rather than draining the stream.
+        assert consumed <= MAX_FETCH_BYTES // chunk_size + 1
+
+    @patch("core.aggregators.utils.html_fetcher.requests.get")
+    def test_fetch_bytes_refuses_an_oversized_declared_length_without_a_read(self, mock_get):
+        def unexpected_read(*args, **kwargs):
+            raise AssertionError("the body must not be read when Content-Length is over the cap")
+
+        response = self._streaming_response([])
+        response.headers = {"Content-Length": str(MAX_FETCH_BYTES + 1)}
+        response.iter_content.side_effect = unexpected_read
+        mock_get.return_value = response
+
+        with pytest.raises(requests.RequestException, match="too large"):
+            fetch_bytes("https://example.com/huge.png")
+
+    @patch("core.aggregators.utils.html_fetcher.requests.get")
+    def test_fetch_bytes_ignores_a_malformed_content_length(self, mock_get):
+        mock_get.return_value = self._streaming_response(
+            [b"icon"], headers={"Content-Length": "not a number"}
+        )
+
+        assert fetch_bytes("https://example.com/favicon.ico") == b"icon"

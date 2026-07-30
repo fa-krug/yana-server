@@ -19,6 +19,16 @@ logger = logging.getLogger(__name__)
 WHITE_THRESHOLD = 240
 BORDER_WHITE_FRACTION = 0.85
 
+# The flood fill walks pixels in pure Python, so its cost is O(pixels): a
+# 4000x4000 image costs ~25 s of CPU for a response of a few dozen KB, which any
+# site we fetch an icon from could hand us. Above the budget the removal is
+# *skipped* (the caller keeps the original bytes) rather than downscaled: a logo
+# is displayed at icon size, an image this large is not a favicon in the first
+# place, and skipping keeps the stored bytes exactly what the site served
+# instead of a resampled approximation. 512x512 is the largest size real sites
+# declare for an icon or apple-touch-icon.
+MAX_FILL_PIXELS = 512 * 512
+
 
 def _is_white(pixel: tuple[int, ...]) -> bool:
     return all(channel >= WHITE_THRESHOLD for channel in pixel[:3])
@@ -36,20 +46,28 @@ def _border_coords(width: int, height: int) -> Iterator[tuple[int, int]]:
 def remove_white_background(data: bytes) -> bytes | None:
     """PNG bytes with border-connected white cleared, or ``None``.
 
-    ``None`` means "not white-backed" (or undecodable) and tells the caller to
-    keep the original bytes untouched. White *enclosed* by the subject -- the
-    lettering inside a dark circle -- survives, because the fill only reaches
-    white connected to the border.
+    ``None`` means "not white-backed", "larger than ``MAX_FILL_PIXELS``", or
+    "undecodable", and tells the caller to keep the original bytes untouched.
+    White *enclosed* by the subject -- the lettering inside a dark circle --
+    survives, because the fill only reaches white connected to the border.
     """
     try:
         with Image.open(io.BytesIO(data)) as opened:
+            # Checked before convert(): decoding a huge image into RGBA is
+            # itself the expensive part we are trying to avoid.
+            width, height = opened.size
+            if width < 2 or height < 2:
+                return None
+            if width * height > MAX_FILL_PIXELS:
+                logger.info(
+                    f"Skipping background removal for a {width}x{height} image: "
+                    f"over the {MAX_FILL_PIXELS} pixel budget"
+                )
+                return None
+
             image = opened.convert("RGBA")
     except Exception as exc:
         logger.debug(f"Could not decode image for background removal: {exc}")
-        return None
-
-    width, height = image.size
-    if width < 2 or height < 2:
         return None
 
     pixels: Any = image.load()

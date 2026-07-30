@@ -6,11 +6,14 @@ origin. Every tier is best-effort -- a failure means "no logo", never an error
 raised into feed saving.
 """
 
+import io
 import logging
 import os
 from urllib.parse import urlparse
 
 from django.core.files.base import ContentFile
+
+from PIL import Image
 
 from .utils.favicon import resolve_site_icon
 from .utils.html_fetcher import fetch_bytes
@@ -66,6 +69,25 @@ def _logo_filename(feed, source_url: str, is_png: bool) -> str:
     return f"feed-{feed.pk}{extension}"
 
 
+def _decodes_as_image(data: bytes) -> bool:
+    """Whether ``data`` is something Pillow recognizes as an image.
+
+    ``resolve_site_icon`` deliberately returns ``/favicon.ico`` unverified, so a
+    site answering it with an HTML soft-404 would otherwise get that HTML stored
+    as ``feed-<pk>.ico`` and every consumer would render a broken image. Also
+    rejects an SVG icon, which ``Feed.logo`` (an ``ImageField``) could not
+    describe anyway, and a decompression bomb, which Pillow refuses to open.
+    """
+    try:
+        with Image.open(io.BytesIO(data)) as opened:
+            opened.verify()
+    except Exception as exc:
+        logger.warning(f"Downloaded logo is not a decodable image: {exc}")
+        return False
+
+    return True
+
+
 def _delete_stored_file(storage, name: str) -> None:
     """Best-effort delete of ``name`` from ``storage``. Never raises."""
     if not name:
@@ -96,6 +118,12 @@ def store_feed_logo(feed) -> bool:
         data = fetch_bytes(source_url)
     except Exception as exc:
         logger.warning(f"Logo download failed for feed {feed.pk} ({source_url}): {exc}")
+        return False
+
+    if not _decodes_as_image(data):
+        logger.warning(
+            f"Not storing a logo for feed {feed.pk}: {source_url} did not return an image"
+        )
         return False
 
     stripped = remove_white_background(data)

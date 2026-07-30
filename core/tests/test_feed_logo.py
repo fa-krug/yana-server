@@ -197,6 +197,32 @@ def test_store_feed_logo_keeps_the_feed_saveable_when_the_download_fails(user):
 
 
 @pytest.mark.django_db
+def test_store_feed_logo_rejects_a_payload_that_is_not_an_image(user, settings, tmp_path):
+    """A soft-404 HTML body served from /favicon.ico must not become the logo."""
+    settings.MEDIA_ROOT = tmp_path
+    feed = Feed.objects.create(
+        name="Golem", aggregator="full_website", identifier="https://golem.de/rss.php", user=user
+    )
+
+    with (
+        patch(
+            "core.aggregators.feed_logo.resolve_feed_logo_url",
+            return_value="https://golem.de/favicon.ico",
+        ),
+        patch(
+            "core.aggregators.feed_logo.fetch_bytes",
+            return_value=b"<!DOCTYPE html><html><body>Not found</body></html>",
+        ),
+    ):
+        assert store_feed_logo(feed) is False
+
+    feed.refresh_from_db()
+    assert not feed.logo
+    assert feed.logo_source_url == ""
+    assert not any(tmp_path.rglob("feed-*"))
+
+
+@pytest.mark.django_db
 def test_store_feed_logo_is_a_noop_when_nothing_resolves(user):
     feed = Feed.objects.create(
         name="Broken", aggregator="full_website", identifier="not a url", user=user

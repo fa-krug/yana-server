@@ -4,7 +4,7 @@ import io
 
 from PIL import Image
 
-from core.aggregators.utils.logo_background import remove_white_background
+from core.aggregators.utils.logo_background import MAX_FILL_PIXELS, remove_white_background
 
 
 def _png_bytes(image: Image.Image) -> bytes:
@@ -75,3 +75,27 @@ def test_undecodable_bytes_return_none():
 
 def test_empty_bytes_return_none():
     assert remove_white_background(b"") is None
+
+
+def test_image_above_the_pixel_budget_is_left_alone():
+    """A large image skips the fill entirely instead of burning CPU on it."""
+    image = Image.new("RGB", (600, 600), (255, 255, 255))
+    for x in range(100, 500):
+        for y in range(100, 500):
+            image.putpixel((x, y), (20, 20, 20))
+
+    assert remove_white_background(_png_bytes(image)) is None
+
+
+def test_image_at_the_pixel_budget_is_still_processed():
+    """The largest still-plausible favicon size keeps its background removed."""
+    side = int(MAX_FILL_PIXELS**0.5)
+    image = Image.new("RGB", (side, side), (255, 255, 255))
+    for x in range(10, side - 10):
+        for y in range(10, side - 10):
+            image.putpixel((x, y), (20, 20, 20))
+
+    result = remove_white_background(_png_bytes(image))
+
+    assert result is not None
+    assert _load(result).getpixel((0, 0))[3] == 0
