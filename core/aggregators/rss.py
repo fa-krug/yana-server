@@ -4,11 +4,12 @@ from datetime import datetime
 from datetime import timezone as dt_timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from django.utils import timezone
 
 from .base import BaseAggregator
-from .utils import parse_rss_feed
+from .utils import discover_feed_url, parse_rss_feed
 
 
 class RssAggregator(BaseAggregator):
@@ -31,11 +32,28 @@ class RssAggregator(BaseAggregator):
         return articles
 
     def fetch_source_data(self, limit: Optional[int] = None) -> Dict[str, Any]:
-        """Fetch RSS feed data."""
-        self.logger.info(f"Fetching RSS feed: {self.identifier}")
-        data = parse_rss_feed(self.identifier)
+        """Fetch RSS feed data, following a homepage to its advertised feed.
 
-        return data
+        ``parse_rss_feed`` raises ``ValueError`` both when the identifier is not
+        a feed and when it yields zero entries. Either way, if the identifier
+        looks like a page URL, try the feed the page advertises. Best-effort: an
+        identifier with no discoverable feed re-raises the original error, so the
+        outcome stays the existing "no entries" one rather than a new error class.
+        """
+        self.logger.info(f"Fetching RSS feed: {self.identifier}")
+        try:
+            return parse_rss_feed(self.identifier)
+        except ValueError:
+            parsed = urlparse(self.identifier or "")
+            if not parsed.scheme or not parsed.netloc:
+                raise
+
+            discovered = discover_feed_url(self.identifier)
+            if not discovered or discovered == self.identifier:
+                raise
+
+            self.logger.info(f"Discovered feed for {self.identifier}: {discovered}")
+            return parse_rss_feed(discovered)
 
     def parse_to_raw_articles(self, source_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Parse RSS feed items to article dictionaries."""
