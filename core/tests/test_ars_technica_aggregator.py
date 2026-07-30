@@ -76,6 +76,24 @@ class TestArsTechnicaAggregator:
         assert "Share this" not in result
         assert "Sidebar" not in result
 
+    def test_extract_content_falls_back_to_the_rss_summary(self, ars_agg):
+        """A class-name rename on arstechnica.com must not surface the whole
+        page (nav, related-story rail, etc.) as the article body."""
+        html = (
+            "<html><body>"
+            "<nav>Ars Technica Gadgets Science Gaming</nav>"
+            '<div class="unrelated-container">Some other page markup</div>'
+            "</body></html>"
+        )
+
+        result = ars_agg.extract_content(
+            html, {"name": "T", "identifier": "u", "content": "<p>rss summary</p>"}
+        )
+
+        assert result == "<p>rss summary</p>"
+        assert "Ars Technica Gadgets Science Gaming" not in result
+        assert "Some other page markup" not in result
+
     def test_unions_matches_by_design(self):
         assert ArsTechnicaAggregator.uses_first_content_match is False
 

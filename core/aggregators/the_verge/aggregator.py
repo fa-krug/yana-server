@@ -3,10 +3,10 @@
 from typing import Any, List, Optional, Tuple
 
 from ..utils import IFRAME_SANITIZE_SELECTOR
-from ..website import FullWebsiteAggregator
+from ..website import RssSummaryFallbackAggregator
 
 
-class TheVergeAggregator(FullWebsiteAggregator):
+class TheVergeAggregator(RssSummaryFallbackAggregator):
     """Aggregator for The Verge (theverge.com) US tech/culture news."""
 
     THE_VERGE_URL = "https://www.theverge.com"

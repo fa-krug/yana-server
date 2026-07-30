@@ -3,10 +3,10 @@
 from typing import Any, List, Optional, Tuple
 
 from ..utils import IFRAME_SANITIZE_SELECTOR
-from ..website import FullWebsiteAggregator
+from ..website import RssSummaryFallbackAggregator
 
 
-class ArsTechnicaAggregator(FullWebsiteAggregator):
+class ArsTechnicaAggregator(RssSummaryFallbackAggregator):
     """Aggregator for Ars Technica (arstechnica.com) US tech/science news."""
 
     ARS_TECHNICA_URL = "https://arstechnica.com"

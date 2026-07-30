@@ -210,3 +210,35 @@ class FullWebsiteAggregator(RssAggregator):
         )
 
         return formatted
+
+
+class RssSummaryFallbackAggregator(FullWebsiteAggregator):
+    """
+    A ``FullWebsiteAggregator`` whose ``extract_content`` degrades to the RSS
+    summary instead of the whole ``<body>``.
+
+    Mirrors ``HeiseAggregator.extract_content``, minus its Heise-specific
+    empty-element cleanup. Intended for scrapers with one or more dedicated
+    content containers, where a page that doesn't match them -- a paywall
+    gate, a syndicated page on a different domain, a class-name rename on the
+    source site -- must not surface the whole page (site navigation and
+    chrome included) as the article body.
+    """
+
+    def extract_content(self, html: str, article: Dict[str, Any]) -> str:
+        """Extract the dedicated content container(s), or fall back to the RSS summary."""
+        extracted = extract_main_content_if_present(
+            html,
+            content_selectors=self.get_content_selectors(),
+            remove_selectors=self.get_ignore_selectors(),
+            first_match_only=self.uses_first_content_match,
+        )
+
+        if extracted is None:
+            self.logger.info(
+                "[extract_content] No dedicated container matched for %s -- using the RSS summary",
+                article.get("identifier"),
+            )
+            return article.get("content", "")
+
+        return extracted

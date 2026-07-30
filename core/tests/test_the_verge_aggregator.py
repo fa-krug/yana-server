@@ -72,6 +72,24 @@ class TestTheVergeAggregator:
         assert "Subscribe" not in result
         assert "Sidebar" not in result
 
+    def test_extract_content_falls_back_to_the_rss_summary(self, verge_agg):
+        """A class-name rename on theverge.com must not surface the whole page
+        (nav, related-story rail, etc.) as the article body."""
+        html = (
+            "<html><body>"
+            "<nav>The Verge Tech Reviews Science</nav>"
+            '<div class="unrelated-container">Some other page markup</div>'
+            "</body></html>"
+        )
+
+        result = verge_agg.extract_content(
+            html, {"name": "T", "identifier": "u", "content": "<p>rss summary</p>"}
+        )
+
+        assert result == "<p>rss summary</p>"
+        assert "The Verge Tech Reviews Science" not in result
+        assert "Some other page markup" not in result
+
     def test_registry_resolves_the_type(self):
         from core.aggregators.registry import AggregatorRegistry
 
