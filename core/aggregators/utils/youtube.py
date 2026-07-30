@@ -12,8 +12,6 @@ import logging
 import re
 from typing import Optional
 
-from django.conf import settings
-
 from bs4 import BeautifulSoup, Tag
 
 logger = logging.getLogger(__name__)
@@ -92,53 +90,51 @@ def get_youtube_thumbnail_url(video_id: str, quality: str = "maxresdefault") -> 
     return f"https://img.youtube.com/vi/{video_id}/{quality}.jpg"
 
 
-def get_youtube_proxy_url(video_id: str) -> str:
+def build_youtube_facade_html(video_id: str) -> str:
     """
-    Get full YouTube proxy URL for a video.
+    A click-through YouTube facade -- the markup the block parser reads.
+
+    There is no iframe and no proxy endpoint: the client renders the typed
+    `embed` block natively with its own privacy-mode player, so the server's
+    only job is to carry the video id through the HTML stage of the pipeline in
+    a shape `block_parser._embed_facade` recognizes.
+
+    The id is carried twice on purpose. `data-embed` is where iOS's own
+    EmbedRewriter puts it, and the anchor is honest, working markup that also
+    gives the div visible text -- `remove_empty_elements()` prunes a div with no
+    text and no img/iframe/video, which the old iframe used to satisfy.
 
     Args:
         video_id: YouTube video ID
 
     Returns:
-        Full URL to the proxy endpoint
+        HTML string with a youtube-embed-container div and a watch-link anchor
     """
-    return f"{settings.BASE_URL}/api/youtube-proxy?v={video_id}"
+    return (
+        f'<div class="youtube-embed-container" '
+        f'data-embed="https://www.youtube.com/embed/{video_id}">'
+        f'<a href="https://www.youtube.com/watch?v={video_id}" '
+        f'target="_blank" rel="noopener">Watch on YouTube</a>'
+        f"</div>"
+    )
 
 
 def create_youtube_embed_html(video_id: str, caption: str = "") -> str:
     """
-    Create HTML for embedded YouTube video.
-
-    Generates an iframe element that uses a full proxy endpoint for embedding
-    (to avoid embedding YouTube's standard iframe which may have
-    privacy/tracking considerations).
+    A YouTube embed for the article body, with an optional caption appended.
 
     Args:
         video_id: YouTube video ID
-        caption: Optional caption to append after iframe
+        caption: Optional caption to append inside the container
 
     Returns:
-        HTML string with youtube-embed-container div and iframe
+        HTML string with a youtube-embed-container div (see
+        build_youtube_facade_html for why there is no iframe)
     """
-    proxy_url = get_youtube_proxy_url(video_id)
-
-    html = (
-        f'<div class="youtube-embed-container">'
-        f'<iframe src="{proxy_url}" '
-        f'title="YouTube video player" '
-        f'width="560" '
-        f'height="315" '
-        f'frameborder="0" '
-        f'scrolling="no" '
-        f"allowfullscreen></iframe>"
-    )
-
-    if caption:
-        html += caption
-
-    html += "</div>"
-
-    return html
+    facade = build_youtube_facade_html(video_id)
+    if not caption:
+        return facade
+    return facade.replace("</div>", f"{caption}</div>")
 
 
 def is_youtube_url(url: str) -> bool:
@@ -201,10 +197,14 @@ def recover_consent_gated_embeds(soup: BeautifulSoup) -> None:
 
 def proxy_youtube_embeds(soup: BeautifulSoup) -> None:
     """
-    Find and replace YouTube iframes with proxy embeds.
+    Replace publisher YouTube iframes with click-through facades.
+
+    The name is a holdover from when this rewrote iframes into proxied iframes;
+    it now substitutes `build_youtube_facade_html`'s no-iframe markup instead.
+    Kept as-is because several aggregators import it by name.
 
     Consent gates are recovered first so the iframes they hide go through the
-    same proxy rewrite as any other embed.
+    same facade rewrite as any other embed.
 
     Args:
         soup: BeautifulSoup object to modify in-place

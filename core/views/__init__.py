@@ -1,9 +1,7 @@
 """Core application views."""
 
-from .default import dailymotion_proxy_view, health_check, youtube_proxy_view
+from .default import health_check
 
 __all__ = [
-    "dailymotion_proxy_view",
     "health_check",
-    "youtube_proxy_view",
 ]

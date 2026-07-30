@@ -785,7 +785,7 @@ class TestContentFormatterYouTubeEmbed:
     """Test YouTube embed in content formatter."""
 
     def test_format_with_youtube_header(self):
-        """Test that YouTube URLs are rendered as iframe embeds."""
+        """Test that YouTube URLs are rendered as click-through facades, not img tags."""
         from core.aggregators.utils.content_formatter import format_article_content
 
         result = format_article_content(
@@ -795,9 +795,10 @@ class TestContentFormatterYouTubeEmbed:
             header_image_url="https://www.youtube.com/watch?v=sl2YybDiluQ",
         )
 
-        # Should have an iframe embed, not an img tag
-        assert "<iframe" in result
+        # Should have a facade, not an iframe and not an img tag
+        assert "<iframe" not in result
         assert "youtube-embed-container" in result
+        assert "https://www.youtube.com/watch?v=sl2YybDiluQ" in result
         assert '<img src="https://www.youtube.com/watch' not in result
 
     def test_format_with_regular_image_header(self):
@@ -815,7 +816,7 @@ class TestContentFormatterYouTubeEmbed:
         assert "<iframe" not in result
 
     def test_format_with_youtu_be_header(self):
-        """Test that youtu.be short URLs are also rendered as iframes."""
+        """Test that youtu.be short URLs are also rendered as facades."""
         from core.aggregators.utils.content_formatter import format_article_content
 
         result = format_article_content(
@@ -825,7 +826,7 @@ class TestContentFormatterYouTubeEmbed:
             header_image_url="https://youtu.be/sl2YybDiluQ",
         )
 
-        assert "<iframe" in result
+        assert "<iframe" not in result
         assert "youtube-embed-container" in result
 
 

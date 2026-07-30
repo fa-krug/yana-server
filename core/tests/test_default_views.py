@@ -2,6 +2,8 @@ from unittest.mock import patch
 
 from django.test import Client, TestCase
 
+import pytest
+
 
 class TestDefaultViews(TestCase):
     def setUp(self):
@@ -27,27 +29,23 @@ class TestDefaultViews(TestCase):
             self.assertEqual(data["status"], "unhealthy")
             self.assertEqual(data["error"], "DB Down")
 
-    def test_youtube_proxy_view_missing_id(self):
-        """Test proxy view requires video ID."""
-        response = self.client.get("/api/youtube-proxy")
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Missing video ID", response.content.decode())
 
-    def test_youtube_proxy_view_success(self):
-        """Test proxy view returns embed HTML."""
-        response = self.client.get("/api/youtube-proxy?v=dQw4w9WgXcQ")
-        self.assertEqual(response.status_code, 200)
-        content = response.content.decode()
-        self.assertIn("youtube-nocookie.com/embed/dQw4w9WgXcQ", content)
-        self.assertIn("autoplay=0", content)
+class TestProxyViewsRemoved:
+    """The embed proxies served HTML players for the GReader-era article body.
+    Embeds are typed blocks now and the client plays them itself."""
 
-    def test_youtube_proxy_view_params(self):
-        """Test proxy view passes parameters correctly."""
-        url = "/api/youtube-proxy?v=test&autoplay=1&loop=1"
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, 200)
-        content = response.content.decode()
-        self.assertIn("autoplay=1", content)
-        self.assertIn("loop=1", content)
-        # Playlist param is added when loop is 1
-        self.assertIn("playlist=test", content)
+    def test_the_youtube_proxy_route_is_gone(self, client):
+        assert client.get("/api/youtube-proxy?v=abc").status_code in (301, 302, 404)
+
+    def test_the_dailymotion_proxy_route_is_gone(self, client):
+        assert client.get("/api/dailymotion-proxy?v=abc").status_code in (301, 302, 404)
+
+    def test_the_views_are_no_longer_exported(self):
+        import core.views
+
+        assert not hasattr(core.views, "youtube_proxy_view")
+        assert not hasattr(core.views, "dailymotion_proxy_view")
+
+    @pytest.mark.django_db
+    def test_health_check_still_works(self, client):
+        assert client.get("/health/").status_code == 200

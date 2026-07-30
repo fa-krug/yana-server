@@ -237,8 +237,6 @@ def _figure_blocks(element: Tag, base_url: str) -> list[Block]:
     return _convert(element, base_url)
 
 
-_YOUTUBE_PROXY_ID = re.compile(r"/api/youtube-proxy\?(?:.*&)?v=([A-Za-z0-9_-]{6,})")
-_DAILYMOTION_PROXY_ID = re.compile(r"/api/dailymotion-proxy\?(?:.*&)?v=([A-Za-z0-9]+)")
 _YOUTUBE_EMBED_ID = re.compile(r"(?:youtube\.com|youtube-nocookie\.com)/embed/([A-Za-z0-9_-]{6,})")
 _YOUTUBE_WATCH_ID = re.compile(r"(?:youtube\.com/watch\?(?:.*&)?v=|youtu\.be/)([A-Za-z0-9_-]{6,})")
 _DAILYMOTION_VIDEO_ID = re.compile(r"dailymotion\.com/(?:video|embed/video)/([A-Za-z0-9]+)")
@@ -297,12 +295,14 @@ def _embed_facade(element: Tag) -> EmbedBlock | None:
     """
     Recognize this server's YouTube/Dailymotion embed wrappers.
 
-    The video id is read from the proxy iframe's ``src`` first, because that is
-    what the pipeline actually emits (see the module docstring and the plan's
-    deviation 1); a stashed ``data-embed`` payload and a descendant watch link
-    are fallbacks for content that took another route. The result carries the
-    canonical public watch URL, never the proxy path -- the proxy endpoints do
-    not exist any more, and nothing stored may point at them.
+    The video id is read from a stashed ``data-embed`` payload first -- that is
+    what `build_youtube_facade_html`/`build_dailymotion_facade_html` emit, and
+    what the pipeline actually produces now that there is no proxy iframe --
+    with a descendant watch link as a fallback for content that took another
+    route. The result carries the canonical public watch URL. Note there is no
+    proxy-URL fallback: content stored before the proxy was removed that relied
+    solely on a proxy iframe as its id source (no ``data-embed``, no watch link)
+    no longer parses into an embed -- see ``test_a_legacy_proxy_only_facade_yields_no_embed``.
     """
     classes = _class_names(element)
     is_youtube = "youtube-embed" in classes
@@ -314,7 +314,7 @@ def _embed_facade(element: Tag) -> EmbedBlock | None:
     thumbnail = _facade_thumbnail(element)
 
     if is_youtube:
-        video_id = _first_match((_YOUTUBE_PROXY_ID, _YOUTUBE_EMBED_ID, _YOUTUBE_WATCH_ID), markup)
+        video_id = _first_match((_YOUTUBE_EMBED_ID, _YOUTUBE_WATCH_ID), markup)
         if video_id:
             return EmbedBlock(
                 provider="youtube",
@@ -322,7 +322,7 @@ def _embed_facade(element: Tag) -> EmbedBlock | None:
                 thumbnail_ref=thumbnail,
             )
     else:
-        video_id = _first_match((_DAILYMOTION_PROXY_ID, _DAILYMOTION_VIDEO_ID), markup)
+        video_id = _first_match((_DAILYMOTION_VIDEO_ID,), markup)
         if video_id:
             return EmbedBlock(
                 provider="dailymotion",

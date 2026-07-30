@@ -62,13 +62,14 @@ class TestRecoverConsentGatedEmbeds:
 
 
 @pytest.mark.django_db
-class TestRecoveryRunsBeforeTheProxyPass:
-    def test_a_recovered_embed_is_proxied_like_any_other(self):
+class TestRecoveryRunsBeforeTheFacadePass:
+    def test_a_recovered_embed_becomes_a_facade_like_any_other(self):
         soup = BeautifulSoup(_gate("https://www.youtube.com/watch?v=dQw4w9WgXcQ"), "html.parser")
 
         proxy_youtube_embeds(soup)
 
         html = str(soup)
         assert "youtube-embed-container" in html
-        assert "/api/youtube-proxy?v=dQw4w9WgXcQ" in html
+        assert "https://www.youtube.com/watch?v=dQw4w9WgXcQ" in html
+        assert "<iframe" not in html
         assert CONSENT_TEXT not in soup.get_text()

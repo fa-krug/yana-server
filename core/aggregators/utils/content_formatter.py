@@ -6,6 +6,33 @@ from .twitter import build_tweet_embed_html, is_twitter_url
 from .youtube import create_youtube_embed_html, extract_youtube_video_id
 
 
+def build_dailymotion_facade_html(video_id: str) -> str:
+    """
+    A click-through Dailymotion facade -- the markup the block parser reads.
+
+    There is no iframe and no proxy endpoint: the client renders the typed
+    `embed` block natively with its own player, so the server's only job is to
+    carry the video id through the HTML stage of the pipeline in a shape
+    `block_parser._embed_facade` recognizes. See `youtube.build_youtube_facade_html`
+    for the fuller rationale (id carried twice, anchor keeps the div non-empty)
+    -- this mirrors it for Dailymotion, which is why it lives here rather than
+    in `utils/youtube.py`.
+
+    Args:
+        video_id: Dailymotion video ID
+
+    Returns:
+        HTML string with a dailymotion-embed-container div and a watch-link anchor
+    """
+    return (
+        f'<div class="dailymotion-embed-container" '
+        f'data-embed="https://www.dailymotion.com/embed/video/{video_id}">'
+        f'<a href="https://www.dailymotion.com/video/{video_id}" '
+        f'target="_blank" rel="noopener">Watch on Dailymotion</a>'
+        f"</div>"
+    )
+
+
 def build_header_html(
     header_image_url: Optional[str],
     title: str,

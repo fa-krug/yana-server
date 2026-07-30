@@ -4,11 +4,10 @@ import logging
 import re
 from typing import Any, Dict, List
 
-from django.conf import settings
-
 from bs4 import BeautifulSoup, Tag
 
 from ..utils import clean_data_attributes, remove_empty_elements, sanitize_class_names
+from ..utils.content_formatter import build_dailymotion_facade_html
 from .embed_processors import process_embeds
 
 
@@ -112,11 +111,13 @@ def extract_mein_mmo_content(
 
 def process_dailymotion_blocks(content: Tag, logger: logging.Logger) -> None:
     """
-    Convert div.wp-block-mmo-video blocks to playable Dailymotion iframes.
+    Convert div.wp-block-mmo-video blocks to click-through Dailymotion facades.
 
     MeinMMO uses Dailymotion as their video provider. The video blocks contain
     a JavaScript-rendered player with the Dailymotion video ID in a script tag.
-    This function extracts the video ID and replaces the block with an iframe.
+    This function extracts the video ID and replaces the block with a facade
+    (see `build_dailymotion_facade_html`) that the block parser turns into a
+    typed `embed` block for the client's own player.
     """
     video_blocks = content.select("div.wp-block-mmo-video")
     if not video_blocks:
@@ -143,24 +144,18 @@ def process_dailymotion_blocks(content: Tag, logger: logging.Logger) -> None:
         title_div = block.select_one("div.title")
         title = title_div.get_text(strip=True) if title_div else ""
 
-        # Build proxy URL
-        proxy_url = f"{settings.BASE_URL}/api/dailymotion-proxy?v={video_id}"
-
-        # Create iframe
-        iframe = soup.new_tag(
-            "iframe",
-            src=proxy_url,
-            width="560",
-            height="315",
-            frameborder="0",
-            allow="autoplay; web-share",
-            allowfullscreen="true",
-        )
-
-        # Wrap in container div
+        # Wrap in container div. There is no iframe -- see
+        # build_dailymotion_facade_html for why -- so the facade's own markup
+        # (data-embed + watch-link anchor) is parsed into the wrapper directly
+        # rather than built by hand here.
         wrapper = soup.new_tag("div")
         wrapper["class"] = "dailymotion-embed-container"
-        wrapper.append(iframe)
+        fragment = BeautifulSoup(build_dailymotion_facade_html(video_id), "html.parser")
+        facade = fragment.find("div")
+        assert isinstance(facade, Tag)  # build_dailymotion_facade_html always yields one
+        wrapper["data-embed"] = facade["data-embed"]
+        for child in list(facade.children):
+            wrapper.append(child)
 
         # Add title as caption if available
         if title:
@@ -169,7 +164,7 @@ def process_dailymotion_blocks(content: Tag, logger: logging.Logger) -> None:
             wrapper.append(caption)
 
         block.replace_with(wrapper)
-        logger.debug(f"Dailymotion block {idx}: converted to iframe (video={video_id})")
+        logger.debug(f"Dailymotion block {idx}: converted to a facade (video={video_id})")
 
 
 def _extract_dailymotion_video_id(block: Tag) -> str | None:

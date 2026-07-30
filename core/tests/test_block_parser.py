@@ -261,24 +261,22 @@ def test_plain_text_walks_lists_quotes_captions_and_code():
     assert plain_text(blocks_from_html(html)) == "item\n\nquote\n\ncap\n\ncode"
 
 
+# The current facade shape (Task 12): no iframe, id carried in a
+# data-sanitized-embed attribute plus a visible watch-link anchor. Pre-Task-12
+# stored content used a proxy iframe as the sole id source instead -- see
+# LEGACY_PROXY_FACADE below for that shape.
 YOUTUBE_FACADE = (
-    '<div data-sanitized-class="youtube-embed-container">'
-    '<iframe src="https://yana.example/api/youtube-proxy?v=dQw4w9WgXcQ"></iframe>'
+    '<div data-sanitized-class="youtube-embed-container" '
+    'data-sanitized-embed="https://www.youtube.com/embed/dQw4w9WgXcQ">'
+    '<a href="https://www.youtube.com/watch?v=dQw4w9WgXcQ">Watch on YouTube</a>'
     "</div>"
 )
 
 
-def test_youtube_proxy_facade_becomes_a_youtube_embed():
-    assert blocks_from_html(YOUTUBE_FACADE) == [
-        EmbedBlock(
-            provider="youtube",
-            external_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        )
-    ]
-
-
 def test_youtube_facade_is_found_through_an_unsanitized_class():
-    html = YOUTUBE_FACADE.replace("data-sanitized-class", "class")
+    html = YOUTUBE_FACADE.replace("data-sanitized-class", "class").replace(
+        "data-sanitized-embed", "data-embed"
+    )
     assert blocks_from_html(html)[0].provider == "youtube"
 
 
@@ -288,7 +286,11 @@ def test_youtube_facade_is_found_inside_a_header_wrapper():
 
 
 def test_youtube_facade_external_url_never_points_at_the_proxy():
-    """Task 12 deletes the proxy views; nothing stored may reference them."""
+    """Task 12 deletes the proxy views; nothing stored may reference them.
+
+    Now a static regression guard against reintroducing the proxy, not a check
+    on a live path -- there is no proxy id source left to accidentally match.
+    """
     embed = blocks_from_html(YOUTUBE_FACADE)[0]
     assert "youtube-proxy" not in embed.external_url
     assert embed.external_url.startswith("https://www.youtube.com/watch?v=")
@@ -299,7 +301,7 @@ def test_youtube_facade_takes_its_thumbnail_from_a_poster_image():
     html = (
         '<div data-sanitized-class="youtube-embed">'
         f'<img src="{ref}">'
-        '<iframe src="/api/youtube-proxy?v=abcdefghijk"></iframe>'
+        '<iframe src="https://www.youtube.com/embed/abcdefghijk"></iframe>'
         "</div>"
     )
     assert blocks_from_html(html)[0].thumbnail_ref == ref
@@ -324,15 +326,49 @@ def test_youtube_facade_falls_back_to_a_watch_link():
     assert blocks_from_html(html)[0].external_url == "https://www.youtube.com/watch?v=abcdefghijk"
 
 
-def test_dailymotion_proxy_facade_becomes_a_dailymotion_embed():
+def test_a_facade_with_no_iframe_still_yields_an_embed():
+    """Post-proxy markup: the id lives in data-embed and in a watch link, with
+    no iframe anywhere."""
     html = (
-        '<div data-sanitized-class="dailymotion-embed-container">'
-        '<iframe src="https://yana.example/api/dailymotion-proxy?v=x8abcde"></iframe>'
+        '<div data-sanitized-class="youtube-embed-container" '
+        'data-sanitized-embed="https://www.youtube.com/embed/dQw4w9WgXcQ">'
+        '<a href="https://www.youtube.com/watch?v=dQw4w9WgXcQ">Watch on YouTube</a>'
+        "</div>"
+    )
+    assert blocks_from_html(html) == [
+        EmbedBlock(provider="youtube", external_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    ]
+
+
+def test_a_dailymotion_facade_with_no_iframe_still_yields_an_embed():
+    html = (
+        '<div data-sanitized-class="dailymotion-embed-container" '
+        'data-sanitized-embed="https://www.dailymotion.com/embed/video/x8abcde">'
+        '<a href="https://www.dailymotion.com/video/x8abcde">Watch on Dailymotion</a>'
         "</div>"
     )
     assert blocks_from_html(html) == [
         EmbedBlock(provider="dailymotion", external_url="https://www.dailymotion.com/video/x8abcde")
     ]
+
+
+# Pre-Task-12 stored Article.content may have only a proxy iframe as the id
+# source (no data-embed, no watch link -- that is exactly what the old
+# create_youtube_embed_html/proxy_youtube_embeds/mein_mmo producers emitted).
+# Task 12 deletes proxy-URL parsing entirely with no fallback for this shape,
+# so re-parsing such a row (e.g. via the admin re-convert action or
+# `convert_articles_to_blocks --force`) now drops the embed instead of
+# recovering it. Kept as the single explicit guard documenting that accepted
+# trade-off -- see task-12-brief.md Step 7.
+LEGACY_PROXY_FACADE = (
+    '<div data-sanitized-class="youtube-embed-container">'
+    '<iframe src="https://yana.example/api/youtube-proxy?v=dQw4w9WgXcQ"></iframe>'
+    "</div>"
+)
+
+
+def test_a_legacy_proxy_only_facade_yields_no_embed():
+    assert blocks_from_html(LEGACY_PROXY_FACADE) == []
 
 
 def test_unrecognizable_facade_recurses_instead_of_vanishing():

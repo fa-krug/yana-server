@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup, Tag
 
 from ..utils import get_attr_str
 from ..utils.bluesky import build_bluesky_embed_html, is_bluesky_url
-from ..utils.youtube import get_youtube_proxy_url
+from ..utils.youtube import build_youtube_facade_html
 
 
 class EmbedProcessorStrategy(ABC):
@@ -52,21 +52,17 @@ class YouTubeEmbedProcessor(EmbedProcessorStrategy):
         if not video_id:
             return None
 
-        # Create iframe embed
-        iframe = soup.new_tag(
-            "iframe",
-            src=get_youtube_proxy_url(video_id),
-            width="560",
-            height="315",
-            frameborder="0",
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture",
-            allowfullscreen="true",
-        )
-
-        # Wrap in div
+        # Wrap in div. There is no iframe -- see build_youtube_facade_html for
+        # why -- so the facade's own markup (data-embed + watch-link anchor) is
+        # parsed into the wrapper directly rather than built by hand here.
         wrapper = soup.new_tag("div")
         wrapper["data-sanitized-class"] = "youtube-embed"
-        wrapper.append(iframe)
+        fragment = BeautifulSoup(build_youtube_facade_html(video_id), "html.parser")
+        facade = fragment.find("div")
+        assert isinstance(facade, Tag)  # build_youtube_facade_html always yields one
+        wrapper["data-embed"] = facade["data-embed"]
+        for child in list(facade.children):
+            wrapper.append(child)
 
         # Add caption if present
         figcaption = figure.find("figcaption")
@@ -75,7 +71,7 @@ class YouTubeEmbedProcessor(EmbedProcessorStrategy):
             caption.string = figcaption.get_text(strip=True)
             wrapper.append(caption)
 
-        logger.debug(f"Converted YouTube embed to iframe: {video_id}")
+        logger.debug(f"Converted YouTube embed to a facade: {video_id}")
         return wrapper
 
     def _extract_video_id(self, figure: Tag) -> Optional[str]:
@@ -322,21 +318,17 @@ class YouTubeFallbackProcessor(EmbedProcessorStrategy):
             logger.debug("No YouTube video ID extracted from link")
             return None
 
-        # Create iframe embed
-        iframe = soup.new_tag(
-            "iframe",
-            src=get_youtube_proxy_url(video_id),
-            width="560",
-            height="315",
-            frameborder="0",
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture",
-            allowfullscreen="true",
-        )
-
-        # Wrap in div
+        # Wrap in div. There is no iframe -- see build_youtube_facade_html for
+        # why -- so the facade's own markup (data-embed + watch-link anchor) is
+        # parsed into the wrapper directly rather than built by hand here.
         wrapper = soup.new_tag("div")
         wrapper["data-sanitized-class"] = "youtube-embed"
-        wrapper.append(iframe)
+        fragment = BeautifulSoup(build_youtube_facade_html(video_id), "html.parser")
+        facade = fragment.find("div")
+        assert isinstance(facade, Tag)  # build_youtube_facade_html always yields one
+        wrapper["data-embed"] = facade["data-embed"]
+        for child in list(facade.children):
+            wrapper.append(child)
 
         # Add caption if present
         figcaption = figure.find("figcaption")
@@ -345,7 +337,7 @@ class YouTubeFallbackProcessor(EmbedProcessorStrategy):
             caption.string = figcaption.get_text(strip=True)
             wrapper.append(caption)
 
-        logger.debug(f"Converted YouTube link to iframe (fallback): {video_id}")
+        logger.debug(f"Converted YouTube link to a facade (fallback): {video_id}")
         return wrapper
 
     def _extract_video_id(self, url: str) -> Optional[str]:

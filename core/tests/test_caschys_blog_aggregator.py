@@ -174,9 +174,9 @@ class TestCaschysBlogAggregator(unittest.TestCase):
         enriched = self.aggregator.enrich_articles([article])
         content = enriched[0]["content"]
 
-        self.assertIn("<iframe", content)
-        # Check that it was converted to proxy
-        self.assertIn("/api/youtube-proxy?v=vplWD2LRECs", content)
+        # Converted to a click-through facade -- no iframe, no proxy.
+        self.assertNotIn("<iframe", content)
+        self.assertIn("https://www.youtube.com/watch?v=vplWD2LRECs", content)
 
     @patch("core.aggregators.website.FullWebsiteAggregator.extract_header_element")
     @patch("core.aggregators.website.fetch_html")
@@ -208,9 +208,10 @@ class TestCaschysBlogAggregator(unittest.TestCase):
         enriched = self.aggregator.enrich_articles([article])
         content = enriched[0]["content"]
 
-        # Assert allowed iframes are present
-        # YouTube should be proxied
-        self.assertIn("/api/youtube-proxy?v=12345", content)
+        # Assert allowed embeds are present.
+        # YouTube is no longer an iframe -- it becomes a click-through facade.
+        self.assertNotIn('src="https://www.youtube.com/embed/12345"', content)
+        self.assertIn("https://www.youtube.com/watch?v=12345", content)
         self.assertIn('src="https://platform.twitter.com/embed/tweet"', content)
         self.assertIn('src="https://x.com/embed/tweet"', content)
 
