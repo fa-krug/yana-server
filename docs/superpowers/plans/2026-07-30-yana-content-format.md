@@ -747,10 +747,18 @@ def test_headings_map_to_their_level():
     ]
 
 
-def test_heading_level_is_clamped_to_six():
-    # There is no <h7> in HTML, but a malformed document can carry one.
-    assert blocks_from_html("<h7>a</h7>") != []
-    assert all(1 <= b.level <= 6 for b in blocks_from_html("<h6>a</h6>"))
+def test_all_six_heading_levels_map_exactly():
+    for level in range(1, 7):
+        blocks = blocks_from_html(f"<h{level}>a</h{level}>")
+        assert blocks == [Heading(level=level, runs=[InlineRun(text="a")])], level
+
+
+def test_a_bogus_heading_tag_is_treated_as_an_unknown_wrapper():
+    """There is no <h7>, so it recurses like any other unknown tag rather than
+    producing an out-of-range heading. Level clamping itself is enforced on
+    decode (schema) and on write (storage), where out-of-range input is
+    actually reachable."""
+    assert blocks_from_html("<h7>a</h7>") == [Paragraph(runs=[InlineRun(text="a")])]
 
 
 def test_inline_tags_buffer_into_one_paragraph():
