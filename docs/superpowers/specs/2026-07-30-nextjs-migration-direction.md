@@ -437,8 +437,13 @@ a later surprise:
 - `src/test/next-navigation.ts`'s `pathname` module state defaults to `"/"`, and nothing forces a test
   to call `setPathname()` before rendering — a future test that forgets would quietly assert against
   the wrong route. Make the default `undefined` and throw.
-- `breadcrumbsFor` falls back to the raw URL segment, so a planned route like `/feeds/new` will render
-  an untranslated `new`.
+- ~~`breadcrumbsFor` falls back to the raw URL segment, so a planned route like `/feeds/new` will
+  render an untranslated `new`.~~ **Closed.** `ACTION_LABELS` in `src/lib/nav.ts` maps action
+  segments to catalog keys, keyed by segment rather than by full href so one entry covers every
+  resource. `new` is the only entry, because it is the only action that is really a URL segment —
+  the CRUD phases put editing at `/tags/[id]`, not `/tags/[id]/edit`. **When adding a route whose
+  last segment is a word rather than an id, add it there**, or the breadcrumb echoes the URL.
+  Unlisted segments keep rendering verbatim, which is what record ids need.
 - `src/app/(app)/loading.tsx` uses a 4-column `TableSkeleton` for every route in the group, including
   the settings form.
 - `messages.test.ts` checks key parity but not ICU **placeholder** parity — a translation dropping

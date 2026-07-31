@@ -37,4 +37,14 @@ describe("RouteBreadcrumbs", () => {
 
     expect(itemTexts(container)).toEqual(["Übersicht", "Artikel", "42"]);
   });
+
+  it("translates an action segment rather than echoing the URL", () => {
+    // The rendered half of the /tags/new fix: breadcrumbsFor returning a
+    // labelKey is only half the story, since the component still has to put it
+    // through t(). German again -- "New" vs. "new" would prove nothing.
+    setPathname("/tags/new");
+    const { container } = renderWithProviders(<RouteBreadcrumbs />, { locale: "de" });
+
+    expect(itemTexts(container)).toEqual(["Übersicht", "Tags", "Neu"]);
+  });
 });

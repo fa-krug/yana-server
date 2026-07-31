@@ -40,5 +40,5 @@
     "fatalTitle": "Yana could not start",
     "fatalDescription": "The application failed before it could render. Check the server log, then reload."
   },
-  "common": { "save": "Save", "cancel": "Cancel", "loading": "Loading" }
+  "common": { "save": "Save", "cancel": "Cancel", "loading": "Loading", "new": "New" }
 }

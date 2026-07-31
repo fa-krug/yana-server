@@ -25,6 +25,25 @@ describe("breadcrumbsFor", () => {
     expect(crumbs[2]).toEqual({ href: "/feeds/42", label: "42" });
   });
 
+  it("translates an action segment instead of showing it raw", () => {
+    // /tags/new is a real planned route, and `new` is a word the UI has to say,
+    // not an id to echo -- so it carries a catalog key like any other label.
+    const crumbs = breadcrumbsFor("/tags/new");
+    expect(crumbs).toHaveLength(3);
+    expect(crumbs[2]).toEqual({ href: "/tags/new", labelKey: "common.new" });
+  });
+
+  it("matches an action segment under any resource", () => {
+    // Keyed by segment, not by full href: the alternative is one entry per
+    // resource per action in NAV_ITEMS.
+    for (const resource of ["tags", "users", "feeds"]) {
+      expect(breadcrumbsFor(`/${resource}/new`)[2]).toEqual({
+        href: `/${resource}/new`,
+        labelKey: "common.new",
+      });
+    }
+  });
+
   it("does not treat a dot in a record id as a catalog key", () => {
     const crumbs = breadcrumbsFor("/feeds/some.slug.v2");
     expect(crumbs[2]).toEqual({ href: "/feeds/some.slug.v2", label: "some.slug.v2" });

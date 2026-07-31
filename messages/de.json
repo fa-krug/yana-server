@@ -40,5 +40,5 @@
     "fatalTitle": "Yana konnte nicht starten",
     "fatalDescription": "Die Anwendung ist vor dem Rendern fehlgeschlagen. Prüfe das Server-Log und lade die Seite neu."
   },
-  "common": { "save": "Speichern", "cancel": "Abbrechen", "loading": "Wird geladen" }
+  "common": { "save": "Speichern", "cancel": "Abbrechen", "loading": "Wird geladen", "new": "Neu" }
 }
