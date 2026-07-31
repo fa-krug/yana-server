@@ -1,7 +1,6 @@
 "use client";
 
 import { KeyRound } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -10,7 +9,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { signIn } from "@/lib/auth/client";
-import { passkeyErrorKey, passwordErrorKey, type AuthMessageKey } from "@/lib/auth/sign-in-errors";
+import { replaceLocation } from "@/lib/browser-location";
+import {
+  NETWORK_FAILURE,
+  passkeyErrorKey,
+  passwordErrorKey,
+  type AuthMessageKey,
+  type SignInError,
+} from "@/lib/auth/sign-in-errors";
 
 /**
  * Passkey first, password always reachable.
@@ -29,35 +35,63 @@ import { passkeyErrorKey, passwordErrorKey, type AuthMessageKey } from "@/lib/au
  */
 export function LoginForm({ next }: { next: string }) {
   const t = useTranslations("auth");
-  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
 
   /**
-   * `replace`, not `push`: /login must not sit in the history stack behind the
-   * app, or the back button lands a signed-in user on a sign-in form.
-   *
-   * No `router.refresh()` afterwards. It refetches the route the app is on
-   * *now*, which for the moment after a replace() is still /login -- and /login
-   * with a valid session redirects to "/", so refreshing here can race the
-   * navigation and steal the user away from `next`. It is not needed either:
-   * every route in the app is dynamic (session and settings reads), so the
-   * client router's stale time for it is zero and the navigation fetches it
-   * from the server with the cookie the sign-in just set.
+   * A **full document navigation**, not `router.replace()` -- see
+   * `replaceLocation()`. The short version: identity changes here, the root
+   * layout owns the locale and the theme, and a soft navigation never
+   * re-renders it, so the user lands inside chrome rendered for the person they
+   * were a moment ago.
    *
    * `busy` deliberately stays true: the navigation is in flight, and
    * re-enabling the buttons only invites a second sign-in on top of it.
    */
   function goToNext() {
-    router.replace(next);
+    replaceLocation(next);
   }
 
   function fail(key: AuthMessageKey) {
     // The catalog key, never `error.message`. Better Auth's messages are
     // English constants -- see src/lib/auth/sign-in-errors.ts.
+    setBusy(false);
     toast.error(t(key));
+  }
+
+  /**
+   * Run a sign-in call and hand back its error, or `NETWORK_FAILURE` if the
+   * call never produced a response at all.
+   *
+   * **Not defensive: `@better-fetch/fetch` only turns *HTTP* failures into
+   * `{ data, error }`.** The `await fetch(...)` inside it
+   * (`node_modules/@better-fetch/fetch/dist/index.js`) is unwrapped, so a
+   * network-level failure -- the container restarting, the host asleep, DNS
+   * gone -- *rejects* instead. Unhandled, that rejection escapes the click
+   * handler, `setBusy(false)` never runs, and the form sits on "Signing in"
+   * forever with no message and no way back except a reload. On a self-hosted
+   * box "I just restarted it" is the ordinary case, not the exotic one.
+   *
+   * The thrown reason is deliberately dropped rather than shown: it is a
+   * `TypeError: fetch failed` from the platform, which is neither translated
+   * nor useful. It goes to the console, where a browser has already logged the
+   * failed request anyway.
+   */
+  async function attempt(
+    call: () => Promise<{ error?: SignInError | null } | undefined | null>,
+  ): Promise<{ ok: true } | { ok: false; error: SignInError | null }> {
+    try {
+      const result = await call();
+      // Optional-chained, and the same shape in both handlers: the two clients
+      // are typed differently enough that one of them used `result?.error` and
+      // the other `result.error`, which is two contracts for one call shape.
+      return result?.error ? { ok: false, error: result.error } : { ok: true };
+    } catch (error) {
+      console.error("Sign-in request failed before it reached the server", error);
+      return { ok: false, error: NETWORK_FAILURE };
+    }
   }
 
   async function withPasskey() {
@@ -74,12 +108,11 @@ export function LoginForm({ next }: { next: string }) {
     }
 
     setBusy(true);
-    const result = await signIn.passkey();
-    // A cancelled ceremony is the common case, and the password field is what
-    // the user needs next -- so reveal it here too rather than making them find
-    // the button.
-    if (result?.error) {
-      setBusy(false);
+    const result = await attempt(() => signIn.passkey());
+    if (!result.ok) {
+      // A cancelled ceremony is the common case, and the password field is
+      // what the user needs next -- so reveal it here too rather than making
+      // them find the button.
       setShowPassword(true);
       fail(passkeyErrorKey(result.error));
       return;
@@ -90,9 +123,8 @@ export function LoginForm({ next }: { next: string }) {
   async function withPassword(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
-    const result = await signIn.email({ email, password });
-    if (result.error) {
-      setBusy(false);
+    const result = await attempt(() => signIn.email({ email, password }));
+    if (!result.ok) {
       fail(passwordErrorKey(result.error));
       return;
     }

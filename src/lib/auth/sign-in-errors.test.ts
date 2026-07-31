@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import en from "../../../messages/en.json";
 
-import { passkeyErrorKey, passwordErrorKey } from "./sign-in-errors";
+import { NETWORK_FAILURE, passkeyErrorKey, passwordErrorKey } from "./sign-in-errors";
 
 /** Every value these two functions can return has to exist in the catalogs. */
 function resolves(key: string): boolean {
@@ -48,6 +48,20 @@ describe("passkeyErrorKey", () => {
   it("falls back to the generic failure for a server-side error", () => {
     expect(passkeyErrorKey({ code: "UNAUTHORIZED", status: 401 })).toBe("signInFailed");
     expect(passkeyErrorKey({ status: 500 })).toBe("signInFailed");
+  });
+});
+
+describe("NETWORK_FAILURE", () => {
+  it("is a generic failure on both paths", () => {
+    // The request never reached the server, so there is nothing specific to
+    // say -- "try again" is the correct advice, and it must not be mistaken for
+    // wrong credentials or a missing passkey.
+    expect(passwordErrorKey(NETWORK_FAILURE)).toBe("signInFailed");
+    expect(passkeyErrorKey(NETWORK_FAILURE)).toBe("signInFailed");
+  });
+
+  it("does not collide with a real Better Auth code", () => {
+    expect(Object.hasOwn(BASE_ERROR_CODES, NETWORK_FAILURE.code ?? "")).toBe(false);
   });
 });
 

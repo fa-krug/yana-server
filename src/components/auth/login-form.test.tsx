@@ -2,12 +2,14 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import de from "../../../messages/de.json";
-import { navigationCalls, resetNavigation } from "@/test/next-navigation";
 import { renderWithProviders } from "@/test/render";
 
-// The router: framework URL plumbing no unit test can boot. Explicitly outside
-// the no-mocks convention, which is about the database (see CLAUDE.md).
-vi.mock("next/navigation", () => import("@/test/next-navigation"));
+// Signing in is a full document navigation (see src/lib/browser-location.ts),
+// and jsdom cannot perform one -- nor can its Location methods be spied on
+// ("Cannot redefine property: replace"), which is exactly why that one-line
+// module exists. Mocking it is how the destination becomes observable.
+const { replaceLocation } = vi.hoisted(() => ({ replaceLocation: vi.fn() }));
+vi.mock("@/lib/browser-location", () => ({ replaceLocation }));
 
 // The Better Auth client, stubbed at the network boundary. It is an HTTP call
 // to /api/auth/*, not a database read: the real one would need a running
@@ -56,8 +58,13 @@ function renderForm(next = "/") {
   return renderWithProviders(<LoginForm next={next} />, { locale: "de" });
 }
 
+/** Where the component navigated, if it did. */
+function navigatedTo(): string[] {
+  return replaceLocation.mock.calls.map((call) => String(call[0]));
+}
+
 beforeEach(() => {
-  resetNavigation();
+  replaceLocation.mockReset();
   signInEmail.mockReset();
   signInPasskey.mockReset();
   toastError.mockReset();
@@ -93,11 +100,11 @@ describe("LoginForm", () => {
 
     await waitFor(() => expect(signInEmail).toHaveBeenCalledTimes(1));
     expect(signInEmail).toHaveBeenCalledWith({ email: "admin@admin.com", password: "admin" });
-    // replace, not push: /login behind the app means the back button returns a
-    // signed-in user to a sign-in form.
-    await waitFor(() =>
-      expect(navigationCalls()).toEqual([{ method: "replace", href: "/settings" }]),
-    );
+    // A full document load, replacing the history entry: /login behind the app
+    // means the back button returns a signed-in user to a sign-in form, and a
+    // soft navigation would leave the root layout -- locale, theme -- rendered
+    // for the signed-out request.
+    await waitFor(() => expect(navigatedTo()).toEqual(["/settings"]));
     // The password path must not depend on passkey support in any way -- this
     // ran in a jsdom with no PublicKeyCredential at all.
     expect(signInPasskey).not.toHaveBeenCalled();
@@ -123,7 +130,7 @@ describe("LoginForm", () => {
     await waitFor(() => expect(toasts()).toEqual([de.auth.invalidCredentials]));
     expect(toasts()[0]).not.toContain("Invalid email or password");
     // Still on the login page, and still able to try again.
-    expect(navigationCalls()).toEqual([]);
+    expect(navigatedTo()).toEqual([]);
     await waitFor(() =>
       expect(screen.getByRole("button", { name: de.auth.signIn }).hasAttribute("disabled")).toBe(
         false,
@@ -144,6 +151,45 @@ describe("LoginForm", () => {
 
     await waitFor(() => expect(toasts()).toEqual([de.auth.signInFailed]));
     expect(toasts()[0]).not.toContain("SqliteError");
+  });
+
+  it("stays usable when the request never reaches the server", async () => {
+    // Not a hypothetical: @better-fetch/fetch turns HTTP failures into
+    // { data, error } but leaves its own await fetch(...) unwrapped, so a
+    // restarting container or a sleeping host *rejects*. Unhandled, that
+    // rejection escaped the handler, busy was never cleared, and the form sat
+    // on "Signing in" forever with no message -- recoverable only by reloading.
+    signInEmail.mockRejectedValue(new TypeError("fetch failed"));
+    renderForm("/settings");
+
+    revealPassword();
+    typeCredentials("admin@admin.com", "admin");
+    submit();
+
+    await waitFor(() => expect(toasts()).toEqual([de.auth.signInFailed]));
+    // The three things the deadlock took away: a message, a working button,
+    // and no navigation to a page the user is not signed in to.
+    expect(screen.getByRole("button", { name: de.auth.signIn }).hasAttribute("disabled")).toBe(
+      false,
+    );
+    expect(navigatedTo()).toEqual([]);
+    // The platform's "TypeError: fetch failed" is not a translated string and
+    // must not be what the user reads.
+    expect(toasts()[0]).not.toContain("fetch failed");
+  });
+
+  it("stays usable when a passkey request never reaches the server", async () => {
+    Object.defineProperty(window, "PublicKeyCredential", { configurable: true, value: class {} });
+    signInPasskey.mockRejectedValue(new TypeError("fetch failed"));
+    renderForm();
+
+    fireEvent.click(screen.getByRole("button", { name: de.auth.passkeySignIn }));
+
+    await waitFor(() => expect(toasts()).toEqual([de.auth.signInFailed]));
+    expect(
+      screen.getByRole("button", { name: de.auth.passkeySignIn }).hasAttribute("disabled"),
+    ).toBe(false);
+    expect(navigatedTo()).toEqual([]);
   });
 
   it("does not strand a browser without passkeys", async () => {
@@ -177,7 +223,7 @@ describe("LoginForm", () => {
     fireEvent.click(screen.getByRole("button", { name: de.auth.passkeySignIn }));
 
     await waitFor(() => expect(toasts()).toEqual([de.auth.passkeyUnavailable]));
-    expect(navigationCalls()).toEqual([]);
+    expect(navigatedTo()).toEqual([]);
     expect(screen.getByLabelText(de.auth.password)).toBeDefined();
     // Re-enabled: a cancelled ceremony is not a dead end.
     expect(

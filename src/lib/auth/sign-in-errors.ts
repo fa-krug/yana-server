@@ -58,6 +58,19 @@ const PASSKEY_CANCELLED_CODE = "AUTH_CANCELLED";
  */
 const WEBAUTHN_ERROR_PREFIX = "ERROR_";
 
+/**
+ * The stand-in error for a request that never reached the server.
+ *
+ * `@better-fetch/fetch` converts *HTTP* failures into `{ data, error }`, but
+ * leaves its own `await fetch(...)` unwrapped, so a network-level failure
+ * rejects rather than resolving. The caller catches that and passes this in, so
+ * both mappers below see one shape and there is no second "did it throw?"
+ * branch at the call site. Its code is deliberately outside every table here:
+ * a user whose server is unreachable is told to try again, which is exactly
+ * right.
+ */
+export const NETWORK_FAILURE: SignInError = { code: "NETWORK_FAILURE" };
+
 /** The catalog key for a failed password sign-in. */
 export function passwordErrorKey(error: SignInError | null | undefined): AuthMessageKey {
   return error?.code === INVALID_CREDENTIALS_CODE ? "invalidCredentials" : "signInFailed";
