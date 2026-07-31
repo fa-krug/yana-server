@@ -10,7 +10,7 @@ import type { User } from "@/lib/db/schema";
 /**
  * `drizzleAdapter()` takes the database handle by value, but `getDb()` opens
  * the SQLite file on its first call and `data/` does not exist until
- * docker-entrypoint.sh runs its migration step -- so calling `getDb()` while
+ * the server's own startup hook migrates it -- so calling `getDb()` while
  * this module is being imported would make `next build` (which imports every
  * route's module graph) create and open a database on the build machine, and
  * would also defeat the point of the lazy singleton.

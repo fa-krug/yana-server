@@ -12,8 +12,8 @@ import { applyMigrationsAt } from "@/lib/db/test-support";
 /**
  * Real-database test, no driver mocks -- CLAUDE.md's convention, and the same
  * harness src/lib/auth/server.test.ts uses: each test points DATABASE_PATH at
- * its own temp file, migrates it the way docker-entrypoint.sh does
- * (applyMigrationsAt -> migrate()), and vi.resetModules() plus dynamic imports
+ * its own temp file, migrates it through the same applyMigrations() the server
+ * runs at startup (via applyMigrationsAt), and vi.resetModules() plus dynamic imports
  * give every test a clean module-level connection singleton.
  *
  * The assertion that carries the weight is the sign-in one. The phase-3 seeder
@@ -261,5 +261,15 @@ describe("ensureAdminExists", () => {
     ).resolves.toBeDefined();
 
     expect(all<unknown>("SELECT id FROM users WHERE email = 'admin@admin.com'")).toHaveLength(1);
+    // And exactly one credential. The loser falls through to the repair pass,
+    // where `hasPasswordCredential()` reads false while the winner is still
+    // inside scrypt -- so without the in-flight memo both link one, and two
+    // `credential` rows disarm Better Auth's "cannot unlink your last account"
+    // guard: change the password, unlink, and the published default is live
+    // again. A users-only assertion here saw none of that.
+    expect(all<unknown>("SELECT id FROM accounts WHERE provider_id = 'credential'")).toHaveLength(
+      1,
+    );
+    expect(all<unknown>("SELECT id FROM user_settings")).toHaveLength(1);
   });
 });

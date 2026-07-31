@@ -245,7 +245,7 @@ describe("the Better Auth instance", () => {
 
   it("does not open the database while the module is being imported", async () => {
     // `next build` imports every route's module graph, and `data/` does not
-    // exist until docker-entrypoint.sh migrates it -- so an eager getDb() in
+    // exist until the server's startup hook migrates it -- so an eager getDb() in
     // this module would create a database on the build machine. The proxy in
     // server.ts is what keeps it lazy; this is the test that would notice if
     // somebody "simplified" it back to `drizzleAdapter(getDb(), ...)`.

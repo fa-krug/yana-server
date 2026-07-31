@@ -14,7 +14,7 @@ import type { MockInstance } from "vitest";
  * and `runStartupTasks()` has to do all of it.
  *
  * It is the test that replaces "did someone remember to run the migrations".
- * Since the inline `node -e` left docker-entrypoint.sh, this is the only
+ * Since the inline `node -e` left with docker-entrypoint.sh, this is the only
  * migration path there is -- for `next dev`, `next start` and the image alike --
  * so a regression here is a container that boots against an empty database.
  */

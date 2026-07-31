@@ -61,11 +61,24 @@ on first start and migrated automatically; override the path with
 applies every pending migration before it serves its first request, in every
 way it runs.
 
+> **Switching branches upgrades your local database.** Starting the dev server on
+> a branch with newer migrations applies them to `./data/yana.db` there and then,
+> and switching back does not undo it — you are left with a file ahead of the
+> schema that branch expects. Copy `./data/` before trying a branch you care about
+> being able to leave, or point `DATABASE_PATH` at a throwaway file per branch.
+
 The first start also creates an administrator, **`admin@admin.com` / `admin`**,
 and says so in the log. Sign in and change the password: until you do, anyone
-who can reach the server is an administrator. Delete or rename that account and
-it stays gone — the check is "does any admin exist", not "does this address
-exist".
+who can reach the server is an administrator.
+
+The check on every later start is "does **any** admin exist", not "does this
+address exist", so:
+
+- **Rename it** (change the email) and it never comes back — that is how you make
+  the account yours.
+- **Delete it** and, if it was the only admin, the next start creates it again
+  with the same published password — an instance with no administrator is not a
+  state this app can be left in. Promote another user to admin first, then delete.
 
 ## Configuration
 

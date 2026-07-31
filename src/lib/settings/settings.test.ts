@@ -11,8 +11,8 @@ import en from "../../../messages/en.json";
 
 // Real-database test, no driver mocks -- see CLAUDE.md's testing convention
 // and src/lib/auth/bootstrap.test.ts, which this follows. Each test points
-// DATABASE_PATH at its own temp file, migrates it the way docker-entrypoint.sh
-// does (applyMigrationsAt -> migrate()), then exercises the actions/queries
+// DATABASE_PATH at its own temp file, migrates it through the same
+// applyMigrations() the server runs at startup, then exercises the actions/queries
 // through the real getDb()/writeTransaction() singleton.
 //
 // The owner these queries scope to is created by the real admin bootstrap in

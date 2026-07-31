@@ -370,14 +370,22 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     500 on every route** while `next build` and `npm start` stay green.
     `next.config.ts` cuts that single specifier out of the edge layer with
     `IgnorePlugin`. Add startup steps inside `runStartupTasks()`, never a second
-    import in the hook, and re-test `npm run dev` — not just the build — after
-    touching either file.
-  - **A failure at startup is not swallowed**, and the shape is worth knowing:
-    Next logs `Failed to prepare server` plus an unhandled rejection, keeps the
-    process alive and answers 500 to everything, retrying per request. That is
-    the intended outcome for an unusable database (`/health` fails too, so a
-    healthcheck sees it). The single exception is a duplicate-key loss to a
-    concurrent bootstrap, absorbed inside `ensureAdminExists()`.
+    import in the hook. `src/instrumentation.test.ts` is the tripwire: it reads
+    both files and fails if the import list stops matching that regexp, or if
+    `dev` and `build` stop agreeing on `--webpack` (the hook is inert under
+    Turbopack). Nothing else would catch it — CI runs no build and no dev boot,
+    and `next build` never compiles the edge hook at all.
+  - **A startup failure logs and then `process.exit(1)`** — unconditionally, no
+    `NODE_ENV` branch. Left to Next, a thrown `register()` leaves the standalone
+    production server _up_, answering 500 to every route: under compose the
+    `/health` check eventually marks it unhealthy, but a plain `docker run` shows
+    a running container serving nothing. That is the `exit 1` contract
+    `docker-entrypoint.sh` used to provide, restored. The absence of a
+    dev-keeps-running branch is measured, not an oversight: `next dev` **already
+    exits with code 1** when `register()` throws, so such a branch would document
+    behaviour that does not exist. The single failure that reaches neither is a
+    duplicate-key loss to a concurrent bootstrap, absorbed inside
+    `ensureAdminExists()`.
 - **The default admin: `admin@admin.com` / `admin`, created only when no admin
   exists.** Three things are load-bearing. The check is keyed on **"any user
   holds an admin role"** (`ADMIN_ROLES` from `auth/server.ts`, the same list the
@@ -393,7 +401,15 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   purpose) or missing `user_settings` row. That repair is scoped to
   `admin@admin.com` alone — never to an admin phase 5 created or an operator
   renamed — and it is not a licence for the read path to self-heal:
-  `getSettings()` still throws.
+  `getSettings()` still throws. Two hazards live in that repair. It runs behind a
+  single **in-flight promise** on `ensureAdminExists()` (cleared when it settles,
+  so sequential calls still do real work): without it, two concurrent callers
+  both read "no credential" while the first is inside scrypt and mint two
+  `credential` rows — which disarms Better Auth's "cannot unlink your last
+  account" guard and leaves a way back to the published password. And its
+  "can this account sign in" test knows only `accounts.providerId = "credential"`
+  and the `passkeys` table: **a phase adding a social provider must widen it**,
+  or an admin whose only login is OAuth gets the default password minted back.
 - **Theme has two stores:** `localStorage` is authoritative for what is
   _applied_ (next-themes resolves `localStorage.getItem(key) || defaultTheme`);
   the database column is the _portable_ preference that seeds a fresh browser.

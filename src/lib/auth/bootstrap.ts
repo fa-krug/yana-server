@@ -102,6 +102,17 @@ async function completeDefaultAdmin(): Promise<void> {
   const adminId = findDefaultAdminId();
   if (!adminId) return;
 
+  /**
+   * The veto: an account with a passkey is passwordless *on purpose*.
+   *
+   * **Constraint on any future auth provider.** "Can this account sign in" is
+   * decided here by looking at exactly two things -- a `credential` row in
+   * `accounts`, and the `passkeys` table. A phase that adds a social provider
+   * makes that incomplete: an admin at this address whose only login is OAuth
+   * reads as "no way to sign in", and this pass would mint the published
+   * password back for them. Whoever adds a provider must widen this check to
+   * include it (a non-`credential` `accounts` row is the natural test).
+   */
   if (!hasPasswordCredential(adminId) && !hasPasskey(adminId)) {
     await linkPasswordCredential({ userId: adminId, password: DEFAULT_PASSWORD });
     console.warn(
@@ -112,11 +123,40 @@ async function completeDefaultAdmin(): Promise<void> {
   }
 
   if (!hasSettings(adminId)) {
-    writeTransaction((tx) => {
-      tx.insert(userSettings).values({ userId: adminId }).run();
-    });
+    try {
+      writeTransaction((tx) => {
+        tx.insert(userSettings).values({ userId: adminId }).run();
+      });
+    } catch (error) {
+      /**
+       * `user_settings_user_unique` is the backstop for a second *process*
+       * bootstrapping the same file concurrently -- the in-flight memo on
+       * `ensureAdminExists()` collapses concurrent callers within one process,
+       * but it cannot see across processes. Losing that race means the row
+       * exists, which is all this function promised; anything else is real.
+       */
+      if (!hasSettings(adminId)) throw error;
+    }
   }
 }
+
+/**
+ * The single run in flight, so concurrent callers share one rather than racing
+ * each other. Cleared when it settles -- this is **not** a permanent memo: two
+ * sequential calls must each do their work, or "is idempotent" and the repair
+ * cases below would pass without ever exercising the SQL they claim to test
+ * (the mistake phase 3's seeder comment warned about).
+ *
+ * What it prevents is narrower and real: `hasPasswordCredential()` reads `false`
+ * while the other caller is still inside scrypt -- a deliberately slow function,
+ * so the window is wide -- and both link a credential. Two `credential` rows for
+ * one user is not just duplicated password material; it also disarms Better
+ * Auth's "cannot unlink your last account" guard
+ * (`better-auth/dist/api/routes/account.mjs`), so an admin who changes their
+ * password and then unlinks would delete the *new* row and be left signing in
+ * with the published default again.
+ */
+let inFlight: Promise<void> | undefined;
 
 /**
  * Ensure this instance has a usable administrator.
@@ -133,7 +173,14 @@ async function completeDefaultAdmin(): Promise<void> {
  * On a normal boot this is reads only -- an admin exists, and either it is not
  * the default address or it is already complete.
  */
-export async function ensureAdminExists(): Promise<void> {
+export function ensureAdminExists(): Promise<void> {
+  inFlight ??= runEnsureAdminExists().finally(() => {
+    inFlight = undefined;
+  });
+  return inFlight;
+}
+
+async function runEnsureAdminExists(): Promise<void> {
   if (!adminExists()) {
     try {
       await createUserWithPassword({

@@ -21,16 +21,24 @@
  * migrate a database on the build machine. Verified against next@16.2.12; if a
  * future Next drops that guard, this file needs its own `NEXT_PHASE` check.
  *
- * Errors are deliberately **not** swallowed, and it is worth knowing exactly
- * what that looks like, because it was measured rather than assumed: Next wraps
- * the throw as "An error occurred while loading instrumentation hook", logs
- * `Failed to prepare server` plus an unhandled rejection, keeps the process
- * alive, and answers 500 to every route -- re-running (and re-failing) the
- * preparation on each request. Loud and unusable, in other words, which is the
- * honest outcome for a database that cannot be opened or migrated: /health
- * fails too, so a container healthcheck sees it. The one failure that must
- * *not* reach here -- a second concurrent bootstrap losing the `users.email`
- * unique race -- is absorbed inside `ensureAdminExists()` itself.
+ * **A failed startup kills the process.** Deleting docker-entrypoint.sh dropped
+ * a contract nobody had written down -- `set -e` plus `exit 1`, so a container
+ * that could not migrate *died* -- and `process.exit(1)` restores it. What Next
+ * does on its own is worse than it sounds: measured on 16.2.12 with a
+ * deliberately unopenable `DATABASE_PATH`, the standalone production server logs
+ * the failure and then **stays up answering 500 to every route**. Under compose
+ * the `/health` check eventually marks that unhealthy, but a plain `docker run`
+ * shows a *running* container serving nothing, and no restart policy fires.
+ *
+ * No `NODE_ENV` branch, and that is a measured decision rather than an omission:
+ * `next dev` **already exits with code 1** when `register()` throws (same
+ * experiment, dev server, exit code 1 and the port closed), so a "keep the dev
+ * server alive" branch would be a comment describing behaviour that does not
+ * exist. The exit is unconditional so the container path matches what dev does
+ * anyway. Both log first.
+ *
+ * The one failure that must not reach here -- a second concurrent bootstrap
+ * losing the `users.email` race -- is absorbed inside `ensureAdminExists()`.
  */
 export async function register(): Promise<void> {
   // Node runtime only: the edge runtime has no better-sqlite3, and importing
@@ -41,7 +49,23 @@ export async function register(): Promise<void> {
   // One dynamic import, one specifier -- `next.config.ts` cuts exactly this one
   // out of the edge compilation, because webpack follows it regardless of the
   // guard above. Do not add a second import to this file; add the step to
-  // `runStartupTasks()` instead.
+  // `runStartupTasks()` instead. `src/instrumentation.test.ts` fails if this
+  // list ever stops matching the regexp in `next.config.ts`.
   const { runStartupTasks } = await import("@/lib/startup");
-  await runStartupTasks();
+
+  try {
+    await runStartupTasks();
+  } catch (error) {
+    // Logged before exiting: Next's own wrapper renames the message to "An
+    // error occurred while loading instrumentation hook", and nothing would
+    // print the original once the process is on its way out.
+    console.error("Yana could not complete startup (migrations, admin bootstrap).", error);
+
+    process.exit(1);
+
+    // Unreachable in production. Kept so the failure is still a rejection under
+    // a test (or any host) that stubs process.exit, rather than a silent
+    // resolve that would make register() look like it succeeded.
+    throw error;
+  }
 }
