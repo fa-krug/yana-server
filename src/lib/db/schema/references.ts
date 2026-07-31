@@ -32,3 +32,8 @@ export const youtubeChannels = sqliteTable(
     index("youtube_channels_title_idx").on(table.title),
   ],
 );
+
+export type RedditSubreddit = typeof redditSubreddits.$inferSelect;
+export type NewRedditSubreddit = typeof redditSubreddits.$inferInsert;
+export type YoutubeChannel = typeof youtubeChannels.$inferSelect;
+export type NewYoutubeChannel = typeof youtubeChannels.$inferInsert;
