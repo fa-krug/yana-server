@@ -86,6 +86,14 @@ jobs:
           curl -fsS http://localhost:3000/health | tee /dev/stderr | grep -q '"status":"ok"'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/login)" = 200
           test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/)" = 307
+          # Three 2xx/3xx answers only prove the *fatal* form of the class above.
+          # A compilation that fails for one layer can leave the server serving
+          # every route while the log carries the error -- which is the shape the
+          # edge-hook regression took the first time. So the log is a check, not
+          # just something to read: none of these strings may appear in it.
+          # Both bundlers' wordings are covered, since the --webpack pin is one
+          # edit away from being dropped.
+          ! grep -qiE 'Ecmascript file had an error|Module not found|Failed to compile|UnhandledSchemeError|Cannot find module' dev.log
           cat dev.log
 
   # Build AMD64 image (push:false -- see file header).

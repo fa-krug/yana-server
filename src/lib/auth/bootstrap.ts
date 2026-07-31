@@ -68,14 +68,29 @@ function adminExists(): boolean {
     .some(isUsableAdmin);
 }
 
-/** The default account's row, whatever role it currently holds. */
-function findDefaultAdmin():
-  { id: string; role: string; banned: boolean; banExpires: Date | null } | undefined {
+/**
+ * The default account's row, whatever role it currently holds.
+ *
+ * `banReason` is selected even though no decision reads it: it is the only
+ * record of *why* an account was banned, `restoreDefaultAdminRole()` overwrites
+ * it with NULL, and the warning quotes it on the way past so the reason
+ * survives in the log even though the column does not.
+ */
+type DefaultAdminRow = {
+  id: string;
+  role: string;
+  banned: boolean;
+  banReason: string | null;
+  banExpires: Date | null;
+};
+
+function findDefaultAdmin(): DefaultAdminRow | undefined {
   return getDb()
     .select({
       id: users.id,
       role: users.role,
       banned: users.banned,
+      banReason: users.banReason,
       banExpires: users.banExpires,
     })
     .from(users)
@@ -256,20 +271,44 @@ export function ensureAdminExists(): Promise<void> {
  * - It does not fire while any other usable administrator exists, so an
  *   operator who deliberately demoted or banned this account and promoted
  *   somebody else keeps that arrangement across every restart.
+ *
+ * **The warning discloses the ban separately from the role, and quotes
+ * `banReason` before destroying it.** Lifting a ban reverses a deliberate
+ * lockout, which is a different act from correcting a role and has a different
+ * remedy -- re-ban, not demote -- so a message that mentioned only the role
+ * left an operator with no line saying their lockout was gone, and
+ * `ban_reason`, the only record of *why*, overwritten with NULL and written
+ * nowhere. The reason survives in the log even though the column does not.
+ *
+ * The ban sentences are omitted entirely when there was no ban. A warning that
+ * talks about bans on every repair is one a reader learns to skim, and skimming
+ * it is exactly what must not happen the time it matters.
  */
-function restoreDefaultAdminRole(id: string): void {
+function restoreDefaultAdminRole(row: DefaultAdminRow): void {
+  // Read before the write: `banReason` is about to become NULL.
+  const lifted = row.banned;
+  const reason = row.banReason;
+
   writeTransaction((tx) => {
     tx.update(users)
       .set({ role: ADMIN_ROLE, banned: false, banReason: null, banExpires: null })
-      .where(eq(users.id, id))
+      .where(eq(users.id, row.id))
       .run();
   });
 
   console.warn(
     `Yana restored the administrator role on ${DEFAULT_EMAIL}: this instance had no ` +
       `usable admin account, and that address was already taken so a new one could not ` +
-      `be created. If that was not intended, promote the account you want and demote ` +
-      `this one.`,
+      `be created.` +
+      (lifted
+        ? ` It also LIFTED THE BAN on that account (recorded reason: ` +
+          `${reason === null || reason === "" ? "none given" : reason}), because a banned ` +
+          `administrator cannot sign in either. That reason is not stored anywhere else -- ` +
+          `this log line is the only remaining copy.`
+        : "") +
+      ` If that was not intended, promote the account you want and demote this one` +
+      (lifted ? `, then ban it again` : "") +
+      `.`,
   );
 }
 
@@ -284,7 +323,7 @@ async function runEnsureAdminExists(): Promise<void> {
      */
     const existing = findDefaultAdmin();
     if (existing) {
-      restoreDefaultAdminRole(existing.id);
+      restoreDefaultAdminRole(existing);
     } else {
       try {
         await createUserWithPassword({
@@ -331,7 +370,7 @@ async function runEnsureAdminExists(): Promise<void> {
         if (!adminExists()) {
           const raced = findDefaultAdmin();
           if (!raced) throw error;
-          restoreDefaultAdminRole(raced.id);
+          restoreDefaultAdminRole(raced);
         }
       }
     }

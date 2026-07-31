@@ -353,6 +353,82 @@ describe("ensureAdminExists", () => {
     ).toEqual([{ banned: 0, ban_reason: null }]);
   });
 
+  /**
+   * **Lifting a ban has to be disclosed, and the reason has to survive.**
+   *
+   * The repair clears `banned`, `ban_reason` and `ban_expires`, which reverses
+   * a deliberate lockout -- a different act from correcting a role, with a
+   * different remedy. A message naming only the role left the operator with no
+   * line saying their lockout was gone, and destroyed `ban_reason`, the only
+   * record of *why*, writing it nowhere. So the warning says the ban was
+   * lifted, quotes the reason read *before* the overwrite, and adds re-banning
+   * to the remediation advice.
+   */
+  it("discloses a lifted ban, quoting the reason it is about to destroy", async () => {
+    await bootstrap.ensureAdminExists();
+    client.writeTransaction((tx) => {
+      tx.update(schema.users)
+        .set({ banned: true, banReason: "shared credentials with a contractor" })
+        .where(eq(schema.users.email, "admin@admin.com"))
+        .run();
+    });
+    warned.mockClear();
+
+    await bootstrap.ensureAdminExists();
+
+    const message = warned.mock.calls.map(([first]) => String(first)).join("\n");
+    expect(message).toContain("LIFTED THE BAN");
+    // The reason, carried into the log because the column is now NULL. This is
+    // the assertion the column check above cannot make: it can only see that
+    // the reason is gone, not that it was preserved anywhere.
+    expect(message).toContain("shared credentials with a contractor");
+    expect(all<{ ban_reason: string | null }>("SELECT ban_reason FROM users")).toEqual([
+      { ban_reason: null },
+    ]);
+    // And the remedy for a reversed lockout is not the remedy for a wrong role.
+    expect(message).toContain("ban it again");
+  });
+
+  it("does not mention bans when it only fixed a role", async () => {
+    // A warning that talks about bans on every repair is one a reader learns to
+    // skim -- and skimming it is exactly what must not happen the time it
+    // matters. This is the control for the test above.
+    await bootstrap.ensureAdminExists();
+    client.writeTransaction((tx) => {
+      tx.update(schema.users)
+        .set({ role: "user" })
+        .where(eq(schema.users.email, "admin@admin.com"))
+        .run();
+    });
+    warned.mockClear();
+
+    await bootstrap.ensureAdminExists();
+
+    const message = warned.mock.calls.map(([first]) => String(first)).join("\n");
+    expect(message).toContain("restored the administrator role");
+    expect(message).not.toMatch(/ban/i);
+  });
+
+  it("still discloses a lift when no reason was ever recorded", async () => {
+    // `ban_reason` is nullable and the plugin's banUser leaves it unset when the
+    // caller gives none. "none given" is a statement; an empty pair of quotes
+    // reads as a truncated log line.
+    await bootstrap.ensureAdminExists();
+    client.writeTransaction((tx) => {
+      tx.update(schema.users)
+        .set({ banned: true, banReason: null })
+        .where(eq(schema.users.email, "admin@admin.com"))
+        .run();
+    });
+    warned.mockClear();
+
+    await bootstrap.ensureAdminExists();
+
+    const message = warned.mock.calls.map(([first]) => String(first)).join("\n");
+    expect(message).toContain("LIFTED THE BAN");
+    expect(message).toContain("none given");
+  });
+
   it("leaves an admin whose ban has already expired alone", async () => {
     // Better Auth lifts an expired ban on the next sign-in rather than
     // refusing it, so this account is usable and nothing here should fire.
