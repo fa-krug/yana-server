@@ -29,6 +29,68 @@
   "avatar": {
     "label": "Profilbild von {name}"
   },
+  "account": {
+    "title": "Konto",
+    "saveFailed": "Änderungen konnten nicht gespeichert werden",
+    "profile": {
+      "title": "Profil",
+      "description": "Dein Name und deine E-Mail-Adresse. Der Name erscheint in der Seitenleiste und in der Passkey-Abfrage deines Browsers.",
+      "email": "E-Mail-Adresse",
+      "firstName": "Vorname",
+      "lastName": "Nachname",
+      "save": "Profil speichern",
+      "saved": "Profil gespeichert",
+      "emailInvalid": "Das ist keine gültige E-Mail-Adresse.",
+      "emailTaken": "Diese E-Mail-Adresse wird bereits von einem anderen Konto verwendet.",
+      "nameTooLong": "Ein Name darf höchstens 150 Zeichen lang sein."
+    },
+    "avatar": {
+      "title": "Profilbild",
+      "help": "JPEG, PNG, WebP, GIF oder AVIF, höchstens {megabytes} MB und {megapixels} Megapixel. Es wird auf ein Quadrat von {size}×{size} zugeschnitten.",
+      "choose": "Bild auswählen",
+      "uploading": "Wird hochgeladen",
+      "remove": "Bild entfernen",
+      "uploaded": "Profilbild aktualisiert",
+      "removed": "Profilbild entfernt",
+      "noFile": "Wähle zuerst ein Bild aus.",
+      "tooLarge": "Diese Datei ist größer als {megabytes} MB. Wähle ein kleineres Bild.",
+      "rejected": "Dieses Bild konnte nicht verwendet werden. Es muss ein JPEG, PNG, WebP, GIF oder AVIF mit höchstens {megapixels} Megapixeln sein — schneide ein Panorama oder eine hochauflösende Aufnahme vorher zu."
+    },
+    "password": {
+      "title": "Passwort",
+      "description": "Eine Passwortänderung meldet dich überall sonst ab. Hier bleibst du angemeldet.",
+      "current": "Aktuelles Passwort",
+      "new": "Neues Passwort",
+      "confirm": "Neues Passwort bestätigen",
+      "submit": "Passwort ändern",
+      "changing": "Wird geändert",
+      "changed": "Passwort geändert. Andere Geräte wurden abgemeldet.",
+      "mismatch": "Die beiden neuen Passwörter stimmen nicht überein.",
+      "tooShort": "Ein Passwort muss mindestens {min} Zeichen lang sein.",
+      "wrongCurrent": "Das ist nicht dein aktuelles Passwort.",
+      "noCredential": "Dieses Konto hat noch kein Passwort. Bitte eine Administratorin oder einen Administrator, eines zu setzen.",
+      "none": "Dieses Konto meldet sich ausschließlich mit Passkeys an."
+    },
+    "passkeys": {
+      "title": "Passkeys",
+      "description": "Melde dich mit Fingerabdruck, Gesicht oder Geräte-PIN an statt mit einem Passwort.",
+      "add": "Passkey hinzufügen",
+      "adding": "Warte auf dein Gerät",
+      "added": "Passkey hinzugefügt",
+      "addFailed": "Der Passkey wurde nicht hinzugefügt. Bitte versuche es erneut.",
+      "addCancelled": "Es wurde kein Passkey erstellt.",
+      "unsupported": "Dieser Browser unterstützt keine Passkeys.",
+      "none": "Noch keine Passkeys.",
+      "unnamed": "Passkey",
+      "created": "Hinzugefügt am {date}",
+      "remove": "Entfernen",
+      "removeTitle": "Diesen Passkey entfernen?",
+      "removeDescription": "Das zugehörige Gerät kann sich dann nicht mehr bei Yana anmelden. Du kannst es später wieder hinzufügen.",
+      "removed": "Passkey entfernt",
+      "removeFailed": "Der Passkey konnte nicht entfernt werden.",
+      "lastOneNeedsPassword": "Das ist deine einzige Anmeldemöglichkeit. Setze zuerst ein Passwort."
+    }
+  },
   "settings": {
     "title": "Einstellungen",
     "general": { "title": "Allgemein", "theme": "Design", "language": "Sprache" },

@@ -49,10 +49,12 @@ file.
 │   │       ├── loading.tsx        # route-level Suspense fallback
 │   │       ├── page.tsx           # dashboard
 │   │       ├── error.tsx          # error boundary for every route in the group
+│   │       ├── account/page.tsx   # /account — profile, password, passkeys
 │   │       └── settings/page.tsx
 │   ├── components/
 │   │   ├── ui/                    # shadcn components (Base UI + Tailwind v4)
 │   │   ├── auth/                   # login-form.tsx — passkey first, password revealed
+│   │   ├── account/                # profile-, password-, passkey-section.tsx
 │   │   ├── settings/               # general-, library-, about-section.tsx
 │   │   ├── user-avatar.tsx         # image, else initials on a colour from the id
 │   │   ├── app-sidebar.tsx         # navigation, from src/lib/nav.ts
@@ -71,7 +73,8 @@ file.
 │   │   ├── auth/
 │   │   │   ├── roles.ts           # ADMIN_ROLE(S) + isAdminRole() — imports nothing, on purpose
 │   │   │   ├── server.ts          # the Better Auth instance — the single config point
-│   │   │   ├── session.ts         # currentUser/requireUser/requireAdmin/currentUserId
+│   │   │   ├── session.ts         # currentUser/currentUserRow/requireUser/requireAdmin/
+│   │   │   │                      #   refreshSession/currentUserId
 │   │   │   ├── bootstrap.ts       # ensureAdminExists() — the default admin, when none exists
 │   │   │   ├── client.ts          # browser client (signIn/signOut/useSession, passkey)
 │   │   │   ├── next-path.ts       # LOGIN_PATH + safeNextPath() — the open-redirect guard
@@ -85,7 +88,9 @@ file.
 │   │   │   │                      #   articles.ts, jobs.ts — one module per table group
 │   │   │   ├── test-support.ts    # TEST-ONLY: migrate()-based fixture databases
 │   │   │   └── *.test.ts          # client, schema, relations, schema/enums
-│   │   ├── avatar.ts              # initialsFor/colourFor/displayNameFor/avatarUrlFor — imports nothing
+│   │   ├── account/               # queries.ts (getAccountOverview), actions.ts (writes)
+│   │   ├── avatar.ts              # initialsFor/colourFor/displayNameFor/avatarUrlFor/
+│   │   │                          #   safeAvatarSrc + AVATAR_MAX_* — imports nothing
 │   │   ├── avatar-storage.ts      # SERVER-ONLY: processAvatar() (sharp), avatarFilePath(), mediaRoot()
 │   │   ├── browser-location.ts    # replaceLocation() — the one hard navigation, and its test seam
 │   │   ├── nav.ts                 # NAV_ITEMS + breadcrumbsFor() — single source for both
@@ -384,6 +389,57 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     read on every render); authorization may not.
   - **`requireAdmin()` answers 404, not 403.** A 403 confirms the route exists,
     which a non-admin has no reason to learn.
+- **`nextCookies()` is registered last in the plugin array, and removing it
+  breaks a feature silently.** Better Auth writes its cookies into
+  `ctx.context.responseHeaders`; the `/api/auth/*` route turns those into a real
+  `Set-Cookie`, but an `auth.api.*` call from a **server action** has no such
+  response, so without this plugin those headers are dropped. The case that
+  makes it mandatory is `changePassword({ revokeOtherSessions: true })`: it
+  deletes _every_ session including the caller's and mints a replacement, so a
+  dropped cookie signs the user out by changing their own password, under a
+  success toast. It must be **last** — Better Auth's own
+  `warnIfCookiePluginNotLast()` logs when any later plugin declares
+  `hooks.after`. Testing it needs one more thing: vitest externalizes
+  `node_modules`, so `vi.mock("next/headers")` cannot reach the plugin's
+  internal `await import("next/headers.js")` — `vitest.config.ts` inlines that
+  single module for the `node` project, and **every `vi.mock("next/headers")`
+  in this repository must therefore also export `cookies`**, or the hook throws
+  a TypeError it does not catch.
+- **Displaying a user's own columns uses `currentUserRow()`, not
+  `currentUser()`.** The session is served from a five-minute signed cookie and
+  React's per-request `cache()` freezes even that, so after a server action
+  writes to `users` the re-render _that action triggers_ still paints the old
+  values — measured in a browser, where the sidebar footer kept saying "Admin"
+  after the account page saved "Ada Lovelace", and only a full reload fixed it.
+  `currentUserRow()` is one indexed lookup, `cache()`d per request, shared by
+  the (app) layout's footer and `getAccountOverview()`. `requireUser()` /
+  `requireAdmin()` remain the gates; this is a projection called after one.
+  Writes additionally call **`refreshSession()`**, which re-reads with
+  `disableCookieCache: true` so the _cookie_ is honest on the next request —
+  and that rewrite only lands because `nextCookies()` is registered.
+- **`/account` is the one page that writes `users` directly.** Better Auth's
+  `/update-user` is in `disabledPaths` (it accepts an arbitrary `image`), so
+  `src/lib/account/actions.ts` writes the columns through `writeTransaction()`
+  like every other write here — and writes `name` alongside
+  `firstName`/`lastName`, because that is what the browser's passkey chooser
+  displays. Two rules with teeth: **removing an avatar must `unlink` the file**,
+  not just null the column (the media route serves what is on disk and never
+  reads `users.image`), and **the last passkey may be deleted only when a
+  password credential exists** — no self-registration and no mail transport
+  means an account with neither is unreachable without editing SQLite by hand.
+  That guard lives in the server action; the card only decides whether to
+  _offer_ the button.
+- **`/account` has a label but is deliberately not in `NAV_ITEMS`.** It is
+  reached from the sidebar _footer_; `UNLISTED_ROUTES` in `src/lib/nav.ts` is
+  what still gives its breadcrumb a catalog key, without printing a second
+  navigation entry.
+- **next-intl is given an explicit `timeZone` (`process.env.TZ || "UTC"`).**
+  Left unset it falls back to the _environment's_ zone — the container's on the
+  server, the visitor's in the browser — so a date formatted in both places can
+  render one day on the server and another after hydration, and next-intl logs
+  an ENVIRONMENT_FALLBACK warning until one is configured. `src/test/render.tsx`
+  pins `"UTC"` for the same reason: otherwise a date assertion depends on the
+  developer's laptop.
 - **`getSettings()` is `cache()`d per request and has no insert-if-absent
   fallback**: a missing `user_settings` row is a provisioning bug and throws.
   The root layout's two reads are the exception, because a throw there is a 500
@@ -480,7 +536,7 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   be paywalled. The proxy _runs_ for these paths (`media/` is not exempted and
   the raster extensions are off the matcher's list) but only checks that _a_
   session cookie exists, and **a route handler has no layout above it**, so no
-  `requireUser()` is otherwise in its path. Five rules:
+  `requireUser()` is otherwise in its path. Six rules:
   - `requireUser()` inside the handler, **then** compare the requested id to the
     caller's. Being signed in is not authorization to read someone else's file.
   - **The filesystem path is built from the session's id, never from the URL
@@ -570,7 +626,22 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   268 MP, which is no protection. Keep the limits in the function, never in the
   caller: a caller cannot forget what it never had to remember. `sharp` is
   pinned at the same version Next already resolves transitively (`0.34.5`) —
-  bump both together.
+  bump both together. The _numbers_ (`AVATAR_MAX_MEGABYTES`,
+  `AVATAR_MAX_MEGAPIXELS`, `AVATAR_SIZE`) live in `src/lib/avatar.ts` so the
+  account page can **state** them — it is a client component and may not import
+  `avatar-storage` — while `processAvatar()` still applies them. A rejection
+  message must **name the megapixel limit**; "processing failed" is the message
+  this arrangement exists to prevent.
+- **An avatar upload is size-checked in three places, and none of them is
+  redundant.** In order: the client (`profile-section.tsx`) refuses by
+  `File.size` before the round trip; `uploadAvatar()` refuses by the _declared_
+  size before it buffers anything; and then by the real `byteLength` after
+  reading, which is the check that holds against a client that lies. On top of
+  those, **`next.config.ts` must keep `experimental.serverActions.bodySizeLimit`
+  above `AVATAR_MAX_BYTES`.** Next's default caps an action body at 1 MB and
+  rejects it _before the action runs_, so with the default the 2 MB limit was
+  unreachable and an oversized upload produced **no message at all** — found by
+  uploading one, and pinned by a test that compares the two numbers.
 - **`src/lib/avatar.ts` imports nothing, like `auth/roles.ts`.** `<UserAvatar>`
   is rendered from client components as well as the server, so anything
   reachable from it reaches the browser bundle. `sharp` and `node:path` live in
@@ -675,7 +746,10 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   `vitest.config.ts` declares `test.projects` (the vitest 4 mechanism; the
   `workspace` field is gone), both inheriting the `@` alias via `extends: true`:
   - **`node`** — `environment: "node"`, `include: ["src/**/*.test.ts"]`. The
-    real-SQLite library tests above. Keep this glob `.ts`-only.
+    real-SQLite library tests above. Keep this glob `.ts`-only. It also carries
+    the single `server.deps.inline` entry described under `nextCookies()`
+    above — the one place a dependency module is transformed so `vi.mock()` can
+    reach an import made inside it.
   - **`dom`** — `environment: "jsdom"`, `include: ["src/**/*.test.tsx"]`,
     `setupFiles: ["src/test/setup.ts"]`. Component tests, colocated with the
     component; `@testing-library/react` + plain DOM queries and vitest's own

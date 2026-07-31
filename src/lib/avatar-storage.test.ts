@@ -3,9 +3,9 @@ import path from "node:path";
 import sharp from "sharp";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { AVATAR_SIZE } from "./avatar";
 import {
   AVATAR_CONTENT_TYPE,
-  AVATAR_SIZE,
   avatarDirectory,
   avatarFilePath,
   isUserIdShaped,

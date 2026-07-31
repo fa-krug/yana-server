@@ -9,6 +9,31 @@
  * lives in `./avatar-storage`, and nothing in `src/components` may import that.
  */
 
+/**
+ * The upload limits, as plain numbers.
+ *
+ * They live here rather than in `./avatar-storage` for one reason: the account
+ * page has to **state** them ("at most 2 MB", "at most 25 megapixels") and the
+ * account page is a client component, which ESLint forbids from importing
+ * `avatar-storage` at all (sharp, `node:path`). Two hand-written copies of "25"
+ * -- one in a limit and one in a sentence -- is exactly the pair that drifts.
+ *
+ * This does **not** move the enforcement out of `processAvatar()`, which is the
+ * rule CLAUDE.md states: that function still applies `AVATAR_MAX_MEGAPIXELS`
+ * itself, so no caller has to remember it. Only the *number* is shared, and the
+ * reasoning for each value stays next to the code that applies it.
+ *
+ * `AVATAR_MAX_BYTES` is the one limit a caller does apply, because only the
+ * caller has the upload: `uploadAvatar()` in `@/lib/account/actions` checks the
+ * declared size and then the real byte length.
+ */
+export const AVATAR_MAX_MEGABYTES = 2;
+export const AVATAR_MAX_BYTES = AVATAR_MAX_MEGABYTES * 1024 * 1024;
+export const AVATAR_MAX_MEGAPIXELS = 25;
+
+/** The square every avatar is cropped to. Large enough for a 2x 128px render. */
+export const AVATAR_SIZE = 256;
+
 /** The user fields the presentation helpers read. */
 export type AvatarUser = {
   id: string;

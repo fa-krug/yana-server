@@ -17,6 +17,26 @@ const config: NextConfig = {
   // leaving it to be inferred from whatever happens to be above the build
   // directory on a given machine.
   outputFileTracingRoot: __dirname,
+  /**
+   * **The Server Action body cap has to clear the avatar cap, or the avatar
+   * cap is unreachable.** Next rejects an action request body over 1 MB before
+   * the action runs, so `uploadAvatar()`'s 2 MB limit could never be the thing
+   * that refused an upload: a 1.5 MB photograph -- an ordinary one -- died in
+   * the framework with no `{ ok: false }` to translate, and a 3 MB one produced
+   * no toast at all. Found by uploading one, not by reading the docs.
+   *
+   * The value is `AVATAR_MAX_BYTES` (2 MB, `src/lib/avatar.ts`) plus room for
+   * multipart overhead -- boundaries, part headers and field metadata all count
+   * against the raw body, and Next's own guidance is 10-20 kB for a typical
+   * upload. 256 kB of slack is generous and still an order of magnitude below
+   * anything worth calling a DoS surface. **Keep it above `AVATAR_MAX_BYTES`**:
+   * the application's limit is the one that produces a translated message, and
+   * this one exists only so that limit is the first to be hit.
+   */
+  experimental: {
+    serverActions: { bodySizeLimit: "2304kb" },
+  },
+
   // better-sqlite3 is a native addon. Bundling it breaks the .node binding
   // resolution, so it must stay external and be require()d at runtime.
   //

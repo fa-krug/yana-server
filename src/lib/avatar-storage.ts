@@ -2,6 +2,8 @@ import path from "node:path";
 
 import sharp from "sharp";
 
+import { AVATAR_MAX_MEGAPIXELS, AVATAR_SIZE } from "./avatar";
+
 /**
  * Avatar storage: the server-only half of `./avatar`.
  *
@@ -12,9 +14,6 @@ import sharp from "sharp";
 
 /** Every avatar is re-encoded to this, so the served type is a constant. */
 export const AVATAR_CONTENT_TYPE = "image/webp";
-
-/** Square, and large enough for a 2x 128px rendering. */
-export const AVATAR_SIZE = 256;
 
 /**
  * The shape a user id is allowed to have, checked before it is ever joined into
@@ -92,8 +91,12 @@ export function isUserIdShaped(value: string): boolean {
  * normally. That is the line: generous for real photographs, closed for bombs.
  * libvips checks it against the *header* dimensions, so an oversized file is
  * rejected before any pixels are decoded.
+ *
+ * The number itself is `AVATAR_MAX_MEGAPIXELS` in `./avatar`, because the
+ * account page has to name it in a rejection message and may not import this
+ * module. Enforcement stays here; only the digit is shared.
  */
-const MAX_INPUT_PIXELS = 25_000_000;
+const MAX_INPUT_PIXELS = AVATAR_MAX_MEGAPIXELS * 1_000_000;
 
 /**
  * Wall-clock ceiling on the whole pipeline.

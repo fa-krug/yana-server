@@ -24,10 +24,25 @@ vi.mock("next/navigation", () => import("@/test/next-navigation"));
 const { signedInUser } = vi.hoisted(() => ({ signedInUser: { current: {} as User } }));
 vi.mock("@/lib/auth/session", () => ({
   requireUser: () => Promise.resolve(signedInUser.current),
+  // The footer reads the *row*, not the cached session -- see the layout's
+  // comment. Both stubs answer with the same fixture here; what the difference
+  // buys is covered against a real database in src/lib/account/account.test.ts.
+  currentUserRow: () => Promise.resolve(signedInUser.current),
 }));
 
 function signInAs(role: string): void {
-  signedInUser.current = { id: "u1", email: "someone@example.com", role } as User;
+  // The five columns the footer's <UserAvatar> reads, plus the role the nav
+  // filter needs. Real values rather than a bare cast: initialsFor() reads the
+  // two name columns, which are notNull in the schema, so a partial fixture
+  // throws where the app would not.
+  signedInUser.current = {
+    id: "Nu2fXJ3rQKp1sVdWyBz0aLcMhE7tG4iO",
+    email: "someone@example.com",
+    firstName: "Ada",
+    lastName: "Lovelace",
+    image: null,
+    role,
+  } as User;
 }
 
 /**
@@ -73,5 +88,57 @@ describe("the (app) layout", () => {
     // Control: the rest of the navigation is still there, so the assertion
     // above cannot pass because nothing rendered at all.
     expect(container.querySelector('a[href="/settings"]')).not.toBe(null);
+  });
+
+  it("puts a profile entry in the footer, with the name and an avatar", async () => {
+    setPathname("/");
+    signInAs("user");
+
+    const { container } = await renderLayout();
+
+    const profile = container.querySelector('a[href="/account"]');
+    expect(profile).not.toBe(null);
+    expect(profile?.textContent).toContain("Ada Lovelace");
+    // The avatar comes along: <UserAvatar> paints the initials fallback, which
+    // is the whole of what renders before an image load resolves.
+    expect(profile?.querySelector("[data-slot=avatar-fallback]")?.textContent).toBe("AL");
+    // And it is *not* a second navigation item -- the footer is the one place
+    // it appears, which is why /account is absent from NAV_ITEMS.
+    expect(container.querySelectorAll('a[href="/account"]')).toHaveLength(1);
+  });
+
+  it("names an unnamed user by their address in the footer", async () => {
+    // The bootstrap administrator has "" for both name columns, so a naive
+    // `${firstName} ${lastName}` would render a blank row.
+    setPathname("/");
+    signedInUser.current = {
+      ...signedInUser.current,
+      firstName: "",
+      lastName: "",
+    } as User;
+
+    const { container } = await renderLayout();
+
+    expect(container.querySelector('a[href="/account"]')?.textContent).toContain(
+      "someone@example.com",
+    );
+  });
+
+  it("marks the profile entry active on /account and nowhere else", async () => {
+    // Base UI writes a valueless `data-active` for a boolean state, so this
+    // asserts on the attribute's presence rather than on "true".
+    setPathname("/account");
+    signInAs("user");
+    const active = await renderLayout();
+    expect(active.container.querySelector('a[href="/account"]')?.hasAttribute("data-active")).toBe(
+      true,
+    );
+    active.unmount();
+
+    setPathname("/settings");
+    const inactive = await renderLayout();
+    expect(
+      inactive.container.querySelector('a[href="/account"]')?.hasAttribute("data-active"),
+    ).toBe(false);
   });
 });

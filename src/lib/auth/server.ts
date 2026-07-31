@@ -1,6 +1,7 @@
 import { passkey } from "@better-auth/passkey";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { nextCookies } from "better-auth/next-js";
 import { admin } from "better-auth/plugins";
 
 import { getDb } from "@/lib/db/client";
@@ -183,6 +184,33 @@ export const auth = betterAuth({
      * from setting it.
      */
     admin({ defaultRole: "user", adminRoles: ADMIN_ROLES }),
+    /**
+     * **Must stay last, and it is not cosmetic.** Better Auth writes its
+     * cookies into `ctx.context.responseHeaders`; the HTTP route at
+     * `/api/auth/*` turns those into a real `Set-Cookie`, but an `auth.api.*`
+     * call made from a **server action** has no response for the browser to
+     * see, so without this plugin those headers are simply dropped. This hook
+     * copies them into Next's own `cookies()` store, which the action's
+     * response does carry.
+     *
+     * The case that made it mandatory is `changePassword({ revokeOtherSessions:
+     * true })` in `@/lib/account/actions`: it deletes *every* session for the
+     * user -- the caller's included -- then mints a replacement and sets its
+     * cookie. Drop that cookie and the user is silently signed out by changing
+     * their own password, with a success toast on screen. `refreshSession()` in
+     * `./session` depends on it too, for the cookie-cache refresh that makes a
+     * profile edit visible before the 5-minute cache expires.
+     *
+     * Order is enforced by the library itself: `warnIfCookiePluginNotLast()`
+     * (`better-auth/dist/integrations/cookie-plugin-guard.mjs`) logs a warning
+     * when any plugin *after* this one declares `hooks.after`, because those
+     * hooks can set cookies this one has already stopped looking for.
+     *
+     * Harmless everywhere else: the hook's `cookies()` call is wrapped, so
+     * outside a writable scope -- a Server Component render, or a Vitest run
+     * with no request scope at all -- it returns quietly instead of throwing.
+     */
+    nextCookies(),
   ],
 });
 

@@ -73,5 +73,24 @@ export default getRequestConfig(async () => {
     // the browser's is a better guess than a constant.
     locale = await browserLocale();
   }
-  return { locale, messages: (await import(`../../messages/${locale}.json`)).default };
+  return {
+    locale,
+    /**
+     * **An explicit time zone, because the two halves of a render disagree
+     * about the implicit one.** next-intl falls back to the *environment's*
+     * zone, which is the container's `TZ` on the server and the visitor's own
+     * setting in the browser -- so a date formatted in both places (the account
+     * page's passkey list is the first) can render one day on the server and
+     * another after hydration, which React reports as a mismatch. Configuring
+     * one value makes both sides agree by construction, and next-intl logs an
+     * ENVIRONMENT_FALLBACK warning until something does.
+     *
+     * `TZ` rather than a hard-coded zone so a self-hosted operator sets it the
+     * same way they set it for everything else in the container; UTC when they
+     * have not. Per-user time zones are not a thing this application has, and
+     * would need a `user_settings` column before they could be.
+     */
+    timeZone: process.env.TZ || "UTC",
+    messages: (await import(`../../messages/${locale}.json`)).default,
+  };
 });

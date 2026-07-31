@@ -1,3 +1,4 @@
+import type { WebAuthnErrorCode } from "@simplewebauthn/browser";
 import { BASE_ERROR_CODES } from "better-auth";
 import { describe, expect, it } from "vitest";
 
@@ -48,6 +49,48 @@ describe("passkeyErrorKey", () => {
   it("falls back to the generic failure for a server-side error", () => {
     expect(passkeyErrorKey({ code: "UNAUTHORIZED", status: 401 })).toBe("signInFailed");
     expect(passkeyErrorKey({ status: 500 })).toBe("signInFailed");
+  });
+
+  /**
+   * **Pinned to the library's own union, not to a list typed out here.**
+   *
+   * `passkeyErrorKey()` matches on the `ERROR_` *prefix* rather than on named
+   * codes, which is only sound while every member of
+   * `WebAuthnErrorCode` carries it -- and that union belongs to
+   * `@simplewebauthn/browser`, which `@better-auth/passkey` passes through
+   * verbatim (`code: err instanceof WebAuthnError ? err.code : "AUTH_CANCELLED"`).
+   *
+   * The assignment below is the assertion: a release that added, say,
+   * `WEBAUTHN_TIMEOUT` would make it stop compiling, so `npm run typecheck`
+   * catches the drift rather than a user meeting the wrong message. Task 6's
+   * live ceremony confirmed the other half empirically -- Chrome's real
+   * `NotAllowedError` reaches `identifyAuthenticationError()`, comes back as
+   * `ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY`, and lands on `passkeyUnavailable`.
+   */
+  it("covers every code the library can produce", () => {
+    const everyCodeStartsWithTheMatchedPrefix: `ERROR_${string}` =
+      null as unknown as WebAuthnErrorCode;
+    void everyCodeStartsWithTheMatchedPrefix;
+
+    // And the runtime half, over the codes as of @simplewebauthn/browser 13.3.0.
+    const codes: WebAuthnErrorCode[] = [
+      "ERROR_CEREMONY_ABORTED",
+      "ERROR_INVALID_DOMAIN",
+      "ERROR_INVALID_RP_ID",
+      "ERROR_INVALID_USER_ID_LENGTH",
+      "ERROR_MALFORMED_PUBKEYCREDPARAMS",
+      "ERROR_AUTHENTICATOR_GENERAL_ERROR",
+      "ERROR_AUTHENTICATOR_MISSING_DISCOVERABLE_CREDENTIAL_SUPPORT",
+      "ERROR_AUTHENTICATOR_MISSING_USER_VERIFICATION_SUPPORT",
+      "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED",
+      "ERROR_AUTHENTICATOR_NO_SUPPORTED_PUBKEYCREDPARAMS_ALG",
+      "ERROR_AUTO_REGISTER_USER_VERIFICATION_FAILURE",
+      "ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY",
+    ];
+
+    for (const code of codes) {
+      expect(passkeyErrorKey({ code, status: 400 })).toBe("passkeyUnavailable");
+    }
   });
 });
 

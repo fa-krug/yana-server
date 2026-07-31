@@ -1,8 +1,10 @@
+import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
 
-import type { User } from "@/lib/db/schema";
+import { getDb } from "@/lib/db/client";
+import { users, type User } from "@/lib/db/schema";
 
 // LOGIN_PATH is where every `redirect()` below sends an unauthenticated
 // request. `src/proxy.ts` sends the same requests to the same place *with* a
@@ -115,6 +117,68 @@ export async function requireAdmin(): Promise<User> {
   // Same array the `admin()` plugin is configured with -- see ./roles.
   if (!isAdminRole(user.role)) notFound();
   return user;
+}
+
+/**
+ * The signed-in user's **row**, read from `users` rather than from the session.
+ *
+ * `currentUser()` above answers out of a signed cookie for five minutes, and
+ * within one request React's `cache()` freezes even that -- so after a server
+ * action writes to `users`, the re-render that same action triggers still sees
+ * the *old* values. That is not theoretical: the sidebar footer went on showing
+ * "Admin" immediately after the account page saved "Ada Lovelace", and only a
+ * full reload corrected it. Verified in a browser, not reasoned about.
+ *
+ * So anything that *displays* a user's own columns reads them here, and the
+ * cached session is used only for the id to select by -- the one field that
+ * cannot go stale. Authorisation still belongs to `requireUser()` /
+ * `requireAdmin()`; this is a projection, not a gate, and it is called after
+ * one of them.
+ *
+ * One indexed primary-key lookup on the same local SQLite file the request has
+ * open, `cache()`d per request so the (app) layout's footer and the account
+ * page's own read share it. The freshness argument depends on that memo being
+ * *per request*: an action's write lands before the re-render begins, so the
+ * re-render's first call is the one that reads it back.
+ */
+export const currentUserRow = cache(async (): Promise<User> => {
+  const id = (await requireUser()).id;
+  const row = getDb().select().from(users).where(eq(users.id, id)).get();
+  if (!row) {
+    // The session names a user that no longer exists -- an account deleted
+    // while a session was live. Loud, rather than a half-rendered page.
+    throw new Error(`currentUserRow: no users row for the signed-in id "${id}"`);
+  }
+  return row;
+});
+
+/**
+ * Re-read the session from the database and rewrite the session cookie cache.
+ *
+ * **Call this from a server action after any direct write to `users`.**
+ * `currentUser()` is served from a signed cookie for five minutes
+ * (`session.cookieCache`), so a `UPDATE users SET first_name = ...` made
+ * through `writeTransaction()` is *invisible* to every subsequent render until
+ * that cookie expires: the account page saves, the toast says so, and the
+ * sidebar keeps showing the old name for up to five minutes. Nothing throws,
+ * which is what makes it worth a named function rather than a line somewhere.
+ *
+ * `disableCookieCache: true` is what forces the database read; the endpoint
+ * then calls `setCookieCache()` on the way out
+ * (`better-auth/dist/api/routes/session.mjs`), so the refreshed row is what the
+ * next request sees. That rewrite only lands because `nextCookies()` is
+ * registered -- see the plugin comment in `./server`. Outside a server action
+ * (a Server Component render) the write is dropped and this degrades to a plain
+ * read, which is correct: a component may not set cookies.
+ *
+ * Not `cache()`d, deliberately: the point is to *invalidate*, and a memo would
+ * hand back the value the write just superseded.
+ */
+export async function refreshSession(): Promise<void> {
+  await auth.api.getSession({
+    headers: await headers(),
+    query: { disableCookieCache: true },
+  });
 }
 
 /**

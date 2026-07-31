@@ -2,7 +2,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { RouteBreadcrumbs } from "@/components/route-breadcrumbs";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { isAdminRole } from "@/lib/auth/roles";
-import { requireUser } from "@/lib/auth/session";
+import { currentUserRow, requireUser } from "@/lib/auth/session";
 
 /**
  * Chrome, plus the one await the chrome itself depends on.
@@ -22,14 +22,34 @@ import { requireUser } from "@/lib/auth/session";
  *
  * The admin flag is derived here rather than pushed into the component:
  * `AppSidebar` keeps the `isAdmin: boolean` prop phase 3 gave it, so it stays a
- * client component that knows nothing about sessions or roles.
+ * client component that knows nothing about sessions or roles. The footer's
+ * profile entry gets the same treatment -- five named columns, not the `User`
+ * row, so nothing beyond what it renders is serialized into the RSC payload of
+ * every page.
+ *
+ * Those five columns come from `currentUserRow()`, **not** from `user` above.
+ * `requireUser()` answers out of a five-minute session cookie cache that
+ * React's per-request `cache()` freezes further, so the re-render a profile
+ * save triggers would still paint the name the save replaced -- measured in a
+ * browser, not guessed. The row read is one indexed lookup on a file this
+ * request already has open.
  */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
+  const profile = await currentUserRow();
 
   return (
     <SidebarProvider>
-      <AppSidebar isAdmin={isAdminRole(user.role)} />
+      <AppSidebar
+        isAdmin={isAdminRole(user.role)}
+        user={{
+          id: profile.id,
+          firstName: profile.firstName,
+          lastName: profile.lastName,
+          email: profile.email,
+          image: profile.image,
+        }}
+      />
       <SidebarInset>
         <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 md:px-4">
           <SidebarTrigger />

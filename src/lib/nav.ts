@@ -40,7 +40,21 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/settings", labelKey: "nav.settings", icon: Settings, adminOnly: false },
 ];
 
-const LABELS = new Map<string, NavLabelKey>(NAV_ITEMS.map((item) => [item.href, item.labelKey]));
+/**
+ * Routes that have a label but deliberately no sidebar entry.
+ *
+ * `/account` is reached from the sidebar *footer*, not the navigation list, so
+ * putting it in NAV_ITEMS would print it twice. It still needs a label: without
+ * one, `breadcrumbsFor("/account")` falls through to the record-id branch and
+ * the breadcrumb reads the raw segment "account" in every language.
+ */
+const UNLISTED_ROUTES: readonly { href: string; labelKey: NavLabelKey }[] = [
+  { href: "/account", labelKey: "nav.account" },
+];
+
+const LABELS = new Map<string, NavLabelKey>(
+  [...NAV_ITEMS, ...UNLISTED_ROUTES].map((item) => [item.href, item.labelKey]),
+);
 
 /** Any catalog key a breadcrumb may carry: a route label or an action label. */
 export type CrumbLabelKey = Extract<CatalogKey, `nav.${string}` | `common.${string}`>;

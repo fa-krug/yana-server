@@ -29,6 +29,68 @@
   "avatar": {
     "label": "Avatar of {name}"
   },
+  "account": {
+    "title": "Account",
+    "saveFailed": "Could not save your changes",
+    "profile": {
+      "title": "Profile",
+      "description": "Your name and email address. The name is shown in the sidebar and in your browser's passkey prompt.",
+      "email": "Email",
+      "firstName": "First name",
+      "lastName": "Last name",
+      "save": "Save profile",
+      "saved": "Profile saved",
+      "emailInvalid": "That is not a valid email address.",
+      "emailTaken": "Another account already uses that email address.",
+      "nameTooLong": "A name may be at most 150 characters."
+    },
+    "avatar": {
+      "title": "Picture",
+      "help": "JPEG, PNG, WebP, GIF or AVIF, at most {megabytes} MB and {megapixels} megapixels. It is cropped to a {size}×{size} square.",
+      "choose": "Choose a picture",
+      "uploading": "Uploading",
+      "remove": "Remove picture",
+      "uploaded": "Picture updated",
+      "removed": "Picture removed",
+      "noFile": "Choose a picture first.",
+      "tooLarge": "That file is larger than {megabytes} MB. Choose a smaller picture.",
+      "rejected": "That picture could not be used. It must be a JPEG, PNG, WebP, GIF or AVIF of at most {megapixels} megapixels — crop a panorama or a high-resolution shot first."
+    },
+    "password": {
+      "title": "Password",
+      "description": "Changing your password signs you out everywhere else. You stay signed in here.",
+      "current": "Current password",
+      "new": "New password",
+      "confirm": "Confirm new password",
+      "submit": "Change password",
+      "changing": "Changing",
+      "changed": "Password changed. Other devices were signed out.",
+      "mismatch": "The two new passwords do not match.",
+      "tooShort": "A password must be at least {min} characters.",
+      "wrongCurrent": "That is not your current password.",
+      "noCredential": "This account has no password yet. Ask an administrator to set one.",
+      "none": "This account signs in with passkeys only."
+    },
+    "passkeys": {
+      "title": "Passkeys",
+      "description": "Sign in with your fingerprint, face or device PIN instead of a password.",
+      "add": "Add a passkey",
+      "adding": "Waiting for your device",
+      "added": "Passkey added",
+      "addFailed": "The passkey was not added. Please try again.",
+      "addCancelled": "No passkey was created.",
+      "unsupported": "This browser does not support passkeys.",
+      "none": "No passkeys yet.",
+      "unnamed": "Passkey",
+      "created": "Added {date}",
+      "remove": "Remove",
+      "removeTitle": "Remove this passkey?",
+      "removeDescription": "The device it lives on can no longer sign in to Yana. You can add it again later.",
+      "removed": "Passkey removed",
+      "removeFailed": "The passkey could not be removed.",
+      "lastOneNeedsPassword": "This is your only way to sign in. Set a password before removing it."
+    }
+  },
   "settings": {
     "title": "Settings",
     "general": { "title": "General", "theme": "Theme", "language": "Language" },

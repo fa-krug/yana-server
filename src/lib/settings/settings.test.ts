@@ -36,7 +36,22 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 // imported inside the factory. See src/lib/auth/session.test.ts, which uses the
 // same shape and covers the helpers themselves.
 const { requestHeaders } = vi.hoisted(() => ({ requestHeaders: { current: new Headers() } }));
-vi.mock("next/headers", () => ({ headers: () => Promise.resolve(requestHeaders.current) }));
+// `cookies()` is stubbed alongside `headers()` because Better Auth's
+// `nextCookies()` plugin (registered last in src/lib/auth/server.ts) calls it
+// after any endpoint that sets a cookie, and `vitest.config.ts` inlines that
+// plugin so the stub is what it receives. A `cookies` that is `undefined`
+// throws a TypeError the plugin does not catch. Nothing here reads the jar --
+// see src/lib/account/account.test.ts for the test that does.
+const noCookieStore = () =>
+  Promise.resolve({
+    set: () => {},
+    get: () => undefined,
+    delete: () => {},
+  });
+vi.mock("next/headers", () => ({
+  headers: () => Promise.resolve(requestHeaders.current),
+  cookies: noCookieStore,
+}));
 
 // `next-intl/server` resolves to next-intl's non-RSC build under Vitest, which
 // has no `react-server` export condition to select the real one -- there,

@@ -18,7 +18,22 @@ import { applyMigrationsAt } from "@/lib/db/test-support";
  * a real sign-in through the real `/sign-in/email` endpoint.
  */
 const { requestHeaders } = vi.hoisted(() => ({ requestHeaders: { current: new Headers() } }));
-vi.mock("next/headers", () => ({ headers: () => Promise.resolve(requestHeaders.current) }));
+// `cookies()` is stubbed alongside `headers()` because Better Auth's
+// `nextCookies()` plugin (registered last in src/lib/auth/server.ts) calls it
+// after any endpoint that sets a cookie, and `vitest.config.ts` inlines that
+// plugin so the stub is what it receives. A `cookies` that is `undefined`
+// throws a TypeError the plugin does not catch. Nothing here reads the jar --
+// see src/lib/account/account.test.ts for the test that does.
+const noCookieStore = () =>
+  Promise.resolve({
+    set: () => {},
+    get: () => undefined,
+    delete: () => {},
+  });
+vi.mock("next/headers", () => ({
+  headers: () => Promise.resolve(requestHeaders.current),
+  cookies: noCookieStore,
+}));
 
 /** The real digest `redirect()` throws; not stubbed. */
 const REDIRECT = /^NEXT_REDIRECT/;
