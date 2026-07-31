@@ -1,10 +1,10 @@
 {
   "article": {
     "author": "Ernesto Van der Sar",
-    "created_at": "2026-07-30T21:47:28.860101+00:00",
+    "created_at": "2026-07-31T00:32:19.683922+00:00",
     "date": "2026-07-30T17:01:43+00:00",
-    "icon": "article_icons/1ca0935b-a5c1-46f4-8739-f51b69e36b25.webp",
-    "id": 102,
+    "icon": "article_icons/0030412d-0eec-4a81-95c3-1620b31469ea.webp",
+    "id": 174,
     "identifier": "https://torrentfreak.com/hbos-blocking-order-takes-out-popular-pirate-streaming-domains-including-streamzy-to/",
     "name": "HBO’s Blocking Order Takes Out Popular Pirate Streaming Domains Including Streamzy.to",
     "plainTextLength": 13929,
@@ -12,7 +12,7 @@
   },
   "blockKindCounts": {
     "heading": 10,
-    "image": 17,
+    "image": 16,
     "list": 3,
     "paragraph": 185
   },
@@ -5861,11 +5861,6 @@
                 }
               ],
               "type": "paragraph"
-            },
-            {
-              "caption": [],
-              "ref": "yana-img://ce8e6c7363930d95f7f72414b2e92f912a90e48cede7a6bf3efa59e23b07d70e",
-              "type": "image"
             }
           ]
         ],
@@ -6404,14 +6399,6 @@
       "height": 768,
       "missing": false,
       "width": 1735
-    },
-    {
-      "byteSize": 551,
-      "contentHash": "ce8e6c7363930d95f7f72414b2e92f912a90e48cede7a6bf3efa59e23b07d70e",
-      "contentType": "image/svg+xml",
-      "height": null,
-      "missing": false,
-      "width": null
     },
     {
       "byteSize": 22748,

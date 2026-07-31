@@ -2,17 +2,17 @@
   "aggregator": "heise",
   "article": {
     "author": "",
-    "created_at": "2026-07-30T21:58:08.877854+00:00",
-    "date": "2026-07-30T16:47:00+00:00",
-    "icon": "article_icons/7b305608-9a39-41e0-9b09-1937ba0180d5.webp",
-    "id": 110,
-    "identifier": "https://www.heise.de/news/Visual-Studio-Code-1-131-bringt-Diktierfunktion-fuer-Chat-Editor-und-Terminal-11385363.html?wt_mc=rss.red.ho.ho.rdf.beitrag.beitrag",
-    "name": "Visual Studio Code 1.131 bringt Diktierfunktion für Chat, Editor und Terminal",
-    "plainTextLength": 2564
+    "created_at": "2026-07-31T00:47:49.713012+00:00",
+    "date": "2026-07-30T14:00:00+00:00",
+    "icon": "article_icons/360a3325-334a-4b2d-aabb-d686356804f0.png",
+    "id": 269,
+    "identifier": "https://www.heise.de/bestenlisten/testbericht/e-bike-engwe-e26-30-pro-im-test-esuv-mit-100-nm-mittelmotor-fuer-1700-euro/eppmn0v?wt_mc=rss.red.ho.ho.rdf.beitrag.beitrag",
+    "name": "E-Bike Engwe E26 3.0 Pro im Test: eSUV mit 100-Nm-Mittelmotor für 1700 Euro",
+    "plainTextLength": 13209
   },
   "curation": {
-    "desiredBlockCount": 16,
-    "rawBlockCount": 16,
+    "desiredBlockCount": 119,
+    "rawBlockCount": 119,
     "remoteRefsNeedingLocalization": [],
     "removed": [],
     "warnings": []
@@ -24,28 +24,7 @@
           {
             "link": null,
             "styles": [],
-            "text": "Microsoft bringt in Visual Studio Code 1.131 neue Funktionen für den LLM-Einsatz und bietet die Möglichkeit, in Chat, Editor und Terminal zu diktieren, ohne eine zusätzliche Erweiterung zu installieren. Wer sich auf die Suche macht, kann zudem ein kleines Haustier im Chatfenster entdecken."
-          }
-        ],
-        "type": "paragraph"
-      },
-      {
-        "level": 3,
-        "runs": [
-          {
-            "link": null,
-            "styles": [],
-            "text": "Subagents im Blick behalten"
-          }
-        ],
-        "type": "heading"
-      },
-      {
-        "runs": [
-          {
-            "link": null,
-            "styles": [],
-            "text": "Zum Ausführen von komplexen Aufgaben können Entwicklerinnen und Entwickler Agenten Tasks an Subagents delegieren lassen. Diese laufen parallel in ihrem eigenen Kontextfenster. Nun können Developer im Agents-Fenster genauere Informationen über die Unteragenten sehen, ohne die entsprechende Konversation öffnen zu müssen. Die Hauptkonversation zeigt für laufende Subagents ihr verwendetes Modell, ihre Ausführungsdauer und die durch sie aktiv aufgerufenen Tools an."
+            "text": "Mittelmotor mit 100 Nm, Vollfederung, großer Akku, breite Reifen und tiefer Einstieg: Das Engwe E26 3.0 Pro will eSUV und City-E-Bike zugleich sein."
           }
         ],
         "type": "paragraph"
@@ -55,81 +34,39 @@
           {
             "link": null,
             "styles": [],
-            "text": "Subagents lassen sich auswählen, um in ihrer eigenen Konversation in einem anderen Chat den vollständigen Fortschritt anzusehen. Dabei bleibt die Hauptkonversation verfügbar."
-          }
-        ],
-        "type": "paragraph"
-      },
-      {
-        "level": 3,
-        "runs": [
+            "text": "Mit dem "
+          },
+          {
+            "link": "https://www.heise.de/bestenlisten/testbericht/e-bike-engwe-e26-im-test/l5595kh",
+            "styles": [],
+            "text": "Engwe E26 (Testbericht)"
+          },
           {
             "link": null,
             "styles": [],
-            "text": "Integrierte Diktierfunktion"
-          }
-        ],
-        "type": "heading"
-      },
-      {
-        "runs": [
+            "text": " von 2023 teilt das E26 3.0 Pro wenig mehr als den Namen. Der Vorgänger fährt als Fatbike mit 4 Zoll breiten Stollenreifen, einem Nabenmotor mit 70 Nm und einem Trittfrequenzsensor, der den Motor erst nach fast einer vollen Pedalumdrehung zuschaltet. Das 3.0 Pro wechselt auf einen Mittelmotor mit 100 Nm und Drehmomentsensor, bekommt eine Vollfederung mit Viergelenk-Hinterbau und rollt auf 3 Zoll breiten Reifen. Engwe nennt das Ergebnis eSUV und verlangt moderate "
+          },
+          {
+            "link": "https://de.engwe.com/products/e26-3-0-pro?ref=HEISEMEDIEN",
+            "styles": [],
+            "text": "1709 Euro"
+          },
           {
             "link": null,
             "styles": [],
-            "text": "Bislang war die VS Code Speech Extension notwendig, um die Diktierfunktion in VS Code nutzen zu können. Nun ist ein eingebauter Transkriptionsservice als experimentelles Feature enthalten. Er ermöglicht es Entwicklern, in Chat, Editor und dem integrierten Terminal zu diktieren."
-          }
-        ],
-        "type": "paragraph"
-      },
-      {
-        "runs": [
-          {
-            "link": null,
-            "styles": [],
-            "text": "Dafür kommt gemäß Microsoft das private, offline laufende Nemotron-Modell zum Einsatz. Audioinformationen sollen auf dem Gerät verbleiben. Verfügbar ist das Feature für Windows x64 und Arm64, macOS auf Apple Silicon, Linux x64 und Arm64 mit glibc 2.34 oder neuer sowie in Remote Workspaces. Letzteres ist möglich, da die Transkription auf dem lokalen VS-Code-Client läuft. Noch nicht verfügbar ist die Diktierfunktion in der Web-Version von VS Code und auf Intel-basierten Macs sowie 32-Bit- und Arm32-Systemen."
-          }
-        ],
-        "type": "paragraph"
-      },
-      {
-        "level": 3,
-        "runs": [
-          {
-            "link": null,
-            "styles": [],
-            "text": "Virtuelles Haustier für Developer"
-          }
-        ],
-        "type": "heading"
-      },
-      {
-        "runs": [
-          {
-            "link": null,
-            "styles": [],
-            "text": "Als experimentelles Gimmick ist nun ein Haustier in VS Code eingezogen. Entwicklerinnen und Entwickler finden es, wenn sie "
+            "text": " (Einführungspreis bis 12. August 2026, Code: "
           },
           {
             "link": null,
             "styles": [
-              "code"
+              "bold"
             ],
-            "text": "/vscode-pet"
+            "text": "TechStage50"
           },
           {
             "link": null,
             "styles": [],
-            "text": " im Chat eingeben. Per Maus können sie es verschieben und damit interagieren. Ganz neu ist die Idee nicht, denn "
-          },
-          {
-            "link": "https://marketplace.visualstudio.com/search?term=pet&target=VSCode&category=All%20categories&sortBy=Relevance",
-            "styles": [],
-            "text": "im Visual Studio Marketplace"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": " wimmelt es vor Erweiterungen für Hunde, Katzen, Pinguine und Co."
+            "text": ")."
           }
         ],
         "type": "paragraph"
@@ -139,226 +76,1171 @@
           {
             "link": null,
             "styles": [],
-            "text": "Weitere Informationen zu den Updates "
+            "text": "Es ist das erste Rad dieser Baureihe mit Mittelmotor. Bislang steckt diese Art des Antriebs nur im "
           },
           {
-            "link": "https://code.visualstudio.com/updates/v1_131",
+            "link": "https://www.heise.de/bestenlisten/testbericht/faltbares-meisterstueck-e-bike-engwe-l20-30-pro-mit-100-nm-mittelmotor-im-test/54klnrg",
             "styles": [],
-            "text": "finden sich in der Ankündigung"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": ". Neu erschienen ist darüber hinaus die "
-          },
-          {
-            "link": "https://code.visualstudio.com/updates/v1_132",
-            "styles": [],
-            "text": "aktuelle Insiders-Version 1.132"
+            "text": "Engwe L20 3.0 Pro (Testbericht)"
           },
           {
             "link": null,
             "styles": [],
-            "text": "."
+            "text": ", einem deutlich kleineren Klapprad-E-Bike mit 20-Zoll-Laufrädern. Das E26 3.0 Pro überträgt das Konzept auf ein ausgewachsenes Rad mit 26-Zoll-Laufrädern, tiefem Durchstieg und Gepäckträger."
           }
         ],
         "type": "paragraph"
       },
       {
-        "level": 3,
         "runs": [
           {
-            "link": "https://www.heise.de/forum/heise-online/Kommentare/Visual-Studio-Code-1-131-bringt-Diktierfunktion-fuer-Chat-Editor-und-Terminal/forum-587610/comment/",
+            "link": null,
             "styles": [],
-            "text": "Comments"
+            "text": "Das Einsatzgebiet ist entsprechend breit: Pendeln unter der Woche, Bordsteine und Kopfsteinpflaster in der Stadt, Schotter- und Waldwege am Wochenende. Ob ein Rad das alles gleichzeitig kann, ohne zu viel zu wollen, klärt unser Test."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "level": 2,
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Aufbau, Optik & Verarbeitung"
           }
         ],
         "type": "heading"
       },
       {
-        "blocks": [
+        "runs": [
           {
-            "runs": [
-              {
-                "link": null,
-                "styles": [
-                  "bold"
-                ],
-                "text": "Pickwick81"
-              },
-              {
-                "link": null,
-                "styles": [],
-                "text": " | "
-              },
-              {
-                "link": "https://www.heise.de/forum/heise-online/Kommentare/Visual-Studio-Code-1-131-bringt-Diktierfunktion-fuer-Chat-Editor-und-Terminal/Aber-Hauptsache-1-GiB-fuer-Updates-reicht-nicht/posting-46479994/show/",
-                "styles": [],
-                "text": "source"
-              }
-            ],
-            "type": "paragraph"
-          },
-          {
-            "runs": [
-              {
-                "link": null,
-                "styles": [],
-                "text": "Aber Hauptsache 1 GiB für Updates reicht nicht..."
-              }
-            ],
-            "type": "paragraph"
+            "link": null,
+            "styles": [],
+            "text": "Das E26 3.0 Pro kommt weitgehend vormontiert. Zum selbst Anbringen bleiben Vorderrad, vorderes Schutzblech, Frontlicht, Lenker, Seitenständer, Pedale und Sattel. Ungewöhnlich: Auch der vordere Bremssattel muss an die Gabel geschraubt werden, das übernehmen andere Hersteller ab Werk."
           }
         ],
-        "type": "blockquote"
+        "type": "paragraph"
       },
       {
-        "blocks": [
+        "runs": [
           {
-            "runs": [
-              {
-                "link": null,
-                "styles": [
-                  "bold"
-                ],
-                "text": "sterkel"
-              },
-              {
-                "link": null,
-                "styles": [],
-                "text": " | "
-              },
-              {
-                "link": "https://www.heise.de/forum/heise-online/Kommentare/Visual-Studio-Code-1-131-bringt-Diktierfunktion-fuer-Chat-Editor-und-Terminal/Ganz-grosses-Kino/posting-46479946/show/",
-                "styles": [],
-                "text": "source"
-              }
-            ],
-            "type": "paragraph"
-          },
-          {
-            "runs": [
-              {
-                "link": null,
-                "styles": [],
-                "text": "Ganz großes Kino"
-              }
-            ],
-            "type": "paragraph"
+            "link": null,
+            "styles": [],
+            "text": "Am meisten Nerven kostet das Frontlicht. Die englische Anleitung setzt auf derart kleine Abbildungen, dass wir sie abfotografieren und vergrößern mussten, um überhaupt zu erkennen, was gemeint ist. Zu sehen ist dort eine Gegenmutter, die am Rad gar nicht nötig ist, weil ein Innengewinde vorhanden ist. Zusätzlich will eine Unterlegscheibe eingefädelt werden, ohne die das Licht nicht fest genug sitzt – unnötig kompliziert für ein Bauteil, das an jedem anderen Rad in zwei Minuten sitzt."
           }
         ],
-        "type": "blockquote"
+        "type": "paragraph"
       },
       {
-        "blocks": [
-          {
-            "runs": [
-              {
-                "link": null,
-                "styles": [
-                  "bold"
-                ],
-                "text": "MartinP"
-              },
-              {
-                "link": null,
-                "styles": [],
-                "text": " | "
-              },
-              {
-                "link": "https://www.heise.de/forum/heise-online/Kommentare/Visual-Studio-Code-1-131-bringt-Diktierfunktion-fuer-Chat-Editor-und-Terminal/Wie-diktiert-ma-folgendes/posting-46479817/show/",
-                "styles": [],
-                "text": "source"
-              }
-            ],
-            "type": "paragraph"
-          },
-          {
-            "runs": [
-              {
-                "link": null,
-                "styles": [],
-                "text": "Wie diktiert ma folgendes?"
-              }
-            ],
-            "type": "paragraph"
-          }
-        ],
-        "type": "blockquote"
+        "caption": [],
+        "ref": "yana-img://4f9834e9b9e5c2b80514aa1796a17b7daf7eafcd3a66bc6b6567408a39602cb8",
+        "type": "image"
       },
       {
-        "blocks": [
+        "runs": [
           {
-            "runs": [
-              {
-                "link": null,
-                "styles": [
-                  "bold"
-                ],
-                "text": "gepunktetes Trikot"
-              },
-              {
-                "link": null,
-                "styles": [],
-                "text": " | "
-              },
-              {
-                "link": "https://www.heise.de/forum/heise-online/Kommentare/Visual-Studio-Code-1-131-bringt-Diktierfunktion-fuer-Chat-Editor-und-Terminal/Emacs-wird-abgeloest/posting-46479758/show/",
-                "styles": [],
-                "text": "source"
-              }
-            ],
-            "type": "paragraph"
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
           },
           {
-            "runs": [
-              {
-                "link": null,
-                "styles": [],
-                "text": "Emacs wird abgelöst."
-              }
-            ],
-            "type": "paragraph"
+            "link": null,
+            "styles": [],
+            "text": " "
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
           }
         ],
-        "type": "blockquote"
+        "type": "paragraph"
       },
       {
-        "blocks": [
+        "runs": [
           {
-            "runs": [
-              {
-                "link": null,
-                "styles": [
-                  "bold"
-                ],
-                "text": "Deare"
-              },
-              {
-                "link": null,
-                "styles": [],
-                "text": " | "
-              },
-              {
-                "link": "https://www.heise.de/forum/heise-online/Kommentare/Visual-Studio-Code-1-131-bringt-Diktierfunktion-fuer-Chat-Editor-und-Terminal/ob-die-auch-fluestern-verstehen/posting-46479660/show/",
-                "styles": [],
-                "text": "source"
-              }
-            ],
-            "type": "paragraph"
-          },
-          {
-            "runs": [
-              {
-                "link": null,
-                "styles": [],
-                "text": "ob die auch flüstern verstehen?"
-              }
-            ],
-            "type": "paragraph"
+            "link": null,
+            "styles": [],
+            "text": "Insgesamt dauert der Aufbau etwa 45 Minuten und gelingt allein. Im Lieferumfang finden wir unter anderem eine einfache Luftpumpe, Anleitung, Werkzeug und den Akkuschlüssel. Vor der ersten Fahrt will der rote Ein-Aus-Schalter am Akku umgelegt werden, den man nur bei entnommenem Akku erreicht."
           }
         ],
-        "type": "blockquote"
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Optisch bleibt das Rad zurückhaltender als der knallgelbe Vorgänger. Der Rahmen aus Aluminium ist als Wave-Form mit tiefem Durchstieg gezeichnet, der Akku verschwindet nahezu vollständig im Unterrohr. Unser Testrad trägt Mattgrau mit einer orangefarbenen Ziernaht und dem Schriftzug "
+          },
+          {
+            "link": null,
+            "styles": [
+              "italic"
+            ],
+            "text": "E26 3.0 Pro"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": " am Hinterbau, alternativ gibt es Blau als Lackierung. Die Kabel verlaufen weitgehend innen, während der Fahrt klappert und knarzt nichts. Nur die Schweißnähte bleiben sichtbar und unpoliert, hier ist die Preisklasse zu erkennen."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Am Steuerrohr sitzt ein Zierblech mit Markenlogo, an dem sich ein vorderer Gepäckträger anbringen lässt. Der liegt dem Kauf zur Markteinführung bei. Ebenfalls dabei: eine Seitentasche für den Gepäckträger. Bei unserem Testrad fehlte jedoch beides."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Mit 34 kg gehört das E26 3.0 Pro zu den Schwergewichten, dafür trägt es bis zu 150 kg Zuladung, der Gepäckträger nimmt davon 25 kg auf. Der Motor allein wiegt 3,5 kg. Das eSUV misst 197 cm in der Länge bei 126 cm Radstand, die Überstandshöhe von 48 cm macht den tiefen Einstieg aus. Der Sattel lässt sich zwischen 93 und 103 cm einstellen."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe empfiehlt das Rad für 163 bis 193 cm Körpergröße – im Test zeigt sich, dass es ab etwa 190 cm knapp werden dürfte. Beim Wetterschutz differenziert Engwe: IPX7 für die Verkabelung, IPX6 für Display und Beleuchtung, IPX5 für Motor und Controller, IPX4 für die Akkubox."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro Bilder"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://c676fed5e2447354f295e364aee9b3ce9a2e499669fbf362313ba3a6d18d0d5b",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://92a5fac60a5a69caa6cd77509f514175b68d821b9d815e31d1c21e55cd7d8d09",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://23817d5319c13a88469d2ea26fc144768aa6f7c8242b6c71679590d467121f6e",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://5138bb27a18ee81c133032f64044e4595e1919f60e1ba6e45a772dc5a58127f9",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://4dc82c221169792f85855bce1cac7998b8e00852aa192718aa109fed682d3b5c",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://7f15afbc728d282174d7eee10751b68cd1681563790fe84462f4e44a768831ae",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://c38428b2ad2f539a138a724a1f8193b3f91e7332d401b748a5e2c9322c239ead",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://b5c32264dbc4f4bda7ff8cff57e029e4ae172847eaf4e4f99176d74914952da0",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://498af8f63892cfd943fc73d75f47e72c1abd25eb2e445cf0eded04c1900c4838",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://97391c8d296f815099f389955e38ca8a284bf3a5b04f3e3808eccad86550530a",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://13868b387ba89102c37445c0a1b8fc5f1ea47e58b2ee6682c42b9cb693b689de",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://d3e9c2dc99afc8da2ade855b9d21055ff289312e07643095879eeef2054835be",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://6cc58eb87f31a1f91b366a0074789b233218b1455f2b0940e0b3700d6cccc82c",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://913f6142112592aec34af9e0171db62cfbe56b95899883e0699da01ff9a9a327",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://ef05038b6c1835d8bd0153171d4f8e65ec0576cb2601996dfc17c981790aac0f",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://8772651a6ac4bdf644f38379ef056f0f5d25659a96dd9038a9928b9ae9fc6e24",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://71a2883215bdedd584fb0a1e73d5ce6fce28c20b2df9547d67966113456630a8",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://ced209220bd2538c677e90a0729d585ebbd97f9c48aca48177e21563cea39440",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://8458237b18160b4e7a33b4cf0f06df9131261cd0786173f2806c914c48b80acb",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://521652575b82c32ae18b16bce0df80e465e67d857d04d25d93b0c10da3a2cce6",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://4b676eca9a8797d7872656a1f40613db018ed213a9f883f82b68b447311d7810",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://4f9834e9b9e5c2b80514aa1796a17b7daf7eafcd3a66bc6b6567408a39602cb8",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://dadd74089b1331c2d3cfd64b5da978d2a5d6c13b1dacc10a29c307202bdd7ecf",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://54acebed03ad1af5d1b311707bc75d6ed7993485e5dd0cafd7a8f7103b4eb0bc",
+        "type": "image"
+      },
+      {
+        "level": 2,
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Lenker & Display"
+          }
+        ],
+        "type": "heading"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Zentral über dem Vorbau sitzt ein 3,5 Zoll großes Farbdisplay im Hochformat. Es zeigt Geschwindigkeit, Unterstützungsstufe, Akkustand in Prozent, Tageskilometer und Durchschnittstempo. Auch in heller Umgebung bleibt es klar ablesbar. Im Menü lassen sich die Einheiten zwischen metrisch und imperial umstellen, dazu Helligkeit, Passwortsperre und Werksreset."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Bedient wird das Rad über eine Tastengruppe links: Plus und Minus für die Unterstützungsstufen, dazu Informationen, Ein-Aus und eine Hupentaste. Letztere ist in Deutschland nicht zugelassen. Eine Klingel liegt nicht bei. Wer das E26 3.0 Pro auf öffentlichen Straßen bewegt, rüstet also zwingend eine mechanische Klingel nach."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Rechts sitzt der Schalthebel mit Ganganzeige. Die Griffe sind ergonomisch geformt und gummiert, der Lenker ist leicht gekröpft und lässt sich in der Höhe an die eigene Körpergröße anpassen. Die Schiebehilfe arbeitet bis 6 km/h. Einen USB-Port zum Laden von Geräten gibt es nicht."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://8458237b18160b4e7a33b4cf0f06df9131261cd0786173f2806c914c48b80acb",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": " "
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Das Frontlicht sitzt am Vorbau und dreht mit dem Lenker mit, leuchtet Kurven also aus. Es wirft eine breite, gleichmäßige Fläche mit scharfer Hell-Dunkel-Grenze. Das Rücklicht ist als rote Leiste am Ende des Gepäckträgers ausgeführt, beide Leuchten hängen am Hauptakku. Blinker fehlen ebenso wie ein Dämmerungssensor, das Licht schaltet man manuell."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Die Engwe-App erfordert zunächst eine umfangreiche Registrierung mit Seriennummer, Rahmennummer, Kaufdatum und mehr. Sie liefert Fahrstatistiken, GPS-Ortung, einen Bewegungsalarm, eine Routenplanung sowie Einstellungen für Ladestrom und Akkuzustand. Der Alarm reagiert zuverlässig auf leichte Bewegungen am Lenker und schickt auf Wunsch eine Benachrichtigung an das Handy. Das GPS-Modul ist fest verbaut und ortet das Rad auch im ausgeschalteten Zustand. Nach dem ersten Jahr werden dafür knapp 40 Euro jährlich fällig."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "level": 2,
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Fahren"
+          }
+        ],
+        "type": "heading"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Der Mivice-Mittelmotor leistet 250 W Nennleistung, in der Spitze 500 W, und stemmt maximal 100 Nm. Dank des guten Drehmomentsensors fällt die Unterstützung ausgesprochen natürlich aus, der Motor setzt schnell ein und hört ebenso schnell wieder auf. Er begleitet das Treten, statt es zu überfahren, ein ruckartiger Schub bleibt aus. Die fünf Stufen regeln die Kraft und nicht die Endgeschwindigkeit."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://498af8f63892cfd943fc73d75f47e72c1abd25eb2e445cf0eded04c1900c4838",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": " "
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "An Steigungen unterstützt der kräftige Motor ordentlich mit und bricht nicht ein. Hörbar ist er, unangenehm laut aber nicht: Für einen Mittelmotor arbeitet er recht ruhig. Bei Höchstgeschwindigkeit lässt es sich gemütlich mitfahren, ohne dass die Unterstützung zwischen zwei Geschwindigkeiten pendelt. Einen Haken hat der Antrieb: Beim Schalten setzt der Motor nicht aus. Wer unter Last den Gang wechselt, beansprucht die Kette stark, mitunter quittiert sie das mit einem lauten Knall. Hier hilft nur, den Druck vor dem Schaltvorgang kurz herauszunehmen."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Vorn federt eine Gabel mit 80 mm Federweg auf orangefarbenen Standrohren, den Lockout bedient man oben am Holm. Hinten arbeitet ein Luftdämpfer mit 190 mm Einbaulänge und 30 mm Hub an einem Viergelenk-Hinterbau. Der Luftdruck passt ab Werk für 85 kg Fahrergewicht, mit einer Dämpferpumpe lässt er sich anpassen. Das Ergebnis: Wurzeln und Steine schluckt das Fahrwerk souverän, das Fahren bleibt über lange Strecken angenehm. Im Engwe-Programm ist das konkurrenzlos, denn auch das vollgefederte "
+          },
+          {
+            "link": "https://www.heise.de/bestenlisten/testbericht/engwe-engine-pro-30-boost-im-test-klapprad-e-bike-mit-federung-gps-und-90-nm/7m6cedd",
+            "styles": [],
+            "text": "Engwe Engine Pro 3.0 Boost (Testbericht)"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": " arbeitet mit einem einfacheren Hinterbau."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Verzögert wird mit hydraulischen Scheibenbremsen auf gewellten 180-mm-Scheiben mit Zweikolbensätteln. Sie packen kräftig zu, lassen sich fein dosieren und arbeiten auch bei Nässe zuverlässig. Nachjustieren mussten wir nichts, geschliffen oder gequietscht hat ebenfalls nichts."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://71a2883215bdedd584fb0a1e73d5ce6fce28c20b2df9547d67966113456630a8",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": " "
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Bei der Schaltung erlaubt sich Engwe einen Aufstieg: Statt der einfachen Tourney mit sieben Gängen, die bislang in praktisch jedem Rad der Marke steckte, kommt hier eine Shimano Altus mit acht Gängen zum Einsatz. Die Übersetzung passt, acht Gänge reichen für das Einsatzgebiet aus. Das Kettenblatt sitzt hinter einem geschlossenen Schutzring."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Die Reifen von Chao Yang messen 26 × 3,0 Zoll und tragen ein ausgeprägtes Stollenprofil sowie Reflexstreifen an den Flanken. Der Grip überzeugt auf Asphalt, auf Schotter und auf nasser Fahrbahn gleichermaßen. Und sie lösen ein Problem des Vorgängers: Dessen 4-Zoll-Stollen klangen auf Asphalt wie ein Hummelschwarm, das 3.0 Pro rollt spürbar ruhiger. Trotzdem hätten wir uns für das E-Bike größere Reifen, etwa im 27,5-Zoll-Format, gewünscht. Das verleiht ihm einen erwachsenen Charakter und noch mehr Laufruhe."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Der Sattel fällt breit aus und ist dick gepolstert, er gibt schon auf Daumendruck deutlich nach – ein klassischer Komfortsattel. Zusammen mit dem höhenverstellbaren Lenker ergibt sich eine aufrechte, ergonomisch sinnvolle Sitzposition, auf der es sich lange aushalten lässt. Trotz des hohen Eigengewichts bleibt das Rad wendig. Die Pedale bestehen aus Kunststoff und tragen gelbe Reflektoren."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "level": 2,
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Akku"
+          }
+        ],
+        "type": "heading"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Der Akku setzt auf LG-Zellen und liefert 48 V bei 15 Ah. Beworben sind 720 Wh – auf dem Aufkleber am Akku stehen dagegen 686,4 Wh Nennenergie, passend zu den dort angegebenen 14,3 Ah. Entnehmen lässt er sich in Sekunden: Ein Schloss im Rahmen gibt ihn frei, danach hebt man ihn bequem nach oben heraus. Der Schlüssel liegt bei. Laden kann man ihn ausgebaut oder im Rad."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://2d80bcc29882185ece9132925fd45f3e6d0dc422ebcce6f8fea95a19bf5eef06",
+        "type": "image"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe E26 3.0 Pro"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": " "
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": "heise bestenlisten"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Das Ladegerät liefert 54,6 V bei 4 A, eine volle Ladung dauert damit vier bis fünf Stunden. Das ist unnötig zurückhaltend, denn laut Aufdruck verträgt der Akku bis zu 6 A. Zum Vergleich: Das Engwe Engine Pro 3.0 Boost und das Engwe L20 3.0 Pro laden dieselbe Kapazität mit einem 8-A-Gerät in zwei Stunden. Ein stärkeres Netzteil wäre eine gern gesehene Dreingabe gewesen."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Engwe verspricht bis zu 135 km Reichweite. In der Praxis hängt der Wert an Fahrweise, Zuladung und Unterstützungsstufe, dazu kommen Untergrund, Steigungen, Wind und Temperatur. Mit 85 kg Zuladung, warmem Wetter, viel Stop-and-Go, höchster Unterstützungsstufe und gemischtem Untergrund kommen wir auf etwa 75 km. Das ist ein guter Wert, zumal unter Bedingungen, die den Akku fordern. Wer defensiver fährt und niedrigere Stufen wählt, holt mehr heraus."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "level": 2,
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Preis"
+          }
+        ],
+        "type": "heading"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Das Engwe E26 3.0 Pro kostet regulär 1899 Euro, mit dem Gutscheincode "
+          },
+          {
+            "link": null,
+            "styles": [
+              "bold"
+            ],
+            "text": "TechStage50"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": " sinkt der Preis auf "
+          },
+          {
+            "link": "https://de.engwe.com/products/e26-3-0-pro?ref=HEISEMEDIEN",
+            "styles": [],
+            "text": "1709 Euro"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": ". Bis zum 12. August legt Engwe eine Fahrradtasche und einen Frontkorb bei, danach steigt der unrabattierte Preis auf 2099 Euro. An Zubehör gibt es ein Hinterrad-Korbset für 129 Euro, ein U-Schloss für 49 Euro, eine Lenkertasche für 25 Euro und eine Pumpe für 69 Euro. Der Versand ist kostenlos."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "level": 2,
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Fazit"
+          }
+        ],
+        "type": "heading"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Das Engwe E26 3.0 Pro ist neben dem "
+          },
+          {
+            "link": null,
+            "styles": [
+              "bold"
+            ],
+            "text": "L20 3.0 Pro"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": " der überzeugendste Generationssprung, den wir bei der Marke bislang gesehen haben. Der Mittelmotor mit Drehmomentsensor liefert eine Unterstützung, die sich natürlich anfühlt und der Viergelenk-Hinterbau hebt den Komfort auf ein Niveau, das im Engwe-Programm konkurrenzlos ist. Dazu kommen eine Schaltung mit acht statt sieben Gängen, ein großer und schnell entnehmbarer Akku, hydraulische Bremsen ohne Nachbesserungsbedarf und ein tiefer Einstieg, den man einem vollgefederten Rad nicht ohne Weiteres zutraut. Rund 75 km Reichweite unter fordernden Bedingungen sind ein guter Wert."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Die Schwächen liegen woanders. Eine Klingel fehlt – wer legal fahren will, rüstet nach. Das Ladegerät schöpft die Möglichkeiten des Akkus nicht aus und braucht doppelt so lange wie bei den Schwestermodellen. Beim Schalten unter Last knallt die Kette, weil der Motor nicht aussetzt. Und die beworbenen 720 Wh finden sich auf dem Akku selbst als 686,4 Wh wieder. Mit 34 kg bleibt das Rad zudem schwer, was beim Verladen und im Treppenhaus auf dem Weg in den Keller auffällt."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Wer ein Rad für gemischten Untergrund sucht, viel Komfort will und Wert auf ein natürliches Fahrgefühl legt, ist hier trotzdem richtig aufgehoben – gerade, wenn der tiefe Einstieg zählt. Wer sein Rad dagegen regelmäßig falten und in den Kofferraum heben muss, greift besser zum "
+          },
+          {
+            "link": null,
+            "styles": [
+              "bold"
+            ],
+            "text": "Engwe Engine Pro 3.0 Boost"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": ", das ähnlich komfortabel federt und sich zusammenlegen lässt, allerdings mit Nabenmotor statt Mittelmotor fährt. Und wer den Mittelmotor mit Drehmomentsensor will, aber weniger ausgeben möchte, findet ihn im kleineren "
+          },
+          {
+            "link": null,
+            "styles": [
+              "bold"
+            ],
+            "text": "Engwe L20 3.0 Pro"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": " – dort allerdings an 20-Zoll-Laufrädern, die auf langen Strecken weniger komfortabel abrollen."
+          }
+        ],
+        "type": "paragraph"
       }
     ],
     "version": 1
@@ -370,5 +1252,206 @@
     "name": "Test heise",
     "options": {}
   },
-  "images": []
+  "images": [
+    {
+      "byteSize": 43490,
+      "contentHash": "4f9834e9b9e5c2b80514aa1796a17b7daf7eafcd3a66bc6b6567408a39602cb8",
+      "contentType": "image/webp",
+      "height": 463,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 99656,
+      "contentHash": "c676fed5e2447354f295e364aee9b3ce9a2e499669fbf362313ba3a6d18d0d5b",
+      "contentType": "image/webp",
+      "height": 462,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 38478,
+      "contentHash": "92a5fac60a5a69caa6cd77509f514175b68d821b9d815e31d1c21e55cd7d8d09",
+      "contentType": "image/webp",
+      "height": 463,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 58766,
+      "contentHash": "23817d5319c13a88469d2ea26fc144768aa6f7c8242b6c71679590d467121f6e",
+      "contentType": "image/webp",
+      "height": 463,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 56968,
+      "contentHash": "5138bb27a18ee81c133032f64044e4595e1919f60e1ba6e45a772dc5a58127f9",
+      "contentType": "image/webp",
+      "height": 463,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 55158,
+      "contentHash": "4dc82c221169792f85855bce1cac7998b8e00852aa192718aa109fed682d3b5c",
+      "contentType": "image/webp",
+      "height": 463,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 60362,
+      "contentHash": "7f15afbc728d282174d7eee10751b68cd1681563790fe84462f4e44a768831ae",
+      "contentType": "image/webp",
+      "height": 463,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 75900,
+      "contentHash": "c38428b2ad2f539a138a724a1f8193b3f91e7332d401b748a5e2c9322c239ead",
+      "contentType": "image/webp",
+      "height": 463,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 64506,
+      "contentHash": "b5c32264dbc4f4bda7ff8cff57e029e4ae172847eaf4e4f99176d74914952da0",
+      "contentType": "image/webp",
+      "height": 462,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 154604,
+      "contentHash": "498af8f63892cfd943fc73d75f47e72c1abd25eb2e445cf0eded04c1900c4838",
+      "contentType": "image/webp",
+      "height": 463,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 93698,
+      "contentHash": "97391c8d296f815099f389955e38ca8a284bf3a5b04f3e3808eccad86550530a",
+      "contentType": "image/webp",
+      "height": 462,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 180582,
+      "contentHash": "13868b387ba89102c37445c0a1b8fc5f1ea47e58b2ee6682c42b9cb693b689de",
+      "contentType": "image/webp",
+      "height": 462,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 62676,
+      "contentHash": "d3e9c2dc99afc8da2ade855b9d21055ff289312e07643095879eeef2054835be",
+      "contentType": "image/webp",
+      "height": 462,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 77700,
+      "contentHash": "6cc58eb87f31a1f91b366a0074789b233218b1455f2b0940e0b3700d6cccc82c",
+      "contentType": "image/webp",
+      "height": 463,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 119554,
+      "contentHash": "913f6142112592aec34af9e0171db62cfbe56b95899883e0699da01ff9a9a327",
+      "contentType": "image/webp",
+      "height": 463,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 52938,
+      "contentHash": "ef05038b6c1835d8bd0153171d4f8e65ec0576cb2601996dfc17c981790aac0f",
+      "contentType": "image/webp",
+      "height": 463,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 80674,
+      "contentHash": "8772651a6ac4bdf644f38379ef056f0f5d25659a96dd9038a9928b9ae9fc6e24",
+      "contentType": "image/webp",
+      "height": 463,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 56886,
+      "contentHash": "71a2883215bdedd584fb0a1e73d5ce6fce28c20b2df9547d67966113456630a8",
+      "contentType": "image/webp",
+      "height": 463,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 38660,
+      "contentHash": "ced209220bd2538c677e90a0729d585ebbd97f9c48aca48177e21563cea39440",
+      "contentType": "image/webp",
+      "height": 462,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 55410,
+      "contentHash": "8458237b18160b4e7a33b4cf0f06df9131261cd0786173f2806c914c48b80acb",
+      "contentType": "image/webp",
+      "height": 463,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 67642,
+      "contentHash": "521652575b82c32ae18b16bce0df80e465e67d857d04d25d93b0c10da3a2cce6",
+      "contentType": "image/webp",
+      "height": 462,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 54746,
+      "contentHash": "4b676eca9a8797d7872656a1f40613db018ed213a9f883f82b68b447311d7810",
+      "contentType": "image/webp",
+      "height": 462,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 33956,
+      "contentHash": "dadd74089b1331c2d3cfd64b5da978d2a5d6c13b1dacc10a29c307202bdd7ecf",
+      "contentType": "image/webp",
+      "height": 463,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 222966,
+      "contentHash": "54acebed03ad1af5d1b311707bc75d6ed7993485e5dd0cafd7a8f7103b4eb0bc",
+      "contentType": "image/webp",
+      "height": 462,
+      "missing": false,
+      "width": 823
+    },
+    {
+      "byteSize": 66954,
+      "contentHash": "2d80bcc29882185ece9132925fd45f3e6d0dc422ebcce6f8fea95a19bf5eef06",
+      "contentType": "image/webp",
+      "height": 463,
+      "missing": false,
+      "width": 823
+    }
+  ]
 }

@@ -46,10 +46,22 @@ Python pipeline and covered by tests. The TypeScript port must satisfy them too.
    the reverse.
 7. **Article bodies are not truncated to their first matching container.** Vox's Duet CMS emits one
    body div per paragraph group; taking only the first kept 12% of the article.
+8. **Every value interpolated into markup is escaped, and every URL is scheme-checked.** Embed and
+   comment builders assemble HTML by string, and their output is spliced in after sanitization runs,
+   so nothing downstream cleans it. Third-party HTML bodies (Reddit markdown, YouTube `textDisplay`,
+   podcast show notes, scraped forum comments) are *sanitized*; plain text is *escaped*. Note that
+   `clean_html` is NOT a sanitizer -- it strips HTML comment nodes only.
+9. **Non-content images never become blocks.** A tracking pixel (<=1px), a non-image content type, an
+   empty body, or undecodable bytes all mean "definitively not a usable image" and the block is
+   dropped. A transient failure -- timeout, DNS, 4xx/5xx -- keeps the remote ref instead, so a network
+   blip never silently loses a real image.
+10. **Content negotiation matches what we can decode.** The `Accept` header must not advertise a
+   format absent from the accepted-type list; it once asked for AVIF that Pillow cannot decode, and
+   one heise article lost all 29 of its images to that mismatch.
 
 ## Curation rules still applied
 
-Only 13 removals remain across all 16 fixtures, in 4 of them. Each is recorded per fixture in `curation.removed`
+Only 14 removals remain across all 16 fixtures, in 4 of them. Each is recorded per fixture in `curation.removed`
 with the rule that fired and the removed text, so nothing is deleted silently.
 
 | Rule | Removes | Why it is not a pipeline fix |

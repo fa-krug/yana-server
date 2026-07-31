@@ -1,19 +1,20 @@
 {
   "article": {
-    "author": "Dan Goodin",
-    "created_at": "2026-07-30T21:45:36.906831+00:00",
-    "date": "2026-07-30T20:57:22+00:00",
-    "icon": "article_icons/5620cca1-ff7a-4947-859e-33775238920f.jpg",
-    "id": 80,
-    "identifier": "https://arstechnica.com/security/2026/07/kremlin-hackers-are-exploiting-exchange-flaw-to-backdoor-unpatched-networks/",
-    "name": "Max-severity Exchange server flaw under active exploitation by Kremlin hackers",
-    "plainTextLength": 4110,
-    "plainTextPreview": "Russian state hackers are using a maximum-severity vulnerability in Microsoft’s Outlook’s Exchange Server to backdoor unpatched machines and steal credentials and other confidential information from them, security researchers said Thursday.\n\nThe attacks are coming from TA488, a tracking name for a group working on behalf of the Kremlin, Proofpoint researchers said Thursday. Proofpoint and the Nati"
+    "author": "Ryan Whitwam",
+    "created_at": "2026-07-31T00:35:31.204268+00:00",
+    "date": "2026-07-30T17:58:02+00:00",
+    "icon": "article_icons/6e15bfdc-bd74-4554-bed3-a29d04e10350.png",
+    "id": 201,
+    "identifier": "https://arstechnica.com/ai/2026/07/google-reveals-gemini-robotics-2-0-promising-improved-dexterity-and-safety/",
+    "name": "Google reveals Gemini Robotics 2.0, promising improved dexterity and safety",
+    "plainTextLength": 5137,
+    "plainTextPreview": "Robots powered by Google’s Gemini AI models are now more capable. With the debut of Gemini Robotics 2, these physical bots can now accomplish more complex tasks, continuously analyze changing environments, and collaborate with other robots. This is thanks to a trio of new sub-models, one of which is publicly available for developers starting today.\n\nVideos of robots running, dancing, and backflipp"
   },
   "blockKindCounts": {
-    "blockquote": 1,
+    "embed": 3,
     "heading": 1,
-    "paragraph": 10
+    "image": 1,
+    "paragraph": 16
   },
   "document": {
     "blocks": [
@@ -22,7 +23,27 @@
           {
             "link": null,
             "styles": [],
-            "text": "Russian state hackers are using a maximum-severity vulnerability in Microsoft’s Outlook’s Exchange Server to backdoor unpatched machines and steal credentials and other confidential information from them, security researchers said Thursday."
+            "text": "Robots powered by Google’s Gemini AI models are now more capable. With the debut of "
+          },
+          {
+            "link": "https://deepmind.google/blog/gemini-robotics-2-brings-whole-body-intelligence-to-robots/",
+            "styles": [],
+            "text": "Gemini Robotics 2"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": ", these physical bots can now accomplish more complex tasks, continuously analyze changing environments, and collaborate with other robots. This is thanks to a trio of new sub-models, one of which is "
+          },
+          {
+            "link": "https://ai.google.dev/gemini-api/docs/robotics-overview",
+            "styles": [],
+            "text": "publicly available"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": " for developers starting today."
           }
         ],
         "type": "paragraph"
@@ -32,37 +53,164 @@
           {
             "link": null,
             "styles": [],
-            "text": "The attacks are coming from TA488, a tracking name for a group working on behalf of the Kremlin, Proofpoint researchers "
+            "text": "Videos of robots running, dancing, and backflipping have been a staple of the Internet for years, but these machines were programmed to perform these very narrow tasks. The goal of Gemini robotics is to create a generalist robot, one that can do anything a human could do. Google DeepMind scientists sometimes call this “physical AGI.” Essentially, you tell a robot what to do, and it does it. With the 2.0 release, Google says its robotics AI can control an entire humanoid robot with improved dexterity, even for machines with complex humanoid hands."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "externalURL": "https://www.youtube.com/watch?v=4lSQnrMC6nY",
+        "provider": "youtube",
+        "thumbnailRef": null,
+        "title": null,
+        "type": "embed"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": " Gemini Robotics 2 brings whole-body intelligence to robots. "
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "This starts with Gemini Robotics ER 2, an upgraded “embodied reasoning” model that DeepMind claims is a significant leap over the "
           },
           {
-            "link": "https://www.proofpoint.com/us/blog/threat-insight/cleaning-out-inboxes-ta488-comes-outlook-another-half-click-exploit",
+            "link": "https://arstechnica.com/ai/2026/04/robot-dogs-now-read-gauges-and-thermometers-using-google-gemini/",
             "styles": [],
-            "text": "said Thursday"
+            "text": "previous 1.6 release"
           },
           {
             "link": null,
             "styles": [],
-            "text": ". Proofpoint and the National Security Agency "
-          },
+            "text": ". It’s integrated with the Gemini Live API, giving developers the opportunity to experience that supposed leap forward."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
           {
-            "link": "https://www.proofpoint.com/us/blog/threat-insight/ta488-targets-zimbra-mailservers-half-click-exploits",
+            "link": null,
             "styles": [],
-            "text": "jointly"
+            "text": "Gemini Robotics ER 2 is what’s known as a vision language model (VLM). It’s designed to understand instructions and the world around it. The big upgrade here is that ER 2 can process live video feeds from the robot’s cameras, allowing the system to track progress as the robot lumbers from one step to the next. Google notes that Gemini Robotics ER 2 can classify video frame completeness with almost 60 percent accuracy. That’s still far from perfect, but it’s much better than the 1.6 release or what you can get with the visual understanding of competing AI models."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [
+          {
+            "link": null,
+            "styles": [],
+            "text": " Gemini Robotics ER 2 is better at understanding the world than other models, but not by much. "
           },
           {
             "link": null,
             "styles": [],
-            "text": " "
-          },
-          {
-            "link": "https://media.defense.gov/2026/Jul/22/2003965244/-1/-1/1/CSA_RUSSIA_PHISHING_TARGET_ZIMBRA.PDF",
-            "styles": [],
-            "text": "warned"
-          },
+            "text": " Credit: Google "
+          }
+        ],
+        "ref": "yana-img://48b2f870c68a2c9c7c950a9c6d29abd3068178246b794be5a25398498b15a8ef",
+        "type": "image"
+      },
+      {
+        "runs": [
           {
             "link": null,
             "styles": [],
-            "text": " last week that the group, also tracked as Laundry Bear and Void Blizzard, had been carrying out similar attacks by exploiting a zero-day vulnerability in an email service from Zimbra. The revelation that TA488 is also exploiting the Exchange Server vulnerability to install advanced malware when a user does nothing other than open an email sent to an Outlook Web Access (OWA) account has elevated the group’s profile and assessments of its abilities."
+            "text": " Gemini Robotics ER 2 is better at understanding the world than other models, but not by much. "
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": " Credit: Google "
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Finding specific moments in video feeds is also key to completing a task correctly. When you ask a robot to pour a cup of coffee, you definitely want it to know when to stop pouring. ER 2 apparently does this much better, identifying key moments with almost 90 percent accuracy. As the robots execute multi-step tasks, the embodied reasoning model allows them to understand failures in real time. The system can then attempt that single step again rather than going back to the start. For example, the robot can just readjust its hand position and motion if a ball it’s trying to pick up rolls away or someone moves a container."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "The new embodied reasoning release is also what gives Google DeepMind’s upgraded robot AI the ability to collaborate. The video demos show Apptronik’s Apollo 2 and the simpler Franka F3 Duo working together on a task without getting in each other’s way. While the test robots still can’t match the speed or grace of a human, the video demos include plenty of real-time footage of the robots in action, and they do seem much less hesitant than they were in past tests."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "externalURL": "https://www.youtube.com/watch?v=CiTPDm7PKW0",
+        "provider": "youtube",
+        "thumbnailRef": null,
+        "title": null,
+        "type": "embed"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": " Multi-robot collaboration with Gemini Robotics 2. "
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Understanding is only the first step—getting the robot to move around in the physical world is the purview of another model. After mapping out the task, the vision language model hands things over to an upgraded vision-language-action known simply as Gemini Robotics 2. This AI model generates robot actions from those instructions in the same way other generative systems create text or images. There’s also a low-latency offline version of this called Gemini Robotics On-Device 2. These models are currently limited to a small group of testers."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "externalURL": "https://cdn.arstechnica.net/wp-content/uploads/2026/07/Robot-Dog.mp4?_=1",
+        "provider": "video",
+        "thumbnailRef": null,
+        "title": null,
+        "type": "embed"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": " Google is also testing Gemini Robotics 2 on Boston Dynamics hardware. "
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "Google says the new action models are much more accurate and efficient. Even the smaller on-device version can adapt to new robot designs with just a few hours of movement data, or around 200 examples."
           }
         ],
         "type": "paragraph"
@@ -73,7 +221,7 @@
           {
             "link": null,
             "styles": [],
-            "text": "Doubling down"
+            "text": "Heading off the robot apocalypse"
           }
         ],
         "type": "heading"
@@ -83,7 +231,7 @@
           {
             "link": null,
             "styles": [],
-            "text": "“TA488 is doubling down on the use of ‘half-click’ exploits—where opening the email is enough to trigger compromise—with significantly improved loading mechanisms, techniques, and malware, signaling an improvement in the group’s tradecraft and capability,” Proofpoint researchers wrote. “This novel infection chain ends with a previously unknown JavaScript browser-based implant we call OWAReaper, purpose-built for persistent access inside OWA.”"
+            "text": "The issues with AI hallucinations are well known at this point, but the potential harm from mistakes when the AI has a physical embodiment sharing space with humans could be much greater. With each release of Gemini Robotics, Google DeepMind has stressed that it takes this risk seriously. According to DeepMind, each layer in Gemini Robotics includes “traditional physical safety measures with robust AI safety frameworks.”"
           }
         ],
         "type": "paragraph"
@@ -93,27 +241,7 @@
           {
             "link": null,
             "styles": [],
-            "text": "The vulnerability, tracked as CVE-2026-42897, is a cross-site-scripting vulnerability, usually abbreviated as XSS, that Microsoft provided "
-          },
-          {
-            "link": "https://msrc.microsoft.com/update-guide/vulnerability/CVE-2026-42897",
-            "styles": [],
-            "text": "mitigation advice"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": " for in May and "
-          },
-          {
-            "link": "https://msrc.microsoft.com/update-guide/vulnerability/CVE-2026-42897",
-            "styles": [],
-            "text": "patched"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": " in July. Microsoft gave it a maximum severity rating. The vulnerability, which stems from a failure to properly filter HTML embedded in an email, allows malicious JavaScript execution. Proofpoint said that TA488 may have exploited it as a zero-day."
+            "text": "With the release of Gemini Robotics 2, there’s a new safety benchmark called ASIMOV-Agentic. This test evaluates models across a variety of safety factors. It can assess whether an embodied reasoning agent will refuse unsafe tool calls from a VLA. It can also determine whether a given task is possible to complete safely, as well as whether the model is able to call for human assistance if it’s unsure about safety."
           }
         ],
         "type": "paragraph"
@@ -123,72 +251,17 @@
           {
             "link": null,
             "styles": [],
-            "text": "The malicious JavaScript installs a novel, custom-built browser extension that gives attackers persistent access to victims’ OWA accounts. Proofpoint said it was the most sophisticated backdoor the company has ever seen delivered through a half-click exploit. The company has named it OWAReaper."
-          }
-        ],
-        "type": "paragraph"
-      },
-      {
-        "runs": [
-          {
-            "link": null,
-            "styles": [],
-            "text": "Company researchers explained:"
-          }
-        ],
-        "type": "paragraph"
-      },
-      {
-        "blocks": [
-          {
-            "runs": [
-              {
-                "link": null,
-                "styles": [],
-                "text": "OWAReaper is executed entirely in the Outlook Web Access (OWA) reading pane. Upon execution, it uses Outlook APIs to rewrite the email on the Exchange server and remove the exploit content. Simultaneously, it disables OWA pop-ups and right-click ability while it runs. OWAReaper then creates a session key, unique to each target, and begins gathering the target’s email address, username and Outlook settings. It then creates two invisible input elements in the DOM and waits for the browser’s autofill to enter the username and password to gather the user’s OWA saved credentials."
-              }
-            ],
-            "type": "paragraph"
+            "text": "Google DeepMind notes that Gemini Robotics ER 2 is the team’s safest model yet, showing robust ability to understand safety and halt actions when a human is too close to the robot. Google’s new safety benchmark is "
           },
           {
-            "runs": [
-              {
-                "link": null,
-                "styles": [],
-                "text": "OWAReaper then writes an encrypted version of itself, and a decryption wrapper, into the browser’s localStorage, under settings fields in the PageDataPayload.OwaUserDefaultSettings key. This is a legitimate key used by OWA in its page rendering, where OWA evaluates OwaFrontendSyncState itself as part of its own sync restore flow. Every time the user opens an OWA tab in the browser, the normal OWA sync process automatically executes OWAReaper."
-              }
-            ],
-            "type": "paragraph"
-          }
-        ],
-        "type": "blockquote"
-      },
-      {
-        "runs": [
-          {
-            "link": null,
+            "link": "https://huggingface.co/datasets/google/asimov_agentic/blob/main/README.md",
             "styles": [],
-            "text": "In many cases, the backdoor can go on to steal OAuth tokens and, from there, gain full access to the mailbox of any authenticated user on the same network. “This persistent access lives on the server side and requires deliberate removal from the Exchange server; credential rotation and even full re-imaging of the targeted user’s device will not evict the actor,” Proofpoint said."
-          }
-        ],
-        "type": "paragraph"
-      },
-      {
-        "runs": [
-          {
-            "link": null,
-            "styles": [],
-            "text": "It’s not clear if machines compromised by OWAReaper are disinfected once Microsoft’s July patch or a separate "
-          },
-          {
-            "link": "https://learn.microsoft.com/en-us/exchange/plan-and-deploy/post-installation-tasks/security-best-practices/exchange-emergency-mitigation-service",
-            "styles": [],
-            "text": "Exchange Emergency Mitigation service"
+            "text": "available in its entirety"
           },
           {
             "link": null,
             "styles": [],
-            "text": " is installed. Proofpoint is advising affected users to revoke and audit their Exchange Web Services tokens for unauthorized add-ins and to (1) remove folder permissions to default users, (2) clear the OWA indexDB and PageDataPayload.owaUserDefaultSettings local storage key, and (3) block or alert when machines make outbound connections to command-and-control servers at asecdns[.]com, acocdn[.]com, dnsrecursive[.]eu, and tdndns[.]com."
+            "text": " on Hugging Face."
           }
         ],
         "type": "paragraph"
@@ -203,5 +276,14 @@
     "name": "Test ars_technica",
     "options": {}
   },
-  "images": []
+  "images": [
+    {
+      "byteSize": 38746,
+      "contentHash": "48b2f870c68a2c9c7c950a9c6d29abd3068178246b794be5a25398498b15a8ef",
+      "contentType": "image/webp",
+      "height": 675,
+      "missing": false,
+      "width": 1200
+    }
+  ]
 }

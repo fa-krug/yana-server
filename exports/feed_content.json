@@ -1,29 +1,41 @@
 {
   "article": {
     "author": "",
-    "created_at": "2026-07-30T21:47:25.056711+00:00",
-    "date": "2026-07-30T21:47:25.044721+00:00",
+    "created_at": "2026-07-31T00:37:49.506952+00:00",
+    "date": "2026-07-31T00:37:49.488915+00:00",
     "icon": null,
-    "id": 99,
-    "identifier": "https://simonwillison.net/2026/Jul/29/ai-worming-through-word/#atom-everything",
-    "name": "AI Worming through Word",
-    "plainTextLength": 1227,
-    "plainTextPreview": "AI Worming through Word\n\nNeat new prompt injection variant by Håkon Måløy, who found a way to upgrade prompt injection attacks against Microsoft Word to full self-replicating worms:\n\nAn attacker places hidden instructions in a document that is later used as source material in Copilot for Word. Copilot may interpret those instructions as part of the user’s request, causing it to manipulate the docu"
+    "id": 232,
+    "identifier": "https://simonwillison.net/2026/Jul/30/llm-rc2/#atom-everything",
+    "name": "llm 0.32rc2",
+    "plainTextLength": 1363,
+    "plainTextPreview": "Release: llm 0.32rc2\n\nHot on the heels of RC1, this fixes a dependency issue and also adds two neat new features:\n\nThe default model for users who have not set their own default is now GPT-5.6 Luna. It was previously GPT-4o mini. Luna is a much better and more recent model, albeit slightly more expensive - $0.20 per million input tokens and $1.20 per million output tokens, compared to $0.15/$0.60 "
   },
   "blockKindCounts": {
     "blockquote": 1,
-    "paragraph": 5
+    "codeBlock": 1,
+    "list": 1,
+    "paragraph": 8
   },
   "document": {
     "blocks": [
       {
         "runs": [
           {
-            "link": "https://enklypesalt.com/posts/context-collapse-part3-ai-worming-through-word/",
+            "link": null,
             "styles": [
               "bold"
             ],
-            "text": "AI Worming through Word"
+            "text": "Release:"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": " "
+          },
+          {
+            "link": "https://github.com/simonw/llm/releases/tag/0.32rc2",
+            "styles": [],
+            "text": "llm 0.32rc2"
           }
         ],
         "type": "paragraph"
@@ -33,7 +45,17 @@
           {
             "link": null,
             "styles": [],
-            "text": " Neat new prompt injection variant by Håkon Måløy, who found a way to upgrade prompt injection attacks against Microsoft Word to full self-replicating worms: "
+            "text": "Hot on the heels of "
+          },
+          {
+            "link": "https://simonwillison.net/2026/Jul/30/llm-rc1/",
+            "styles": [],
+            "text": "RC1"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": ", this fixes a dependency issue and also adds two neat new features:"
           }
         ],
         "type": "paragraph"
@@ -41,14 +63,104 @@
       {
         "blocks": [
           {
-            "runs": [
-              {
-                "link": null,
-                "styles": [],
-                "text": "An attacker places hidden instructions in a document that is later used as source material in Copilot for Word. Copilot may interpret those instructions as part of the user’s request, causing it to manipulate the document being drafted or edited. Copilot may then also copy the hidden instructions into the resulting document, turning that document into a new carrier. If the carrier is subsequently used in another Copilot-assisted workflow, the instructions can trigger again and propagate into further documents, even without the attacker’s original document being present."
-              }
+            "items": [
+              [
+                {
+                  "runs": [
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": "The default model for users who have not set their own default is now "
+                    },
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": "GPT-5.6 Luna"
+                    },
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": ". It was previously "
+                    },
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": "GPT-4o mini"
+                    },
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": ". Luna is a much better and more recent model, albeit slightly more expensive - $0.20 per million input tokens and $1.20 per million output tokens, compared to $0.15/$0.60 for 4o mini. You can switch back to 4o mini using "
+                    },
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": "llm models default gpt-4o-mini"
+                    },
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": ", or switch to "
+                    },
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": "GPT-5 nano"
+                    },
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": ", an even cheaper default model ($0.05/$0.40), using "
+                    },
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": "llm models default gpt-5-nano"
+                    },
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": ". "
+                    },
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": "#1576"
+                    }
+                  ],
+                  "type": "paragraph"
+                }
+              ],
+              [
+                {
+                  "runs": [
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": "New "
+                    },
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": "llm openai endpoint"
+                    },
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": " command for running prompts, chats and model listings against arbitrary OpenAI-compatible endpoints without first configuring a model. These calls are not logged. "
+                    },
+                    {
+                      "link": null,
+                      "styles": [],
+                      "text": "#1565"
+                    }
+                  ],
+                  "type": "paragraph"
+                }
+              ]
             ],
-            "type": "paragraph"
+            "ordered": false,
+            "type": "list"
           }
         ],
         "type": "blockquote"
@@ -58,17 +170,31 @@
           {
             "link": null,
             "styles": [],
-            "text": "We've seen plenty of hidden white-on-white text before - the kids "
+            "text": "The "
           },
           {
-            "link": "https://x.com/ScienceYael/status/2082175224007848019",
-            "styles": [],
-            "text": "are using it in their job applications now"
+            "link": null,
+            "styles": [
+              "code"
+            ],
+            "text": "llm openai endpoint"
           },
           {
             "link": null,
             "styles": [],
-            "text": " - but this is the first one I've seen that deliberately copies instructions to self-replicate itself."
+            "text": " command is "
+          },
+          {
+            "link": null,
+            "styles": [
+              "italic"
+            ],
+            "text": "really"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": " cool. I got frustrated at the lack of an obvious CLI tool for trying out prompts against arbitrary OpenAI Chat Completions imitation endpoints, so I decided to add that to LLM itself."
           }
         ],
         "type": "paragraph"
@@ -78,32 +204,64 @@
           {
             "link": null,
             "styles": [],
-            "text": "It was responsibly disclosed to Microsoft who then had 144 days to work on a fix, but so far (unsurprisingly) there's no mitigation that covers the full class of attack. "
+            "text": "You don't even have to install LLM to use this. Here's a "
+          },
+          {
+            "link": null,
+            "styles": [
+              "code"
+            ],
+            "text": "uvx"
           },
           {
             "link": null,
             "styles": [],
-            "text": "Via "
+            "text": " one-liner for running a prompt - with tools - against an "
           },
           {
-            "link": "https://news.ycombinator.com/item?id=49096188",
+            "link": "https://lmstudio.ai",
             "styles": [],
-            "text": "Hacker News"
+            "text": "LM Studio"
           },
           {
             "link": null,
             "styles": [],
-            "text": " "
+            "text": " local model:"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "language": null,
+        "text": "uvx --pre llm openai endpoint http://127.0.0.1:1234/v1 \\\n  T llm_version -T llm_time --td \\\n  -m google/gemma-4-31b 'what is the current LLM version? And the time?'\n",
+        "type": "codeBlock"
+      },
+      {
+        "runs": [
+          {
+            "link": "https://github.com/simonw/llm/pull/1568#issuecomment-5136163707",
+            "styles": [],
+            "text": "Output here"
           },
+          {
+            "link": null,
+            "styles": [],
+            "text": "."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "runs": [
           {
             "link": null,
             "styles": [],
             "text": "Tags: "
           },
           {
-            "link": "https://simonwillison.net/tags/microsoft",
+            "link": "https://simonwillison.net/tags/llm",
             "styles": [],
-            "text": "microsoft"
+            "text": "llm"
           },
           {
             "link": null,
@@ -111,9 +269,9 @@
             "text": ", "
           },
           {
-            "link": "https://simonwillison.net/tags/security",
+            "link": "https://simonwillison.net/tags/uv",
             "styles": [],
-            "text": "security"
+            "text": "uv"
           },
           {
             "link": null,
@@ -121,39 +279,9 @@
             "text": ", "
           },
           {
-            "link": "https://simonwillison.net/tags/ai",
+            "link": "https://simonwillison.net/tags/lm-studio",
             "styles": [],
-            "text": "ai"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": ", "
-          },
-          {
-            "link": "https://simonwillison.net/tags/prompt-injection",
-            "styles": [],
-            "text": "prompt-injection"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": ", "
-          },
-          {
-            "link": "https://simonwillison.net/tags/generative-ai",
-            "styles": [],
-            "text": "generative-ai"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": ", "
-          },
-          {
-            "link": "https://simonwillison.net/tags/llms",
-            "styles": [],
-            "text": "llms"
+            "text": "lm-studio"
           }
         ],
         "type": "paragraph"

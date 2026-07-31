@@ -2,13 +2,13 @@
   "aggregator": "podcast",
   "article": {
     "author": "Michael Kennedy (@mkennedy)",
-    "created_at": "2026-07-30T21:58:50.180521+00:00",
-    "date": "2026-06-17T15:20:03+00:00",
+    "created_at": "2026-07-31T00:49:13.332588+00:00",
+    "date": "2026-06-11T20:16:11+00:00",
     "icon": null,
-    "id": 134,
-    "identifier": "https://talkpython.fm/episodes/show/552/astral-joins-openai",
-    "name": "#552: Astral joins OpenAI",
-    "plainTextLength": 494
+    "id": 310,
+    "identifier": "https://talkpython.fm/episodes/show/551/stroll-down-startup-lane-2026",
+    "name": "#551: Stroll Down Startup Lane - 2026",
+    "plainTextLength": 1002
   },
   "curation": {
     "desiredBlockCount": 3,
@@ -24,7 +24,7 @@
           {
             "link": null,
             "styles": [],
-            "text": "Duration: 1:05:08"
+            "text": "Duration: 1:48:54"
           },
           {
             "link": null,
@@ -55,7 +55,7 @@
           {
             "link": null,
             "styles": [],
-            "text": "OpenAI just acquired Astral, the company behind uv, Ruff, and ty. And if your first thought was \"wait, is uv toast?\", you are not alone. But here's the twist Charlie Marsh shared with me: he thinks they may ship more open source at OpenAI than they ever did at Astral. On this episode, we get into the acquisition, the mixed feelings, the future of your favorite Python tools, and what it's like to build right at the center of the AI universe."
+            "text": "If you've ever been to PyCon, you know one of the best parts of the expo hall is Startup Row, a stretch of booths where early-stage companies built on Python show off what they're creating. But only attendees get to walk that lane, so let's bring it to everyone. In this episode, we stroll down Startup Row together. We kick things off with the organizers, Jason and Shay, who share the program's origin story going back to Paul Graham and the PSF, plus some surprising stats, including two unicorns among the alumni. Then we meet five startups: Tetrix, bringing AI to institutional investing in private markets. Arcjet, security that lives inside your app as an SDK. Phemeral.dev, serverless hosting built for Python web apps. CapiscIO, an identity and authority layer for AI agents. And Pixeltable, a multimodal database from Marcel Kornacker, co-creator of Apache Parquet. See if you can spot the theme running through them all. Let's go for a walk."
           }
         ],
         "type": "paragraph"

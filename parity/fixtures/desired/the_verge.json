@@ -1,30 +1,30 @@
 {
   "aggregator": "the_verge",
   "article": {
-    "author": "Emma Roth",
-    "created_at": "2026-07-30T22:43:16.876142+00:00",
-    "date": "2026-07-30T22:43:13.184067+00:00",
-    "icon": "article_icons/83961e11-f543-460b-b13f-1898c931b1a3.webp",
-    "id": 163,
-    "identifier": "https://www.theverge.com/tech/973430/apple-q3-2026-earnings",
-    "name": "Apple’s iPhone and Mac sales keep growing despite RAM shortages",
-    "plainTextLength": 2404
+    "author": "Sheena Vasani",
+    "created_at": "2026-07-31T00:50:28.546292+00:00",
+    "date": "2026-07-31T00:50:19.563709+00:00",
+    "icon": "article_icons/2420aa4f-e68d-495e-ac09-185ad4f66a1c.webp",
+    "id": 322,
+    "identifier": "https://www.theverge.com/gadgets/973266/govee-table-lamp-classic-back-to-school-deal-sale",
+    "name": "Govee’s portable smart lamp is down to one of its best prices to date",
+    "plainTextLength": 1696
   },
   "curation": {
-    "desiredBlockCount": 7,
-    "rawBlockCount": 9,
+    "desiredBlockCount": 9,
+    "rawBlockCount": 11,
     "remoteRefsNeedingLocalization": [],
     "removed": [
       {
         "excerpt": "Related",
-        "index": 4,
+        "index": 1,
         "reason": "inline related-links box, mid-article",
         "rule": "inline-related",
         "type": "heading"
       },
       {
         "excerpt": "",
-        "index": 5,
+        "index": 2,
         "reason": "the inline related box's link list",
         "rule": "inline-related",
         "type": "list"
@@ -39,17 +39,70 @@
           {
             "link": null,
             "styles": [],
-            "text": "Apple’s iPhone and Mac sales are on the rise even as a global memory shortage squeezes device makers. In its third-quarter "
+            "text": "Buying multiple lamps for different rooms can get expensive. "
           },
           {
-            "link": "https://www.apple.com/newsroom/2026/07/apple-reports-third-quarter-results/",
-            "styles": [],
-            "text": "earnings report released"
+            "link": "https://www.theverge.com/tech/915959/govee-table-smart-lamp-classic-battery-rechargeable-matter-pricing",
+            "styles": [
+              "bold"
+            ],
+            "text": "Govee’s rechargeable Table Lamp Classic"
           },
           {
             "link": null,
             "styles": [],
-            "text": " on Thursday, Apple revealed that iPhone sales jumped 22 percent to $54.25 billion and Mac sales increased 29 percent to $10.35 billion, driving the company’s overall revenue to $109.4 billion."
+            "text": " gives you one lamp you can use throughout your home instead of getting one for every room, and right now it’s down to $59 ($21 off) at "
+          },
+          {
+            "link": "https://www.amazon.com/dp/B0GLM9BBQT?tag=toysrein-20&tag=theverge02-20",
+            "styles": [],
+            "text": "Amazon"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": ". That’s just $4 shy of the all-time low set during Prime Day, and the smart lamp’s second-best price to date."
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://f548d3cc9f568e7f3233b380b7f7eb1157e2965125a2d036b3327d601e458dc5",
+        "type": "image"
+      },
+      {
+        "caption": [],
+        "ref": "yana-img://7e469357db7185500a80e887a323d2844839e15ab96a76546f3089debda3ca87",
+        "type": "image"
+      },
+      {
+        "level": 3,
+        "runs": [
+          {
+            "link": "https://www.amazon.com/Govee-Cordless-Classic-Rechargeable-Portable/dp/B0GLM9BBQT/?tag=theverge02-20",
+            "styles": [],
+            "text": "Govee Table Lamp Classic"
+          }
+        ],
+        "type": "heading"
+      },
+      {
+        "runs": [
+          {
+            "link": null,
+            "styles": [],
+            "text": "$60"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": "$80"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": "25% off"
           }
         ],
         "type": "paragraph"
@@ -59,7 +112,7 @@
           {
             "link": null,
             "styles": [],
-            "text": "The company expects supply chain constraints to worsen in the coming months. During an earnings call, Apple chief financial officer Kevan Parekh said Apple expects “supply constraints to increase significantly” in the next quarter, adding the shortage will impact the iPhone, Mac, and iPad. Meanwhile, Apple CEO Tim Cook warned that the company predicts it will “pay even higher memory costs” in the coming months."
+            "text": "$60"
           }
         ],
         "type": "paragraph"
@@ -69,17 +122,12 @@
           {
             "link": null,
             "styles": [],
-            "text": "It’s the company’s last earnings report with Cook at the helm. "
-          },
-          {
-            "link": "https://www.theverge.com/tech/915213/tim-cook-apple-ceo-stepping-down-john-ternus",
-            "styles": [],
-            "text": "Cook is set to step down on September 1st,"
+            "text": "$60 at Amazon"
           },
           {
             "link": null,
             "styles": [],
-            "text": " with John Ternus, Apple’s vice president of hardware engineering, taking his place."
+            "text": "$64 at Govee"
           }
         ],
         "type": "paragraph"
@@ -89,37 +137,7 @@
           {
             "link": null,
             "styles": [],
-            "text": "Apple "
-          },
-          {
-            "link": "https://www.theverge.com/tech/952162/apple-price-increase-ram-shortage",
-            "styles": [],
-            "text": "raised prices across its Macs"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": ", iPads, and other devices in June as it contends with a RAM shortage expected to last until 2027 and beyond. The move also included a price hike for the "
-          },
-          {
-            "link": "https://www.theverge.com/tech/891741/apple-macbook-neo-a18-pro-review",
-            "styles": [],
-            "text": "company’s new MacBook Neo"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": ", which now costs $699 instead of $599. Since its debut in March, the Neo "
-          },
-          {
-            "link": "https://www.theverge.com/report/894090/macbook-neo-pc-windows-laptop-competition-asus-footinmouth",
-            "styles": [],
-            "text": "disrupted the affordable laptop"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": " market with its lightweight form factor and speedy performance."
+            "text": "Because it’s cordless, the lamp is surprisingly versatile. You can use it to brighten your desk during the day, keep it by your bedside at night, and even carry it to the patio for dinner (just don’t forget to bring it back inside if it’s expected to rain, as the lamp isn’t weather-resistant). A built-in 4,800mAh battery powers the lamp for up to 30 hours with colored lighting enabled, or about five hours when using bright white light, so you don’t need to worry about staying near an outlet."
           }
         ],
         "type": "paragraph"
@@ -129,67 +147,7 @@
           {
             "link": null,
             "styles": [],
-            "text": "Apple hasn’t raised the prices of its iPhones yet, but "
-          },
-          {
-            "link": "https://www.macrumors.com/2026/06/26/iphone-18-pro-price-increase-estimate/",
-            "styles": [],
-            "text": "analysts predict"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": " that the iPhone 18 could cost up to $200 more when the lineup launches this fall. Apple is planning to widely release its "
-          },
-          {
-            "link": "https://www.theverge.com/tech/942416/apple-siri-ai-update-wwdc",
-            "styles": [],
-            "text": "more personalized Siri AI"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": " alongside the iPhone 18, allowing "
-          },
-          {
-            "link": "https://www.theverge.com/tech/964714/siri-ai-public-beta-preview-ios-27-hands-on",
-            "styles": [],
-            "text": "its assistant to answer questions"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": " about what’s on your screen, search across apps, and perform tasks, like adding events to your calendar."
-          }
-        ],
-        "type": "paragraph"
-      },
-      {
-        "runs": [
-          {
-            "link": null,
-            "styles": [],
-            "text": "This week, Apple also announced "
-          },
-          {
-            "link": "https://www.theverge.com/tech/971220/apple-upgrade-program-iphone-mac-ipad-lease-launch",
-            "styles": [],
-            "text": "a new Upgrade program"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": " that will let you lease an iPhone, iPad, Apple Watch, or Mac for a set monthly price."
-          }
-        ],
-        "type": "paragraph"
-      },
-      {
-        "runs": [
-          {
-            "link": null,
-            "styles": [],
-            "text": "Additionally, Apple reported $30.74 billion in services revenue, which incorporates subscriptions like Apple One and Apple TV. Parekh added during the earnings call that the company now has more than 1.5 billion subscribers across its services. Apple also reported $7.88 billion in revenue for wearables and a lower-than-expected $6.2 billion in iPad revenue."
+            "text": "Despite being small and light enough to carry from room to room, the Table Lamp Classic offers many of the same smart lighting features found on Govee’s bigger lamps. It lets you tweak the color temperature, cycle through 72 preset scenes, and sync the lighting to your music, making it easy to match the mood whether you’re studying, unwinding, or enjoying a date night. If you have something more specific in mind, Govee’s app can even generate a custom effect from a short text prompt. Since it supports Matter, you won’t have to reach for the Govee app every time you move the lamp to a different room, either. Instead, you can control it with your voice through your favorite smart home platform."
           }
         ],
         "type": "paragraph"
@@ -204,5 +162,22 @@
     "name": "Test the_verge",
     "options": {}
   },
-  "images": []
+  "images": [
+    {
+      "byteSize": 105430,
+      "contentHash": "f548d3cc9f568e7f3233b380b7f7eb1157e2965125a2d036b3327d601e458dc5",
+      "contentType": "image/webp",
+      "height": 1166,
+      "missing": false,
+      "width": 1154
+    },
+    {
+      "byteSize": 138686,
+      "contentHash": "7e469357db7185500a80e887a323d2844839e15ab96a76546f3089debda3ca87",
+      "contentType": "image/webp",
+      "height": 1166,
+      "missing": false,
+      "width": 1749
+    }
+  ]
 }
