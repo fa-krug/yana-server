@@ -36,9 +36,20 @@ LABEL org.opencontainers.image.title="Yana" \
       org.opencontainers.image.description="Self-hosted RSS aggregator" \
       org.opencontainers.image.source="https://github.com/fa-krug/yana-server"
 
+# HOSTNAME: Next 16's generated standalone server.js does
+# `const hostname = process.env.HOSTNAME || '0.0.0.0'`, and Docker sets
+# HOSTNAME to the container's short ID in every container. Left unset, the
+# server would bind only that container-ID hostname's interface -- not
+# 127.0.0.1 -- so a HEALTHCHECK or `docker exec` hitting localhost:3000 would
+# fail, and a hostname that fails to resolve can make listen() throw at
+# startup. Pin it to 0.0.0.0 so the server binds all interfaces, same as the
+# official Next Docker template does for this exact reason. (Derived by
+# reading Next's emitted template and Docker's documented HOSTNAME behavior --
+# not observed, since this image has never been run.)
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
+    HOSTNAME=0.0.0.0 \
     DATABASE_PATH=/app/data/yana.db
 
 RUN apk add --no-cache tini vips && \
