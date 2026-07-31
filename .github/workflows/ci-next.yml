@@ -1,16 +1,27 @@
+# Deliberately PR-only until phase 14 swaps the Django tree for this one.
+#
+# ci.yml (the Django pipeline) also pushes to
+# `${{ secrets.DOCKERHUB_USERNAME }}/yana` with byte-identical
+# docker/metadata-action tag rules (`main`, `latest`, `sha-<sha>`) and also
+# redeploys the same Portainer stack. If this workflow also ran on push to
+# main and also published/deployed, `publish-manifest` could assemble
+# `:latest` from a Django amd64 layer and a Next arm64 layer (or vice versa),
+# and `deploy` would then push that mixed image live via the shared stack.
+#
+# So: no `push` trigger, and no publish-manifest / deploy jobs. The `test`,
+# build-amd64 and build-arm64 jobs stay -- and still build for real, just
+# without pushing anywhere -- so the checks run and the Dockerfile keeps
+# getting exercised on every PR. Do NOT restore the push trigger or the
+# publish-manifest/deploy jobs (and do NOT just gate them with `if: false`)
+# until phase 14 actually retires ci.yml -- until then, doing so reintroduces
+# the tag and stack collision described above.
 name: CI/CD (Next)
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
     branches:
       - main
-
-env:
-  REGISTRY: docker.io
-  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/yana
+  workflow_dispatch:
 
 jobs:
   test:
@@ -46,14 +57,14 @@ jobs:
     - name: Test
       run: npm test
 
-  # Build AMD64 image
+  # Build AMD64 image (push:false -- see file header; no registry to push to
+  # until phase 14).
   build-amd64:
     name: Build AMD64
     runs-on: ubuntu-latest
     needs: [test]
     permissions:
       contents: read
-      packages: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -61,48 +72,24 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
-        if: github.event_name == 'push'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          flavor: |
-            suffix=-linux-amd64
-          tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push AMD64
-        id: build
+      - name: Build AMD64 (no push)
         uses: docker/build-push-action@v5
         with:
           context: ./yana-next
-          push: ${{ github.event_name == 'push' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          push: false
+          cache-from: type=gha,scope=next-amd64
+          cache-to: type=gha,mode=max,scope=next-amd64
           platforms: linux/amd64
           provenance: false
 
-  # Build ARM64 image
+  # Build ARM64 image (push:false -- see file header; no registry to push to
+  # until phase 14).
   build-arm64:
     name: Build ARM64
     runs-on: ubuntu-24.04-arm
     needs: [test]
     permissions:
       contents: read
-      packages: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -110,137 +97,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
-        if: github.event_name == 'push'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          flavor: |
-            suffix=-linux-arm64
-          tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push ARM64
-        id: build
+      - name: Build ARM64 (no push)
         uses: docker/build-push-action@v5
         with:
           context: ./yana-next
-          push: ${{ github.event_name == 'push' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          push: false
+          cache-from: type=gha,scope=next-arm64
+          cache-to: type=gha,mode=max,scope=next-arm64
           platforms: linux/arm64
           provenance: false
-
-  # Create multi-arch manifest and push to registry
-  publish-manifest:
-    name: Publish Multi-Arch Manifest
-    runs-on: ubuntu-latest
-    needs: [build-amd64, build-arm64]
-    if: github.event_name == 'push'
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Create and push multi-arch manifest
-        env:
-          TAGS: ${{ steps.meta.outputs.tags }}
-        run: |
-          echo "$TAGS" | while read -r tag; do
-            if [ -z "$tag" ]; then continue; fi
-            echo "Creating manifest for $tag"
-            docker manifest create "$tag" \
-              --amend "$tag-linux-amd64" \
-              --amend "$tag-linux-arm64"
-            docker manifest push "$tag"
-          done
-
-  # Deploy to Portainer (fetch current config and redeploy)
-  deploy:
-    name: Deploy to Portainer
-    runs-on: ubuntu-latest
-    needs: [publish-manifest]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
-      - name: Redeploy Portainer stack
-        env:
-          PORTAINER_URL: ${{ secrets.PORTAINER_HOST }}
-          API_KEY: ${{ secrets.PORTAINER_TOKEN }}
-          ENDPOINT_ID: ${{ secrets.PORTAINER_ENDPOINT_ID }}
-          STACK_ID: ${{ secrets.PORTAINER_STACK_ID }}
-        run: |
-          set -e
-
-          echo "Fetching stack configuration..."
-          STACK_RESPONSE=$(curl -sf -H "X-API-Key: $API_KEY" "$PORTAINER_URL/api/stacks/$STACK_ID")
-          ENV_VARS=$(echo "$STACK_RESPONSE" | jq -c '.Env // []')
-          WEBHOOK=$(echo "$STACK_RESPONSE" | jq -c '.Webhook // null')
-
-          echo "Fetching stack file content..."
-          FILE_RESPONSE=$(curl -sf -H "X-API-Key: $API_KEY" "$PORTAINER_URL/api/stacks/$STACK_ID/file")
-          STACK_FILE_CONTENT=$(echo "$FILE_RESPONSE" | jq -r '.StackFileContent')
-
-          echo "Redeploying stack..."
-          PAYLOAD=$(jq -n \
-            --arg content "$STACK_FILE_CONTENT" \
-            --argjson env "$ENV_VARS" \
-            --argjson webhook "$WEBHOOK" \
-            --arg id "$STACK_ID" \
-            '{StackFileContent: $content, Env: $env, Prune: true, PullImage: true, Webhook: $webhook, Id: $id}')
-
-          HTTP_CODE=$(curl -s -o /tmp/response.txt -w "%{http_code}" \
-            -X PUT "$PORTAINER_URL/api/stacks/$STACK_ID?endpointId=$ENDPOINT_ID" \
-            -H "X-API-Key: $API_KEY" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD")
-
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "Stack redeployed successfully!"
-          elif [ "$HTTP_CODE" = "524" ]; then
-            echo "Got 524 timeout, checking stack status..."
-            CHECK_CODE=$(curl -s -o /tmp/check.txt -w "%{http_code}" -H "X-API-Key: $API_KEY" "$PORTAINER_URL/api/stacks/$STACK_ID")
-            if [ "$CHECK_CODE" = "200" ]; then
-              STATUS=$(cat /tmp/check.txt | jq -r '.Status')
-              if [ "$STATUS" = "1" ]; then
-                echo "Stack is running - deployment likely succeeded!"
-              else
-                echo "::warning::Stack status: $STATUS - may need attention"
-              fi
-            else
-              echo "::error::Could not verify stack status: $CHECK_CODE"
-              exit 1
-            fi
-          else
-            echo "::error::Failed to redeploy stack (HTTP $HTTP_CODE)"
-            exit 1
-          fi
