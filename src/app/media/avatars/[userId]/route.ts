@@ -35,13 +35,29 @@ import { requireUser } from "@/lib/auth/session";
  * 3. **Every refusal is the same 404 with no body.** "Not yours", "no such
  *    user", "not a user id at all" and "you have not uploaded one" are
  *    indistinguishable, so none of them tells a caller anything about who
- *    exists. (`requireUser()`'s redirect for a signed-*out* caller is uniform
- *    for the same reason: it does not depend on the requested id.)
+ *    exists.
  * 4. **The bytes only ever come from `processAvatar()`.** Task 6's upload
  *    decodes and re-encodes to WebP before anything reaches this directory, so
  *    the fixed `Content-Type` below is a fact about the file rather than a
  *    guess about the upload -- which is what keeps an "image" upload from
  *    being served back as HTML or as an SVG carrying script.
+ *
+ * **A signed-out caller gets `requireUser()`'s `307 -> /login`, not a 404, and
+ * that is deliberate -- do not "fix" it here.** It is the same answer
+ * `src/proxy.ts` already gives for the whole `media/` prefix when no cookie is
+ * present, and it is uniform across every id, so it is not an enumeration
+ * oracle. Diverging in the handler alone would make one logical condition -- no
+ * valid session -- answer two different ways depending only on whether a cookie
+ * header happened to be present: 307 when the proxy caught it, 401/404 when the
+ * handler did. A media-specific answer is a reasonable thing to want, but it
+ * has to change the proxy too, in one deliberate step.
+ *
+ * **`next/image` cannot optimise this URL**, and that is inherent rather than a
+ * bug to chase: `/_next/image?url=/media/avatars/<id>` answers 400 for
+ * *everyone*, the owner included, because the optimizer refetches the URL
+ * server-side and that internal request carries no session cookie. Render
+ * avatars with the plain `<img>` that `<AvatarImage>` produces (it already
+ * does); they are 256x256 WebP, so there is nothing to optimise anyway.
  *
  * No `connection()` call: `requireUser()` awaits `headers()` before anything
  * touches SQLite, which opts this route out of prerendering just as well --
@@ -61,11 +77,12 @@ export async function GET(
   _request: Request,
   ctx: { params: Promise<{ userId: string }> },
 ): Promise<Response> {
-  const { userId } = await ctx.params;
-
-  // Authenticate before looking at the segment at all, so that no answer this
-  // route gives to a signed-out caller can depend on what they asked for.
+  // Authenticated first, and the segment is not read until afterwards, so that
+  // no answer this route gives to a signed-out caller can depend on what they
+  // asked for.
   const user = await requireUser();
+
+  const { userId } = await ctx.params;
   if (userId !== user.id) return refused();
 
   const file = avatarFilePath(user.id);

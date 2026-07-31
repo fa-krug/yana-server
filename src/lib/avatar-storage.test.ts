@@ -142,6 +142,35 @@ describe("processAvatar", () => {
     expect(meta.width).toBe(AVATAR_SIZE);
   });
 
+  it("refuses a small file that decodes enormous", async () => {
+    // The decompression bomb. A byte cap on the upload does not bound this: a
+    // flat 6000x5000 PNG is a few kB on the wire and 30 MP in memory, and the
+    // real thing goes much further (a 758 kB PNG decodes at 256 MP, ~250 MB of
+    // RSS for one call). libvips checks the *header*, so nothing is decoded.
+    const bomb = await sharp({
+      create: { width: 6000, height: 5000, channels: 3, background: { r: 0, g: 0, b: 0 } },
+    })
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+
+    expect(bomb.byteLength).toBeLessThan(200_000);
+    // Matched on the message, so the test proves the *pixel limit* refused it
+    // rather than some other decode failure that happened to throw.
+    await expect(processAvatar(bomb)).rejects.toThrow(/pixel limit/i);
+  });
+
+  it("still accepts a photograph a real camera would produce", async () => {
+    // The limit has to be generous enough not to refuse an ordinary upload --
+    // 12 MP here, which is a phone's default mode.
+    const photo = await sharp({
+      create: { width: 4000, height: 3000, channels: 3, background: { r: 30, g: 60, b: 90 } },
+    })
+      .jpeg()
+      .toBuffer();
+
+    expect((await sharp(await processAvatar(photo)).metadata()).width).toBe(AVATAR_SIZE);
+  });
+
   it("rejects a file that is not an image at all", async () => {
     // The caller's signal to refuse the upload -- task 6 must not catch this
     // and store the bytes anyway.

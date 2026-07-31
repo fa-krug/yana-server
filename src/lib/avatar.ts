@@ -45,18 +45,96 @@ export function displayNameFor(user: Pick<AvatarUser, "firstName" | "lastName" |
   return `${user.firstName} ${user.lastName}`.trim() || user.email;
 }
 
+/** The fallback's foreground. Every colour below is chosen to be legible under it. */
+export const AVATAR_FOREGROUND = "#ffffff";
+
+/** Saturation, fixed. Only lightness moves, and it moves to satisfy contrast. */
+const SATURATION = 55;
+
+/**
+ * The contrast ratio each colour is solved for.
+ *
+ * WCAG AA for normal-size text is 4.5:1; the extra 0.1 is margin, so a hue
+ * sitting exactly on the boundary cannot be pushed under it by a rounding
+ * difference somewhere downstream.
+ */
+const TARGET_CONTRAST = 4.6;
+
+/** The lightness window the search runs over, darkest last. */
+const MAX_LIGHTNESS = 70;
+const MIN_LIGHTNESS = 20;
+
+/** sRGB companding, from the WCAG relative-luminance definition. */
+function linearise(channel: number): number {
+  return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+}
+
+/** HSL (h in degrees, s and l in percent) to sRGB in 0..1. */
+function hslToRgb(hue: number, saturation: number, lightness: number): [number, number, number] {
+  const s = saturation / 100;
+  const l = lightness / 100;
+  const a = s * Math.min(l, 1 - l);
+  const component = (n: number) => {
+    const k = (n + hue / 30) % 12;
+    return l - a * Math.max(-1, Math.min(k - 3, Math.min(9 - k, 1)));
+  };
+  return [component(0), component(8), component(4)];
+}
+
+/** WCAG relative luminance. */
+function relativeLuminance([r, g, b]: [number, number, number]): number {
+  return 0.2126 * linearise(r) + 0.7152 * linearise(g) + 0.0722 * linearise(b);
+}
+
+/**
+ * Contrast ratio between this colour and white.
+ *
+ * White's luminance is 1, so the general `(lighter + 0.05) / (darker + 0.05)`
+ * collapses to this -- every colour the search considers is darker than white.
+ */
+export function contrastWithWhite(hue: number, saturation: number, lightness: number): number {
+  return 1.05 / (relativeLuminance(hslToRgb(hue, saturation, lightness)) + 0.05);
+}
+
 /**
  * Deterministic colour from the user id, so an avatar looks the same on every
  * device and across sessions -- there is nothing persisted to disagree with.
- * Fixed saturation and lightness keep contrast with white text predictable in
- * both themes.
+ *
+ * **Lightness varies with hue, and that is the whole point.** A fixed
+ * `hsl(h 55% 45%)` -- what this returned first -- is *predictably* poor rather
+ * than predictably good: white on it falls below AA 4.5:1 for **184 of 360
+ * hues**, below even 3:1 for 40% of them, bottoming out at 2.26:1 around hue 60
+ * where the colour is yellow. Ids are random, so that is not an edge case, it
+ * is half of all users looking at an unreadable version of their own initials
+ * forever. Relative luminance is wildly non-uniform across hue -- green carries
+ * 0.7152 of it and blue 0.0722 -- so no single lightness can serve every hue.
+ *
+ * So the lightness is *solved* per hue: take the lightest value in the window
+ * that still clears `TARGET_CONTRAST` against white. Yellows land near 30% and
+ * blues near 62%, and the resulting ratios sit in a narrow 4.60-4.86 band, so
+ * the palette reads as one family instead of some colours being much darker
+ * than they need to be. An integer descending scan rather than a bisection
+ * because luminance is monotonic in lightness, the window is 51 wide, and an
+ * exact integer answer needs no rounding step that could cross the threshold.
+ *
+ * `src/lib/avatar.test.ts` asserts the ratio across the whole hue range, not
+ * for a couple of sample ids -- sampling is what let the first version ship.
  */
 export function colourFor(id: string): string {
-  let hash = 0;
+  let hue = 0;
   for (let index = 0; index < id.length; index += 1) {
-    hash = (hash * 31 + id.charCodeAt(index)) % 360;
+    hue = (hue * 31 + id.charCodeAt(index)) % 360;
   }
-  return `hsl(${hash} 55% 45%)`;
+
+  let lightness = MIN_LIGHTNESS;
+  for (let candidate = MAX_LIGHTNESS; candidate >= MIN_LIGHTNESS; candidate -= 1) {
+    if (contrastWithWhite(hue, SATURATION, candidate) >= TARGET_CONTRAST) {
+      lightness = candidate;
+      break;
+    }
+  }
+
+  return `hsl(${hue} ${SATURATION}% ${lightness}%)`;
 }
 
 /**
@@ -68,10 +146,39 @@ export function colourFor(id: string): string {
  *
  * Note what the path does *not* carry: no extension, because the segment is a
  * user id and never a filename -- there is nothing for the handler to strip,
- * and so nothing to strip wrongly. `<UserAvatar>` still renders `user.image`
- * verbatim rather than recomputing it, so a column holding some other URL
- * entirely would keep working.
+ * and so nothing to strip wrongly.
  */
 export function avatarUrlFor(userId: string): string {
   return `/media/avatars/${userId}`;
+}
+
+/**
+ * The `src` to render for this user, or `null` for "use the initials".
+ *
+ * **`users.image` is attacker-controlled, so it is never rendered verbatim.**
+ * Better Auth's `POST /api/auth/update-user` accepts an arbitrary `image`
+ * string from any signed-in user; `src/lib/auth/server.ts` now closes that
+ * endpoint, but the column is still reachable from the `admin()` plugin's
+ * `/admin/update-user`, from a restored backup, and from any future write, and
+ * `<UserAvatar>` renders in *other people's* browsers -- the sidebar footer,
+ * the account page, phase 5's user list. A stored
+ * `https://evil.example.com/track.gif` would therefore fire from every viewer,
+ * leaking their IP, user-agent and referrer, and it would route around the
+ * whole point of re-encoding uploads and serving them from a session-gated
+ * route. This is the render-side half of that fix, and it is the half that
+ * holds no matter how the value got into the column.
+ *
+ * The test is **equality with `avatarUrlFor(user.id)`**, not a prefix or a
+ * protocol check. Same discipline as the route handler: compare against the one
+ * value that is allowed and discard everything else, rather than trying to
+ * enumerate the spellings that are not (`//evil.tld`, `javascript:`, `data:`,
+ * a protocol-relative host, someone else's id, a query string appended to a
+ * legitimate path). If a later phase adds a cache-busting token to the URL, it
+ * changes `avatarUrlFor()` and this keeps matching by construction.
+ */
+export function safeAvatarSrc(
+  user: Pick<AvatarUser, "id"> & { image: string | null },
+): string | null {
+  if (user.image === null) return null;
+  return user.image === avatarUrlFor(user.id) ? user.image : null;
 }

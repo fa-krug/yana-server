@@ -105,6 +105,32 @@ export const auth = betterAuth({
     requireEmailVerification: false,
   },
 
+  /**
+   * **`/update-user` is closed, because it can set `users.image` to any string.**
+   *
+   * It accepts `{ image }` from *any* signed-in user (verified live: a plain
+   * non-admin set it to an external URL and it landed in SQLite). `image` is a
+   * core field, so the `input: false` trick that protects `role` does **not**
+   * reach it: `api/routes/update-user.mjs` destructures `name` and `image` out
+   * of the body *before* calling `parseUserInput()`, and `getFields(…, "input")`
+   * returns only `additionalFields` and plugin fields anyway -- core fields are
+   * in the "output" schema only. There is no field-level lever here; closing the
+   * path is the lever there is, and `disabledPaths` makes the router answer 404
+   * before the handler runs (`api/index.mjs`, `onRequest`).
+   *
+   * Nothing loses a capability: this app has no profile-update UI, the account
+   * page (task 6) writes through a server action and `writeTransaction()` like
+   * every other write here, and phase 5 hand-rolls user CRUD against Drizzle.
+   * `disabledPaths` gates *HTTP routing* only, so none of those are affected.
+   *
+   * This is the write-side half. The render-side half -- `safeAvatarSrc()` in
+   * `@/lib/avatar`, which renders the column only when it equals
+   * `avatarUrlFor(user.id)` -- is the one that holds regardless of how a value
+   * reached the column, including through the `admin()` plugin's own
+   * `/admin/update-user`, which is still routable to an administrator.
+   */
+  disabledPaths: ["/update-user"],
+
   session: {
     expiresIn: 60 * 60 * 24 * 30,
     updateAge: 60 * 60 * 24,

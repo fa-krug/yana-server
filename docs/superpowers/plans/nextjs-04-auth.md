@@ -653,7 +653,9 @@ Fallback colour derives from the user id, so it is identical on every device."
 
 `src/lib/account/actions.ts` — `updateProfile`, `changePassword`, `uploadAvatar`. Each validates with Zod, scopes to `requireUser()`, and returns `{ ok, error? }`, matching phase 3's action convention.
 
-`uploadAvatar` accepts `FormData`, enforces a **2 MB** limit before reading the buffer, passes it through `processAvatar`, writes to `media/avatars/<userId>.webp`, and stores that path on `users.image`. Reject by declared size first, then by actual byte length after reading — a client-supplied `size` is not trustworthy.
+`uploadAvatar` accepts `FormData`, enforces a **2 MB** limit before reading the buffer, passes it through `processAvatar`, writes the result to the file `avatarFilePath(userId)` returns, and stores **`avatarUrlFor(userId)`** on `users.image` — the URL `/media/avatars/<userId>`, *not* the filesystem path. Both helpers are in task 5's `src/lib/avatar-storage.ts` / `src/lib/avatar.ts`; see the media-route section of `CLAUDE.md` for the full contract, including that `safeAvatarSrc()` renders the column only when it equals that exact value, and that removing an avatar must `unlink` the file as well as null the column. Reject by declared size first, then by actual byte length after reading — a client-supplied `size` is not trustworthy. The 2 MB cap bounds bytes, not pixels; `processAvatar` owns the pixel and time limits and must not be bypassed.
+
+Writing the *filesystem* path into `users.image` is the silent failure to avoid: a relative `media/avatars/<id>.webp` resolves against `/account` to `/account/media/avatars/…`, 404s, and `<AvatarImage>` simply never mounts — initials show forever and nothing throws.
 
 `changePassword` calls `auth.api.changePassword` with `revokeOtherSessions: true`, so a password change ends sessions on other devices.
 

@@ -1,8 +1,8 @@
 import { screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { UserAvatar } from "@/components/user-avatar";
-import { colourFor } from "@/lib/avatar";
+import { avatarUrlFor, colourFor } from "@/lib/avatar";
 import { renderWithProviders } from "@/test/render";
 
 /**
@@ -24,6 +24,51 @@ const ADA = {
   email: "ada@example.com",
   image: null,
 };
+
+/**
+ * Every URL the component would actually fetch, recorded.
+ *
+ * **Asserting on the DOM would prove nothing here**, and that is not a
+ * hypothetical: Base UI's `AvatarImage` returns `null` until a load resolves,
+ * and jsdom never loads images, so no `<img>` ever reaches the document
+ * whatever `src` was passed. A test checking `document.body.innerHTML` for the
+ * hostile host therefore stays green with the guard deleted -- verified by
+ * deleting it.
+ *
+ * What the component *does* do is `new window.Image()` and assign `src` (see
+ * `avatar/image/useImageLoadingStatus.js`), which in a browser is the request.
+ * Recording that assignment is the closest a jsdom test gets to "did this leak
+ * the viewer's IP to a third party", and it distinguishes the two cases: with
+ * no `src` there is no `<AvatarImage>` at all, so nothing is constructed.
+ */
+let requested: string[] = [];
+
+/**
+ * The interception point is `HTMLImageElement.prototype.src`, not
+ * `window.Image`. Replacing the constructor does not work: jsdom defines
+ * `window.Image` as an accessor, so `window.Image = Spy` silently does nothing
+ * and every assertion built on it passes vacuously. Patching the prototype
+ * setter also covers a real `<img>` in the document, not only the detached
+ * probe the hook constructs.
+ */
+const realSrc = Object.getOwnPropertyDescriptor(window.HTMLImageElement.prototype, "src")!;
+
+beforeEach(() => {
+  requested = [];
+  Object.defineProperty(window.HTMLImageElement.prototype, "src", {
+    configurable: true,
+    get: realSrc.get,
+    // Not forwarded: jsdom would only fire `error`, and the assertion is about
+    // what was asked for, not about what came back.
+    set(value: string) {
+      requested.push(value);
+    },
+  });
+});
+
+afterEach(() => {
+  Object.defineProperty(window.HTMLImageElement.prototype, "src", realSrc);
+});
 
 describe("<UserAvatar>", () => {
   it("falls back to initials on the id's colour", () => {
@@ -83,13 +128,40 @@ describe("<UserAvatar>", () => {
     expect(document.querySelector("[data-slot=avatar-fallback]")?.textContent).toBe("A");
   });
 
+  /**
+   * `users.image` is attacker-controlled and this component renders in *other
+   * people's* browsers, so a hostile value must not become a request from any
+   * of them. An external URL here is an IP/user-agent/referrer beacon that
+   * routes around the entire session-gated media route.
+   */
+  it.each([
+    ["an external tracker", "https://evil.example.com/track.gif"],
+    ["a protocol-relative host", "//evil.example.com/track.gif"],
+    ["a javascript: URL", "javascript:alert(1)"],
+    ["another user's avatar", "/media/avatars/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],
+    ["the filesystem-style path", `media/avatars/${ADA.id}.webp`],
+  ])("requests nothing and falls back to initials for %s", (_label, image) => {
+    renderWithProviders(<UserAvatar user={{ ...ADA, image }} />);
+
+    expect(requested).toEqual([]);
+    expect(document.querySelector("[data-slot=avatar-fallback]")?.textContent).toBe("AL");
+  });
+
+  it("does request the avatar when the column holds the one allowed value", () => {
+    // The control the table above needs: without it, a guard that refused
+    // *everything* would pass every case and break every real avatar.
+    renderWithProviders(<UserAvatar user={{ ...ADA, image: avatarUrlFor(ADA.id) }} />);
+
+    expect(requested).toEqual([avatarUrlFor(ADA.id)]);
+  });
+
   it("still paints the initials while an image is pending", () => {
     // Not a workaround for jsdom -- it is Base UI's actual behaviour, and worth
     // pinning. AvatarImage renders nothing until a `new window.Image()` load
     // resolves in the browser, so the server's first frame is always the
     // fallback. jsdom never loads images, which is why no <img> appears here at
     // all; a test asserting on the img element would be asserting on jsdom.
-    renderWithProviders(<UserAvatar user={{ ...ADA, image: "/media/avatars/whatever" }} />);
+    renderWithProviders(<UserAvatar user={{ ...ADA, image: avatarUrlFor(ADA.id) }} />);
 
     expect(document.querySelector("[data-slot=avatar-fallback]")?.textContent).toBe("AL");
     expect(screen.getByRole("img", { name: "Avatar of Ada Lovelace" })).toBeDefined();

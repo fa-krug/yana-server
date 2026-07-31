@@ -1,7 +1,14 @@
 import { useTranslations } from "next-intl";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { type AvatarUser, colourFor, displayNameFor, initialsFor } from "@/lib/avatar";
+import {
+  AVATAR_FOREGROUND,
+  type AvatarUser,
+  colourFor,
+  displayNameFor,
+  initialsFor,
+  safeAvatarSrc,
+} from "@/lib/avatar";
 
 /**
  * A user's avatar: their uploaded image if there is one, otherwise their
@@ -41,16 +48,16 @@ export function UserAvatar({
 }) {
   const t = useTranslations("avatar");
   const label = t("label", { name: displayNameFor(user) });
+  // Never `user.image` directly: the column is attacker-controlled, and this
+  // component renders in other people's browsers. See safeAvatarSrc().
+  const src = safeAvatarSrc(user);
 
   return (
     <Avatar className={className} size={size} role="img" aria-label={label}>
-      {/* Rendered verbatim, never recomputed from the id: the column may hold
-          `avatarUrlFor(user.id)` (what task 6 writes) or, one day, something
-          else entirely. */}
-      {user.image ? <AvatarImage src={user.image} alt="" /> : null}
+      {src ? <AvatarImage src={src} alt="" /> : null}
       <AvatarFallback
         aria-hidden="true"
-        style={{ backgroundColor: colourFor(user.id), color: "white" }}
+        style={{ backgroundColor: colourFor(user.id), color: AVATAR_FOREGROUND }}
       >
         {initialsFor(user)}
       </AvatarFallback>

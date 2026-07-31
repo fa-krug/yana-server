@@ -386,12 +386,16 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     which a non-admin has no reason to learn.
 - **`getSettings()` is `cache()`d per request and has no insert-if-absent
   fallback**: a missing `user_settings` row is a provisioning bug and throws.
-  The root layout's two reads (locale, theme) are the exception — they fall back
-  (locale → `negotiateLocale()` against `Accept-Language`, theme → `system`) so
-  a missing row cannot 500 the whole app,
-  and they also swallow the signed-out `redirect()` (`isLoginRedirect()`),
-  because this layout renders on `/login` too and propagating it there would
-  loop forever. Everywhere else the throw propagates on purpose.
+  The root layout's two reads are the exception, because a throw there is a 500
+  on every route in the app — including `/settings`, the one page that could
+  repair the state. Both degrade instead: the theme falls back to `system` in
+  `themePreference()` in `src/app/layout.tsx`, and the locale falls back in
+  `src/i18n/request.ts` — which the layout reaches through `getLocale()` — where
+  `browserLocale()` negotiates `Accept-Language` against `["en", "de"]` rather
+  than settling for a constant. Both also swallow the signed-out `redirect()`
+  (`isLoginRedirect()`), because this layout renders on `/login` too and
+  propagating it there would loop forever. Everywhere else the throw propagates
+  on purpose.
 - **There is one startup path: `register()` in `src/instrumentation.ts`, which
   awaits `runStartupTasks()` in `src/lib/startup.ts`.** Next calls it once per
   server instance before the first request — `next dev`, `npm start` and the
@@ -498,29 +502,81 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     constant `Content-Type`. The URL carries no version token, so any freshness
     lifetime would survive a re-upload; give the URL a content hash first if a
     later phase wants `immutable`.
+  - **A signed-out caller gets `requireUser()`'s `307 → /login`, not a 404, and
+    that stays.** It is the same answer the proxy already gives for the whole
+    `media/` prefix on the no-cookie path, and it is uniform across ids, so it
+    leaks nothing. Diverging in the handler alone would make one condition — no
+    valid session — answer two ways depending only on whether a cookie header
+    happened to be present. A media-specific answer has to change the proxy too,
+    in one deliberate step.
 
-  The media root is `process.env.MEDIA_PATH ?? ./media` (`/app/media` in the
-  image), read **per call** rather than pinned at module load like `DB_PATH` —
-  there is no connection to cache, and a test can then point it at a temp
-  directory without resetting the module registry. And type the handler's
-  context **structurally** (`{ params: Promise<{ userId: string }> }`), not with
-  the global `RouteContext<"/…">` helper the Next docs show: that type is
-  generated into `.next/types/routes.d.ts` by `next dev`/`build`/`typegen`, and
-  CI runs `npm run typecheck` after none of them. (`next-env.d.ts` imports the
-  same missing file and gets away with it only because `skipLibCheck` ignores
-  errors inside declaration files.)
+  Three more things that are easy to get wrong here:
 
-- **Uploads are re-encoded, never stored as received.** `processAvatar()` in
-  `src/lib/avatar-storage.ts` decodes to pixels and emits a 256×256 WebP
+  - **The media root** is `process.env.MEDIA_PATH ?? ./media` (`/app/media` in
+    the image), read **per call** rather than pinned at module load like
+    `DB_PATH` — there is no connection to cache, and a test can then point it at
+    a temp directory without resetting the module registry.
+  - **Type the handler's context structurally**
+    (`{ params: Promise<{ userId: string }> }`), not with the global
+    `RouteContext<"/…">` helper the Next docs show: that type is generated into
+    `.next/types/routes.d.ts` by `next dev`/`build`/`typegen`, and CI runs
+    `npm run typecheck` after none of them. (`next-env.d.ts` imports the same
+    missing file and survives only because `skipLibCheck` ignores errors inside
+    declaration files.)
+  - **`next/image` cannot optimise a media URL.**
+    `/_next/image?url=/media/avatars/<id>` answers 400 for everyone including
+    the owner, because the optimizer refetches server-side and that request
+    carries no session cookie. Use a plain `<img>`; these are already 256×256.
+
+- **The `users.image` contract, in both directions.** The column holds
+  **`avatarUrlFor(userId)`** — the URL `/media/avatars/<userId>` — and never a
+  filesystem path. The filesystem path is `avatarFilePath(userId)` and is a
+  separate thing with a `.webp` on the end. Getting this wrong fails silently:
+  a relative `media/avatars/<id>.webp` resolves against `/account` to
+  `/account/media/avatars/…`, 404s, `AvatarImage` never mounts, initials show
+  forever and nothing throws. Three rules follow:
+  - **Writing** an avatar writes the file at `avatarFilePath(userId)` and
+    `avatarUrlFor(userId)` to the column, in that order.
+  - **Deleting** one must `unlink` the file as well as null the column. The
+    route serves whatever is on disk and never reads `users.image`, so nulling
+    the column alone leaves the old picture being served — to its owner only,
+    but still served.
+  - **Reading** goes through `safeAvatarSrc()` in `src/lib/avatar.ts`, never
+    `user.image` directly. The column is **attacker-controlled**: Better Auth's
+    `POST /api/auth/update-user` accepted an arbitrary `image` from any
+    signed-in user (verified live), and `<UserAvatar>` renders in _other
+    people's_ browsers — the sidebar footer, phase 5's user list — so a stored
+    `https://evil.example.com/track.gif` is an IP/user-agent/referrer beacon
+    firing from every viewer, routing around the entire session-gated route.
+    `safeAvatarSrc()` accepts the column only when it **equals**
+    `avatarUrlFor(user.id)` and otherwise renders initials — an equality test,
+    not a prefix or protocol check, for the same reason the route handler
+    compares rather than sanitises. `src/lib/auth/server.ts` closes the write
+    side with `disabledPaths: ["/update-user"]` (see the comment there: `image`
+    is a core field, so `input: false` cannot reach it), but the render-side
+    check is the half that holds however a value got into the column —
+    `/admin/update-user` is still routable to an administrator.
+
+- **Uploads are re-encoded, never stored as received, and the limits live in
+  `processAvatar()`.** It decodes to pixels and emits a 256×256 WebP
   (`.rotate()` before `.resize()`, so EXIF orientation is honoured before it is
   stripped). Serving an upload back untouched is how an "image" becomes stored
   HTML or an SVG carrying script; re-encoding is also what makes the handler's
-  fixed `image/webp` a fact rather than a guess. `sharp` is pinned at the same
-  version Next already resolves transitively (`0.34.5`) — bump both together.
+  fixed `image/webp` a fact rather than a guess. It also carries
+  `limitInputPixels: 25_000_000` and `.timeout({ seconds: 10 })` — **a byte cap
+  on the upload does not bound either**, because a decompression bomb is small
+  on the wire and enormous in memory (a 758 kB PNG decoding at 256 MP costs
+  ~250 MB of RSS, and ten concurrent ones ~700 MB). sharp's own default is
+  268 MP, which is no protection. Keep the limits in the function, never in the
+  caller: a caller cannot forget what it never had to remember. `sharp` is
+  pinned at the same version Next already resolves transitively (`0.34.5`) —
+  bump both together.
 - **`src/lib/avatar.ts` imports nothing, like `auth/roles.ts`.** `<UserAvatar>`
   is rendered from client components as well as the server, so anything
-  reachable from it reaches the browser bundle — `sharp` and `node:fs` live in
-  `avatar-storage.ts` and nothing in `src/components` may import that.
+  reachable from it reaches the browser bundle. `sharp` and `node:path` live in
+  `avatar-storage.ts`, and `src/components/**` importing that module is an
+  ESLint `no-restricted-imports` error (`eslint.config.mjs`) rather than a
+  comment — the failure would otherwise be an opaque bundler error.
   `<UserAvatar>` is deliberately not `"use client"`: it holds no state and
   next-intl's `useTranslations()` works in both contexts, so it adopts whichever
   one renders it. Two Base UI facts it is written around: `AvatarImage` renders
@@ -529,6 +585,15 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   an `<img>` at all; and the accessible name lives on the root
   (`role="img"` + a translated `aria-label`) because the two children are never
   both present and the initials would otherwise be announced as the text "AL".
+- **The fallback colour solves for contrast; it does not pick a lightness.**
+  `colourFor()` hashes the id to a hue and then takes the lightest value that
+  still clears 4.6:1 against white. The fixed `hsl(h 55% 45%)` it replaced was
+  below AA 4.5:1 for **184 of 360 hues** and bottomed out at 2.26:1 near hue 60
+  — with random ids, half of all users looking at an unreadable version of their
+  own initials, permanently. Relative luminance is wildly non-uniform across hue
+  (green carries 0.7152 of it, blue 0.0722), so no single lightness can serve
+  every hue. `avatar.test.ts` asserts the ratio across **all 360 hues**;
+  sampling a couple of ids is what let the first version ship.
 - **`/login` is the whole unauthenticated UI, and five things about it are
   load-bearing.** It lives at `src/app/login/page.tsx`, deliberately outside
   `(app)`: that group's layout awaits `requireUser()`, so a login form inside it

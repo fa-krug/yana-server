@@ -158,12 +158,64 @@ describe("the Better Auth instance", () => {
     expect(query<{ count: number }>("SELECT COUNT(*) AS count FROM users").count).toBe(0);
   });
 
-  it("refuses a role sent in a request body, on the route that could still take one", async () => {
-    // Sign-up is closed outright, so /update-user is where a self-promotion
-    // attempt would land: an authenticated non-admin editing their own record.
-    // `input: false` on the plugin's `role` field is what refuses it -- Better
-    // Auth throws BAD_REQUEST rather than silently dropping the field (see
-    // `parseInputData` in better-auth/dist/db/schema.mjs).
+  it("refuses to route /update-user at all, so users.image cannot be set over HTTP", async () => {
+    // `image` is what makes this endpoint dangerous, and `input: false` cannot
+    // reach it: `api/routes/update-user.mjs` destructures `name` and `image`
+    // out of the body *before* parseUserInput(), and getFields(…, "input")
+    // covers only additionalFields and plugin fields anyway. So the path is
+    // closed instead, via `disabledPaths`. Without this, any signed-in
+    // non-admin could point their avatar at an external URL that then fires
+    // from every other user's browser -- an IP/user-agent/referrer beacon that
+    // routes around the whole session-gated media route.
+    //
+    // Through the mounted route, not the config: `disabledPaths` is enforced in
+    // the router's onRequest, so only an HTTP request exercises it.
+    const { cookie, id } = await seedAndSignIn();
+
+    const response = await route.POST(
+      new Request("http://localhost:3000/api/auth/update-user", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify({ image: "https://evil.example.com/track.gif" }),
+      }),
+    );
+
+    expect(response.status).toBe(404);
+    expect(query<{ image: string | null }>("SELECT image FROM users WHERE id = ?", id).image).toBe(
+      null,
+    );
+  });
+
+  it("still lets a server action write users.image, which is how task 6 sets it", async () => {
+    // The other half of the check above: closing the path must not close the
+    // capability. `disabledPaths` gates HTTP routing only, so application code
+    // writing through writeTransaction() -- the convention every write here
+    // follows -- is untouched.
+    const { id } = await seedAndSignIn();
+    const schema = await import("@/lib/db/schema");
+    const { eq } = await import("drizzle-orm");
+
+    client.writeTransaction((tx) => {
+      tx.update(schema.users)
+        .set({ image: `/media/avatars/${id}` })
+        .where(eq(schema.users.id, id))
+        .run();
+    });
+
+    expect(query<{ image: string }>("SELECT image FROM users WHERE id = ?", id).image).toBe(
+      `/media/avatars/${id}`,
+    );
+  });
+
+  it("refuses a role sent in a request body, on the API that could still take one", async () => {
+    // /update-user is no longer routable (above), so this exercises the guard
+    // one layer down: `auth.api.updateUser()` is the in-process call, which
+    // skips the router and therefore skips `disabledPaths`. `input: false` on
+    // the plugin's `role` field is what refuses it -- Better Auth throws
+    // BAD_REQUEST rather than silently dropping the field (see `parseInputData`
+    // in better-auth/dist/db/schema.mjs). Kept because that guard is what
+    // protects `role` everywhere, including any future endpoint that reaches
+    // parseUserInput().
     const { cookie, id } = await seedAndSignIn();
 
     const response = await auth.api.updateUser({
