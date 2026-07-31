@@ -74,6 +74,24 @@ function useHydrated(): boolean {
  */
 export function GeneralSection({ theme, language }: { theme: string; language: string }) {
   const t = useTranslations("settings");
+  // One list per Select, feeding both the root's `items` and the popup's
+  // SelectItems, so the collapsed trigger and the open popup cannot disagree.
+  //
+  // `items` is what makes the trigger readable at all: Base UI's
+  // <Select.Value> only consults it (or an explicit children function) to
+  // resolve a label. With `items` undefined it falls through to
+  // stringifyAsLabel(value) -- see resolveSelectedLabel() in
+  // @base-ui/react/internals/resolveValueLabel -- which rendered the raw enum
+  // ("dark", "en") on the trigger while the popup items were translated. It
+  // never reads <Select.ItemText>, so the popup being right proves nothing
+  // about the trigger. Passing `items` also gives an unselected Select a real
+  // placeholder instead of a serialized empty value.
+  //
+  // Mapping over the `as const` tuples keeps every t() argument a literal, so
+  // the catalog keys stay compiler-checked (see src/i18n/next-intl.d.ts); a
+  // cast at the t() call site would have silently switched that off.
+  const themeItems = THEMES.map((value) => ({ value, label: t(`theme.${value}`) }));
+  const languageItems = LANGUAGES.map((value) => ({ value, label: t(`language.${value}`) }));
   const { theme: appliedTheme, setTheme } = useTheme();
   const hydrated = useHydrated();
   const [pending, start] = useTransition();
@@ -108,6 +126,7 @@ export function GeneralSection({ theme, language }: { theme: string; language: s
       <div className="grid gap-2">
         <Label htmlFor="theme">{t("general.theme")}</Label>
         <Select
+          items={themeItems}
           value={themeValue}
           disabled={pending}
           onValueChange={(value) => {
@@ -127,9 +146,9 @@ export function GeneralSection({ theme, language }: { theme: string; language: s
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {THEMES.map((value) => (
-              <SelectItem key={value} value={value}>
-                {t(`theme.${value}`)}
+            {themeItems.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
               </SelectItem>
             ))}
           </SelectContent>
@@ -139,6 +158,7 @@ export function GeneralSection({ theme, language }: { theme: string; language: s
       <div className="grid gap-2">
         <Label htmlFor="language">{t("general.language")}</Label>
         <Select
+          items={languageItems}
           value={languageValue}
           disabled={pending}
           onValueChange={(value) => {
@@ -151,9 +171,9 @@ export function GeneralSection({ theme, language }: { theme: string; language: s
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {LANGUAGES.map((value) => (
-              <SelectItem key={value} value={value}>
-                {t(`language.${value}`)}
+            {languageItems.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
               </SelectItem>
             ))}
           </SelectContent>

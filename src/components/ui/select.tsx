@@ -18,6 +18,22 @@ function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   );
 }
 
+/**
+ * The trigger's text.
+ *
+ * It cannot translate on its own, and it will show the raw value unless the
+ * caller helps it: Base UI resolves the label from the `items` prop on
+ * `<Select>` (the root), falling back to stringifyAsLabel(value) when that prop
+ * is absent -- see resolveSelectedLabel() in
+ * @base-ui/react/internals/resolveValueLabel. `<Select.ItemText>` inside the
+ * popup is never consulted, so translated popup items are no evidence that the
+ * trigger is translated. This wrapper deliberately does not paper over that:
+ * only the call site knows the labels. **Pass `items` to `<Select>`** -- a
+ * record or a `{ value, label }[]` -- and render the popup's `<SelectItem>`s
+ * from the same list, as src/components/settings/general-section.tsx does.
+ * A `children` function here is the per-instance alternative, but it receives
+ * `value: any`, which drops the typing the catalog keys depend on.
+ */
 function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
   return (
     <SelectPrimitive.Value
