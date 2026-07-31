@@ -1,4 +1,7 @@
 {
+  "dashboard": {
+    "librarySummary": "Aufbewahrung {days} Tage · Aktualisierungsintervall alle {minutes} Minuten"
+  },
   "nav": {
     "dashboard": "Übersicht",
     "feeds": "Feeds",
