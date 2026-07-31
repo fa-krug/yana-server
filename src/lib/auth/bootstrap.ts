@@ -1,9 +1,9 @@
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { getDb, writeTransaction } from "@/lib/db/client";
-import { userSettings, users } from "@/lib/db/schema";
+import { accounts, passkeys, userSettings, users } from "@/lib/db/schema";
 
-import { ADMIN_ROLE, ADMIN_ROLES, createUserWithPassword } from "./server";
+import { ADMIN_ROLE, ADMIN_ROLES, createUserWithPassword, linkPasswordCredential } from "./server";
 
 /**
  * The account a fresh instance boots with. Both values are printed by the
@@ -24,7 +24,8 @@ const DEFAULT_PASSWORD = "admin";
  * `./server`, where it is also what the `admin()` plugin is configured with, so
  * this cannot drift from the plugin's own notion of an admin.
  *
- * A plain read, no writeTransaction(): that helper is for writes.
+ * Plain reads throughout this module, no writeTransaction(): that helper is for
+ * writes.
  */
 function adminExists(): boolean {
   return (
@@ -33,8 +34,92 @@ function adminExists(): boolean {
   );
 }
 
+/** The default account, but only while it still holds an admin role. */
+function findDefaultAdminId(): string | undefined {
+  return getDb()
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.email, DEFAULT_EMAIL), inArray(users.role, ADMIN_ROLES)))
+    .get()?.id;
+}
+
+function hasPasswordCredential(userId: string): boolean {
+  return (
+    getDb()
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(and(eq(accounts.userId, userId), eq(accounts.providerId, "credential")))
+      .get() !== undefined
+  );
+}
+
+function hasPasskey(userId: string): boolean {
+  return (
+    getDb().select({ id: passkeys.id }).from(passkeys).where(eq(passkeys.userId, userId)).get() !==
+    undefined
+  );
+}
+
+function hasSettings(userId: string): boolean {
+  return (
+    getDb()
+      .select({ id: userSettings.id })
+      .from(userSettings)
+      .where(eq(userSettings.userId, userId))
+      .get() !== undefined
+  );
+}
+
 /**
- * Create the default administrator when the instance has none.
+ * Finish provisioning the default admin if an earlier attempt did not.
+ *
+ * Creating it is **three** writes -- the user, its credential, its settings row
+ * -- and nothing makes them one unit: `createUserWithPassword()` awaits between
+ * the first two, and `writeTransaction()`'s callback cannot await at all. A
+ * crash, a disk error or a failure in between leaves a partial account that
+ * `adminExists()` happily counts, so without this pass every later boot would
+ * early-return past the damage: an "admin" that cannot sign in, or one whose
+ * missing `user_settings` row makes `getSettings()` throw on every page.
+ * Permanently, with nothing able to repair it.
+ *
+ * Scoped to `DEFAULT_EMAIL` on purpose. This completes **the account this module
+ * creates**, never somebody else's: handing a published password to an
+ * administrator phase 5 created, or one an operator renamed, would be a hole
+ * rather than a repair. Same reason it skips a user who has a passkey -- that is
+ * a deliberate passwordless account, not an interrupted one.
+ *
+ * The narrow consequence, worth knowing before deleting a row by hand: an admin
+ * still sitting at `admin@admin.com` with neither a credential nor a passkey
+ * gets the default password back on the next boot. Renaming the account -- the
+ * same action that stops it being recreated at all -- makes this pass ignore it
+ * forever.
+ *
+ * This is *not* a relaxation of "no insert-if-absent": that rule governs the
+ * read path, where `getSettings()` still throws loudly rather than papering over
+ * a provisioning bug. This is the provisioning path checking its own work.
+ */
+async function completeDefaultAdmin(): Promise<void> {
+  const adminId = findDefaultAdminId();
+  if (!adminId) return;
+
+  if (!hasPasswordCredential(adminId) && !hasPasskey(adminId)) {
+    await linkPasswordCredential({ userId: adminId, password: DEFAULT_PASSWORD });
+    console.warn(
+      `Yana restored the sign-in credential for ${DEFAULT_EMAIL} (password ` +
+        `"${DEFAULT_PASSWORD}"): the account existed with no way to sign in at all, ` +
+        `which means an earlier bootstrap was interrupted. Change it now.`,
+    );
+  }
+
+  if (!hasSettings(adminId)) {
+    writeTransaction((tx) => {
+      tx.insert(userSettings).values({ userId: adminId }).run();
+    });
+  }
+}
+
+/**
+ * Ensure this instance has a usable administrator.
  *
  * Called once per server start from `src/instrumentation.ts` -- not per
  * request. Idempotent, and safe if a second caller races it.
@@ -44,59 +129,53 @@ function adminExists(): boolean {
  * the `accounts` credential row, so the result is indistinguishable from a
  * signed-up user and can actually log in. The phase-3 seeder this replaces
  * inserted a bare `users` row with no credential at all, which could not.
+ *
+ * On a normal boot this is reads only -- an admin exists, and either it is not
+ * the default address or it is already complete.
  */
 export async function ensureAdminExists(): Promise<void> {
-  if (adminExists()) return;
+  if (!adminExists()) {
+    try {
+      await createUserWithPassword({
+        email: DEFAULT_EMAIL,
+        password: DEFAULT_PASSWORD,
+        name: "Admin",
+        firstName: "Admin",
+        role: ADMIN_ROLE,
+      });
 
-  let admin;
-  try {
-    admin = await createUserWithPassword({
-      email: DEFAULT_EMAIL,
-      password: DEFAULT_PASSWORD,
-      name: "Admin",
-      firstName: "Admin",
-      role: ADMIN_ROLE,
-    });
-  } catch (error) {
-    /**
-     * The check above is synchronous but the creation is not, so two callers
-     * that both start before either finishes will both get past it. The
-     * `users.email` unique index is the backstop that keeps the second one from
-     * landing a duplicate -- and a failure there must stay a no-op, because
-     * this runs inside instrumentation's `register()`, where a rejection stops
-     * the server from starting at all.
-     *
-     * Narrowed by re-reading the database rather than by matching the driver's
-     * error text: `SQLITE_CONSTRAINT_UNIQUE` arrives here wrapped by both the
-     * Drizzle adapter and Better Auth, so the message is not ours to depend on.
-     * If an admin exists now, somebody else created it and there is nothing
-     * left to do; if none does, the failure was real and belongs to the caller.
-     */
-    if (adminExists()) return;
-    throw error;
+      console.warn(
+        `Yana created the default administrator ${DEFAULT_EMAIL} with the password ` +
+          `"${DEFAULT_PASSWORD}" because this instance had no admin account. Sign in ` +
+          `and change it now -- until you do, anyone who can reach this server is an ` +
+          `administrator.`,
+      );
+    } catch (error) {
+      /**
+       * Two different failures land here.
+       *
+       * The one this guard is for: a genuine race. The check above is
+       * synchronous and the creation is not, so two callers can both pass it.
+       * The loser fails on the `users_email_unique` index having written
+       * nothing, and must not take the server down -- this runs inside
+       * instrumentation's `register()`, where a rejection stops the server from
+       * starting at all.
+       *
+       * The other: our own creation half-succeeded (the user landed,
+       * `linkAccount` threw). `adminExists()` cannot tell those apart -- it
+       * would see our own useless row and report success -- which is why it is
+       * deliberately not the last word. Either way `completeDefaultAdmin()`
+       * below still runs and has to make the postcondition true; only if no
+       * admin exists at all was the failure total, and then it is the caller's.
+       *
+       * Narrowed by re-reading the database rather than by matching the driver's
+       * error text: `SQLITE_CONSTRAINT_UNIQUE` arrives here wrapped by both the
+       * Drizzle adapter and Better Auth, so the message is not ours to depend
+       * on.
+       */
+      if (!adminExists()) throw error;
+    }
   }
 
-  /**
-   * `getSettings()` throws when this row is missing (there is deliberately no
-   * insert-if-absent fallback), so without it the dashboard and /settings both
-   * fail for a fresh instance. Better Auth owns the `users` and `accounts`
-   * writes above -- the ratified exception in CLAUDE.md -- but this one is
-   * application code, so it goes through `writeTransaction()`.
-   *
-   * The callback is synchronous, as that helper requires: everything awaited
-   * (the account creation, and the hashing inside it) already happened above.
-   */
-  writeTransaction((tx) => {
-    const existing = tx.select().from(userSettings).where(eq(userSettings.userId, admin.id)).get();
-    if (!existing) {
-      tx.insert(userSettings).values({ userId: admin.id }).run();
-    }
-  });
-
-  console.warn(
-    `Yana created the default administrator ${DEFAULT_EMAIL} with the password ` +
-      `"${DEFAULT_PASSWORD}" because this instance had no admin account. Sign in ` +
-      `and change it now -- until you do, anyone who can reach this server is an ` +
-      `administrator.`,
-  );
+  await completeDefaultAdmin();
 }

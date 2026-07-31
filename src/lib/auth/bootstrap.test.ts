@@ -144,6 +144,79 @@ describe("ensureAdminExists", () => {
     expect(all<unknown>("SELECT id FROM user_settings")).toHaveLength(1);
   });
 
+  it("repairs an admin that was left with no way to sign in", async () => {
+    // The half-written creation, reproduced through Better Auth itself rather
+    // than through our own code path: `createUserWithPassword()` is two awaited
+    // writes, and this is what the database looks like when the second one does
+    // not happen -- which is also, exactly, the retired seeder's shape. Without
+    // a repair pass, `adminExists()` counts this row and every later boot
+    // early-returns past it, forever.
+    const ctx = await auth.$context;
+    await ctx.internalAdapter.createUser({
+      email: "admin@admin.com",
+      name: "Admin",
+      firstName: "Admin",
+      lastName: "",
+      role: "admin",
+      emailVerified: false,
+    });
+    expect(all<unknown>("SELECT id FROM accounts")).toHaveLength(0);
+
+    await bootstrap.ensureAdminExists();
+
+    const response = await auth.api.signInEmail({
+      body: { email: "admin@admin.com", password: "admin" },
+      asResponse: true,
+    });
+    expect(response.status).toBe(200);
+    // Repaired, not duplicated: still one user, and the settings row the
+    // interrupted run never got to write is there too.
+    expect(all<unknown>("SELECT id FROM users")).toHaveLength(1);
+    expect(all<unknown>("SELECT id FROM accounts")).toHaveLength(1);
+    expect(all<unknown>("SELECT id FROM user_settings")).toHaveLength(1);
+    expect(warned).toHaveBeenCalledWith(expect.stringContaining("restored the sign-in credential"));
+  });
+
+  it("repairs a missing user_settings row on the default admin", async () => {
+    // The other interruption point: account complete, settings row never
+    // written. getSettings() throws by design, so /` and /settings would 500 on
+    // every request until this is repaired -- and nothing else repairs it.
+    await bootstrap.ensureAdminExists();
+    client.writeTransaction((tx) => {
+      tx.delete(schema.userSettings).run();
+    });
+
+    await bootstrap.ensureAdminExists();
+
+    expect(all<unknown>("SELECT id FROM user_settings")).toHaveLength(1);
+    // And it did not also mint a second credential while it was in there.
+    expect(all<unknown>("SELECT id FROM accounts")).toHaveLength(1);
+  });
+
+  it("does not hand the default password to a passkey-only admin", async () => {
+    // An operator who removed the password credential on purpose, keeping a
+    // passkey, has a passwordless account -- not an interrupted one. Restoring
+    // "admin" there would be a hole, not a repair.
+    await bootstrap.ensureAdminExists();
+    const [admin] = all<{ id: string }>("SELECT id FROM users");
+    client.writeTransaction((tx) => {
+      tx.delete(schema.accounts).run();
+      tx.insert(schema.passkeys)
+        .values({
+          id: "passkey-1",
+          userId: admin.id,
+          publicKey: "public-key",
+          credentialID: "credential-id",
+          deviceType: "singleDevice",
+        })
+        .run();
+    });
+
+    await bootstrap.ensureAdminExists();
+
+    expect(all<unknown>("SELECT id FROM accounts")).toHaveLength(0);
+  });
+
   it("creates nothing when some other admin already exists", async () => {
     // A deployment whose admin was renamed must not get admin@admin.com back.
     client.writeTransaction((tx) => {

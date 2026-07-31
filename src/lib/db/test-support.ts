@@ -3,9 +3,9 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 
 import { applyPragmas } from "./client";
+import { applyMigrations as runMigrations } from "./migrate";
 import * as schema from "./schema";
 
 /**
@@ -14,19 +14,24 @@ import * as schema from "./schema";
  * the same way production does, and it is deliberately not part of the app's
  * import graph (so Next never bundles it).
  *
- * The migration is applied with `migrate()` from
- * drizzle-orm/better-sqlite3/migrator -- the *exact* call docker-entrypoint.sh
- * makes. Hand-rolling the loader (readdir + split on `--> statement-breakpoint`
- * + exec) is what these helpers replace: that path ignores
- * `drizzle/meta/_journal.json` entirely, so a journal entry whose `tag` no
- * longer matches its filename, or a missing entry, would keep every test green
- * while the container dies at startup.
+ * The migration goes through `applyMigrations()` in `./migrate` -- the *same*
+ * function the server calls at startup (`src/lib/startup.ts`), so tests and
+ * production cannot disagree about `drizzle/meta/_journal.json`. Hand-rolling
+ * the loader (readdir + split on `--> statement-breakpoint` + exec) is what
+ * these helpers replace: that path ignores the journal entirely, so an entry
+ * whose `tag` no longer matches its filename, or a missing entry, would keep
+ * every test green while the container dies at startup.
+ *
+ * The folder is resolved from this module's own location rather than from the
+ * working directory, so a test run from a subdirectory still finds it. That
+ * works because Vitest loads this file from source; app code cannot do the
+ * same, because webpack moves it -- see `MIGRATIONS_FOLDER` in `./migrate`.
  */
 export const MIGRATIONS_FOLDER = path.resolve(import.meta.dirname, "../../../drizzle");
 
 /** Apply every recorded migration to an already-open connection. */
 export function applyMigrations(connection: Database.Database): void {
-  migrate(drizzle(connection), { migrationsFolder: MIGRATIONS_FOLDER });
+  runMigrations(drizzle(connection), MIGRATIONS_FOLDER);
 }
 
 /**

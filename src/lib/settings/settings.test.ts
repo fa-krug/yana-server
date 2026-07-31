@@ -231,6 +231,28 @@ describe("settings", () => {
   });
 
   describe("currentUserId", () => {
+    it("does not open the database while the module is being imported", async () => {
+      // The sibling assertion in src/lib/auth/server.test.ts covers the auth
+      // module; this one covers *this* module, which is what the root layout
+      // actually imports (and which now imports the auth module in turn, for
+      // ADMIN_ROLES). `next build` walks every route's module graph, and `data/`
+      // does not exist until the server's own startup migrates it, so an eager
+      // getDb() anywhere along that chain would create a database on the build
+      // machine.
+      vi.resetModules();
+      const missing = path.join(os.tmpdir(), `yana-queries-never-${Date.now()}`, "nested.db");
+      process.env.DATABASE_PATH = missing;
+
+      try {
+        await import("./queries");
+        expect(fs.existsSync(path.dirname(missing))).toBe(false);
+      } finally {
+        // `finally`, so a failed assertion cannot leak the bogus path into
+        // afterEach, where getDb() would then open a second database.
+        process.env.DATABASE_PATH = dbPath;
+      }
+    });
+
     it("resolves the administrator the bootstrap created", async () => {
       const userId = await queries.currentUserId();
 

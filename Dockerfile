@@ -61,40 +61,43 @@ COPY --from=builder --chown=nextjs:nodejs /build/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /build/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /build/public ./public
 
-# These two COPYs exist for docker-entrypoint.sh, not for the app.
+# Redundant with file tracing, and kept on purpose -- read before deleting.
 #
-# The entrypoint applies migrations with a bare `node -e` that require()s
-# better-sqlite3 and drizzle-orm/better-sqlite3{,/migrator} from /app before
-# server.js ever starts. That resolution has nothing to do with Next's module
-# graph, so it cannot borrow whatever file tracing happened to leave behind --
-# it needs both packages present as real directories under
-# /app/node_modules.
+# This COPY used to exist for docker-entrypoint.sh, which applied migrations
+# with a bare `node -e` that require()d better-sqlite3 and drizzle-orm from
+# /app, outside Next's module graph. That script is gone: the app migrates
+# itself at startup (src/instrumentation.ts -> src/lib/startup.ts), so the only
+# resolution that matters now is Next's own.
 #
-# What tracing actually produces (verified by inspecting .next/standalone/
-# node_modules after `npm run build` on 16.2.12, now that src/app/health/
-# route.ts and the root layout both import getDb()):
+# What tracing produces, re-verified by inspecting .next/standalone/node_modules
+# after `npm run build` on 16.2.12:
 #
-#   better-sqlite3  PRESENT -- it has a native .node binding, so Next keeps it
-#                   external and copies the package (lib/ + all 8 prebuilds).
-#   drizzle-orm     ABSENT  -- pure JS, so webpack inlines the parts the app
-#                   uses into the server chunks and no package directory is
-#                   emitted at all.
+#   better-sqlite3  PRESENT -- a native .node binding, so `serverExternalPackages`
+#                   keeps it external and Next copies the package (lib/ + all 8
+#                   prebuilds).
+#   drizzle-orm     ABSENT  -- pure JS, so webpack inlines what the app uses,
+#                   the migrator included, into the server chunks.
 #
-# So the drizzle-orm COPY is load-bearing today, and the better-sqlite3 one
-# keeps the entrypoint independent of a tracing outcome that could change with
-# any Next upgrade. Both stay.
+# The drizzle-orm COPY was therefore deleted rather than kept: it is genuinely
+# unnecessary now, proven by running the standalone server against a tree with
+# no drizzle-orm directory at all -- it migrated an empty data dir and served
+# /health 200. This one stays because a native addon is the single thing a
+# tracing regression could break with no runtime recovery, and re-copying a
+# package Next already placed there is a byte-identical no-op.
 #
 # Verified: better-sqlite3's runtime require() graph (lib/*.js) is
 # self-contained -- it only reaches into its own package (lib/, prebuilds/),
-# never into a sibling node_modules package -- and drizzle-orm ships no
-# runtime "dependencies" of its own (only optional driver peerDependencies),
-# so copying just these two package directories is sufficient; no transitive
-# closure is needed.
+# never into a sibling node_modules package -- so copying this one directory
+# needs no transitive closure.
 COPY --from=builder --chown=nextjs:nodejs \
     /build/node_modules/better-sqlite3 ./node_modules/better-sqlite3
-COPY --from=builder --chown=nextjs:nodejs \
-    /build/node_modules/drizzle-orm ./node_modules/drizzle-orm
 
+# drizzle/ must sit at the working directory, because that is where the app
+# looks for it: MIGRATIONS_FOLDER in src/lib/db/migrate.ts is
+# `path.join(process.cwd(), "drizzle")`, and the standalone server runs with
+# cwd = /app. Verified by running .next/standalone/server.js against this exact
+# layout, not inferred.
+#
 # drizzle/ is committed with a placeholder meta/_journal.json
 # (version "7", dialect "sqlite", entries: []) so this source directory
 # genuinely exists both today (no real migrations yet) and once drizzle-kit
@@ -107,10 +110,8 @@ COPY --from=builder --chown=nextjs:nodejs \
 # must not exclude drizzle/meta (see .dockerignore) or this file never
 # reaches the build context in the first place.
 COPY --from=builder --chown=nextjs:nodejs /build/drizzle ./drizzle
-COPY --chown=nextjs:nodejs docker-entrypoint.sh /usr/local/bin/
 
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh && \
-    mkdir -p /app/data /app/media && chown -R nextjs:nodejs /app/data /app/media
+RUN mkdir -p /app/data /app/media && chown -R nextjs:nodejs /app/data /app/media
 
 USER nextjs
 EXPOSE 3000
@@ -125,5 +126,10 @@ EXPOSE 3000
 # image, which ran as root with no USER directive.
 VOLUME ["/app/data", "/app/media"]
 
-ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
+# tini only, no wrapper script: docker-entrypoint.sh existed solely to apply
+# migrations before `node server.js`, and the app now does that itself at
+# startup for every way it runs (dev, npm start, this image) rather than in a
+# shell step only the container executed. tini stays as PID 1 so signals and
+# zombie reaping behave.
+ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "server.js"]

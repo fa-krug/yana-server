@@ -217,7 +217,6 @@ export async function createUserWithPassword(input: {
   role?: string;
 }): Promise<User> {
   const ctx = await auth.$context;
-  const hash = await ctx.password.hash(input.password);
 
   const user = await ctx.internalAdapter.createUser<User>({
     email: input.email,
@@ -228,14 +227,40 @@ export async function createUserWithPassword(input: {
     emailVerified: false,
   });
 
-  await ctx.internalAdapter.linkAccount({
-    userId: user.id,
-    providerId: "credential",
-    accountId: user.id,
-    password: hash,
-  });
+  await linkPasswordCredential({ userId: user.id, password: input.password });
 
   return user;
+}
+
+/**
+ * Give an existing user an email+password credential.
+ *
+ * The second half of `createUserWithPassword()`, split out because it is also
+ * the repair the admin bootstrap needs: these are **two** writes, and a user
+ * whose creation was interrupted between them exists but cannot sign in --
+ * exactly the shape of the phase-3 seeder's bug. Keeping the `linkAccount` call
+ * in one place means the repair path cannot drift from the creation path.
+ *
+ * Same reasoning as above about reaching into `auth.$context`: not routable, so
+ * not reachable by an unauthenticated caller, and the hash comes from Better
+ * Auth's own scrypt rather than anything written here.
+ *
+ * This *adds* a credential; it does not rotate one. Better Auth's own
+ * `/change-password` is the way to replace an existing hash.
+ */
+export async function linkPasswordCredential(input: {
+  userId: string;
+  password: string;
+}): Promise<void> {
+  const ctx = await auth.$context;
+  const hash = await ctx.password.hash(input.password);
+
+  await ctx.internalAdapter.linkAccount({
+    userId: input.userId,
+    providerId: "credential",
+    accountId: input.userId,
+    password: hash,
+  });
 }
 
 export type Auth = typeof auth;

@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 
@@ -25,6 +26,17 @@ async function Sections() {
 }
 
 export default async function SettingsPage() {
+  /**
+   * Opt this route out of prerendering, **before** the first line that can
+   * reach SQLite. `connection()` in the root layout is not enough and never
+   * was: the layout and this page are sibling render scopes, React starts this
+   * one before the layout's interrupt lands, and `getTranslations()` below
+   * resolves the next-intl request config -> `getSettings()` -> `getDb()`. That
+   * is what created an empty, unmigrated `data/yana.db` on the build machine
+   * (see the `connection()` bullet in CLAUDE.md). Every route that can reach
+   * the database needs its own call, first thing.
+   */
+  await connection();
   const t = await getTranslations("settings");
   return (
     <div className="max-w-2xl space-y-6">

@@ -56,7 +56,16 @@ npm run dev
 ```
 
 Then open <http://localhost:3000>. The SQLite file is created at `./data/yana.db`
-on first connection; override with `DATABASE_PATH`.
+on first start and migrated automatically; override the path with
+`DATABASE_PATH`. There is no separate migration step to remember — the server
+applies every pending migration before it serves its first request, in every
+way it runs.
+
+The first start also creates an administrator, **`admin@admin.com` / `admin`**,
+and says so in the log. Sign in and change the password: until you do, anyone
+who can reach the server is an administrator. Delete or rename that account and
+it stays gone — the check is "does any admin exist", not "does this address
+exist".
 
 ## Configuration
 
@@ -99,7 +108,13 @@ Database schema changes go through Drizzle:
 npx drizzle-kit generate   # write a migration into drizzle/ from src/lib/db/schema.ts
 ```
 
-Migrations are applied by `docker-entrypoint.sh` at container start.
+Applying them is not a separate step: the server runs every pending migration at
+startup (`src/instrumentation.ts` → `src/lib/startup.ts`), which covers
+`npm run dev`, `npm start` and the container alike.
+
+**Back up `data/` before upgrading.** That startup step applies schema changes to
+a live SQLite file unattended, and nothing here takes a backup for you. Copying
+the directory while the server is stopped is enough.
 
 [`CLAUDE.md`](CLAUDE.md) has the full contributor and AI-assistant guide:
 conventions, the database access rules, how `old/` and `parity/` are used, and

@@ -59,14 +59,16 @@ file.
 │   ├── i18n/
 │   │   ├── request.ts             # next-intl request config; reads getSettings()
 │   │   └── next-intl.d.ts         # AppConfig augmentation — compiler-checked catalog keys
-│   ├── instrumentation.ts         # register(): ensureAdminExists() once per server start
+│   ├── instrumentation.ts         # register(): the one startup hook — see src/lib/startup.ts
 │   ├── lib/
+│   │   ├── startup.ts             # runStartupTasks(): migrate, then ensure an admin exists
 │   │   ├── auth/
 │   │   │   ├── server.ts          # the Better Auth instance — the single config point
 │   │   │   ├── bootstrap.ts       # ensureAdminExists() — the default admin, when none exists
 │   │   │   └── client.ts          # browser client (signIn/signOut/useSession, passkey)
 │   │   ├── db/
 │   │   │   ├── client.ts          # getDb(), writeTransaction(), PRAGMAs
+│   │   │   ├── migrate.ts         # the only migrate() call — startup and tests share it
 │   │   │   ├── schema.ts          # barrel: re-exports schema/, declares every relation
 │   │   │   ├── schema/            # enums.ts, users.ts, auth.ts, references.ts, feeds.ts,
 │   │   │   │                      #   articles.ts, jobs.ts — one module per table group
@@ -84,7 +86,6 @@ file.
 ├── drizzle.config.ts              # drizzle-kit config (schema in, drizzle/ out)
 ├── public/                        # static assets served at /
 ├── Dockerfile                     # multi-stage, standalone output, runs as uid 1001
-├── docker-entrypoint.sh           # applies Drizzle migrations, then starts server
 ├── docker-compose.yml             # dev container (prod build; use `npm run dev` to work)
 ├── docker-compose.production.yml  # target production shape — not yet deployed
 ├── data/                          # SQLite lives here (gitignored, starts empty)
@@ -111,6 +112,8 @@ npm test                     # vitest run
 
 npx drizzle-kit generate     # generate a migration from schema.ts into drizzle/
 npx drizzle-kit push         # apply schema directly (local only, no migration file)
+                             # Applying generated migrations is not a step you run:
+                             # the server does it at startup, in every shape.
 
 docker compose up --build    # build and run the image
 ```
@@ -218,8 +221,8 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   registration — design the token first.
 - **The Better Auth instance takes a lazy database proxy, never `getDb()`
   directly.** `drizzleAdapter()` wants the handle by value, but `next build`
-  imports every route's module graph and `data/` does not exist until
-  `docker-entrypoint.sh` migrates it. Do not read `betterAuth()` as lazy: it
+  imports every route's module graph and `data/` does not exist until the
+  server's own startup hook migrates it. Do not read `betterAuth()` as lazy: it
   calls `init(options)` at import and stores the promise unawaited
   (`better-auth/dist/auth/base.mjs`), and that reaches the adapter factory
   immediately. What makes it safe is narrower — `drizzleAdapter`'s factory never
@@ -259,9 +262,9 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   (`src/lib/**`) gets **real-database** tests in the style of
   `src/lib/db/client.test.ts` — no driver mocks. Each test points
   `DATABASE_PATH` at its own temp file. Get the schema from
-  `src/lib/db/test-support.ts`, which applies migrations with `migrate()` — the
-  same call `docker-entrypoint.sh` makes, so tests and production agree about
-  `drizzle/meta/_journal.json`. Never hand-roll a loader that `exec`s the
+  `src/lib/db/test-support.ts`, which goes through `applyMigrations()` in
+  `src/lib/db/migrate.ts` — the **same function** the server calls at startup,
+  so tests and production cannot disagree about `drizzle/meta/_journal.json`. Never hand-roll a loader that `exec`s the
   `.sql` files directly: it ignores the journal, so a stale entry stays green in
   CI and dies at container startup. Relation declarations are invisible to
   `tsc` — a new one needs a real `db.query.*` traversal in
@@ -280,15 +283,25 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   `next/server`, never `export const dynamic = "force-dynamic"`.**
   `better-sqlite3` is synchronous, so its queries complete during prerendering,
   and without this a production build would bake a page against `data/` — which
-  is gitignored and does not exist until the entrypoint's migration step runs at
-  container start. Next 16 removes `dynamic` once Cache Components is enabled,
+  is gitignored and does not exist until the server's startup hook migrates it. Next 16 removes `dynamic` once Cache Components is enabled,
   so `connection()` is the form that keeps working; the local doc is
   `node_modules/next/dist/docs/01-app/03-api-reference/04-functions/connection.md`,
   section "Synchronous database drivers", which names `better-sqlite3`
-  explicitly. Used in `src/app/layout.tsx` and `src/app/health/route.ts` — the
-  health route calls it _outside_ its `try`, because inside it the
-  prerender bail-out (itself a thrown error) would be caught and turned into a
-  503, silently reinstating a static `{"status":"ok"}`.
+  explicitly.
+  **It is per route, and a layout does not cover its pages.** The root layout's
+  call does _not_ keep a page off the database: layout and page are sibling
+  render scopes, React starts the page before the layout's interrupt lands, and
+  a single `getTranslations()` there resolves the next-intl request config →
+  `getSettings()` → `getDb()`. That is measured, not theoretical — until phase
+  4's task 2 it left an empty, unmigrated `data/yana.db` behind on every
+  `npm run build`. So **every route that can reach the database calls it
+  itself, as its first statement**, before any translation or data call:
+  `src/app/layout.tsx`, `src/app/health/route.ts`, `src/app/(app)/page.tsx` and
+  `src/app/(app)/settings/page.tsx` today. A new page that reads anything needs
+  its own line. The health route calls it _outside_ its `try`, because inside it
+  the prerender bail-out (itself a thrown error) would be caught and turned into
+  a 503, silently reinstating a static `{"status":"ok"}`. To check the invariant:
+  delete `data/`, run `npm run build`, and confirm it was not recreated.
 - **shadcn components here are built on Base UI (`@base-ui/react`), not Radix:
   compose with the `render` prop, never Radix's `asChild`.** A Radix-flavored
   snippet — `asChild` on a trigger, wrapping a `<Link>` — will not typecheck
@@ -337,23 +350,50 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   (locale, theme) fall back instead of throwing (locale → `en`, theme →
   `system`) so a missing row cannot 500 the whole app; everywhere else the throw
   propagates on purpose.
-- **The default admin is created at startup, once, not per request.**
-  `src/instrumentation.ts` exports `register()`, which Next calls once per
-  server instance before the first request; it awaits `ensureAdminExists()`
-  (`src/lib/auth/bootstrap.ts`). Next does **not** call it during `next build` —
+- **There is one startup path: `register()` in `src/instrumentation.ts`, which
+  awaits `runStartupTasks()` in `src/lib/startup.ts`.** Next calls it once per
+  server instance before the first request — `next dev`, `npm start` and the
+  image alike. It **migrates first, then ensures an admin exists**; the order is
+  load-bearing, because the bootstrap queries `users`. Migrating here is what
+  retired `docker-entrypoint.sh`: its inline `node -e` covered the container and
+  nothing else, so a fresh checkout ran `npm run dev` against an empty database.
+  Next does **not** call `register()` during `next build` —
   `registerInstrumentation()` returns early on
   `NEXT_PHASE === "phase-production-build"` — which is what keeps a build from
-  creating an unmigrated `data/yana.db` on the build machine. Three things there
-  are load-bearing: the check is keyed on **"any user holds an admin role"**
-  (from `ADMIN_ROLES` in `auth/server.ts`, the same list the plugin is
-  configured with), never on the address, so a renamed or deleted default does
-  not come back on the next boot; the account is created through
-  `createUserWithPassword()`, so it has a real scrypt credential and can
-  actually sign in (the phase-3 seeder it replaces wrote a `users` row with no
-  `accounts` row, which could not); and a duplicate-key loss to a concurrent
-  caller is absorbed rather than thrown, because a rejection out of `register()`
-  stops the server from starting. Every other failure there is deliberately left
-  to propagate.
+  creating and migrating a database on the build machine.
+  Two consequences to respect when touching this:
+  - **`instrumentation.ts` imports exactly one module, `@/lib/startup`, and it
+    must stay one.** Webpack compiles the hook for the **edge** runtime too and
+    follows its imports regardless of the `NEXT_RUNTIME` guard, so anything
+    reachable from there drags `node:fs` and `better-sqlite3` into a runtime
+    that has neither — which fails the compilation and makes **`next dev` answer
+    500 on every route** while `next build` and `npm start` stay green.
+    `next.config.ts` cuts that single specifier out of the edge layer with
+    `IgnorePlugin`. Add startup steps inside `runStartupTasks()`, never a second
+    import in the hook, and re-test `npm run dev` — not just the build — after
+    touching either file.
+  - **A failure at startup is not swallowed**, and the shape is worth knowing:
+    Next logs `Failed to prepare server` plus an unhandled rejection, keeps the
+    process alive and answers 500 to everything, retrying per request. That is
+    the intended outcome for an unusable database (`/health` fails too, so a
+    healthcheck sees it). The single exception is a duplicate-key loss to a
+    concurrent bootstrap, absorbed inside `ensureAdminExists()`.
+- **The default admin: `admin@admin.com` / `admin`, created only when no admin
+  exists.** Three things are load-bearing. The check is keyed on **"any user
+  holds an admin role"** (`ADMIN_ROLES` from `auth/server.ts`, the same list the
+  `admin()` plugin is configured with), never on the address — so a renamed or
+  deleted default does not come back on the next boot. The account is created
+  through `createUserWithPassword()`, so it has a real scrypt credential and can
+  sign in; the phase-3 seeder it replaces wrote a `users` row with no `accounts`
+  row, which could not, and no row-shape assertion catches that — the test signs
+  in for real. And because creating it is three writes that cannot be one
+  transaction (better-sqlite3 has no async driver), every boot re-checks its own
+  postcondition and completes a half-provisioned default admin: missing
+  credential (unless the account has a passkey, which means passwordless on
+  purpose) or missing `user_settings` row. That repair is scoped to
+  `admin@admin.com` alone — never to an admin phase 5 created or an operator
+  renamed — and it is not a licence for the read path to self-heal:
+  `getSettings()` still throws.
 - **Theme has two stores:** `localStorage` is authoritative for what is
   _applied_ (next-themes resolves `localStorage.getItem(key) || defaultTheme`);
   the database column is the _portable_ preference that seeds a fresh browser.

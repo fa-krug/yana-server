@@ -6,11 +6,10 @@ import { getDb } from "@/lib/db/client";
 import { type UserSettings, userSettings, users } from "@/lib/db/schema";
 
 /**
- * Per-process memo of the owner lookup, keyed on nothing (there is only ever
- * one owner until Task 3 makes this per-session): the answer cannot go stale
- * within a process, so it only needs to be resolved once, not once per request
- * -- and locale resolution in the root layout asks for it on every single page
- * render.
+ * Per-process memo of the owner lookup. There is exactly one owner right now --
+ * the bootstrap administrator -- so the answer cannot go stale within a process,
+ * and it only needs resolving once rather than on every page render (locale
+ * resolution in the root layout asks for it every time).
  *
  * Caches the *promise*, not the resolved id, so concurrent callers that land
  * before the first lookup settles all await that one in-flight attempt.
@@ -18,10 +17,17 @@ import { type UserSettings, userSettings, users } from "@/lib/db/schema";
  * startup, or the admin bootstrap not finished yet) isn't cached for the life
  * of the process -- the next call gets a fresh attempt.
  */
+// ==> TASK 3: DELETE THIS MEMO. It is per *process*, and a session id is not.
+// Keeping it while `resolveOwnerId()` becomes a session read caches the first
+// visitor's id and serves it to every other session -- every user would see,
+// and overwrite, that one user's settings. The memo is only sound while a single
+// hard-coded owner is the whole authorization model; it stops being sound the
+// moment the answer depends on the request.
 let ownerId: Promise<string> | undefined;
 
 // INTERIM (Task 2 -> Task 3). Task 3 replaces this body with a session read and
-// nothing else in the app changes -- the signature is the seam.
+// nothing else in the app changes -- the signature is the seam. "Nothing else"
+// covers the *callers*: the memo above is part of this body and must go with it.
 //
 // There is exactly one account at this point: the administrator
 // `ensureAdminExists()` creates at startup (src/lib/auth/bootstrap.ts, run from
