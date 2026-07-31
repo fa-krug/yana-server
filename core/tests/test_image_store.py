@@ -48,6 +48,21 @@ def noisy_png(seed: int = 0, size: tuple[int, int] = (300, 300)) -> bytes:
     return buffer.getvalue()
 
 
+def tiny_png(size: tuple[int, int], color: tuple[int, int, int] = (255, 0, 0)) -> bytes:
+    """A real, tiny PNG at exactly ``size`` pixels.
+
+    Real tracking pixels (VG Wort's included) are this small -- well under
+    compress_image's 5KB compression floor, so this exercises the same
+    "compression skipped" path a live tracker hits, not a synthetic shortcut.
+    """
+    img = Image.new("RGB", size, color)
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    data = buffer.getvalue()
+    assert len(data) < 5000, "tiny_png must stay under the compression floor to be a useful fixture"
+    return data
+
+
 @pytest.fixture(autouse=True)
 def isolated_media_root(settings, tmp_path):
     """Never write test images into the repository's media/ directory."""
@@ -240,6 +255,78 @@ class TestStoreImageBytes:
 
         with pytest.raises(ImageHashCollisionError):
             store_image_bytes(data, "image/png")
+
+
+@pytest.mark.django_db
+class TestTrackingPixelRejection:
+    """VG Wort-style counting pixels (and any other 1x1 beacon) are not
+    content -- they must not be stored and must not produce a usable ref,
+    without raising, so the rest of an article is unaffected."""
+
+    def test_a_1x1_image_is_not_stored(self):
+        assert store_image_bytes(tiny_png((1, 1)), "image/png") is None
+        assert ArticleImage.objects.count() == 0
+
+    def test_the_threshold_boundary_is_pinned_by_the_constant(self):
+        """Both sides of TRACKING_PIXEL_MAX_DIMENSION, derived from the
+        constant itself so a future change to its value cannot silently
+        desync from what this test actually checks."""
+        limit = image_store.TRACKING_PIXEL_MAX_DIMENSION
+
+        just_rejected = tiny_png((limit, limit))
+        assert store_image_bytes(just_rejected, "image/png") is None
+        assert ArticleImage.objects.count() == 0
+
+        just_accepted = tiny_png((limit + 1, limit + 1))
+        accepted_hash = store_image_bytes(just_accepted, "image/png")
+        assert accepted_hash is not None
+        assert ArticleImage.objects.count() == 1
+
+    def test_a_normal_sized_image_is_stored_exactly_as_before(self):
+        """Regression guard: the tracking-pixel check must not touch the
+        path for ordinary content images."""
+        data = noisy_png(seed=43)
+
+        content_hash = store_image_bytes(data, "image/png")
+
+        image = ArticleImage.objects.get(content_hash=content_hash)
+        assert image.width == 300
+        assert image.height == 300
+        assert image.content_type == "image/webp"
+
+    def test_rejection_does_not_raise(self):
+        """Skipping a tracking pixel is normal control flow, not an error."""
+        try:
+            result = store_image_bytes(tiny_png((1, 1)), "image/png")
+        except Exception as exc:  # pragma: no cover - the assertion below fails first
+            pytest.fail(f"store_image_bytes raised for a tracking pixel: {exc}")
+        assert result is None
+
+
+@pytest.mark.django_db
+class TestArticleBodyMixedContent:
+    def test_a_tracking_pixel_alongside_real_content_only_the_pixel_is_skipped(self):
+        """The scenario that motivated this fix: a caschys_blog article body
+        carrying a VG Wort tracking pixel next to a real content image.
+        Storing must not blow up on the pixel, and the real image must be
+        entirely unaffected by its presence."""
+        pixel_bytes = tiny_png((1, 1))
+        real_bytes = noisy_png(seed=47)
+        fetched = {
+            "https://vgwort.example/beacon": {"imageData": pixel_bytes, "contentType": "image/png"},
+            "https://example.com/real.png": {"imageData": real_bytes, "contentType": "image/png"},
+        }
+
+        with patch.object(
+            image_store, "fetch_single_image", side_effect=lambda url, **_: fetched[url]
+        ):
+            pixel_ref = store_image_ref_from_url("https://vgwort.example/beacon")
+            real_ref = store_image_ref_from_url("https://example.com/real.png")
+
+        assert pixel_ref is None
+        assert real_ref is not None
+        assert ArticleImage.objects.count() == 1
+        assert ArticleImage.objects.get().content_hash in real_ref
 
 
 @pytest.mark.django_db

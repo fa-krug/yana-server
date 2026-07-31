@@ -3,9 +3,10 @@
 import io
 import logging
 import random
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
+import requests
 from PIL import Image
 
 from core.aggregators.services import image_store
@@ -22,6 +23,17 @@ from core.blocks.types import (
 from core.models import Article, ArticleBlock, ArticleImage
 
 BODY = '<h2>Head</h2><p>Body <a href="/rel">link</a></p>'
+
+
+def _tiny_png(size: tuple[int, int] = (1, 1)) -> bytes:
+    """A real, tiny PNG at exactly ``size`` pixels -- a stand-in for a
+    tracking pixel, well under compress_image's 5KB compression floor."""
+    img = Image.new("RGB", size, (255, 0, 0))
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    data = buffer.getvalue()
+    assert len(data) < 5000
+    return data
 
 
 def _png_bytes(seed: int = 0, size: tuple[int, int] = (300, 300)) -> bytes:
@@ -44,6 +56,22 @@ def _png_bytes(seed: int = 0, size: tuple[int, int] = (300, 300)) -> bytes:
     buffer = io.BytesIO()
     img.save(buffer, format="PNG")
     return buffer.getvalue()
+
+
+def _mock_response(*, content_type: str, content: bytes) -> Mock:
+    response = Mock()
+    response.raise_for_status = Mock()
+    response.headers = {"Content-Type": content_type}
+    response.content = content
+    return response
+
+
+def _mock_http_error_response(status_code: int) -> Mock:
+    error = requests.exceptions.HTTPError()
+    error.response = Mock(status_code=status_code)
+    response = Mock()
+    response.raise_for_status = Mock(side_effect=error)
+    return response
 
 
 @pytest.fixture(autouse=True)
@@ -174,7 +202,7 @@ class TestBodyImageLocalization:
 
         with patch.object(
             image_store,
-            "fetch_single_image",
+            "fetch_image_outcome",
             return_value={"imageData": data, "contentType": "image/png"},
         ):
             convert_article(article)
@@ -196,7 +224,7 @@ class TestBodyImageLocalization:
         article.save()
 
         mock_fetch = MagicMock()
-        with patch.object(image_store, "fetch_single_image", mock_fetch):
+        with patch.object(image_store, "fetch_image_outcome", mock_fetch):
             convert_article(article)
 
         assert load_blocks(article) == [ImageBlock(ref=ref)]
@@ -212,7 +240,7 @@ class TestBodyImageLocalization:
         article.save()
 
         mock_fetch = MagicMock(return_value={"imageData": data, "contentType": "image/png"})
-        with patch.object(image_store, "fetch_single_image", mock_fetch):
+        with patch.object(image_store, "fetch_image_outcome", mock_fetch):
             convert_article(article)
 
         image_blocks = [b for b in load_blocks(article) if isinstance(b, ImageBlock)]
@@ -232,7 +260,7 @@ class TestBodyImageLocalization:
 
         with patch.object(
             image_store,
-            "fetch_single_image",
+            "fetch_image_outcome",
             return_value={"imageData": data, "contentType": "image/png"},
         ):
             convert_article(article)
@@ -252,7 +280,7 @@ class TestBodyImageLocalization:
         article.content = '<p>before</p><img src="https://example.com/broken.png"><p>after</p>'
         article.save()
 
-        with patch.object(image_store, "fetch_single_image", return_value=None):
+        with patch.object(image_store, "fetch_image_outcome", return_value=None):
             written = convert_article(article)
 
         blocks = load_blocks(article)
@@ -275,7 +303,7 @@ class TestBodyImageLocalization:
             with (
                 caplog.at_level("WARNING", logger="core.blocks.conversion"),
                 patch(
-                    "core.blocks.conversion.store_image_ref_from_url",
+                    "core.blocks.conversion.store_body_image_ref_from_url",
                     side_effect=RuntimeError("boom"),
                 ),
             ):
@@ -296,9 +324,216 @@ class TestBodyImageLocalization:
             ImageBlock(ref=""),
         ]
         mock_fetch = MagicMock()
-        with patch.object(image_store, "fetch_single_image", mock_fetch):
+        with patch.object(image_store, "fetch_image_outcome", mock_fetch):
             _localize_body_images(blocks)
 
         assert blocks[0].ref == "data:image/png;base64,AAAA"
         assert blocks[1].ref == ""
         mock_fetch.assert_not_called()
+
+
+@pytest.mark.django_db
+class TestTrackingPixelDropped:
+    """A tracking pixel (fetched and decoded successfully, then rejected by
+    the store for being 1x1 -- see image_store.TRACKING_PIXEL_MAX_DIMENSION)
+    must disappear from the tree entirely, unlike a genuine fetch/decode
+    failure, which keeps the remote ref (TestBodyImageLocalization's
+    ``test_a_failed_download_keeps_the_remote_ref...`` covers that case and
+    must keep passing unchanged)."""
+
+    def test_a_pixel_between_two_paragraphs_leaves_both_intact_and_no_gap(self, article):
+        pixel = _tiny_png()
+        article.content = '<p>before</p><img src="https://vgwort.example/beacon"><p>after</p>'
+        article.save()
+
+        with patch.object(
+            image_store,
+            "fetch_image_outcome",
+            return_value={"imageData": pixel, "contentType": "image/png"},
+        ):
+            written = convert_article(article)
+
+        blocks = load_blocks(article)
+        assert blocks == [
+            Paragraph(runs=[InlineRun(text="before")]),
+            Paragraph(runs=[InlineRun(text="after")]),
+        ]
+        assert not any(isinstance(b, ImageBlock) for b in blocks)
+        assert written == 2
+        assert ArticleImage.objects.count() == 0
+
+        positions = list(
+            ArticleBlock.objects.filter(article=article, parent__isnull=True)
+            .order_by("position")
+            .values_list("position", flat=True)
+        )
+        assert positions == [0, 1], "root positions must stay 0-based and contiguous after a drop"
+
+    def test_a_body_that_is_only_a_pixel_has_no_image_block_and_does_not_error(self, article):
+        pixel = _tiny_png()
+        article.content = '<img src="https://vgwort.example/beacon">'
+        article.save()
+
+        with patch.object(
+            image_store,
+            "fetch_image_outcome",
+            return_value={"imageData": pixel, "contentType": "image/png"},
+        ):
+            written = convert_article(article)
+
+        assert load_blocks(article) == []
+        assert written == 0
+        assert ArticleImage.objects.count() == 0
+        assert ArticleBlock.objects.filter(article=article).count() == 0
+
+    def test_a_pixel_nested_in_a_list_item_and_a_blockquote_is_dropped_there_too(self, article):
+        pixel = _tiny_png()
+        article.content = (
+            '<ul><li><img src="https://vgwort.example/in-list"><p>kept</p></li></ul>'
+            '<blockquote><p>quoted</p><img src="https://vgwort.example/in-quote"></blockquote>'
+        )
+        article.save()
+
+        with patch.object(
+            image_store,
+            "fetch_image_outcome",
+            return_value={"imageData": pixel, "contentType": "image/png"},
+        ):
+            convert_article(article)
+
+        blocks = load_blocks(article)
+        list_block = next(b for b in blocks if isinstance(b, ListBlock))
+        quote_block = next(b for b in blocks if isinstance(b, Blockquote))
+
+        assert not any(isinstance(b, ImageBlock) for b in list_block.items[0])
+        assert not any(isinstance(b, ImageBlock) for b in quote_block.blocks)
+        assert list_block.items[0] == [Paragraph(runs=[InlineRun(text="kept")])]
+        assert quote_block.blocks == [Paragraph(runs=[InlineRun(text="quoted")])]
+        assert ArticleImage.objects.count() == 0
+
+    def test_a_normal_image_is_still_localized_after_the_tracking_pixel_check(self, article):
+        """Regression guard: the drop-on-rejection path must not affect a
+        real image's localization."""
+        data = _png_bytes(seed=59)
+        article.content = '<img src="https://example.com/real.png">'
+        article.save()
+
+        with patch.object(
+            image_store,
+            "fetch_image_outcome",
+            return_value={"imageData": data, "contentType": "image/png"},
+        ):
+            convert_article(article)
+
+        blocks = load_blocks(article)
+        assert len(blocks) == 1
+        assert isinstance(blocks[0], ImageBlock)
+        assert blocks[0].ref.startswith("yana-img://")
+        assert ArticleImage.objects.count() == 1
+
+
+@pytest.mark.django_db
+class TestDefinitiveNonImageDropped:
+    """The refinement beyond the 1x1 dimension check: a resource that the
+    fetch itself conclusively identifies as not an image -- wrong
+    Content-Type, an empty body, or bytes Pillow cannot decode -- must be
+    dropped exactly like a tracking pixel (see
+    image_extraction.fetcher.NonImageResponse), not kept as a dead remote
+    ref. The real-world case (a caschys_blog article) is a VG Wort
+    tracking-pixel URL that redirects to a zero-length `text/html` response:
+    it will never become an image, so "keep the ref and hope a retry fixes
+    it" only means every render still leaks the reader's IP to the tracker.
+
+    Exercised through the real HTTP layer (`requests.get` mocked, not
+    `image_store.fetch_image_outcome`) so these are true end-to-end checks
+    of the widened fetch path, including the transient-failure regression
+    guards, which must NOT be reclassified as definitive."""
+
+    def test_a_redirected_empty_html_response_is_dropped(self, article):
+        """The actual caschys_blog/VG Wort shape: `requests` follows the 302
+        (we pass `allow_redirects=True`) to a final response that is
+        `text/html` and empty."""
+        article.content = (
+            '<p>before</p><img src="https://vg08.met.vgwort.de/na/beacon"><p>after</p>'
+        )
+        article.save()
+        response = _mock_response(content_type="text/html", content=b"")
+
+        with patch("requests.get", return_value=response):
+            written = convert_article(article)
+
+        blocks = load_blocks(article)
+        assert blocks == [
+            Paragraph(runs=[InlineRun(text="before")]),
+            Paragraph(runs=[InlineRun(text="after")]),
+        ]
+        assert written == 2
+        assert ArticleImage.objects.count() == 0
+
+    def test_a_200_html_response_is_dropped(self, article):
+        article.content = '<img src="https://example.com/not-an-image">'
+        article.save()
+        response = _mock_response(content_type="text/html", content=b"<html></html>" * 10)
+
+        with patch("requests.get", return_value=response):
+            convert_article(article)
+
+        assert load_blocks(article) == []
+        assert ArticleImage.objects.count() == 0
+
+    def test_corrupt_bytes_with_an_image_content_type_are_dropped(self, article):
+        """The server's Content-Type is only a claim -- this pins that we
+        actually try to decode the bytes rather than trusting the header."""
+        article.content = '<img src="https://example.com/corrupt.png">'
+        article.save()
+        garbage = b"not a real png, just padding to clear the size floor" * 3
+        response = _mock_response(content_type="image/png", content=garbage)
+
+        with patch("requests.get", return_value=response):
+            convert_article(article)
+
+        assert load_blocks(article) == []
+        assert ArticleImage.objects.count() == 0
+
+    def test_a_connection_timeout_preserves_the_remote_ref(self, article):
+        """Regression guard on the deliberate contract: a transient failure
+        must keep the remote ref, not be reclassified as definitive."""
+        article.content = '<img src="https://example.com/slow.png">'
+        article.save()
+
+        with patch("requests.get", side_effect=requests.exceptions.Timeout()):
+            convert_article(article)
+
+        assert load_blocks(article) == [ImageBlock(ref="https://example.com/slow.png")]
+        assert ArticleImage.objects.count() == 0
+
+    def test_a_503_preserves_the_remote_ref(self, article):
+        """Same deliberate contract, this time via an HTTP error status."""
+        article.content = '<img src="https://example.com/unavailable.png">'
+        article.save()
+        response = _mock_http_error_response(503)
+
+        with patch("requests.get", return_value=response):
+            convert_article(article)
+
+        assert load_blocks(article) == [ImageBlock(ref="https://example.com/unavailable.png")]
+        assert ArticleImage.objects.count() == 0
+
+    def test_a_normal_image_is_still_localized_end_to_end(self, article):
+        """Regression guard exercised through the real HTTP layer (not a
+        mocked `fetch_image_outcome`): the widened fetch path -- including
+        its new Pillow-decode check -- must not regress the ordinary
+        success case."""
+        data = _png_bytes(seed=61)
+        article.content = '<img src="https://example.com/real.png">'
+        article.save()
+        response = _mock_response(content_type="image/png", content=data)
+
+        with patch("requests.get", return_value=response):
+            convert_article(article)
+
+        blocks = load_blocks(article)
+        assert len(blocks) == 1
+        assert isinstance(blocks[0], ImageBlock)
+        assert blocks[0].ref.startswith("yana-img://")
+        assert ArticleImage.objects.count() == 1

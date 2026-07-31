@@ -15,6 +15,8 @@ from typing import Any, Dict
 
 from PIL import Image
 
+from .fetcher import validate_image_data_with_pillow
+
 logger = logging.getLogger(__name__)
 
 # Image compression settings
@@ -56,15 +58,20 @@ def compress_image(
             - height: Output height
     """
     try:
-        # Skip compression for very small files
+        # Skip compression for very small files, but still decode their real
+        # dimensions -- callers (notably the tracking-pixel check in
+        # image_store.store_image_bytes) need width/height regardless of
+        # whether the bytes get re-encoded, and a 1x1 beacon is exactly the
+        # kind of file that lands under this floor.
         if len(image_data) < MIN_IMAGE_SIZE:
             logger.debug(f"Skipping compression for small image ({len(image_data)} bytes)")
+            metadata = validate_image_data_with_pillow(image_data)
             return {
                 "data": image_data,
                 "contentType": content_type,
                 "size": len(image_data),
-                "width": None,
-                "height": None,
+                "width": metadata["width"] if metadata else None,
+                "height": metadata["height"] if metadata else None,
             }
 
         # Load image

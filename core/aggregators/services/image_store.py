@@ -23,12 +23,24 @@ from django.db.models import QuerySet
 from core.models import Article, ArticleBlock, ArticleImage
 
 from .image_extraction.compression import compress_image
-from .image_extraction.fetcher import fetch_single_image
+from .image_extraction.fetcher import NonImageResponse, fetch_image_outcome, fetch_single_image
 
 logger = logging.getLogger(__name__)
 
 # iOS's existing scheme -- the client's resolution path already understands it.
 IMAGE_REF_SCHEME = "yana-img://"
+
+#: Images whose decoded width *and* height are both at or below this many
+#: pixels are treated as non-content -- tracking/counting beacons (VG Wort's
+#: 1x1 GIF is the canonical example), not something a reader ever looks at.
+#: 1 is deliberately conservative: it only catches the classic 1x1 case and
+#: cannot false-positive on any legitimate small image this codebase actually
+#: handles -- there is no minimum-size floor anywhere on the ingestion path
+#: (favicons/feed logos go through `feed_logo.py`'s own `Feed.logo` storage,
+#: never through this module, and `block_parser.py` has no width/height
+#: filtering of its own), so nothing here relies on 2x2-or-larger images
+#: being treated as decorative.
+TRACKING_PIXEL_MAX_DIMENSION = 1
 
 _IMAGE_REF_PATTERN = re.compile(rf"{IMAGE_REF_SCHEME}([0-9a-f]{{64}})")
 
@@ -147,6 +159,15 @@ def store_image_bytes(
     else:
         data, output_type, width, height = image_bytes, content_type, None, None
 
+    if _is_tracking_pixel(width, height):
+        logger.debug(
+            "[image_store] Skipping a %sx%s image as a tracking pixel, not content (%d B)",
+            width,
+            height,
+            len(image_bytes),
+        )
+        return None
+
     content_hash = hashlib.sha256(data).hexdigest()
 
     existing = _existing_row(content_hash)
@@ -224,6 +245,103 @@ def store_image_ref_from_url(url: str, *, is_header: bool = False) -> str | None
     """Fetch and store an image, returning its ``yana-img://`` reference."""
     content_hash = store_image_from_url(url, is_header=is_header)
     return build_image_ref(content_hash) if content_hash else None
+
+
+class NonContentImage:
+    """Sentinel: a body image is definitively not something that should be
+    stored or referenced, for one of two reasons:
+
+    - it was fetched and decoded successfully, then rejected because it is a
+      tracking pixel (see ``TRACKING_PIXEL_MAX_DIMENSION``); or
+    - the fetch itself came back with a conclusive "this is not an image"
+      answer -- a non-image ``Content-Type``, an empty/too-small body, or
+      bytes Pillow cannot decode at all (``NonImageResponse``, from
+      ``image_extraction.fetcher.fetch_image_outcome`` -- the VG Wort
+      tracking-pixel URL that resolves, after a redirect, to a zero-length
+      ``text/html`` response is exactly this shape: never an image, and
+      retrying will not change that).
+
+    Distinct from plain ``None``, which every other rejection in this module
+    still returns (a transient network/DNS error, a timeout, an HTTP error
+    status, or an explicit empty-bytes call) -- a caller cannot tell
+    "nothing usable *yet*" from "confirmed, permanently, not content" through
+    ``None`` alone, and the two need different treatment: a transient
+    failure should keep pointing at the original remote URL (it might
+    resolve on a later attempt), while either non-content case should not be
+    referenced anywhere at all.
+
+    Falsy, so every *existing* caller of ``store_image_bytes`` /
+    ``store_image_from_url`` / ``store_image_ref_from_url`` -- all of which
+    only ever check truthiness -- keeps seeing the same "no image" outcome
+    it always has and needs no changes. Only ``store_body_image_ref_from_url``
+    hands the un-collapsed sentinel to a caller that asked for it.
+    """
+
+    def __bool__(self) -> bool:
+        return False
+
+    def __repr__(self) -> str:
+        return "NON_CONTENT_IMAGE"
+
+
+NON_CONTENT_IMAGE = NonContentImage()
+
+
+def store_body_image_ref_from_url(url: str) -> str | NonContentImage | None:
+    """Fetch and store a body image, keeping "rejected as non-content"
+    distinguishable from a merely transient fetch failure.
+
+    Two independent checks feed the same ``NonContentImage`` signal:
+
+    - ``fetch_image_outcome`` returning ``NonImageResponse``: the fetch
+      completed and gave a definitive answer that the resource is not a
+      usable image (wrong content-type, empty/too-small body, or undecodable
+      bytes) -- as opposed to plain ``None``, which it reserves for a
+      transient failure (network/DNS error, timeout, HTTP error status) that
+      might succeed on a later attempt.
+    - ``store_image_bytes`` returning ``None``: given real, decodable,
+      correctly-typed bytes (i.e. we got past the check above), its only
+      rejection reason is the tracking-pixel dimension check -- a fetch
+      failure never reaches it at all, since it is only called once a fetch
+      has already succeeded.
+
+    Neither check touches ``fetch_single_image``'s or ``store_image_bytes``'s
+    own public contract, which every other caller (header images, all of
+    which only check truthiness) still relies on unchanged.
+
+    Used solely by ``core.blocks.conversion``'s body-image localization
+    pass, which drops the block entirely for a ``NonContentImage`` and keeps
+    the original remote ref for a plain ``None``.
+    """
+    fetched = fetch_image_outcome(url)
+    if isinstance(fetched, NonImageResponse):
+        logger.info("[image_store] %s is not a usable image -- no block stored", url)
+        return NON_CONTENT_IMAGE
+    if not fetched:
+        logger.info("[image_store] Could not fetch %s -- no image stored", url)
+        return None
+
+    content_hash = store_image_bytes(fetched["imageData"], fetched["contentType"])
+    if content_hash is None:
+        return NON_CONTENT_IMAGE
+
+    return build_image_ref(content_hash)
+
+
+def _is_tracking_pixel(width: int | None, height: int | None) -> bool:
+    """True when decoded dimensions mark an image as a non-content beacon.
+
+    ``None`` dimensions (compression failed to decode the image at all, e.g.
+    SVG bytes Pillow can't rasterize) are never treated as a tracking pixel --
+    "unknown size" must fail open to "store it", not open the door to
+    silently dropping images we simply couldn't measure.
+    """
+    return (
+        width is not None
+        and height is not None
+        and width <= TRACKING_PIXEL_MAX_DIMENSION
+        and height <= TRACKING_PIXEL_MAX_DIMENSION
+    )
 
 
 def _existing_row(content_hash: str) -> ArticleImage | None:
