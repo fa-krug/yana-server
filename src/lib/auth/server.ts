@@ -34,6 +34,20 @@ import type { User } from "@/lib/db/schema";
  * is guaranteed across better-auth upgrades -- if an upgrade starts inspecting
  * the handle at factory time, this is the first place to look.
  */
+/**
+ * The role the bootstrap grants and phases 5-13 check for, and the full list of
+ * roles the `admin()` plugin treats as administrative.
+ *
+ * Exported and fed *into* the plugin below rather than written twice: anything
+ * asking "is this user an admin" (`ensureAdminExists()` in `./bootstrap`, every
+ * later authorization check) has to agree with the plugin's own `adminRoles`,
+ * and a second literal `"admin"` somewhere else is exactly how those drift. The
+ * array is deliberately mutable-typed -- `admin()` takes `string[]`, and an
+ * `as const` tuple would need a spread at the call site, which is another copy.
+ */
+export const ADMIN_ROLE = "admin";
+export const ADMIN_ROLES: string[] = [ADMIN_ROLE];
+
 const lazyDb = new Proxy({} as ReturnType<typeof getDb>, {
   get(_target, property) {
     const db = getDb();
@@ -150,7 +164,7 @@ export const auth = betterAuth({
      * including `input: false` on `role`, which is what stops a request body
      * from setting it.
      */
-    admin({ defaultRole: "user", adminRoles: ["admin"] }),
+    admin({ defaultRole: "user", adminRoles: ADMIN_ROLES }),
   ],
 });
 

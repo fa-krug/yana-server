@@ -59,18 +59,19 @@ file.
 │   ├── i18n/
 │   │   ├── request.ts             # next-intl request config; reads getSettings()
 │   │   └── next-intl.d.ts         # AppConfig augmentation — compiler-checked catalog keys
+│   ├── instrumentation.ts         # register(): ensureAdminExists() once per server start
 │   ├── lib/
 │   │   ├── auth/
 │   │   │   ├── server.ts          # the Better Auth instance — the single config point
+│   │   │   ├── bootstrap.ts       # ensureAdminExists() — the default admin, when none exists
 │   │   │   └── client.ts          # browser client (signIn/signOut/useSession, passkey)
 │   │   ├── db/
 │   │   │   ├── client.ts          # getDb(), writeTransaction(), PRAGMAs
-│   │   │   ├── bootstrap.ts       # BOOTSTRAP_USER_ID + ensureBootstrapUser() (phase 3 calls it)
 │   │   │   ├── schema.ts          # barrel: re-exports schema/, declares every relation
 │   │   │   ├── schema/            # enums.ts, users.ts, auth.ts, references.ts, feeds.ts,
 │   │   │   │                      #   articles.ts, jobs.ts — one module per table group
 │   │   │   ├── test-support.ts    # TEST-ONLY: migrate()-based fixture databases
-│   │   │   └── *.test.ts          # client, schema, relations, bootstrap, schema/enums
+│   │   │   └── *.test.ts          # client, schema, relations, schema/enums
 │   │   ├── nav.ts                 # NAV_ITEMS + breadcrumbsFor() — single source for both
 │   │   ├── settings/               # queries.ts (getSettings), actions.ts (server actions)
 │   │   └── utils.ts               # cn()
@@ -165,6 +166,17 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   documented exception and carries none: those tables have no Django ancestor
   and no JSON column, and a constraint we invented for a table Better Auth owns
   could be violated by a future release of it.
+- **A table that gains _and_ loses columns in one `drizzle-kit generate` cannot
+  be generated non-interactively — split it into two migrations.** drizzle-kit
+  cannot tell "drop `is_admin`, add `role`" from "rename `is_admin` to `role`",
+  so it opens `promptColumnsConflicts` and asks once per new column; with no TTY
+  (an agent shell, CI) it aborts with
+  `Error: Interactive prompts require a TTY terminal` and writes nothing. Piping
+  newlines does not help — hanji reads raw keypresses and wants a TTY on stdin
+  _and_ stdout. **Generate the additions first, then the drop as a second
+  migration:** neither half has both an added and a missing column, so neither
+  prompts. (Phase 4's `0002` predates this note and was produced the harder way,
+  by driving the four prompts with `expect`. Same result, more moving parts.)
 - **Better Auth maps onto the existing tables with `usePlural: true` and
   nothing else.** Its model names are singular (`user`, `session`, …) and this
   repo's Drizzle exports are plural; `usePlural` closes exactly that gap. No
@@ -183,7 +195,11 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   the session). Keeping a boolean beside it would have been two sources of
   truth for "may this person delete users" — the plugin's `setRole` writing one
   and our UI the other, with nothing keeping them agreed. Still no groups and
-  no permission table: `"admin"` is the only role anything reads. The plugin's
+  no permission table: `"admin"` is the only role anything reads, and it is
+  written once — `ADMIN_ROLE`/`ADMIN_ROLES` in `src/lib/auth/server.ts` are what
+  the plugin's `adminRoles` is configured with _and_ what every "is this an
+  admin" check reads, so a second literal `"admin"` in a query is a drift bug,
+  not a shortcut. The plugin's
   own endpoints go unused (phase 5 hand-rolls user CRUD and declines
   impersonation); it is here for the `role` field and its server-side
   semantics, above all `input: false`, which makes Better Auth answer
@@ -233,12 +249,6 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   still exported from `better-auth/plugins`.) Both passkey halves must be
   registered: only one gives a client whose passkey methods do not exist, with
   no type error to say so.
-- **The passkey plugin ships as its own package.** `@better-auth/passkey` for
-  the server plugin and `@better-auth/passkey/client` for the client half —
-  it is no longer re-exported from `better-auth/plugins`, so a snippet that
-  imports `passkey` from there is pre-1.6 and will not resolve. Both halves
-  must be registered: only one gives a client whose passkey methods do not
-  exist, with no type error to say so.
 - **`updatedAt` columns carry `$onUpdate(() => new Date())`** — the port of
   Django's `auto_now=True`. It is client-side (invisible in the DDL), so it only
   holds for writes that go through Drizzle, which the `writeTransaction()`
@@ -319,12 +329,31 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   boundary above it just truncates the stream. Locale resolution in the root
   layout is the one documented exception to "chrome never waits on data".
 - **`getSettings()` is `cache()`d per request; `currentUserId()` is the
-  phase-4 seam**, and its bootstrap seed is memoized per process —
-  deliberately **not** self-healing, so a `user_settings` row deleted at
-  runtime stays deleted until restart. The root layout's two reads (locale,
-  theme) fall back instead of throwing (locale → `en`, theme → `system`) so a
-  missing row cannot 500 the whole app; everywhere else the throw propagates on
-  purpose.
+  phase-4 seam**, and its owner lookup is memoized per process — deliberately
+  **not** self-healing, so a `user_settings` row deleted at runtime stays
+  deleted until restart. It resolves the administrator by role and **writes
+  nothing**: seeding moved to startup (see the bullet below), so the settings
+  path can no longer create the account it reads. The root layout's two reads
+  (locale, theme) fall back instead of throwing (locale → `en`, theme →
+  `system`) so a missing row cannot 500 the whole app; everywhere else the throw
+  propagates on purpose.
+- **The default admin is created at startup, once, not per request.**
+  `src/instrumentation.ts` exports `register()`, which Next calls once per
+  server instance before the first request; it awaits `ensureAdminExists()`
+  (`src/lib/auth/bootstrap.ts`). Next does **not** call it during `next build` —
+  `registerInstrumentation()` returns early on
+  `NEXT_PHASE === "phase-production-build"` — which is what keeps a build from
+  creating an unmigrated `data/yana.db` on the build machine. Three things there
+  are load-bearing: the check is keyed on **"any user holds an admin role"**
+  (from `ADMIN_ROLES` in `auth/server.ts`, the same list the plugin is
+  configured with), never on the address, so a renamed or deleted default does
+  not come back on the next boot; the account is created through
+  `createUserWithPassword()`, so it has a real scrypt credential and can
+  actually sign in (the phase-3 seeder it replaces wrote a `users` row with no
+  `accounts` row, which could not); and a duplicate-key loss to a concurrent
+  caller is absorbed rather than thrown, because a rejection out of `register()`
+  stops the server from starting. Every other failure there is deliberately left
+  to propagate.
 - **Theme has two stores:** `localStorage` is authoritative for what is
   _applied_ (next-themes resolves `localStorage.getItem(key) || defaultTheme`);
   the database column is the _portable_ preference that seeds a fresh browser.
@@ -391,7 +420,8 @@ was retired. It is how a ported aggregator is proven correct.
 direction record — the decisions every phase builds on (multi-tenant, real tags,
 greenfield data, SQLite `jobs` table with an in-process worker). Per-phase plans
 are `docs/superpowers/plans/nextjs-*.md`, executed in order. Phase 1 (scaffold),
-phase 2 (schema, migration `0000` and the bootstrap user), phase 3 (app shell —
+phase 2 (schema, migration `0000` and the bootstrap user — that seeder is gone,
+retired by phase 4's admin bootstrap), phase 3 (app shell —
 i18n/theme, sidebar/breadcrumbs, streaming skeletons, the settings page and
 `/health`) and the folder swap (phase 14, reworked to keep `old/`) are done;
 phases 4–13 — auth, CRUD, aggregators, jobs and client API — are not. The

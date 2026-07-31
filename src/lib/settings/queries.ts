@@ -1,48 +1,67 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { cache } from "react";
 
-import { ensureBootstrapUser } from "@/lib/db/bootstrap";
+import { ADMIN_ROLES } from "@/lib/auth/server";
 import { getDb } from "@/lib/db/client";
-import { type UserSettings, userSettings } from "@/lib/db/schema";
+import { type UserSettings, userSettings, users } from "@/lib/db/schema";
 
 /**
- * Per-process memo of the bootstrap seed, keyed on nothing (there is only
- * ever one seed): ensureBootstrapUser() is idempotent and its result cannot
- * go stale within a process, so it only needs to run once, not once per
- * request -- every call used to take the write lock (BEGIN IMMEDIATE) via
- * writeTransaction(), and once locale resolution runs it in the root layout,
- * that's every single page render.
+ * Per-process memo of the owner lookup, keyed on nothing (there is only ever
+ * one owner until Task 3 makes this per-session): the answer cannot go stale
+ * within a process, so it only needs to be resolved once, not once per request
+ * -- and locale resolution in the root layout asks for it on every single page
+ * render.
  *
  * Caches the *promise*, not the resolved id, so concurrent callers that land
- * before the first seed settles all await that one in-flight attempt instead
- * of racing separate writeTransaction() calls against each other. Cleared on
- * rejection so a transient failure (e.g. the database briefly locked at
- * startup) isn't cached for the life of the process -- the next call gets a
- * fresh attempt.
- *
- * Deliberately not memoized inside ensureBootstrapUser() itself:
- * bootstrap.test.ts's "is idempotent: calling it twice does not throw or
- * duplicate rows" case exists to prove the underlying SQL tolerates running
- * twice. Memoizing there would make that assertion pass without ever
- * exercising the thing it claims to test. This memo stays in phase-3 code,
- * where the per-request-cost problem actually lives.
+ * before the first lookup settles all await that one in-flight attempt.
+ * Cleared on rejection so a transient failure (the database briefly locked at
+ * startup, or the admin bootstrap not finished yet) isn't cached for the life
+ * of the process -- the next call gets a fresh attempt.
  */
-let bootstrapSeed: Promise<string> | undefined;
+let ownerId: Promise<string> | undefined;
+
+// INTERIM (Task 2 -> Task 3). Task 3 replaces this body with a session read and
+// nothing else in the app changes -- the signature is the seam.
+//
+// There is exactly one account at this point: the administrator
+// `ensureAdminExists()` creates at startup (src/lib/auth/bootstrap.ts, run from
+// src/instrumentation.ts). Resolving it by role rather than by a hard-coded id
+// is what lets the phase-3 seeder -- which owned the id "bootstrap" and wrote a
+// user with no credentials -- be deleted outright. A read, never a write: this
+// no longer seeds anything, so nothing here can create the account it looks
+// for.
+async function resolveOwnerId(): Promise<string> {
+  const row = getDb()
+    .select({ id: users.id })
+    .from(users)
+    .where(inArray(users.role, ADMIN_ROLES))
+    .orderBy(users.createdAt)
+    .get();
+
+  if (!row) {
+    throw new Error(
+      "currentUserId: no administrator exists. ensureAdminExists() runs at server " +
+        "start from src/instrumentation.ts and creates one; this means it did not " +
+        "run, or the database is not the one it wrote to.",
+    );
+  }
+  return row.id;
+}
 
 /**
  * The phase 3/4 seam, deliberately one function.
  *
- * Until authentication exists, everything is owned by the bootstrap user. Phase 4
- * replaces this body with a session lookup and nothing else in the app changes.
+ * Until Task 3 lands session reads, everything is owned by the bootstrap
+ * administrator. Task 3 replaces this body and nothing else in the app changes.
  */
 export async function currentUserId(): Promise<string> {
-  if (!bootstrapSeed) {
-    bootstrapSeed = ensureBootstrapUser().catch((error: unknown) => {
-      bootstrapSeed = undefined;
+  if (!ownerId) {
+    ownerId = resolveOwnerId().catch((error: unknown) => {
+      ownerId = undefined;
       throw error;
     });
   }
-  return bootstrapSeed;
+  return ownerId;
 }
 
 /**
@@ -57,16 +76,13 @@ export async function currentUserId(): Promise<string> {
  * every test call still hits the real database.
  *
  * A plain read, no writeTransaction(): that helper is for writes (see
- * client.ts). currentUserId() no longer takes the write lock on every call
- * either, now that its bootstrap seed is memoized above, so a typical call
- * here does zero writes, not "a SELECT wrapped in someone else's BEGIN
- * IMMEDIATE".
+ * client.ts). currentUserId() writes nothing either, so a typical call here
+ * does zero writes.
  *
- * No insert-if-absent fallback here: ensureBootstrapUser() (awaited inside
- * currentUserId()) already creates it as one of its two rows, inside its own
- * writeTransaction() -- see bootstrap.ts. If the row is somehow still
- * missing, that is a bug in the seeding path worth surfacing loudly rather
- * than papering over with a second insert here.
+ * No insert-if-absent fallback here: ensureAdminExists() creates the row
+ * alongside the account it bootstraps -- see src/lib/auth/bootstrap.ts. If the
+ * row is somehow still missing, that is a bug in the provisioning path worth
+ * surfacing loudly rather than papering over with a second insert here.
  */
 export const getSettings = cache(async (): Promise<UserSettings> => {
   const userId = await currentUserId();

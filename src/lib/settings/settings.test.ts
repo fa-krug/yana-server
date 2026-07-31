@@ -10,10 +10,16 @@ import { applyMigrationsAt } from "@/lib/db/test-support";
 import en from "../../../messages/en.json";
 
 // Real-database test, no driver mocks -- see CLAUDE.md's testing convention
-// and src/lib/db/bootstrap.test.ts, which this follows. Each test points
+// and src/lib/auth/bootstrap.test.ts, which this follows. Each test points
 // DATABASE_PATH at its own temp file, migrates it the way docker-entrypoint.sh
 // does (applyMigrationsAt -> migrate()), then exercises the actions/queries
 // through the real getDb()/writeTransaction() singleton.
+//
+// The owner these queries scope to is created by the real admin bootstrap in
+// beforeEach, exactly as instrumentation.ts does it at server start -- not by a
+// hand-inserted fixture row. currentUserId() resolves whoever holds the admin
+// role, so a fixture that diverged from what the bootstrap actually writes
+// would let these tests pass over a state no running instance is ever in.
 //
 // next/cache's revalidatePath() is the one thing stubbed: it requires a Next
 // request scope that does not exist under Vitest and throws if called for
@@ -42,7 +48,7 @@ describe("settings", () => {
 
   // Same escape hatch client.ts itself uses to reach the raw better-sqlite3
   // handle -- needed here to close the module singleton's connection in
-  // afterEach, the way bootstrap.test.ts does.
+  // afterEach, the way src/lib/auth/bootstrap.test.ts does.
   function raw(db: unknown): Database.Database {
     return (db as { $client: Database.Database }).$client;
   }
@@ -55,6 +61,16 @@ describe("settings", () => {
     );
     applyMigrationsAt(dbPath);
     process.env.DATABASE_PATH = dbPath;
+    // Set before the auth module is imported: Better Auth reads it while
+    // building its context.
+    process.env.BETTER_AUTH_SECRET = "test-secret-not-used-outside-this-file-0123456789";
+    const bootstrap = await import("@/lib/auth/bootstrap");
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await bootstrap.ensureAdminExists();
+    } finally {
+      warned.mockRestore();
+    }
     queries = await import("./queries");
     actions = await import("./actions");
     client = await import("@/lib/db/client");
@@ -67,6 +83,7 @@ describe("settings", () => {
 
   afterEach(() => {
     delete process.env.DATABASE_PATH;
+    delete process.env.BETTER_AUTH_SECRET;
     const connection = raw(client.getDb());
     if (connection.open) connection.close();
     for (const suffix of ["", "-shm", "-wal"]) {
@@ -214,24 +231,39 @@ describe("settings", () => {
   });
 
   describe("currentUserId", () => {
-    it("memoizes the bootstrap seed per process: a deleted settings row stays deleted", async () => {
+    it("resolves the administrator the bootstrap created", async () => {
       const userId = await queries.currentUserId();
 
-      // Delete the row the first call's seed created, through
-      // writeTransaction() per the project's write convention -- never a bare
-      // db.delete() outside one.
+      const owner = client
+        .getDb()
+        .select()
+        .from(schema.users)
+        .where(eq(schema.users.id, userId))
+        .get();
+
+      // Not just "some id": the seam has to land on the account that can
+      // actually sign in, since every settings row is scoped to it.
+      expect(owner).toMatchObject({ email: "admin@admin.com", role: "admin" });
+    });
+
+    it("memoizes per process: a deleted owner stays resolved, a deleted settings row stays deleted", async () => {
+      const userId = await queries.currentUserId();
+
+      // Delete the whole account -- its settings row goes with it, via the
+      // ON DELETE CASCADE the schema declares and foreign_keys = ON enforces.
+      // Through writeTransaction() per the project's write convention, never a
+      // bare db.delete() outside one.
       client.writeTransaction((tx) => {
-        tx.delete(schema.userSettings).where(eq(schema.userSettings.userId, userId)).run();
+        tx.delete(schema.users).where(eq(schema.users.id, userId)).run();
       });
 
-      await queries.currentUserId();
-
-      // If the bootstrap seed had re-run, ensureBootstrapUser()'s
-      // existing-row check would have found none and recreated it. It
-      // doesn't: the seed already ran once for this process and is memoized,
-      // so the second call is a no-op. This also documents the real tradeoff
-      // of that memoization -- the seed is not self-healing within a
-      // process's lifetime.
+      // Unmemoized, this second call would re-read the database, find no
+      // administrator and throw. It doesn't: the lookup already ran once for
+      // this process. That is the deliberate tradeoff -- the seam is not
+      // self-healing within a process's lifetime, so a row deleted at runtime
+      // stays deleted until restart, and getSettings() surfaces it loudly
+      // rather than silently re-seeding.
+      await expect(queries.currentUserId()).resolves.toBe(userId);
       await expect(queries.getSettings()).rejects.toThrow(/no user_settings row/);
     });
   });
