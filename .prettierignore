@@ -1,0 +1,14 @@
+.next
+node_modules
+drizzle/
+*.golden.json
+
+# Not app code. The folder swap put all of these inside prettier's default `.`
+# scope for the first time; without them `format:check` walks the retired Django
+# tree (including old/.venv) and ~2000 fixture JSON files.
+old/
+docs/
+parity/
+data/
+media/
+.superpowers/

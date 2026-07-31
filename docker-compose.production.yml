@@ -1,29 +1,37 @@
+# NOT what is deployed today. Production still runs the last image the Django
+# pipeline published, and the live stack file lives in Portainer. This file is
+# the target shape for when this app replaces it -- see the header of
+# .github/workflows/ci.yml for why nothing publishes or deploys yet. The Django
+# version of this file is kept at old/docker-compose.production.yml.
+#
+# No `qcluster` service: the job worker runs in-process, so a second container
+# would run every job twice.
+
 services:
   yana:
     image: ${DOCKER_USERNAME:-sascha384}/yana:latest
     container_name: yana
     restart: always
     expose:
-      - "8000"
+      - "3000"
     environment:
-      - DEBUG=False
-      - SECRET_KEY=${SECRET_KEY}
-      - ALLOWED_HOSTS=${ALLOWED_HOSTS}
-      - BASE_URL=https://${YANA_DOMAIN:-yana.fa-krug.de}
-      - TIME_ZONE=${TIME_ZONE:-Europe/Berlin}
-      - SUPERUSER_USERNAME=${SUPERUSER_USERNAME:-}
-      - SUPERUSER_EMAIL=${SUPERUSER_EMAIL:-}
-      - SUPERUSER_PASSWORD=${SUPERUSER_PASSWORD:-}
+      - NODE_ENV=production
+      - DATABASE_PATH=/app/data/yana.db
+      - HOSTNAME=0.0.0.0
     volumes:
+      # Named volumes: they inherit the image's uid 1001 ownership, so SQLite can
+      # create its -wal/-shm siblings without a host-side chown. No
+      # staticfiles volume -- Next serves its own assets from the image.
       - yana-data:/app/data
       - yana-media:/app/media
-      - yana-static:/app/staticfiles
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8000/health/" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+    # Enable once the client API phase adds /health
+    # (docs/superpowers/plans/nextjs-13-client-api.md).
+    # healthcheck:
+    #   test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 60s
     deploy:
       resources:
         limits:
@@ -36,9 +44,8 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.yana.rule=Host(`${YANA_DOMAIN:-yana.fa-krug.de}`)"
       - "traefik.http.routers.yana.entrypoints=web"
-      - "traefik.http.services.yana.loadbalancer.server.port=8000"
+      - "traefik.http.services.yana.loadbalancer.server.port=3000"
 
 volumes:
   yana-data:
   yana-media:
-  yana-static:

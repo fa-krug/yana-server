@@ -1,5 +1,10 @@
 # Phase 7: AI Tab — Implementation Plan
 
+> **Path note (post folder swap):** the Next.js app is the repository root and the
+> Django tree is `old/`. Read Python paths below — `core/…`, `yana/…` — as
+> `old/core/…` / `old/yana/…`, and treat `uv run …` commands as historical: `old/`
+> is read-only reference and is not runnable as configured.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** An AI tab with a general section (provider selection, credentials, model) and an advanced section (temperature, max tokens, rate and usage limits).
@@ -104,8 +109,8 @@ export const AI_PROVIDERS: readonly AiProvider[] = [
 - [ ] **Step 4: Run and commit**
 
 ```bash
-cd yana-next && npm test -- providers
-cd .. && git add yana-next && git commit -m "feat(next): Add the AI provider registry
+npm test -- providers
+git add -A && git commit -m "feat(next): Add the AI provider registry
 
 One declaration per provider carries its models, endpoint and probe, so adding a
 provider touches this file rather than the form, the action and the client.
@@ -205,8 +210,8 @@ Bounds, as a Zod schema — each has a reason, not just a number:
 - [ ] **Step 3: Run and commit**
 
 ```bash
-cd yana-next && npm test -- ai
-cd .. && git add yana-next && git commit -m "feat(next): Add AI settings actions with explicit bounds
+npm test -- ai
+git add -A && git commit -m "feat(next): Add AI settings actions with explicit bounds
 
 Every bound has a reason rather than a round number: temperature above 2 is
 rejected by all three providers, maxTokens of zero guarantees an empty completion,
@@ -245,8 +250,8 @@ Select each provider and test with a real key. Confirm a bad key refuses activat
 - [ ] **Step 6: Run every check and commit**
 
 ```bash
-cd yana-next && npm run lint && npm run format:check && npm run typecheck && npm test && npm run build
-cd .. && git add yana-next && git commit -m "feat(next): Add the AI tab
+npm run lint && npm run format:check && npm run typecheck && npm test && npm run build
+git add -A && git commit -m "feat(next): Add the AI tab
 
 General section picks a provider and its credentials; advanced section carries the
 nine tuning and limit values. Advanced saves as one unit because the values are

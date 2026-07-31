@@ -3,6 +3,9 @@
 Golden records pinning the Python aggregator pipeline's output, so the TypeScript
 port can be checked against it after Python is gone.
 
+The Python pipeline now lives in `old/`, read-only and not runnable as configured
+(see `CLAUDE.md`). This corpus, not that tree, is the oracle.
+
 ## Why the fixtures look stale
 
 They are stale, deliberately. A parity golden only needs both implementations to
@@ -22,12 +25,17 @@ within a tolerance band.
 
 See `docs/superpowers/specs/2026-07-30-nextjs-migration-direction.md`.
 
-## Regenerating
+## Regenerating — you cannot, and should not
 
-```bash
-uv run python parity/generate.py            # all cases
-uv run python parity/generate.py --case heise/basic
-```
+`parity/generate.py`, which this section used to document, was never committed
+(`git log --all -- parity/generate.py` is empty), and the Django tree it drove now
+sits in `old/` where nothing installs its environment or runs it. Regenerating a
+record would mean reconstructing both.
 
-Records are committed. Never hand-edit one — regenerate and explain the diff in
-the commit message.
+That is by design rather than a gap to close: the corpus is **frozen**. Its whole
+value is that both implementations are compared against identical, unchanging
+bytes. A record that gets refreshed proves nothing.
+
+Never hand-edit a record either. If a golden looks wrong, the port is wrong until
+proven otherwise; if a golden really is wrong, say so in the commit message and
+explain the fix rather than quietly rewriting the file.

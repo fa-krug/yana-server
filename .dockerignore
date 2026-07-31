@@ -1,60 +1,21 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-.venv/
-env/
-ENV/
-*.egg-info/
-dist/
-build/
-
-# Django
-*.log
-db.sqlite3
-db.sqlite3-journal
-/media
-/staticfiles
-/static
-.env
-.env.local
-.env.*.local
-
-# Development
-.git/
-.gitignore
-.DS_Store
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.pytest_cache/
-.coverage
-htmlcov/
-.mypy_cache/
-.ruff_cache/
-
-# Documentation
+node_modules
+.next
+.git
 *.md
-docs/
+data
+media
 
-# Testing
-tests/
-*.test.py
-test_*.py
+# The retired Django tree and its untracked `.venv` -- reference only, never
+# part of an image. Without this the build context grows by hundreds of MB.
+old
 
-# Legacy
-old/
+# Reference material and tooling that no build stage reads.
+parity
+docs
+.github
+.claude
+.superpowers
 
-# CI/CD
-.github/
-.husky/
-.pre-commit-config.yaml
-
-# Data
-data/
-cache/
+# NOTE: do not add `drizzle` or `drizzle/meta` here -- the runtime stage copies
+# the migrations folder, and its placeholder `meta/_journal.json` must reach the
+# build context (see the COPY comment in the Dockerfile).

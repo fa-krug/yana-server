@@ -1,5 +1,12 @@
 # Phase 1: Scaffold — Implementation Plan
 
+> **Status: executed. Paths here predate the folder swap.** This plan ran while
+> the project lived in `yana-next/`. Phase 14 promoted that tree to the
+> repository root and moved the Django tree to `old/`. Read every
+> `yana-next/…` path below as a repository-root path, and every `core/…` /
+> `yana/…` path as `old/core/…` / `old/yana/…`. The body is left as executed —
+> it is a record, not instructions.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Stand up `yana-next/` as a Next.js + TypeScript + shadcn + Drizzle project with a CI pipeline and container build whose behavior matches the current Django pipeline's exactly.

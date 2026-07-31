@@ -1,5 +1,11 @@
 # Spec 1: Aggregator Parity — Extraction Core & Semantics
 
+> **Superseded by the Next.js migration (2026-07-30).** The Django implementation
+> described here now lives in `old/`, read-only — paths like `core/…` are `old/core/…`
+> today. This document is kept as a record of decisions that were correct when made,
+> and its behavior descriptions remain the reference for porting them to TypeScript.
+> See [the Next.js direction record](2026-07-30-nextjs-migration-direction.md).
+
 **Date:** 2026-07-29
 **Status:** Approved design, pending spec review
 **Depends on:** Spec 0 (GReader removal)

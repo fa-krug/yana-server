@@ -1,210 +1,110 @@
-# <img src="core/static/core/img/logo-icon-only.svg" width="40" height="40" align="center" style="margin-right: 10px;"> Yana - RSS Aggregator
+# Yana — RSS Aggregator
 
-A modern, self-hosted RSS aggregator built with Django. Feeds are fetched by background tasks and managed through the Django admin.
+A modern, self-hosted RSS aggregator. Yana pulls content from RSS and Atom
+feeds, YouTube channels, subreddits, podcasts and a set of site-specific
+scrapers into a local SQLite database, and serves it through a web UI and an
+HTTP API for the first-party iOS/macOS client.
 
-## 🚀 User Guide: Setup & Run
+**Built with Next.js 16, React 19, TypeScript and SQLite (Drizzle +
+better-sqlite3).** One language, one toolchain, one process — the job worker
+runs in-process, so there is no Redis and no separate worker container.
 
-The easiest way to get Yana up and running is using Docker.
+> **Status: mid-migration.** Yana was a Django application; it is being rewritten
+> in TypeScript. What is in place today is the scaffold, the tuned SQLite client
+> and the container build. The schema, UI, auth, aggregators, scheduler and
+> client API are being ported phase by phase. The retired Django implementation
+> is kept in [`old/`](old/) as a read-only behavior reference, and the frozen
+> golden corpus in [`parity/`](parity/) is what proves each ported aggregator
+> matches it. See
+> [`docs/superpowers/specs/2026-07-30-nextjs-migration-direction.md`](docs/superpowers/specs/2026-07-30-nextjs-migration-direction.md).
+>
+> **Existing installs:** the deployed Docker image is still the Django one, and
+> no data migrates. Do not upgrade a running instance to an image built from this
+> tree yet.
 
-### Prerequisites
-- [Docker](https://docs.docker.com/get-docker/)
-- [Docker Compose](https://docs.docker.com/compose/install/)
+## Running it
 
-### Quick Start
-
-1.  **Create a folder for Yana:**
-    ```bash
-    mkdir yana
-    cd yana
-    ```
-
-2.  **Create a `docker-compose.yml` file:**
-    Create a new file named `docker-compose.yml` in this directory with the following content:
-
-    ```yaml
-    version: "3.8"
-    services:
-      yana:
-        image: sascha384/yana:latest
-        container_name: yana
-        restart: unless-stopped
-        ports:
-          - "8000:8000"
-        environment:
-          - SECRET_KEY=change-me-securely
-          - ALLOWED_HOSTS=*
-          - TIME_ZONE=UTC
-          # Default admin user
-          - SUPERUSER_USERNAME=admin
-          - SUPERUSER_EMAIL=admin@example.com
-          - SUPERUSER_PASSWORD=password
-        volumes:
-          - yana_data:/app/data
-          - yana_media:/app/media
-
-    volumes:
-      yana_data:
-      yana_media:
-    ```
-
-3.  **Start the container:**
-    ```bash
-    docker-compose up -d
-    ```
-
-4.  **Access the application:**
-    Open your browser and navigate to `http://localhost:8000/admin`.
-
-### Configuration
-
-Yana is configured via environment variables. You can create a `.env` file in the root directory (copy `.env.example` as a starting point).
-
-**Key Environment Variables:**
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `SECRET_KEY` | Django secret key | `dev-secret-key...` |
-| `ALLOWED_HOSTS` | Allowed hostnames | `*` |
-| `TIME_ZONE` | Time zone | `UTC` |
-| `SUPERUSER_USERNAME` | Admin username (created on startup) | `admin` |
-| `SUPERUSER_EMAIL` | Admin email | `admin@example.com` |
-| `SUPERUSER_PASSWORD` | Admin password | `password` |
-
-### Default Credentials
-
-If you used the default settings (or didn't change the superuser variables), you can log in with:
--   **Username:** `admin`
--   **Password:** `password`
-
-### Clients
-
-Yana currently has no HTTP API. Content is aggregated by background tasks and
-inspected through the Django admin at `http://<your-server-ip>:8000/admin/`.
-
-The Google Reader compatible API was removed: the first-party Yana app for
-iOS/macOS is becoming the only client, and a tailored API is being designed to
-replace it. Third-party RSS readers are not supported in the meantime.
-
----
-
-## ✨ Features
-
--   **Self-Hosted & Private:** Keep your reading habits private. Runs on a single SQLite file with no external services -- no Redis, no database server.
--   **Multi-Source Aggregation:**
-    -   Standard RSS/Atom feeds
-    -   YouTube channels
-    -   Reddit subreddits
-    -   Podcasts
-    -   Specialized scrapers for websites
--   **Background Processing:** Automatic feed updates using `django-q2`.
--   **Easy Feed Setup:** Paste a homepage URL like `golem.de` when adding a feed -- Yana resolves it to the site's advertised feed on save, and fetches a logo for it automatically.
--   **Admin Interface:** Manage feeds, view fetching status, and trigger updates directly from the Django admin, including **Resolve & test** (check a feed without saving) and **Refresh feed logo** actions.
--   **Deduplicated Image Storage:** Article images are stored once, content-addressed by hash, and referenced from article content -- no base64 bloat in the database.
-
----
-
-## 💻 Developer Guide
-
-If you want to contribute or modify Yana, here is how to set up the development environment.
-
-### Local Development Setup
-
-**Requirements:** Python 3.13+ and [uv](https://docs.astral.sh/uv/).
-
-1.  **Install dependencies:**
-    ```bash
-    uv sync --all-groups
-    ```
-    This creates `.venv/` and installs the exact versions pinned in `uv.lock`.
-    Omit `--all-groups` to skip the test and lint tooling.
-
-2.  **Run commands:**
-    ```bash
-    uv run python manage.py runserver
-    ```
-    `uv run` resolves the environment for you -- no `activate` step. Activating
-    `.venv` manually also works if you prefer it.
-
-3.  **Run migrations:**
-    ```bash
-    uv run python manage.py migrate
-    ```
-
-4.  **Create an admin user:**
-    ```bash
-    uv run python manage.py createsuperuser
-    ```
-
-5.  **Start the development server:**
-    ```bash
-    uv run python manage.py runserver
-    ```
-
-### Developing Aggregators
-
-Yana uses a flexible aggregator system. New sources can be added by creating a class in `core/aggregators/`.
-
-**Debugging Aggregators:**
-
-The project includes a powerful CLI tool to test and debug aggregators without waiting for scheduled tasks.
+### With Docker
 
 ```bash
-# Quick test by feed ID (if it exists in DB)
-uv run python manage.py test_aggregator 5
-
-# Test by aggregator type with a custom URL (no DB entry needed)
-uv run python manage.py test_aggregator heise "https://www.heise.de/"
-
-# Detailed verbose output (raw HTML, logs)
-uv run python manage.py test_aggregator 5 --verbose
-
-# Dry-run (don't save articles to DB)
-uv run python manage.py test_aggregator 5 --dry-run
+docker compose up --build
 ```
 
-See **CLAUDE.md** for more detailed debugging workflows.
+Then open <http://localhost:3000>.
 
-### Project Architecture
-
--   **`core/models.py`**: `Feed`, `Article`, `ArticleImage`, `FeedGroup`.
--   **`core/aggregators/`**: Content fetching logic.
-    -   `registry.py`: Factory pattern for aggregators.
-    -   `base.py`: Base classes for RSS, Full Website, etc.
-    -   `services/image_store.py`: Content-addressed image storage (`yana-img://<hash>` references).
--   **`core/services/`**: Business logic (aggregation triggers, article maintenance).
-
-### Running Tests
+The image runs as uid 1001 and Docker does not chown bind mounts, so before the
+first start:
 
 ```bash
-# Run all tests
-uv run python manage.py test
-
-# Run specific test module
-uv run python manage.py test core.tests.test_models
+mkdir -p data media && chown -R 1001:1001 data media
 ```
 
----
+(Or switch `docker-compose.yml` to named volumes, which inherit the image's
+ownership.) SQLite needs write permission on the _directory_, not just the file,
+for its `-wal` and `-shm` siblings.
 
-## ❓ Troubleshooting
+`docker-compose.production.yml` is the target production shape — a single service
+behind Traefik with named volumes. It is not what is deployed today.
 
-**Docker Logs:**
-If the container isn't starting, check logs:
+### From source
+
+Requires **Node 25** (see [`.nvmrc`](.nvmrc); `nvm use` picks it up).
+
 ```bash
-docker-compose logs -f
+npm install
+npm run dev
 ```
 
-**Database Reset (Dev):**
+Then open <http://localhost:3000>. The SQLite file is created at `./data/yana.db`
+on first connection; override with `DATABASE_PATH`.
+
+## Configuration
+
+Copy [`.env.example`](.env.example) to `.env`. Every variable it documents is one
+the code actually reads — today that is `DATABASE_PATH` plus the `PORT` /
+`HOSTNAME` / `NEXT_TELEMETRY_DISABLED` that Next's own server reads.
+
+## Data on disk
+
+| Path     | Contents                                                           |
+| -------- | ------------------------------------------------------------------ |
+| `data/`  | The SQLite database (`yana.db`), plus its `-wal` / `-shm` siblings |
+| `media/` | Hosted article images and feed logos, content-addressed            |
+
+Both are gitignored, both are volumes in the container, and both start empty — the
+Django-era database and images were moved to `old/data/` and `old/media/`, and
+nothing here reads them. No data migrates.
+
+## Development
+
 ```bash
-rm db.sqlite3
-uv run python manage.py migrate
+npm run dev            # dev server
+npm run lint           # eslint
+npm run format         # prettier --write
+npm run format:check   # prettier --check (what CI checks)
+npm run typecheck      # tsc --noEmit
+npm test               # vitest
+npm run build          # production build
 ```
 
----
+Run the four checks CI runs before you commit:
 
-## 🤝 Contributing
+```bash
+npm run lint && npm run format:check && npm run typecheck && npm test
+```
 
-Contributions are welcome! Please create a feature branch (`git checkout -b feature/my-feature`) and submit a Pull Request.
+Database schema changes go through Drizzle:
+
+```bash
+npx drizzle-kit generate   # write a migration into drizzle/ from src/lib/db/schema.ts
+```
+
+Migrations are applied by `docker-entrypoint.sh` at container start.
+
+[`CLAUDE.md`](CLAUDE.md) has the full contributor and AI-assistant guide:
+conventions, the database access rules, how `old/` and `parity/` are used, and
+where each migration phase is planned.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+See [`LICENSE`](LICENSE).

@@ -108,8 +108,8 @@ Orphans — a `parentId` with no matching row — are skipped, not thrown on: on
 - [ ] **Step 3: Run and commit**
 
 ```bash
-cd yana-next && npm test -- tree
-cd .. && git add yana-next && git commit -m "feat(next): Rebuild block trees from flat rows
+npm test -- tree
+git add -A && git commit -m "feat(next): Rebuild block trees from flat rows
 
 Two passes plus a sort, with runs grouped by block. An orphaned block -- a parentId
 with no matching row -- is skipped rather than raising, so one corrupt row costs one
@@ -159,7 +159,7 @@ Above the tree, a toggle switching between the rendered view and the raw JSON of
 Seed an article with every block kind, including nested lists and a blockquote containing a list, and confirm each renders. Confirm an unknown `kind` row is skipped without breaking the page.
 
 ```bash
-cd .. && git add yana-next && git commit -m "feat(next): Add the block renderer and content-addressed image route
+git add -A && git commit -m "feat(next): Add the block renderer and content-addressed image route
 
 Unknown block kinds are skipped rather than raising, matching the format's
 extensibility rule on both sides of the wire.
@@ -222,8 +222,8 @@ Two sections, each its own `<Suspense>` boundary:
 Confirm the general section streams before the block tree on a large article (`curl -N`, as phase 3 established). Confirm `createdAt` has no editable control. Confirm another user's article id 404s.
 
 ```bash
-cd yana-next && npm run lint && npm run format:check && npm run typecheck && npm test && npm run build
-cd .. && git add yana-next && git commit -m "feat(next): Add the articles tab
+npm run lint && npm run format:check && npm run typecheck && npm test && npm run build
+git add -A && git commit -m "feat(next): Add the articles tab
 
 The block tree gets its own Suspense boundary so a 200-block article does not delay
 the title. List queries omit plainText -- the largest column, shown in no list

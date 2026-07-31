@@ -1,5 +1,10 @@
 # Phase 15: Installable npm Package — Implementation Plan
 
+> **Path note (post folder swap):** the Next.js app is the repository root and the
+> Django tree is `old/`. Read Python paths below — `core/…`, `yana/…` — as
+> `old/core/…` / `old/yana/…`, and treat `uv run …` commands as historical: `old/`
+> is read-only reference and is not runnable as configured.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** `npm install -g yana` followed by `yana` starts a production-ready server.

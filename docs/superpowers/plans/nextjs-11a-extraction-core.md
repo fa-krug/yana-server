@@ -1,5 +1,10 @@
 # Phase 11a: Extraction Core & Image Pipeline — Implementation Plan
 
+> **Path note (post folder swap):** the Next.js app is the repository root and the
+> Django tree is `old/`. Read Python paths below — `core/…`, `yana/…` — as
+> `old/core/…` / `old/yana/…`, and treat `uv run …` commands as historical: `old/`
+> is read-only reference and is not runnable as configured.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Status:** Structural. Task boundaries, interfaces and the verification contract are settled; per-file step lists must be refreshed against the Python immediately before execution, because the port is a line-by-line reading exercise and this document cannot substitute for the source.

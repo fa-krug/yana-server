@@ -1,5 +1,10 @@
 # Phase 9: Feeds CRUD — Implementation Plan
 
+> **Path note (post folder swap):** the Next.js app is the repository root and the
+> Django tree is `old/`. Read Python paths below — `core/…`, `yana/…` — as
+> `old/core/…` / `old/yana/…`, and treat `uv run …` commands as historical: `old/`
+> is read-only reference and is not runnable as configured.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A feeds tab where creating a feed starts with an aggregator choice that reshapes the rest of the form, options unavailable for lack of an integration or AI credentials are hidden, a logo is collected on create, and "update logo" is available as a bulk action.
@@ -139,8 +144,8 @@ describe("schemaFor", () => {
 - [ ] **Step 4: Run and commit**
 
 ```bash
-cd yana-next && npm test -- registry
-cd .. && git add yana-next && git commit -m "feat(next): Add the aggregator option registry
+npm test -- registry
+git add -A && git commit -m "feat(next): Add the aggregator option registry
 
 One declaration per aggregator drives validation, typing and the form body, so the
 three cannot drift apart. A test asserts every aggregator key has a spec -- a
@@ -223,8 +228,8 @@ describe("removeWhiteBackground", () => {
 - [ ] **Step 4: Run and commit**
 
 ```bash
-cd yana-next && npm test -- logo
-cd .. && git add yana-next && git commit -m "feat(next): Add feed logo discovery and storage
+npm test -- logo
+git add -A && git commit -m "feat(next): Add feed logo discovery and storage
 
 White-background removal is ported from the Python: many favicons are a logo on
 solid white, which looks wrong on a dark sidebar. An already-transparent image is
@@ -311,8 +316,8 @@ Create one feed per aggregator type and confirm the form reshapes. With integrat
 - [ ] **Step 6: Run every check and commit**
 
 ```bash
-cd yana-next && npm run lint && npm run format:check && npm run typecheck && npm test && npm run build
-cd .. && git add yana-next && git commit -m "feat(next): Add the feeds tab with a registry-driven form
+npm run lint && npm run format:check && npm run typecheck && npm test && npm run build
+git add -A && git commit -m "feat(next): Add the feeds tab with a registry-driven form
 
 The aggregator choice reshapes the body from the option registry, so there is one
 form rather than sixteen. Changing aggregator resets options to the new defaults

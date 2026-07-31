@@ -169,8 +169,8 @@ export function buildListHref(pathname: string, params: Partial<ListParams>): st
 - [ ] **Step 3: Run the tests and commit**
 
 ```bash
-cd yana-next && npm test -- params
-cd .. && git add yana-next && git commit -m "feat(next): Add URL-param list state parsing
+npm test -- params
+git add -A && git commit -m "feat(next): Add URL-param list state parsing
 
 List state lives in the URL so filtered views are linkable and back-navigation
 works. pageSize is capped at 100 -- otherwise a crafted URL requests the entire
@@ -239,7 +239,7 @@ Extract `toggleAll(pageIds: string[], selected: string[]): string[]` as a pure f
 - [ ] **Step 5: Commit**
 
 ```bash
-cd .. && git add yana-next && git commit -m "feat(next): Add the generic CRUD kit
+git add -A && git commit -m "feat(next): Add the generic CRUD kit
 
 Four phases consume this, so two behaviours matter more than they look:
 select-all covers only the current page (selecting invisible rows is how a bulk
@@ -316,8 +316,8 @@ Write the three helpers (`currentAdminId`, `onlyOtherAdminId`, `someNonAdminId`)
 - [ ] **Step 3: Run the tests and commit**
 
 ```bash
-cd yana-next && npm test -- users
-cd .. && git add yana-next && git commit -m "feat(next): Add user queries and actions
+npm test -- users
+git add -A && git commit -m "feat(next): Add user queries and actions
 
 Three refusals, all checked before anything is deleted: the acting admin cannot
 delete themselves, cannot clear their own admin flag, and the last admin cannot be
@@ -352,8 +352,8 @@ Non-admin gets 404 on every route. Search narrows and stays in the URL. Filterin
 - [ ] **Step 5: Run every check and commit**
 
 ```bash
-cd yana-next && npm run lint && npm run format:check && npm run typecheck && npm test && npm run build
-cd .. && git add yana-next && git commit -m "feat(next): Add the admin-only users tab
+npm run lint && npm run format:check && npm run typecheck && npm test && npm run build
+git add -A && git commit -m "feat(next): Add the admin-only users tab
 
 Create and edit are real subpages rather than dialogs, so the URL and breadcrumbs
 reflect them for free -- phase 3's breadcrumbs derive from the path.

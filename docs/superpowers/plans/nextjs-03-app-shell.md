@@ -52,7 +52,6 @@
 - [ ] **Step 1: Install**
 
 ```bash
-cd yana-next
 npm install --save-exact next-intl next-themes
 ```
 
@@ -246,7 +245,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 - [ ] **Step 6: Commit**
 
 ```bash
-cd .. && git add yana-next messages
+git add -A
 git commit -m "feat(next): Add EN/DE localization and theming
 
 A test asserts the catalogs define identical key sets: a missing key renders the
@@ -416,7 +415,7 @@ npm test -- settings
 Expected: PASS.
 
 ```bash
-cd .. && git add yana-next
+git add -A
 git commit -m "feat(next): Add settings queries and actions
 
 currentUserId() is deliberately a single function: it is the phase 3/4 seam, and
@@ -705,7 +704,7 @@ Check at 375px wide and at desktop width: the sidebar collapses to a sheet on mo
 - [ ] **Step 8: Commit**
 
 ```bash
-cd .. && git add yana-next
+git add -A
 git commit -m "feat(next): Add the sidebar, segment-derived breadcrumbs and content frame
 
 Breadcrumbs derive from the URL, so a page gets correct breadcrumbs by living at
@@ -827,7 +826,7 @@ Expected: the heading and sidebar markup arrive in the first chunk, **before** t
 - [ ] **Step 5: Commit**
 
 ```bash
-cd .. && git add yana-next
+git add -A
 git commit -m "feat(next): Establish the streaming skeleton pattern
 
 Data regions are async components inside Suspense; the shell renders
@@ -1134,7 +1133,7 @@ curl -s localhost:3000/health
 ```
 
 ```bash
-cd .. && git add yana-next
+git add -A
 git commit -m "feat(next): Add the settings page and health route
 
 Three sections: general (theme, language), library (retention, update interval),

@@ -144,8 +144,8 @@ Checking first rather than catching the constraint error is what produces a usab
 - [ ] **Step 3: Run and commit**
 
 ```bash
-cd yana-next && npm test -- tags
-cd .. && git add yana-next && git commit -m "feat(next): Add tag queries and actions
+npm test -- tags
+git add -A && git commit -m "feat(next): Add tag queries and actions
 
 Uniqueness is checked before insert rather than caught afterwards, so the UI gets
 a field error instead of a raw SQLite constraint string; the UNIQUE index stays as
@@ -190,8 +190,8 @@ Create a tag, attach it to a feed via the database, delete the tag, confirm the 
 - [ ] **Step 6: Run every check and commit**
 
 ```bash
-cd yana-next && npm run lint && npm run format:check && npm run typecheck && npm test && npm run build
-cd .. && git add yana-next && git commit -m "feat(next): Add the tags tab
+npm run lint && npm run format:check && npm run typecheck && npm test && npm run build
+git add -A && git commit -m "feat(next): Add the tags tab
 
 Second consumer of the phase 5 CRUD kit, confirming the kit is actually generic.
 Feed counts come from a join rather than per-row queries, which would be N+1

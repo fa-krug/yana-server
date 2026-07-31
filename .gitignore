@@ -18,20 +18,57 @@ Thumbs.db
 *.tmp
 *.log
 
-# Python
+# Node.js
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+.npm
+.eslintcache
+.node_repl_history
+*.tgz
+.yarn-integrity
+
+# Next.js
+.next/
+out/
+build/
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+*.js.map
+
+# Testing
+coverage/
+.nyc_output/
+.vitest/
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Python -- only reachable under old/, the retired Django tree kept for
+# reference. Nothing at the repository root is Python any more.
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-build/
 develop-eggs/
 dist/
 downloads/
 eggs/
 .eggs/
-/lib/
-/lib64/
 parts/
 sdist/
 var/
@@ -44,7 +81,6 @@ MANIFEST
 venv/
 ENV/
 env/
-.venv
 pip-log.txt
 pip-delete-this-directory.txt
 .pytest_cache/
@@ -53,41 +89,8 @@ htmlcov/
 .tox/
 .hypothesis/
 .pytype/
-mypy_cache/
+.mypy_cache/
 .ruff_cache/
-
-# Node.js
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-lerna-debug.log*
-.pnpm-debug.log*
-.npm
-.eslintcache
-.node_repl_history
-*.tgz
-.yarn-integrity
-
-# Angular
-dist/
-.angular/
-*.ngfactory.ts
-*.ngsummary.json
-*.shim.ts
-.ng_build/
-
-# TypeScript
-*.tsbuildinfo
-*.js.map
-
-# Testing
-coverage/
-.nyc_output/
-.vitest/
-test-results/
-playwright-report/
-playwright/.cache/
 
 # Database files
 *.db
@@ -113,18 +116,14 @@ test.db-wal
 .env.production
 .env.test
 *.env
+*.pem
 
 # Logs
 logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
 
-# Docker
-.dockerignore.bak
+# Media (hosted article images and feed logos)
+media/
+staticfiles/
 
 # Build artifacts
 *.class
@@ -141,24 +140,11 @@ temp/
 *.tmp
 *.temp
 
-# Assets (if generated)
-# Uncomment if you want to ignore generated assets
-# assets/generated/
-
-# Service worker
-ngsw-config.json.bak
-ngsw-state.json
-
 # Misc
 *.pid
 *.seed
 *.pid.lock
 .cache/
-.mypy_cache/
-
-# Django media and staticfiles
-media/
-staticfiles/
 
 # Git worktrees
 .worktrees/

@@ -1,5 +1,10 @@
 # Phase 11c: The Sixteen Aggregators — Implementation Plan
 
+> **Path note (post folder swap):** the Next.js app is the repository root and the
+> Django tree is `old/`. Read Python paths below — `core/…`, `yana/…` — as
+> `old/core/…` / `old/yana/…`, and treat `uv run …` commands as historical: `old/`
+> is read-only reference and is not runnable as configured.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Status:** Structural. One task per aggregator, each independently verifiable against its golden cases — which makes this the phase most suited to parallel execution.

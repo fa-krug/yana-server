@@ -1,5 +1,11 @@
 # Aggregator Parity 2 — Scraper Fixes & New Types Implementation Plan
 
+> **Superseded by the Next.js migration (2026-07-30).** The Django implementation
+> described here now lives in `old/`, read-only — paths like `core/…` are `old/core/…`
+> today. This document is kept as a record of decisions that were correct when made,
+> and its behavior descriptions remain the reference for porting them to TypeScript.
+> See [the Next.js direction record](../specs/2026-07-30-nextjs-migration-direction.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Port the six iOS scraper fixes the server never got, add the two iOS-only aggregator types (The Verge, Ars Technica), and close the mein_mmo comment-option gap — so all 16 server aggregator types match iOS and produce the same article body.

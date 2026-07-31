@@ -1,5 +1,11 @@
 # Phase 2: Drizzle Schema — Implementation Plan
 
+> **Path note: this plan predates the folder swap.** It was written while the
+> project lived in `yana-next/`. Phase 14 promoted that tree to the repository
+> root and moved the Django tree to `old/`. Read every `yana-next/…` path below
+> as a repository-root path, and every `core/…` / `yana/…` path as `old/core/…` /
+> `old/yana/…`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Define the complete Drizzle schema — the ported domain tables, the four deliberate deviations, and the jobs table — with migrations generated and a bootstrap user seeded.

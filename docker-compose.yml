@@ -1,4 +1,8 @@
-version: "3.8"
+# Dev container for the built image. For day-to-day work use `npm run dev`
+# instead -- this image is a production standalone build, so it does not reload.
+#
+# There is no `qcluster`-style second service: the job worker runs in-process,
+# so a second container would run every job twice.
 
 services:
   yana:
@@ -8,42 +12,29 @@ services:
     container_name: yana-dev
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "3000:3000"
     environment:
-      # Django Configuration
-      - DEBUG=True
-      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
-      - ALLOWED_HOSTS=*
-      - TIME_ZONE=${TIME_ZONE:-UTC}
-
-      # Optional: Create superuser on first run
-      - SUPERUSER_USERNAME=${SUPERUSER_USERNAME:-}
-      - SUPERUSER_EMAIL=${SUPERUSER_EMAIL:-}
-      - SUPERUSER_PASSWORD=${SUPERUSER_PASSWORD:-}
-
-      # Email Configuration (SMTP)
-      - EMAIL_HOST=${EMAIL_HOST:-}
-      - EMAIL_PORT=${EMAIL_PORT:-587}
-      - EMAIL_USE_TLS=${EMAIL_USE_TLS:-True}
-      - EMAIL_USE_SSL=${EMAIL_USE_SSL:-False}
-      - EMAIL_HOST_USER=${EMAIL_HOST_USER:-}
-      - EMAIL_HOST_PASSWORD=${EMAIL_HOST_PASSWORD:-}
-      - DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL:-noreply@localhost}
-      - SERVER_EMAIL=${SERVER_EMAIL:-server@localhost}
-      - ADMIN_EMAIL=${ADMIN_EMAIL:-}
+      - NODE_ENV=production
+      # Both are pinned in the Dockerfile; repeated here so the values are
+      # visible where you look for them.
+      - DATABASE_PATH=/app/data/yana.db
+      - HOSTNAME=0.0.0.0
     volumes:
-      # Development: bind mounts for live reload
-      - .:/app
-      # Persist database
+      # Bind mounts, so the DB and images survive `docker compose down` and are
+      # inspectable from the host. Docker does NOT chown a bind mount, and the
+      # image runs as uid 1001 -- run `chown -R 1001:1001 ./data ./media` on the
+      # host before the first start, or switch to named volumes (which do
+      # inherit the image's ownership).
       - ./data:/app/data
-      # Persist media files
       - ./media:/app/media
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+    # No healthcheck yet: the app has no /health route until the client API
+    # phase adds one (docs/superpowers/plans/nextjs-13-client-api.md).
+    # healthcheck:
+    #   test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 40s
     networks:
       - yana-network
 

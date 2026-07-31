@@ -1,91 +1,114 @@
-# =============================================================================
-# Optimized Dockerfile for Yana - Django RSS Aggregator
-# Strategy: Multi-stage build with Alpine base for minimal footprint
-# =============================================================================
+# syntax=docker/dockerfile:1
 
-# Build stage - resolve and install dependencies with uv
-FROM python:3.13-alpine AS builder
-
+# ---------- deps: install with build tooling available ----------
+# Node 25 to match .nvmrc (25.6.1) and package.json's engines.node (>=25.0.0
+# <26) -- all three must name the same line, not the "Node LTS" the original
+# plan text suggested.
+FROM node:25-alpine AS deps
 WORKDIR /build
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    # Copy packages into the venv instead of hardlinking to uv's cache, so the
-    # venv stays self-contained when copied into the runtime stage.
-    UV_LINK_MODE=copy \
-    UV_COMPILE_BYTECODE=1 \
-    UV_PROJECT_ENVIRONMENT=/opt/venv
+# better-sqlite3@13.0.2 ships N-API prebuilds for all 8 platform/arch targets,
+# including linux musl (see prebuilds/linuxmusl-{x64,arm64}.node), so `npm ci`
+# does not actually compile it from source here -- this is probably dead
+# weight today. Kept anyway: it is confined to this stage, never reaches the
+# runtime image, and is cheap insurance against a future dependency that does
+# need a compiler.
+RUN apk add --no-cache python3 make g++
 
-# uv ships as a static binary -- no Python bootstrap needed.
-COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /usr/local/bin/uv
+COPY package.json package-lock.json ./
+# `npm ci` fails if the lockfile is stale rather than silently resolving
+# something else -- the equivalent of `uv sync --frozen`.
+RUN npm ci
 
-# Build dependencies for native modules (Pillow needs jpeg/zlib headers).
-RUN apk add --no-cache \
-    gcc \
-    g++ \
-    musl-dev \
-    python3-dev \
-    jpeg-dev \
-    zlib-dev \
-    linux-headers
+# ---------- builder: compile the app ----------
+FROM node:25-alpine AS builder
+WORKDIR /build
+COPY --from=deps /build/node_modules ./node_modules
+COPY . .
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
 
-# Lockfile + manifest only, for layer caching: dependencies are reinstalled
-# only when these two files change, not on every source edit.
-COPY pyproject.toml uv.lock ./
-
-# --frozen fails the build if uv.lock is stale rather than silently resolving
-# something different from what was tested. --no-dev keeps test/lint tooling
-# out of the production image.
-RUN uv sync --frozen --no-dev --no-install-project
-
-# =============================================================================
-# Runtime Stage - Minimal production image (Alpine)
-# =============================================================================
-FROM python:3.13-alpine AS runtime
-
+# ---------- runtime ----------
+FROM node:25-alpine AS runtime
 WORKDIR /app
 
-# OCI Labels
 LABEL org.opencontainers.image.title="Yana" \
-      org.opencontainers.image.description="Django RSS aggregator and feed management system" \
+      org.opencontainers.image.description="Self-hosted RSS aggregator" \
       org.opencontainers.image.source="https://github.com/fa-krug/yana-server"
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PATH="/opt/venv/bin:$PATH" \
-    DJANGO_SETTINGS_MODULE=yana.settings
+# HOSTNAME: Next 16's generated standalone server.js does
+# `const hostname = process.env.HOSTNAME || '0.0.0.0'`, and Docker sets
+# HOSTNAME to the container's short ID in every container. Left unset, the
+# server would bind only that container-ID hostname's interface -- not
+# 127.0.0.1 -- so a HEALTHCHECK or `docker exec` hitting localhost:3000 would
+# fail, and a hostname that fails to resolve can make listen() throw at
+# startup. Pin it to 0.0.0.0 so the server binds all interfaces, same as the
+# official Next Docker template does for this exact reason. (Derived by
+# reading Next's emitted template and Docker's documented HOSTNAME behavior --
+# not observed, since this image has never been run.)
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0 \
+    DATABASE_PATH=/app/data/yana.db
 
-# Install runtime dependencies and tini.
-# libxml2/libxslt are intentionally absent: they existed only for lxml, which
-# is no longer a dependency (every BeautifulSoup call uses stdlib html.parser).
-RUN apk add --no-cache \
-    tini \
-    bash \
-    libjpeg-turbo \
-    curl \
-    && mkdir -p /app/data /app/media /app/staticfiles
+RUN apk add --no-cache tini vips && \
+    addgroup -g 1001 -S nodejs && \
+    adduser -u 1001 -S nextjs -G nodejs
 
-# Copy virtual environment from builder
-COPY --from=builder /opt/venv /opt/venv
+# `standalone` emits a self-contained server plus a minimal node_modules.
+COPY --from=builder --chown=nextjs:nodejs /build/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /build/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /build/public ./public
 
-# Copy application code
-COPY . .
+# Next's file tracing only bundles a module into .next/standalone/node_modules
+# if some traced page/route actually imports it. No route imports the DB
+# client yet (Task 3 built the client and its tests, but nothing under src/app
+# references it -- that lands with the API in a later phase), so the pruned
+# tree above does NOT contain better-sqlite3 or drizzle-orm. docker-entrypoint.sh
+# requires() both directly to run migrations, independent of the traced app.
+# Copy them explicitly from the builder's full (untraced) node_modules so the
+# entrypoint resolves them regardless of what the app itself references.
+# Verified: better-sqlite3's runtime require() graph (lib/*.js) is
+# self-contained -- it only reaches into its own package (lib/, prebuilds/),
+# never into a sibling node_modules package -- and drizzle-orm ships no
+# runtime "dependencies" of its own (only optional driver peerDependencies),
+# so copying just these two package directories is sufficient; no transitive
+# closure is needed.
+COPY --from=builder --chown=nextjs:nodejs \
+    /build/node_modules/better-sqlite3 ./node_modules/better-sqlite3
+COPY --from=builder --chown=nextjs:nodejs \
+    /build/node_modules/drizzle-orm ./node_modules/drizzle-orm
 
-# Copy entrypoint script
-COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# drizzle/ is committed with a placeholder meta/_journal.json
+# (version "7", dialect "sqlite", entries: []) so this source directory
+# genuinely exists both today (no real migrations yet) and once drizzle-kit
+# starts writing real ones in phase 2 -- drizzle-kit only *creates*
+# meta/_journal.json when the meta/ folder is absent, and otherwise reads and
+# appends to whatever is already there, so this placeholder is the same shape
+# drizzle-kit itself would generate and will not conflict with it. Without
+# this file, drizzle-orm's migrator throws "Can't find meta/_journal.json"
+# instead of treating an empty folder as "no migrations" -- .dockerignore
+# must not exclude drizzle/meta (see .dockerignore) or this file never
+# reaches the build context in the first place.
+COPY --from=builder --chown=nextjs:nodejs /build/drizzle ./drizzle
+COPY --chown=nextjs:nodejs docker-entrypoint.sh /usr/local/bin/
 
-# Collect static files during build (reduces startup time)
-RUN python manage.py collectstatic --noinput --clear || true
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh && \
+    mkdir -p /app/data /app/media && chown -R nextjs:nodejs /app/data /app/media
 
-EXPOSE 8000
+USER nextjs
+EXPOSE 3000
+# A Docker-managed volume (named or anonymous) inherits ownership from what's
+# already at this path in the image -- nextjs:nodejs (1001:1001), chowned
+# above -- so it's writable out of the box. A bind mount does NOT get chowned
+# by Docker; a freshly created host directory is commonly root:root, and
+# SQLite needs write permission on the *directory* (for -wal/-shm siblings),
+# not just the db file. If bind-mounting (as this image's own dev-run example
+# does), run `chown -R 1001:1001 ./data` on the host before first start, or
+# use a named volume instead. This is a new requirement versus the Django
+# image, which ran as root with no USER directive.
+VOLUME ["/app/data", "/app/media"]
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD curl -f http://localhost:8000/health/ || exit 1
-
-# Use tini as init system for proper signal handling
-ENTRYPOINT ["/sbin/tini", "--", "docker-entrypoint.sh"]
-
-# Default command (supervisord manages gunicorn and qcluster)
-CMD ["supervisord", "-c", "/app/supervisord.conf"]
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
+CMD ["node", "server.js"]

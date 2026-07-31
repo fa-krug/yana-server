@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "yana-django",
-      "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "python", "manage.py", "runserver"],
-      "port": 8000
+      "name": "yana",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000
     }
   ]
 }

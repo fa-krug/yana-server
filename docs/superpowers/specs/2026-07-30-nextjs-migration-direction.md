@@ -5,6 +5,14 @@
 **Scope:** Why we are moving to Next.js, the target architecture, the schema, the aggregator parity
 contract, and the phase route. Individual phases are planned in `docs/superpowers/plans/nextjs-*.md`.
 
+**Progress (2026-07-31):** Phase 0 (goldens) and phase 1 (scaffold) are done, and
+**phase 14's folder swap has been executed early** — the Next.js app is the
+repository root and the Django tree now sits in `old/`. Phases 2–13 and 15 are
+open. Two decisions below were changed by that early swap: Python is **not**
+deleted (`old/` is kept as read-only reference until nothing needs to read it),
+and CI no longer publishes or deploys. See
+`docs/superpowers/plans/nextjs-14-folder-swap.md`.
+
 ## Background
 
 Yana is a self-hosted RSS aggregator. Its current form is a Django 6.0 server whose verification
@@ -54,7 +62,9 @@ These were settled in brainstorming and are not reopened by individual phase pla
 | Jobs | SQLite `jobs` table + in-process worker | Durable, retryable, one process |
 | Planning | Direction record + per-phase plans, detail front-loaded | 18 plans, later ones structural |
 
-The new project is scaffolded in **`yana-next/`** and moves to the repository root in phase 14.
+The new project was scaffolded in `yana-next/` and **now is the repository root** — phase 14's swap
+ran early. Python lives in `old/`, read-only. Plans written before the swap use `yana-next/`-prefixed
+paths; read those as repository-root paths.
 
 ## Stack
 
@@ -219,10 +229,13 @@ These need conventional unit tests, because static fixtures cannot express them:
 
 ### Sequencing consequence
 
-The generator runs Python, and phase 14 deletes Python. So golden generation cannot live in phase 11
+The generator runs Python, and phase 14 retires Python. So golden generation cannot live in phase 11
 where it is consumed — it is **phase 0**, run before any TypeScript aggregator code exists, its
 output committed as a durable artifact. Every later phase is then free to remove Python without
 losing the oracle.
+
+This held up under the early swap: Python still exists in `old/`, but it no longer runs as configured,
+so the committed corpus — not the Python tree — is the oracle in practice. Treat it as frozen.
 
 ## Route
 
@@ -264,7 +277,7 @@ ways.
 | 11c | `nextjs-11c-aggregators.md` | 11b |
 | 12 | `nextjs-12-scheduling-and-jobs.md` | 10, 11c |
 | 13 | `nextjs-13-client-api.md` | 12 |
-| 14 | `nextjs-14-folder-swap.md` | 13 |
+| 14 | `nextjs-14-folder-swap.md` | ~~13~~ — **ran after 1**, so all later phases work at the root |
 | 15 | `nextjs-15-npm-package.md` | 14 |
 
 ### Why phase 11 splits three ways
@@ -280,13 +293,19 @@ It is 13.4k LOC and the only phase with a pass/fail oracle rather than a design 
   testable against the goldens.
 - **11c — the 16 aggregators**, plus a per-aggregator npm script replacing `test_aggregator`.
 
-### A note on phase 14's `old/`
+### A note on phase 14's `old/` — reversed
 
-This repository has run this exact manoeuvre before: `c19d137` moved the previous stack into `old/`
+~~This repository has run this exact manoeuvre before: `c19d137` moved the previous stack into `old/`
 and `8fde9be` deleted it 428 files later. Treat `old/` as a short-lived staging area for the swap, not
 an archive — **git history is the archive**. Phase 14 should therefore delete `old/` in the same phase
-that creates it, once the root-level Next.js tree is green, rather than leaving a dead directory to be
-cleaned up by a later commit.
+that creates it.~~
+
+**Superseded 2026-07-31.** The swap ran early, with phases 2–13 still ahead, and every one of them
+reads Python to port it. Reading `old/core/aggregators/heise/aggregator.py` in the working tree beats
+resurrecting it from a tag on every question, so `old/` is **kept** — read-only, built by nothing,
+edited by nobody. The argument above was not wrong, only early: delete `old/` once phase 13 lands and
+nothing needs to read Python. `CLAUDE.md` carries the rules; `nextjs-14-folder-swap.md` records the
+delta.
 
 ## Named seams
 
