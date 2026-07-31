@@ -6,6 +6,7 @@ import { getLocale } from "next-intl/server";
 
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { getSettings } from "@/lib/settings/queries";
 
 import "./globals.css";
 
@@ -39,6 +40,10 @@ export default async function RootLayout({
   // because Next 16 drops it once Cache Components is enabled.
   await connection();
   const locale = await getLocale();
+  // getSettings() is cache()d (see src/lib/settings/queries.ts), so this
+  // shares the request's single SELECT with getLocale() above rather than
+  // issuing a second one -- adding the theme bridge below costs no extra query.
+  const { theme } = await getSettings();
   return (
     <html
       lang={locale}
@@ -48,7 +53,7 @@ export default async function RootLayout({
       {/* suppressHydrationWarning is required: next-themes sets the class on
           <html> before React hydrates, to avoid a flash of the wrong theme. */}
       <body className="min-h-full flex flex-col">
-        <ThemeProvider>
+        <ThemeProvider defaultTheme={theme}>
           <NextIntlClientProvider>{children}</NextIntlClientProvider>
           <Toaster />
         </ThemeProvider>
