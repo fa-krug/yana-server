@@ -42,6 +42,41 @@ export function getDb(): BetterSQLite3Database<typeof schema> {
   return cached;
 }
 
+// Depth of nested writeTransaction() calls currently in progress on the
+// singleton connection. 0 means no transaction is open. Only the outermost
+// call (the one that observes depth 0 on entry) issues BEGIN IMMEDIATE /
+// COMMIT / ROLLBACK; see writeTransaction() below.
+let transactionDepth = 0;
+
+/**
+ * Roll back after `originalError` (raised by `work()` or by a failed COMMIT),
+ * then (re)throw. The original error always wins: if the ROLLBACK itself also
+ * fails, that failure is attached as `originalError.cause` rather than
+ * replacing it, so a caller's `catch` still sees the real failure (its type,
+ * message, stack) and a rollback that failed is not silently discarded --
+ * it's discoverable via `.cause` for anyone who logs or inspects it.
+ *
+ * `originalError` is typed `unknown` because `work()` and `connection.exec`
+ * can throw anything, not just `Error` -- not a place where `any` applies.
+ */
+function rollbackAfter(connection: Database.Database, originalError: unknown): never {
+  try {
+    connection.exec("ROLLBACK");
+  } catch (rollbackError) {
+    if (originalError instanceof Error) {
+      originalError.cause = rollbackError;
+    } else {
+      // A non-Error was thrown (e.g. `throw "boom"`), so there's no object to
+      // attach `.cause` to without changing its identity. Wrapping is the
+      // only way left to avoid losing either failure.
+      throw new Error("writeTransaction: ROLLBACK failed after a non-Error was thrown", {
+        cause: { originalError, rollbackError },
+      });
+    }
+  }
+  throw originalError;
+}
+
 /**
  * Run `work` inside a BEGIN IMMEDIATE transaction.
  *
@@ -49,6 +84,18 @@ export function getDb(): BetterSQLite3Database<typeof schema> {
  * first write. Two concurrent upgraders deadlock, and busy_timeout cannot help
  * because neither can proceed. IMMEDIATE takes the write lock up front, so one
  * waits instead. Every write path uses this.
+ *
+ * Nesting joins the outer transaction rather than erroring or starting a
+ * second one (SQLite rejects a nested BEGIN outright). The outermost call
+ * owns BEGIN IMMEDIATE / COMMIT / ROLLBACK; a nested call just runs `work`
+ * against the same connection and returns. This deliberately does NOT use
+ * SAVEPOINTs, so a nested call gets no independent rollback: if inner work
+ * throws and an outer caller catches that and continues anyway, nothing is
+ * actually rolled back until the outermost frame commits or rolls back. That
+ * is the same semantic Django's `atomic()` gives without savepoints, and it
+ * is what phases 2-13 need. A future phase that needs an inner call to roll
+ * back independently of its caller needs SAVEPOINT support, which this
+ * function does not provide.
  *
  * `$client` is drizzle-orm's own escape hatch back to the raw better-sqlite3
  * handle (see `construct()` in drizzle-orm/better-sqlite3/driver.js, which sets
@@ -60,14 +107,39 @@ export function getDb(): BetterSQLite3Database<typeof schema> {
  */
 export function writeTransaction<T>(work: (tx: BetterSQLite3Database<typeof schema>) => T): T {
   const db = getDb();
+
+  if (transactionDepth > 0) {
+    return work(db);
+  }
+
   const connection = (db as unknown as { $client: Database.Database }).$client;
-  connection.exec("BEGIN IMMEDIATE");
+  transactionDepth++;
   try {
-    const result = work(db);
-    connection.exec("COMMIT");
+    connection.exec("BEGIN IMMEDIATE");
+    let result: T;
+    try {
+      result = work(db);
+    } catch (workError) {
+      rollbackAfter(connection, workError);
+    }
+
+    try {
+      connection.exec("COMMIT");
+    } catch (commitError) {
+      // COMMIT failed, so the transaction may still be open (SQLite did not
+      // consider it committed). Roll back to leave the connection in a known,
+      // clean state -- otherwise the next writeTransaction() call would issue
+      // BEGIN IMMEDIATE while, as far as SQLite is concerned, still logically
+      // inside this one -- then propagate the commit failure itself.
+      rollbackAfter(connection, commitError);
+    }
     return result;
-  } catch (error) {
-    connection.exec("ROLLBACK");
-    throw error;
+  } finally {
+    // Decremented unconditionally via `finally`, on every path -- success,
+    // work() failure, and commit failure alike -- so a thrown error here can
+    // never leave the depth counter elevated. A stuck counter would make
+    // every subsequent writeTransaction() call silently take the "nested"
+    // branch above and skip BEGIN IMMEDIATE forever.
+    transactionDepth--;
   }
 }
