@@ -40,8 +40,20 @@ export function applyPragmas(connection: Database.Database): void {
   // effect. Do not reorder the PRAGMAs to make it "work"; matching Django's
   // ordering exactly is the point.
   connection.pragma("page_size = 4096");
-  // better-sqlite3 leaves this OFF by default. Django turned it on, and the
-  // schema's cascade behavior depends on it.
+  // Explicit on purpose, and NOT because the driver leaves it off:
+  // better-sqlite3 13.0.2 already defaults this ON. Measured on this exact
+  // pin -- a fresh connection, file or `:memory:`, reads `PRAGMA foreign_keys`
+  // as 1 before any pragma is applied -- so this line is not what switches
+  // enforcement on today.
+  //
+  // It stays because the schema's entire cascade graph depends on enforcement,
+  // and a driver default is the wrong thing to depend on for that: it is
+  // unversioned behavior that a future pin could change without any test of
+  // ours failing. Setting it explicitly makes the dependency ours.
+  //
+  // Do not delete this as redundant, and do not restore the earlier claim that
+  // better-sqlite3 leaves foreign keys OFF -- it does not, and the test for
+  // this pragma turns it OFF first precisely so it proves this call sets it.
   connection.pragma("foreign_keys = ON");
   // 30s. Necessary but NOT sufficient on its own -- see the transaction note.
   connection.pragma("busy_timeout = 30000");

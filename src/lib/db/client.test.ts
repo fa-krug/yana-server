@@ -15,6 +15,16 @@ function read(connection: Database.Database, pragma: string): unknown {
 describe("applyPragmas", () => {
   it("applies every setting the Django backend applied", () => {
     const connection = new Database(":memory:");
+
+    // foreign_keys is the one pragma here whose target value equals the driver
+    // default (better-sqlite3 13.0.2 ships it ON), so asserting it on a fresh
+    // connection would hold with applyPragmas() deleted. Turning it off first
+    // is what makes the assertion below about applyPragmas(). The other three
+    // need no such setup -- measured on this pin, their defaults are
+    // synchronous 2, cache_size -16000 and temp_store 0, all different from the
+    // values asserted, so each would fail if applyPragmas() stopped setting it.
+    connection.pragma("foreign_keys = OFF");
+
     applyPragmas(connection);
 
     // An in-memory database cannot use WAL, so journal_mode is asserted
@@ -58,9 +68,22 @@ describe("applyPragmas", () => {
     });
   });
 
-  it("enforces foreign keys, which better-sqlite3 leaves off by default", () => {
+  it("turns foreign key enforcement on even when it starts off", () => {
     const connection = new Database(":memory:");
+
+    // The `= OFF` is what gives this test teeth. better-sqlite3 13.0.2 defaults
+    // foreign_keys to ON (measured on this pin), so the earlier version of this
+    // test -- which applied the pragmas to a fresh connection and asserted that
+    // enforcement worked -- passed just as happily with applyPragmas() deleted.
+    // Starting from OFF means the assertions below can only pass because
+    // applyPragmas() set it, which is the thing worth knowing.
+    connection.pragma("foreign_keys = OFF");
+    expect(read(connection, "foreign_keys")).toBe(0);
+
     applyPragmas(connection);
+
+    expect(read(connection, "foreign_keys")).toBe(1);
+
     connection.exec("CREATE TABLE parent (id INTEGER PRIMARY KEY)");
     connection.exec(
       "CREATE TABLE child (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parent(id))",
