@@ -27,14 +27,15 @@ services:
       # inherit the image's ownership).
       - ./data:/app/data
       - ./media:/app/media
-    # No healthcheck yet: the app has no /health route until the client API
-    # phase adds one (docs/superpowers/plans/nextjs-13-client-api.md).
-    # healthcheck:
-    #   test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 3
-    #   start_period: 40s
+    # /health, without a trailing slash: Django served /health/ and Next serves
+    # /health, 308-redirecting the slashed form. wget is available in the
+    # runtime image via busybox (node:25-alpine), so no extra package is needed.
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     networks:
       - yana-network
 

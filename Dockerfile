@@ -61,14 +61,29 @@ COPY --from=builder --chown=nextjs:nodejs /build/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /build/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /build/public ./public
 
-# Next's file tracing only bundles a module into .next/standalone/node_modules
-# if some traced page/route actually imports it. No route imports the DB
-# client yet (Task 3 built the client and its tests, but nothing under src/app
-# references it -- that lands with the API in a later phase), so the pruned
-# tree above does NOT contain better-sqlite3 or drizzle-orm. docker-entrypoint.sh
-# requires() both directly to run migrations, independent of the traced app.
-# Copy them explicitly from the builder's full (untraced) node_modules so the
-# entrypoint resolves them regardless of what the app itself references.
+# These two COPYs exist for docker-entrypoint.sh, not for the app.
+#
+# The entrypoint applies migrations with a bare `node -e` that require()s
+# better-sqlite3 and drizzle-orm/better-sqlite3{,/migrator} from /app before
+# server.js ever starts. That resolution has nothing to do with Next's module
+# graph, so it cannot borrow whatever file tracing happened to leave behind --
+# it needs both packages present as real directories under
+# /app/node_modules.
+#
+# What tracing actually produces (verified by inspecting .next/standalone/
+# node_modules after `npm run build` on 16.2.12, now that src/app/health/
+# route.ts and the root layout both import getDb()):
+#
+#   better-sqlite3  PRESENT -- it has a native .node binding, so Next keeps it
+#                   external and copies the package (lib/ + all 8 prebuilds).
+#   drizzle-orm     ABSENT  -- pure JS, so webpack inlines the parts the app
+#                   uses into the server chunks and no package directory is
+#                   emitted at all.
+#
+# So the drizzle-orm COPY is load-bearing today, and the better-sqlite3 one
+# keeps the entrypoint independent of a tracing outcome that could change with
+# any Next upgrade. Both stay.
+#
 # Verified: better-sqlite3's runtime require() graph (lib/*.js) is
 # self-contained -- it only reaches into its own package (lib/, prebuilds/),
 # never into a sibling node_modules package -- and drizzle-orm ships no

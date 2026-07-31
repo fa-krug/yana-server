@@ -24,14 +24,17 @@ services:
       # staticfiles volume -- Next serves its own assets from the image.
       - yana-data:/app/data
       - yana-media:/app/media
-    # Enable once the client API phase adds /health
-    # (docs/superpowers/plans/nextjs-13-client-api.md).
-    # healthcheck:
-    #   test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 3
-    #   start_period: 60s
+    # /health, without a trailing slash: Django served /health/ and Next serves
+    # /health, 308-redirecting the slashed form. wget comes from busybox in
+    # node:25-alpine. The route runs a real SELECT against SQLite, so an
+    # unhealthy container here means the database is unreachable, not just that
+    # Node is down.
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     deploy:
       resources:
         limits:
