@@ -424,9 +424,19 @@ because phase 3's workspace is deleted, not because they are open questions for 
 Deliberately not fixed in phase 3 — small enough to defer, but each should be a known gap rather than
 a later surprise:
 
-- `<SelectValue />` renders raw enum values (`light`, `de`) instead of translated labels on
-  `/settings`, because `src/components/ui/select.tsx` passes Base UI's `Select.Value` neither
-  `children` nor `items`. Cosmetic, affects both selects.
+- **`<Select>` still renders raw enum values unless the call site passes `items`.** The two selects on
+  `/settings` were fixed by passing `items` (which feeds trigger and popup from one list, so they
+  cannot drift), but `src/components/ui/select.tsx` leaves the trap reachable: a new `<Select>` with
+  no `items` silently shows `light`/`de` instead of a label. Base UI cannot resolve labels itself —
+  `SelectValue`'s `children` callback is typed `(value: any)`, which would break the compiler-checked
+  catalog keys, and `SelectRootContext` is not in the package's `exports` map, so the primitive has no
+  legitimate way to self-check. Guarded today only by a doc comment there and one disciplined call
+  site. **Phase 5 is the first phase to add new selects: close this then**, with a stricter app-level
+  props type requiring `items`, or an ESLint rule flagging a `<Select>` without it. A comment is not a
+  guard once there are nine phases of call sites.
+- `src/test/next-navigation.ts`'s `pathname` module state defaults to `"/"`, and nothing forces a test
+  to call `setPathname()` before rendering — a future test that forgets would quietly assert against
+  the wrong route. Make the default `undefined` and throw.
 - `breadcrumbsFor` falls back to the raw URL segment, so a planned route like `/feeds/new` will render
   an untranslated `new`.
 - `src/app/(app)/loading.tsx` uses a 4-column `TableSkeleton` for every route in the group, including
@@ -439,6 +449,12 @@ a later surprise:
 - Changing the language also rewrites the theme column to the local `localStorage` value.
 - `global-error.tsx` is English-only (no provider, and the locale lives in SQLite, not a cookie), and
   carries no font variables or `<title>`.
-- A jsdom + testing-library harness would have caught three defects in this phase alone — the nested
-  `<main>` (missed by five reviews), the theme display/applied divergence, and the `<SelectValue />`
-  bug. It is the highest-value deferred item.
+- Async server components (`settings/page.tsx`, `Sections`, `LibrarySummary`) cannot be rendered by
+  testing-library and stay untested. Production code was deliberately **not** reshaped to make them
+  testable; the data they read is covered by the real-database tests instead.
+
+The jsdom + testing-library harness that closes the last of these was **built at the end of phase 3**
+rather than deferred, because it would have caught three of the phase's own defects — the nested
+`<main>` that five reviews missed, the theme display/applied divergence, and the raw-value selects.
+Every structural assertion it carries was verified by reintroducing the original defect and watching
+the test fail. Extend it rather than reinventing it: see `CLAUDE.md`'s Testing convention.
