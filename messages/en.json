@@ -13,6 +13,19 @@
     "ai": "AI",
     "account": "Account"
   },
+  "auth": {
+    "signIn": "Sign in",
+    "signInHint": "Use your passkey, or sign in with your email address and password.",
+    "passkeySignIn": "Sign in with a passkey",
+    "usePassword": "Use a password instead",
+    "email": "Email",
+    "password": "Password",
+    "signingIn": "Signing in",
+    "signInFailed": "Could not sign in. Please try again.",
+    "invalidCredentials": "Wrong email address or password.",
+    "passkeyUnavailable": "No passkey was used. Sign in with your password instead.",
+    "passkeyUnsupported": "This browser does not support passkeys. Sign in with your password instead."
+  },
   "settings": {
     "title": "Settings",
     "general": { "title": "General", "theme": "Theme", "language": "Language" },

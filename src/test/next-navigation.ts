@@ -28,3 +28,42 @@ export function setPathname(next: string) {
 export function usePathname() {
   return pathname;
 }
+
+/**
+ * Every navigation the component under test asked for, in order.
+ *
+ * Recorded rather than performed: jsdom has no router to perform them with, and
+ * *which* navigation was requested is the assertion -- "signing in lands the
+ * user on `next`" is the whole point of the `?next=` plumbing, and the only way
+ * to see it from a unit test is to watch the call.
+ *
+ * `push` and `replace` are kept distinct because they are not interchangeable
+ * here: /login must be *replaced*, or the back button returns a signed-in user
+ * to a sign-in form.
+ */
+export type NavigationCall = { method: "push" | "replace" | "refresh"; href?: string };
+
+const navigations: NavigationCall[] = [];
+
+/** What the component asked the router to do, oldest first. */
+export function navigationCalls(): readonly NavigationCall[] {
+  return navigations;
+}
+
+/** Forget them. Call between tests in one file -- module state is per file. */
+export function resetNavigation() {
+  navigations.length = 0;
+}
+
+const router = {
+  push: (href: string) => void navigations.push({ method: "push", href }),
+  replace: (href: string) => void navigations.push({ method: "replace", href }),
+  refresh: () => void navigations.push({ method: "refresh" }),
+  back: () => {},
+  forward: () => {},
+  prefetch: () => {},
+};
+
+export function useRouter() {
+  return router;
+}

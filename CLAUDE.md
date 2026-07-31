@@ -42,6 +42,7 @@ file.
 │   │   ├── global-error.tsx       # last-resort boundary — no providers, English only
 │   │   ├── health/route.ts        # GET /health — SELECT 1 against the database
 │   │   ├── api/auth/[...all]/     # route.ts — every Better Auth endpoint
+│   │   ├── login/page.tsx         # /login — outside (app): no sidebar, no requireUser()
 │   │   └── (app)/                 # sidebar + breadcrumb chrome for every real page
 │   │       ├── layout.tsx         # sidebar, content frame; awaits requireUser()
 │   │       ├── loading.tsx        # route-level Suspense fallback
@@ -50,6 +51,7 @@ file.
 │   │       └── settings/page.tsx
 │   ├── components/
 │   │   ├── ui/                    # shadcn components (Base UI + Tailwind v4)
+│   │   ├── auth/                   # login-form.tsx — passkey first, password revealed
 │   │   ├── settings/               # general-, library-, about-section.tsx
 │   │   ├── app-sidebar.tsx         # navigation, from src/lib/nav.ts
 │   │   ├── route-breadcrumbs.tsx   # segment-derived breadcrumbs
@@ -69,6 +71,8 @@ file.
 │   │   │   ├── session.ts         # currentUser/requireUser/requireAdmin/currentUserId
 │   │   │   ├── bootstrap.ts       # ensureAdminExists() — the default admin, when none exists
 │   │   │   ├── client.ts          # browser client (signIn/signOut/useSession, passkey)
+│   │   │   ├── next-path.ts       # LOGIN_PATH + safeNextPath() — the open-redirect guard
+│   │   │   ├── sign-in-errors.ts  # Better Auth error codes → `auth` catalog keys
 │   │   │   └── test-support.ts    # TEST-ONLY: sign in, and turn Set-Cookie into a Cookie header
 │   │   ├── db/
 │   │   │   ├── client.ts          # getDb(), writeTransaction(), PRAGMAs
@@ -84,7 +88,7 @@ file.
 │   │   └── utils.ts               # cn()
 │   └── test/                      # TEST-ONLY: shared setup for the jsdom project
 │       ├── render.tsx             # renderWithProviders() — real catalogs, optional theme
-│       ├── next-navigation.ts     # usePathname stub (a router stub, not a data mock)
+│       ├── next-navigation.ts     # usePathname + useRouter stubs (a router stub, not a data mock)
 │       └── setup.ts               # cleanup + matchMedia/localStorage repair
 ├── messages/                      # en.json, de.json — must define identical keys (enforced)
 ├── drizzle/                       # generated migrations + meta/_journal.json
@@ -304,8 +308,8 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   4's task 2 it left an empty, unmigrated `data/yana.db` behind on every
   `npm run build`. So **every route that can reach the database calls it
   itself, as its first statement**, before any translation or data call:
-  `src/app/layout.tsx`, `src/app/health/route.ts`, `src/app/(app)/page.tsx` and
-  `src/app/(app)/settings/page.tsx` today. A new page that reads anything needs
+  `src/app/layout.tsx`, `src/app/health/route.ts`, `src/app/(app)/page.tsx`,
+  `src/app/(app)/settings/page.tsx` and `src/app/login/page.tsx` today. A new page that reads anything needs
   its own line — unless it already awaits a Dynamic API, which opts the route
   out just as well: `src/app/(app)/layout.tsx` needs no `connection()` because
   `requireUser()` awaits `headers()` before anything touches SQLite.
@@ -425,7 +429,7 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   change together: half a rename is a file Next silently never calls, which
   would leave every route unguarded with nothing failing. The doc is
   `node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md`.
-  Two rules:
+  Three rules:
   - **It checks cookie _presence_ only, and is not authentication.** It cannot
     reach the database — `@/lib/db/*` and `@/lib/auth/server` are banned there,
     pinned by `src/proxy.test.ts`, because a proxy is documented as code that may
@@ -441,6 +445,42 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     and the `__Secure-` prefix that appears the moment this is served over
     HTTPS, so the substring version is a check that works locally and sends
     every authenticated production request to `/login`.
+  - **The public surface is compared at a path boundary, and static assets are
+    excluded by extension.** `PUBLIC_PREFIXES` goes through `isPublic()`
+    (`pathname === p || pathname.startsWith(p + "/")`): a bare `startsWith`
+    opens routes rather than closing them — it exempted `/loginx` and, worse,
+    `/api/authorize` under the `/api/auth` prefix. The matcher's
+    `.*\.(?:svg|png|…|woff2)$` exclusion is what covers `public/`, whose files
+    are served from the site root where no prefix can tell them from a route:
+    without it `/globe.svg` answered `307 → /login`, on the one page whose
+    visitor has no session to be redirected with. Every extension added there
+    is a path shape that can never be guarded again, so `.json` and `.js` stay
+    off the list.
+- **`/login` is the whole unauthenticated UI, and three things about it are
+  load-bearing.** It lives at `src/app/login/page.tsx`, deliberately outside
+  `(app)`: that group's layout awaits `requireUser()`, so a login form inside it
+  would redirect to itself. (1) **`?next=` is validated, never followed as
+  given.** `safeNextPath()` in `src/lib/auth/next-path.ts` accepts only a path
+  on this origin and falls back to `/` — `//evil.tld`, `/\evil.tld` and
+  `/<TAB>/evil.tld` all resolve off-site, and `?next=/login` is an infinite
+  redirect. The page reads `searchParams` on the **server** and passes the
+  checked value to the client component, which is both Next's own advice for a
+  Server Component page and the reason no `useSearchParams()` Suspense boundary
+  is needed here. (2) **Failures become catalog keys, never Better Auth
+  messages** — `passwordErrorKey()`/`passkeyErrorKey()` in
+  `src/lib/auth/sign-in-errors.ts` map the library's `error.code` to a
+  `NamespaceKey<"auth">`; `error.message` is an English constant baked into the
+  library and must never reach a toast. Only the acted-on cases are
+  distinguished (wrong credentials; a passkey that was cancelled or does not
+  exist), everything else is `signInFailed`. (3) **Passkey is preferred, not
+  required**: `window.PublicKeyCredential` is feature-detected in the click
+  handler, and both the unsupported and the cancelled path reveal the password
+  field rather than leaving a button that does nothing. **WebAuthn itself is
+  untestable here** — no unit test can drive an authenticator, so
+  `login-form.test.tsx` covers the password path and the _result handling_ of a
+  passkey attempt, and the ceremony is only ever exercised by hand.
+  One known gap: signed out there is no user, so `src/i18n/request.ts` falls
+  back to `en` and the login page is always English however good `de.json` is.
 - **The default admin: `admin@admin.com` / `admin`, created only when no admin
   exists.** Three things are load-bearing. The check is keyed on **"any user
   holds an admin role"** (`ADMIN_ROLES` from `auth/roles.ts`, the same list the

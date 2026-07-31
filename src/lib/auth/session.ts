@@ -4,6 +4,7 @@ import { cache } from "react";
 
 import type { User } from "@/lib/db/schema";
 
+import { LOGIN_PATH } from "./next-path";
 import { isAdminRole } from "./roles";
 import { auth } from "./server";
 
@@ -14,8 +15,11 @@ import { auth } from "./server";
  * This one is the backstop for everything the matcher cannot cover: a server
  * action, and any request that carries a session cookie the proxy had to take
  * on trust but that turns out to be expired, revoked or forged.
+ *
+ * Imported from `./next-path` rather than declared twice: that module has to
+ * know this path anyway, because a `?next=` pointing back at the login page is
+ * an infinite redirect it must refuse.
  */
-const LOGIN_PATH = "/login";
 
 /**
  * Better Auth's user object, as this app's `users` row.

@@ -13,6 +13,19 @@
     "ai": "KI",
     "account": "Konto"
   },
+  "auth": {
+    "signIn": "Anmelden",
+    "signInHint": "Melde dich mit deinem Passkey an oder mit E-Mail-Adresse und Passwort.",
+    "passkeySignIn": "Mit Passkey anmelden",
+    "usePassword": "Stattdessen Passwort verwenden",
+    "email": "E-Mail-Adresse",
+    "password": "Passwort",
+    "signingIn": "Anmeldung läuft",
+    "signInFailed": "Anmeldung fehlgeschlagen. Bitte versuche es erneut.",
+    "invalidCredentials": "E-Mail-Adresse oder Passwort ist falsch.",
+    "passkeyUnavailable": "Es wurde kein Passkey verwendet. Melde dich stattdessen mit deinem Passwort an.",
+    "passkeyUnsupported": "Dieser Browser unterstützt keine Passkeys. Melde dich mit deinem Passwort an."
+  },
   "settings": {
     "title": "Einstellungen",
     "general": { "title": "Allgemein", "theme": "Design", "language": "Sprache" },
