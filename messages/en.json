@@ -33,5 +33,12 @@
     "saved": "Settings saved",
     "saveFailed": "Could not save settings"
   },
+  "error": {
+    "title": "Something went wrong",
+    "description": "This part of the page could not be loaded. The details were written to the server log.",
+    "retry": "Try again",
+    "fatalTitle": "Yana could not start",
+    "fatalDescription": "The application failed before it could render. Check the server log, then reload."
+  },
   "common": { "save": "Save", "cancel": "Cancel", "loading": "Loading" }
 }

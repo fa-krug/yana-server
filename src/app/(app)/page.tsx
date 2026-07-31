@@ -8,6 +8,22 @@ import { getSettings } from "@/lib/settings/queries";
  * The data region. Async, and rendered inside Suspense so the shell streams
  * first. This is the shape every list and detail view in phases 5-10 follows.
  *
+ * The pattern is <Suspense> **plus an error boundary**, not Suspense alone.
+ * The two are halves of one thing: streaming means the shell's first byte --
+ * and with it a 200 status -- is already sent before this component resolves,
+ * so a throw here can no longer become an HTTP error status. Without
+ * src/app/(app)/error.tsx above it, the response would simply be truncated and
+ * the user would be left on a half-drawn page. Copy both.
+ *
+ * Note that CardSkeleton never actually paints on *this* route: getSettings()
+ * is cache()d and the root layout already awaited it for the locale, so the
+ * call below resolves from that cache within the same render tick and Suspense
+ * has nothing to wait for. That is specific to this placeholder page reading
+ * the one row the layout already read -- phases 5-10's real queries (feeds,
+ * articles, tags) are not in that cache and will genuinely suspend, so the
+ * fallback is load-bearing there. Do not conclude from an unseen skeleton here
+ * that the pattern does not work.
+ *
  * A Server Component, so translations come from getTranslations() (next-intl's
  * server API), not the useTranslations() hook used by the client chrome in
  * app-sidebar.tsx / route-breadcrumbs.tsx. One ICU message with two

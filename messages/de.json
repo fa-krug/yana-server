@@ -33,5 +33,12 @@
     "saved": "Einstellungen gespeichert",
     "saveFailed": "Einstellungen konnten nicht gespeichert werden"
   },
+  "error": {
+    "title": "Etwas ist schiefgelaufen",
+    "description": "Dieser Teil der Seite konnte nicht geladen werden. Die Details stehen im Server-Log.",
+    "retry": "Erneut versuchen",
+    "fatalTitle": "Yana konnte nicht starten",
+    "fatalDescription": "Die Anwendung ist vor dem Rendern fehlgeschlagen. Prüfe das Server-Log und lade die Seite neu."
+  },
   "common": { "save": "Speichern", "cancel": "Abbrechen", "loading": "Wird geladen" }
 }
