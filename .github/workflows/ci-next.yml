@@ -12,14 +12,13 @@ env:
   REGISTRY: docker.io
   IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/yana
 
-defaults:
-  run:
-    working-directory: yana-next
-
 jobs:
   test:
     name: Lint & Test
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: yana-next
 
     steps:
     - name: Checkout code
