@@ -145,7 +145,6 @@ describe("proxy", () => {
 
     expect(matches("/_next/static/chunks/main.js")).toBe(false);
     expect(matches("/_next/image")).toBe(false);
-    expect(matches("/media/logo.png")).toBe(false);
     expect(matches("/settings")).toBe(true);
     expect(matches("/")).toBe(true);
   });
@@ -160,13 +159,26 @@ describe("proxy", () => {
     const matches = (url: string) => unstable_doesMiddlewareMatch({ config, url });
 
     expect(matches("/globe.svg")).toBe(false);
-    expect(matches("/apple-touch-icon.png")).toBe(false);
+    expect(matches("/apple-touch-icon.ico")).toBe(false);
     expect(matches("/fonts/inter.woff2")).toBe(false);
     expect(matches("/robots.txt")).toBe(false);
   });
 
+  it("still guards the shapes user content is served as", () => {
+    // The exemption list is the unauthenticated surface, restated as file
+    // extensions, so it stays as small as public/ requires. The raster
+    // extensions were on it and are gone: those are what avatars and article
+    // images will be served as, and exempting them removed proxy coverage from
+    // routes that had not been written yet -- coverage nobody would have
+    // noticed missing, because the route did not exist to test.
+    const matches = (url: string) => unstable_doesMiddlewareMatch({ config, url });
+
+    expect(matches("/media/avatars/abc.webp")).toBe(true);
+    expect(matches("/media/logo.png")).toBe(true);
+    expect(matches("/api/articles/1/image.jpg")).toBe(true);
+  });
+
   it("still guards routes that merely start with an exempted directory name", () => {
-    // `media` without its separator also exempted these.
     const matches = (url: string) => unstable_doesMiddlewareMatch({ config, url });
 
     expect(matches("/medialibrary")).toBe(true);

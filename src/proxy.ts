@@ -95,9 +95,8 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   /**
-   * Everything except static assets: Next's own build output, the
-   * user-uploaded `media/` tree, and the files served straight out of
-   * `public/`. Without a matcher a proxy runs on every request including
+   * Everything except Next's own build output and the files served straight out
+   * of `public/`. Without a matcher a proxy runs on every request including
    * `_next/static`, which has no user data in it -- pure added latency.
    *
    * The extension list is what covers `public/`, and it is not an
@@ -107,18 +106,29 @@ export const config = {
    * on the one page that is unauthenticated by definition, whose visitor has
    * no session to redirect *with*. Next's own docs give this exact shape of
    * exclusion (`'/((?!api|_next/static|_next/image|.*\.png$).*)'`, see
-   * `03-file-conventions/proxy.md`, "Matcher"). Routes in this app never end
-   * in a file extension, so nothing that needs guarding can match it.
+   * `03-file-conventions/proxy.md`, "Matcher").
    *
-   * The list stays limited to image, font and crawler-metadata extensions --
-   * the things that actually live in `public/`. Every entry added to it is a
-   * path shape that can never be guarded again, so `.json` and `.js` are
-   * deliberately absent: an API route could plausibly end in one.
+   * **Every extension on this list is a path shape that can never be guarded
+   * again, so it is kept to what `public/` actually holds** -- three `.svg`
+   * files today, plus room for the icons, fonts and crawler metadata a real
+   * deployment grows. The raster extensions were on it and are gone: `.png`,
+   * `.jpg` and `.webp` are what *user content* is served as, so exempting them
+   * pre-emptively removed proxy coverage from routes phases 5-13 have yet to
+   * write -- avatars first. `.json` and `.js` are absent for the same reason:
+   * an API route could plausibly end in one.
    *
-   * `media/` carries its trailing slash for the same reason `isPublic()`
-   * checks a boundary: written as `media`, it also exempted `/medialibrary`.
+   * A cheaper-looking alternative -- naming the three files
+   * (`(?!file\.svg|globe\.svg|window\.svg)`) -- is perfectly legal here; a
+   * matcher entry is a regex. It is rejected for maintenance, not
+   * impossibility: it would have to be edited every time a file is added to
+   * `public/`, and the failure mode of forgetting is an asset that redirects.
+   *
+   * `media/` used to be exempted too, and no longer is. Nothing serves it: the
+   * directory exists for article images and avatars that no route reads yet, so
+   * the exemption was coverage removed in advance of the code that needs it.
+   * Task 6's avatar route carries its own authentication requirement.
    */
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|media/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico|woff|woff2|ttf|otf|txt|xml|webmanifest)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|ico|txt|xml|webmanifest|woff|woff2|ttf|otf)$).*)",
   ],
 };
