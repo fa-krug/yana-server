@@ -5,30 +5,16 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { applyMigrationsAt } from "./test-support";
+
 // Real-database test, no driver mocks -- see CLAUDE.md's testing convention
 // and src/lib/db/client.test.ts, which this follows. Each test points
-// DATABASE_PATH at its own temp file, primes it with the generated
-// migration, then exercises ensureBootstrapUser() through the real
-// getDb()/writeTransaction() singleton. vi.resetModules() plus a dynamic
-// import gives each test a clean module-level `cached` connection and
-// transaction-depth counter, the same reason client.test.ts does it.
-
-const drizzleDir = path.resolve(import.meta.dirname, "../../../drizzle");
-
-function primeSchema(dbPath: string): void {
-  const connection = new Database(dbPath);
-  for (const file of fs
-    .readdirSync(drizzleDir)
-    .filter((name) => name.endsWith(".sql"))
-    .sort()) {
-    for (const statement of fs
-      .readFileSync(path.join(drizzleDir, file), "utf8")
-      .split("--> statement-breakpoint")) {
-      if (statement.trim()) connection.exec(statement);
-    }
-  }
-  connection.close();
-}
+// DATABASE_PATH at its own temp file, migrates it the way
+// docker-entrypoint.sh does (applyMigrationsAt -> migrate()), then exercises
+// ensureBootstrapUser() through the real getDb()/writeTransaction()
+// singleton. vi.resetModules() plus a dynamic import gives each test a clean
+// module-level `cached` connection and transaction-depth counter, the same
+// reason client.test.ts does it.
 
 describe("ensureBootstrapUser", () => {
   let dbPath: string;
@@ -48,7 +34,7 @@ describe("ensureBootstrapUser", () => {
       os.tmpdir(),
       `yana-bootstrap-${process.pid}-${Math.random().toString(36).slice(2)}.db`,
     );
-    primeSchema(dbPath);
+    applyMigrationsAt(dbPath);
     process.env.DATABASE_PATH = dbPath;
     bootstrap = await import("./bootstrap");
     client = await import("./client");
