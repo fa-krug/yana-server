@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  check,
   index,
   integer,
   primaryKey,
@@ -23,9 +24,17 @@ export const tags = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
+    /**
+     * `auto_now=True` in Django. `$onUpdate` is the port of that: it is
+     * client-side (it does not appear in the DDL), so every write must go
+     * through Drizzle for it to hold -- which the writeTransaction() convention
+     * already requires. Declared here rather than at a dozen call sites across
+     * phases 3-13, none of which would remember.
+     */
     updatedAt: integer("updated_at", { mode: "timestamp" })
       .notNull()
-      .default(sql`(unixepoch())`),
+      .default(sql`(unixepoch())`)
+      .$onUpdate(() => new Date()),
   },
   (table) => [uniqueIndex("tags_name_user_unique").on(table.name, table.userId)],
 );
@@ -69,13 +78,31 @@ export const feeds = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
+    /**
+     * `auto_now=True` in Django. `$onUpdate` is the port of that: it is
+     * client-side (it does not appear in the DDL), so every write must go
+     * through Drizzle for it to hold -- which the writeTransaction() convention
+     * already requires. Declared here rather than at a dozen call sites across
+     * phases 3-13, none of which would remember.
+     */
     updatedAt: integer("updated_at", { mode: "timestamp" })
       .notNull()
-      .default(sql`(unixepoch())`),
+      .default(sql`(unixepoch())`)
+      .$onUpdate(() => new Date()),
   },
   (table) => [
     index("feeds_user_idx").on(table.userId),
     index("feeds_aggregator_idx").on(table.aggregator),
+    /**
+     * Django's JSONField emitted `CHECK (JSON_VALID("options") OR "options" IS
+     * NULL)` on SQLite; this column is NOT NULL, so the first half suffices.
+     *
+     * Keep it. Without it a malformed write succeeds and the row becomes
+     * poison: every subsequent *read* throws inside Drizzle's
+     * `mapFromDriverValue` when it tries to `JSON.parse` the column, which is
+     * far harder to trace back than a rejected insert.
+     */
+    check("feeds_options_json", sql`json_valid("options")`),
   ],
 );
 

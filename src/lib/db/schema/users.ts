@@ -21,9 +21,17 @@ export const users = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
+    /**
+     * `auto_now=True` in Django. `$onUpdate` is the port of that: it is
+     * client-side (it does not appear in the DDL), so every write must go
+     * through Drizzle for it to hold -- which the writeTransaction() convention
+     * already requires. Declared here rather than at a dozen call sites across
+     * phases 3-13, none of which would remember.
+     */
     updatedAt: integer("updated_at", { mode: "timestamp" })
       .notNull()
-      .default(sql`(unixepoch())`),
+      .default(sql`(unixepoch())`)
+      .$onUpdate(() => new Date()),
   },
   (table) => [uniqueIndex("users_email_unique").on(table.email)],
 );
@@ -92,9 +100,17 @@ export const userSettings = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
+    /**
+     * `auto_now=True` in Django. `$onUpdate` is the port of that: it is
+     * client-side (it does not appear in the DDL), so every write must go
+     * through Drizzle for it to hold -- which the writeTransaction() convention
+     * already requires. Declared here rather than at a dozen call sites across
+     * phases 3-13, none of which would remember.
+     */
     updatedAt: integer("updated_at", { mode: "timestamp" })
       .notNull()
-      .default(sql`(unixepoch())`),
+      .default(sql`(unixepoch())`)
+      .$onUpdate(() => new Date()),
   },
   (table) => [
     uniqueIndex("user_settings_user_unique").on(table.userId),

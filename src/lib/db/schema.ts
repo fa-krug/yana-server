@@ -1,8 +1,7 @@
 import { relations } from "drizzle-orm";
 
-import { articleBlocks, articleImages, articleInlineRuns, articles } from "./schema/articles";
+import { articleBlocks, articleInlineRuns, articles } from "./schema/articles";
 import { feedTags, feeds, tags } from "./schema/feeds";
-import { jobs } from "./schema/jobs";
 import { redditSubreddits, youtubeChannels } from "./schema/references";
 import { userSettings, users } from "./schema/users";
 
@@ -19,10 +18,30 @@ export const usersRelations = relations(users, ({ many, one }) => ({
   settings: one(userSettings),
 }));
 
+/**
+ * The FK-holding side of the one-to-one. `usersRelations.settings` is the
+ * non-FK side, which carries no `fields`/`references`, so without this
+ * declaration Drizzle cannot infer the join and every relational query
+ * touching it throws at runtime -- see relations.test.ts.
+ */
+export const userSettingsRelations = relations(userSettings, ({ one }) => ({
+  owner: one(users, { fields: [userSettings.userId], references: [users.id] }),
+}));
+
 export const feedsRelations = relations(feeds, ({ many, one }) => ({
   owner: one(users, { fields: [feeds.userId], references: [users.id] }),
   articles: many(articles),
   feedTags: many(feedTags),
+  // The autocomplete associations. Phase 9's feed create/edit form joins these
+  // for display, so they need to be traversable, not just constrained.
+  redditSubreddit: one(redditSubreddits, {
+    fields: [feeds.redditSubredditId],
+    references: [redditSubreddits.id],
+  }),
+  youtubeChannel: one(youtubeChannels, {
+    fields: [feeds.youtubeChannelId],
+    references: [youtubeChannels.id],
+  }),
 }));
 
 export const tagsRelations = relations(tags, ({ many, one }) => ({
@@ -57,6 +76,3 @@ export const articleInlineRunsRelations = relations(articleInlineRuns, ({ one })
     references: [articleBlocks.id],
   }),
 }));
-
-// Referenced for completeness so the barrel's export surface is explicit.
-export { articleImages, jobs, redditSubreddits, youtubeChannels };

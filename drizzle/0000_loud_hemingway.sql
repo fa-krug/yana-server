@@ -1,52 +1,3 @@
-CREATE TABLE `article_images` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`content_hash` text NOT NULL,
-	`file` text NOT NULL,
-	`content_type` text NOT NULL,
-	`width` integer,
-	`height` integer,
-	`byte_size` integer NOT NULL,
-	`created_at` integer DEFAULT (unixepoch()) NOT NULL
-);
---> statement-breakpoint
-CREATE UNIQUE INDEX `article_images_hash_unique` ON `article_images` (`content_hash`);--> statement-breakpoint
-CREATE INDEX `article_images_created_idx` ON `article_images` (`created_at`);--> statement-breakpoint
-CREATE TABLE `jobs` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`kind` text NOT NULL,
-	`payload` text DEFAULT '{}' NOT NULL,
-	`status` text DEFAULT 'pending' NOT NULL,
-	`attempts` integer DEFAULT 0 NOT NULL,
-	`max_attempts` integer DEFAULT 3 NOT NULL,
-	`run_at` integer DEFAULT (unixepoch()) NOT NULL,
-	`started_at` integer,
-	`finished_at` integer,
-	`progress` integer DEFAULT 0 NOT NULL,
-	`error` text DEFAULT '' NOT NULL,
-	`created_at` integer DEFAULT (unixepoch()) NOT NULL
-);
---> statement-breakpoint
-CREATE INDEX `jobs_claim_idx` ON `jobs` (`status`,`run_at`);--> statement-breakpoint
-CREATE INDEX `jobs_kind_idx` ON `jobs` (`kind`);--> statement-breakpoint
-CREATE TABLE `reddit_subreddits` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`display_name` text NOT NULL,
-	`title` text DEFAULT '' NOT NULL,
-	`subscribers` integer DEFAULT 0 NOT NULL,
-	`created_at` integer DEFAULT (unixepoch()) NOT NULL
-);
---> statement-breakpoint
-CREATE UNIQUE INDEX `reddit_subreddits_name_unique` ON `reddit_subreddits` (`display_name`);--> statement-breakpoint
-CREATE TABLE `youtube_channels` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`channel_id` text NOT NULL,
-	`title` text NOT NULL,
-	`handle` text DEFAULT '' NOT NULL,
-	`created_at` integer DEFAULT (unixepoch()) NOT NULL
-);
---> statement-breakpoint
-CREATE UNIQUE INDEX `youtube_channels_channel_id_unique` ON `youtube_channels` (`channel_id`);--> statement-breakpoint
-CREATE INDEX `youtube_channels_title_idx` ON `youtube_channels` (`title`);--> statement-breakpoint
 CREATE TABLE `article_blocks` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`article_id` integer NOT NULL,
@@ -63,13 +14,31 @@ CREATE TABLE `article_blocks` (
 	`embed_external_url` text DEFAULT '' NOT NULL,
 	`embed_title` text DEFAULT '' NOT NULL,
 	FOREIGN KEY (`article_id`) REFERENCES `articles`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`parent_id`) REFERENCES `article_blocks`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`parent_id`) REFERENCES `article_blocks`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "article_blocks_position_positive" CHECK("position" >= 0),
+	CONSTRAINT "article_blocks_level_positive" CHECK("level" >= 0)
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `uniq_block_position` ON `article_blocks` (`article_id`,`parent_id`,`position`);--> statement-breakpoint
 CREATE INDEX `article_blocks_tree_idx` ON `article_blocks` (`article_id`,`parent_id`,`position`);--> statement-breakpoint
 CREATE INDEX `article_blocks_image_ref_idx` ON `article_blocks` (`image_ref`);--> statement-breakpoint
 CREATE INDEX `article_blocks_embed_provider_idx` ON `article_blocks` (`embed_provider`);--> statement-breakpoint
+CREATE TABLE `article_images` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`content_hash` text NOT NULL,
+	`file` text NOT NULL,
+	`content_type` text NOT NULL,
+	`width` integer,
+	`height` integer,
+	`byte_size` integer NOT NULL,
+	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
+	CONSTRAINT "article_images_width_positive" CHECK("width" >= 0),
+	CONSTRAINT "article_images_height_positive" CHECK("height" >= 0),
+	CONSTRAINT "article_images_byte_size_positive" CHECK("byte_size" >= 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `article_images_hash_unique` ON `article_images` (`content_hash`);--> statement-breakpoint
+CREATE INDEX `article_images_created_idx` ON `article_images` (`created_at`);--> statement-breakpoint
 CREATE TABLE `article_inline_runs` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`block_id` integer NOT NULL,
@@ -80,7 +49,8 @@ CREATE TABLE `article_inline_runs` (
 	`code` integer DEFAULT false NOT NULL,
 	`strikethrough` integer DEFAULT false NOT NULL,
 	`link` text DEFAULT '' NOT NULL,
-	FOREIGN KEY (`block_id`) REFERENCES `article_blocks`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`block_id`) REFERENCES `article_blocks`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "article_inline_runs_position_positive" CHECK("position" >= 0)
 );
 --> statement-breakpoint
 CREATE INDEX `article_inline_runs_block_idx` ON `article_inline_runs` (`block_id`,`position`);--> statement-breakpoint
@@ -135,7 +105,8 @@ CREATE TABLE `feeds` (
 	`updated_at` integer DEFAULT (unixepoch()) NOT NULL,
 	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`reddit_subreddit_id`) REFERENCES `reddit_subreddits`(`id`) ON UPDATE no action ON DELETE set null,
-	FOREIGN KEY (`youtube_channel_id`) REFERENCES `youtube_channels`(`id`) ON UPDATE no action ON DELETE set null
+	FOREIGN KEY (`youtube_channel_id`) REFERENCES `youtube_channels`(`id`) ON UPDATE no action ON DELETE set null,
+	CONSTRAINT "feeds_options_json" CHECK(json_valid("options"))
 );
 --> statement-breakpoint
 CREATE INDEX `feeds_user_idx` ON `feeds` (`user_id`);--> statement-breakpoint
@@ -150,6 +121,44 @@ CREATE TABLE `tags` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `tags_name_user_unique` ON `tags` (`name`,`user_id`);--> statement-breakpoint
+CREATE TABLE `jobs` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`kind` text NOT NULL,
+	`payload` text DEFAULT '{}' NOT NULL,
+	`status` text DEFAULT 'pending' NOT NULL,
+	`attempts` integer DEFAULT 0 NOT NULL,
+	`max_attempts` integer DEFAULT 3 NOT NULL,
+	`run_at` integer DEFAULT (unixepoch()) NOT NULL,
+	`started_at` integer,
+	`finished_at` integer,
+	`progress` integer DEFAULT 0 NOT NULL,
+	`error` text DEFAULT '' NOT NULL,
+	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
+	CONSTRAINT "jobs_payload_json" CHECK(json_valid("payload"))
+);
+--> statement-breakpoint
+CREATE INDEX `jobs_claim_idx` ON `jobs` (`status`,`run_at`);--> statement-breakpoint
+CREATE INDEX `jobs_kind_idx` ON `jobs` (`kind`);--> statement-breakpoint
+CREATE TABLE `reddit_subreddits` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`display_name` text NOT NULL,
+	`title` text DEFAULT '' NOT NULL,
+	`subscribers` integer DEFAULT 0 NOT NULL,
+	`created_at` integer DEFAULT (unixepoch()) NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `reddit_subreddits_name_unique` ON `reddit_subreddits` (`display_name`);--> statement-breakpoint
+CREATE INDEX `reddit_subreddits_name_idx` ON `reddit_subreddits` (`display_name`);--> statement-breakpoint
+CREATE TABLE `youtube_channels` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`channel_id` text NOT NULL,
+	`title` text NOT NULL,
+	`handle` text DEFAULT '' NOT NULL,
+	`created_at` integer DEFAULT (unixepoch()) NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `youtube_channels_channel_id_unique` ON `youtube_channels` (`channel_id`);--> statement-breakpoint
+CREATE INDEX `youtube_channels_title_idx` ON `youtube_channels` (`title`);--> statement-breakpoint
 CREATE TABLE `user_settings` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`user_id` text NOT NULL,

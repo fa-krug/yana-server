@@ -13,9 +13,17 @@ export const redditSubreddits = sqliteTable(
       .notNull()
       .default(sql`(unixepoch())`),
   },
-  (table) => [uniqueIndex("reddit_subreddits_name_unique").on(table.displayName)],
+  (table) => [
+    uniqueIndex("reddit_subreddits_name_unique").on(table.displayName),
+    // Redundant next to the unique index above, and kept anyway: Django
+    // declared both (`unique=True` plus `Index(fields=["display_name"])`) and
+    // "every index is reproduced" is the porting rule -- the same call
+    // user_settings and article_blocks already make.
+    index("reddit_subreddits_name_idx").on(table.displayName),
+  ],
 );
 
+/** Autocomplete cache for the feeds form. */
 export const youtubeChannels = sqliteTable(
   "youtube_channels",
   {

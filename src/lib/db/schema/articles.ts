@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   type AnySQLiteColumn,
+  check,
   index,
   integer,
   sqliteTable,
@@ -47,9 +48,17 @@ export const articles = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
+    /**
+     * `auto_now=True` in Django. `$onUpdate` is the port of that: it is
+     * client-side (it does not appear in the DDL), so every write must go
+     * through Drizzle for it to hold -- which the writeTransaction() convention
+     * already requires. Declared here rather than at a dozen call sites across
+     * phases 3-13, none of which would remember.
+     */
     updatedAt: integer("updated_at", { mode: "timestamp" })
       .notNull()
-      .default(sql`(unixepoch())`),
+      .default(sql`(unixepoch())`)
+      .$onUpdate(() => new Date()),
   },
   (table) => [
     index("articles_feed_identifier_idx").on(table.feedId, table.identifier),
@@ -107,6 +116,13 @@ export const articleBlocks = sqliteTable(
     index("article_blocks_tree_idx").on(table.articleId, table.parentId, table.position),
     index("article_blocks_image_ref_idx").on(table.imageRef),
     index("article_blocks_embed_provider_idx").on(table.embedProvider),
+    // Django's PositiveIntegerField / PositiveSmallIntegerField emitted these
+    // as real CHECK constraints on SQLite; they are part of the schema, not an
+    // ORM nicety. `level` is nullable, and `NULL >= 0` evaluates to NULL,
+    // which SQLite treats as satisfied -- the same behavior Django had, so no
+    // `OR ... IS NULL` half is needed.
+    check("article_blocks_position_positive", sql`"position" >= 0`),
+    check("article_blocks_level_positive", sql`"level" >= 0`),
   ],
 );
 
@@ -132,7 +148,10 @@ export const articleInlineRuns = sqliteTable(
     strikethrough: integer("strikethrough", { mode: "boolean" }).notNull().default(false),
     link: text("link").notNull().default(""),
   },
-  (table) => [index("article_inline_runs_block_idx").on(table.blockId, table.position)],
+  (table) => [
+    index("article_inline_runs_block_idx").on(table.blockId, table.position),
+    check("article_inline_runs_position_positive", sql`"position" >= 0`),
+  ],
 );
 
 /**
@@ -159,6 +178,11 @@ export const articleImages = sqliteTable(
   (table) => [
     uniqueIndex("article_images_hash_unique").on(table.contentHash),
     index("article_images_created_idx").on(table.createdAt),
+    // Django's PositiveIntegerField, again. `width` and `height` are nullable;
+    // see the note on article_blocks for why that needs no extra clause.
+    check("article_images_width_positive", sql`"width" >= 0`),
+    check("article_images_height_positive", sql`"height" >= 0`),
+    check("article_images_byte_size_positive", sql`"byte_size" >= 0`),
   ],
 );
 

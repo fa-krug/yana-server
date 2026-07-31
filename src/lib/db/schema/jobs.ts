@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { check, index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 /**
  * Durable work queue, replacing django-q2's ORM broker. Same idea: the database
@@ -38,6 +38,14 @@ export const jobs = sqliteTable(
     // The claim query's index: pending jobs whose runAt has passed, oldest first.
     index("jobs_claim_idx").on(table.status, table.runAt),
     index("jobs_kind_idx").on(table.kind),
+    /**
+     * No Django precedent -- this table is new -- but the same hazard as
+     * `feeds.options`: a malformed JSON write that the database accepts turns
+     * the row into poison, and every later read of it throws inside Drizzle's
+     * `mapFromDriverValue` rather than at the write that caused it. There is no
+     * reason for a new table to be less safe than a ported one.
+     */
+    check("jobs_payload_json", sql`json_valid("payload")`),
   ],
 );
 
