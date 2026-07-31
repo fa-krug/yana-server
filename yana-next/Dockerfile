@@ -64,8 +64,8 @@ COPY --from=builder --chown=nextjs:nodejs /build/public ./public
 # runtime "dependencies" of its own (only optional driver peerDependencies),
 # so copying just these two package directories is sufficient; no transitive
 # closure is needed.
-COPY --from=builder --chown=nextjs:nodejs /build/node_modules/better-sqlite3 ./node_modules/better-sqlite3
-COPY --from=builder --chown=nextjs:nodejs /build/node_modules/drizzle-orm ./node_modules/drizzle-orm
+COPY --from=builder --chown=nextjs:nodejs /build/node_modules/better-sqlite3 ./node_modules/
+COPY --from=builder --chown=nextjs:nodejs /build/node_modules/drizzle-orm ./node_modules/
 
 # yana-next/drizzle/ is committed with a placeholder meta/_journal.json
 # (version "7", dialect "sqlite", entries: []) so this source directory
