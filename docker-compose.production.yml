@@ -18,6 +18,20 @@ services:
       - NODE_ENV=production
       - DATABASE_PATH=/app/data/yana.db
       - HOSTNAME=0.0.0.0
+      # `:?` so the stack refuses to come up rather than starting a container
+      # that throws on its first authenticated request: Better Auth treats its
+      # built-in development secret as a hard error when NODE_ENV=production,
+      # because that shared default would let anyone forge a session cookie.
+      # Generate with `openssl rand -base64 32`; rotating it logs everyone out.
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:?set a random 32+ byte secret}
+      # WebAuthn is origin-bound. PASSKEY_RP_ID is the bare registrable domain
+      # (no scheme, no port); PUBLIC_URL is the full origin, no trailing slash.
+      # A mismatch with the host the browser shows makes the browser refuse the
+      # credential with an error that names nothing, and changing PASSKEY_RP_ID
+      # later invalidates every passkey already registered.
+      - PASSKEY_RP_ID=${YANA_DOMAIN:-yana.fa-krug.de}
+      - PUBLIC_URL=https://${YANA_DOMAIN:-yana.fa-krug.de}
+      - BETTER_AUTH_URL=https://${YANA_DOMAIN:-yana.fa-krug.de}
     volumes:
       # Named volumes: they inherit the image's uid 1001 ownership, so SQLite can
       # create its -wal/-shm siblings without a host-side chown. No

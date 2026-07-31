@@ -19,6 +19,16 @@ services:
       # visible where you look for them.
       - DATABASE_PATH=/app/data/yana.db
       - HOSTNAME=0.0.0.0
+      # Required, not optional: NODE_ENV=production above makes Better Auth
+      # refuse to start on its built-in development secret. This value is a
+      # throwaway for the local container -- it is in a committed file, so it
+      # is public by definition. Never reuse it anywhere reachable.
+      - BETTER_AUTH_SECRET=dev-only-secret-do-not-use-in-production-0000
+      # Passkeys are bound to the origin. The container is reached on
+      # localhost:3000, so these match the defaults in src/lib/auth/server.ts
+      # and are repeated here for the same reason DATABASE_PATH is.
+      - PASSKEY_RP_ID=localhost
+      - PUBLIC_URL=http://localhost:3000
     volumes:
       # Bind mounts, so the DB and images survive `docker compose down` and are
       # inspectable from the host. Docker does NOT chown a bind mount, and the

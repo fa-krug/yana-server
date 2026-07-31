@@ -41,6 +41,7 @@ file.
 │   │   ├── layout.tsx             # root: providers, theme, locale, <Toaster>
 │   │   ├── global-error.tsx       # last-resort boundary — no providers, English only
 │   │   ├── health/route.ts        # GET /health — SELECT 1 against the database
+│   │   ├── api/auth/[...all]/     # route.ts — every Better Auth endpoint
 │   │   └── (app)/                 # sidebar + breadcrumb chrome for every real page
 │   │       ├── layout.tsx         # sidebar, content frame
 │   │       ├── loading.tsx        # route-level Suspense fallback
@@ -59,11 +60,14 @@ file.
 │   │   ├── request.ts             # next-intl request config; reads getSettings()
 │   │   └── next-intl.d.ts         # AppConfig augmentation — compiler-checked catalog keys
 │   ├── lib/
+│   │   ├── auth/
+│   │   │   ├── server.ts          # the Better Auth instance — the single config point
+│   │   │   └── client.ts          # browser client (signIn/signOut/useSession, passkey)
 │   │   ├── db/
 │   │   │   ├── client.ts          # getDb(), writeTransaction(), PRAGMAs
 │   │   │   ├── bootstrap.ts       # BOOTSTRAP_USER_ID + ensureBootstrapUser() (phase 3 calls it)
 │   │   │   ├── schema.ts          # barrel: re-exports schema/, declares every relation
-│   │   │   ├── schema/            # enums.ts, users.ts, references.ts, feeds.ts,
+│   │   │   ├── schema/            # enums.ts, users.ts, auth.ts, references.ts, feeds.ts,
 │   │   │   │                      #   articles.ts, jobs.ts — one module per table group
 │   │   │   ├── test-support.ts    # TEST-ONLY: migrate()-based fixture databases
 │   │   │   └── *.test.ts          # client, schema, relations, bootstrap, schema/enums
@@ -128,7 +132,11 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   (`npm install`) whenever a pin changes, and grep both files for `^`/`~`
   before committing. Node is pinned three times and all three must agree:
   `.nvmrc` (25.6.1), `package.json` `engines.node` (`>=25.0.0 <26`), and the
-  Dockerfile's `node:25-alpine`.
+  Dockerfile's `node:25-alpine`. The one `overrides` entry
+  (`better-auth` → `better-sqlite3`) exists because better-auth 1.6.25 declares
+  a `peerOptional better-sqlite3@^12` it never loads (we use the Drizzle
+  adapter). Without the override `npm install` fails ERESOLVE against this
+  repo's 13.0.2 pin; with it, `npm ci` — what CI runs — resolves cleanly.
 - **Database access is centralized.** `getDb()` from `@/lib/db/client` is the
   only place a connection is opened (a lazy singleton). Every write goes through
   `writeTransaction()` from the same module — never raw
@@ -150,7 +158,44 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   from the write that caused it. On nullable columns a bare `>= 0` is correct;
   `NULL >= 0` is NULL, which SQLite treats as satisfied, exactly as Django had
   it. Adding a `CHECK` to an existing SQLite table needs the 12-step table
-  rebuild, so add them with the column, not later.
+  rebuild, so add them with the column, not later. `schema/auth.ts` is the
+  documented exception and carries none: those tables have no Django ancestor
+  and no JSON column, and a constraint we invented for a table Better Auth owns
+  could be violated by a future release of it.
+- **Better Auth maps onto the existing tables with `usePlural: true` and
+  nothing else.** Its model names are singular (`user`, `session`, …) and this
+  repo's Drizzle exports are plural; `usePlural` closes exactly that gap. No
+  per-field `fields` mapping is needed or wanted, because the Drizzle adapter
+  resolves a field by indexing the **table object** —
+  `schemaModel[getFieldName(...)]` — so it matches the **JS property name**,
+  never the SQL column name. `emailVerified: text("email_verified")` already
+  lines up. The corollary is a trap: a property renamed for local taste
+  (`credentialId` for Better Auth's `credentialID`) typechecks and then throws
+  at the first request. None of this is visible to `tsc`, so
+  `src/lib/auth/server.test.ts` signs a user up against a real migrated file;
+  keep that test honest when the config changes.
+- **The Better Auth instance takes a lazy database proxy, never `getDb()`
+  directly.** `drizzleAdapter()` wants the handle by value, but `next build`
+  imports every route's module graph and `data/` does not exist until
+  `docker-entrypoint.sh` migrates it. The proxy in `src/lib/auth/server.ts`
+  resolves `getDb()` on first property access; `betterAuth()` itself is safe at
+  module scope because it builds its context lazily, on the first request.
+  Better Auth's own writes do not go through `writeTransaction()` — its
+  adapter's `transaction` option stays `false` on purpose, since it would wrap
+  writes in `db.transaction(async …)` over a synchronous driver.
+- **Better Auth's `admin()` plugin is deliberately not enabled**, despite what
+  the direction record's tech table says. Read at 1.6.25 it is role-based: its
+  schema adds `role`/`banned`/`banReason`/`banExpires` to the user model and
+  `impersonatedBy` to the session, and the adapter throws on any field the
+  table lacks. `users.isAdmin` is the entire authorization model — no roles, no
+  groups — so enabling it would mean altering `users` to carry a role column.
+  Nothing needs it: `requireAdmin()` and the sidebar both read `isAdmin`.
+- **The passkey plugin ships as its own package.** `@better-auth/passkey` for
+  the server plugin and `@better-auth/passkey/client` for the client half —
+  it is no longer re-exported from `better-auth/plugins`, so a snippet that
+  imports `passkey` from there is pre-1.6 and will not resolve. Both halves
+  must be registered: only one gives a client whose passkey methods do not
+  exist, with no type error to say so.
 - **`updatedAt` columns carry `$onUpdate(() => new Date())`** — the port of
   Django's `auto_now=True`. It is client-side (invisible in the DDL), so it only
   holds for writes that go through Drizzle, which the `writeTransaction()`

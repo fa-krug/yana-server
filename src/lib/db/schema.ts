@@ -1,11 +1,13 @@
 import { relations } from "drizzle-orm";
 
 import { articleBlocks, articleInlineRuns, articles } from "./schema/articles";
+import { accounts, passkeys, sessions } from "./schema/auth";
 import { feedTags, feeds, tags } from "./schema/feeds";
 import { redditSubreddits, youtubeChannels } from "./schema/references";
 import { userSettings, users } from "./schema/users";
 
 export * from "./schema/articles";
+export * from "./schema/auth";
 export * from "./schema/enums";
 export * from "./schema/feeds";
 export * from "./schema/jobs";
@@ -16,6 +18,25 @@ export const usersRelations = relations(users, ({ many, one }) => ({
   feeds: many(feeds),
   tags: many(tags),
   settings: one(userSettings),
+  // Better Auth's satellite tables. It never traverses these itself -- its
+  // adapter issues plain selects -- but the account page (task 6) lists a
+  // user's passkeys and sessions, and an untraversed relation is a relation
+  // nobody proved works. `verifications` has no user FK, so it has no relation.
+  sessions: many(sessions),
+  accounts: many(accounts),
+  passkeys: many(passkeys),
+}));
+
+export const sessionsRelations = relations(sessions, ({ one }) => ({
+  user: one(users, { fields: [sessions.userId], references: [users.id] }),
+}));
+
+export const accountsRelations = relations(accounts, ({ one }) => ({
+  user: one(users, { fields: [accounts.userId], references: [users.id] }),
+}));
+
+export const passkeysRelations = relations(passkeys, ({ one }) => ({
+  user: one(users, { fields: [passkeys.userId], references: [users.id] }),
 }));
 
 /**
