@@ -211,4 +211,82 @@ describe("writeTransaction", () => {
     const rows = raw(client.getDb()).prepare("SELECT value FROM items").all();
     expect(rows).toEqual([{ value: "after-failure" }]);
   });
+
+  // better-sqlite3 is entirely synchronous: an async `work` callback returns a
+  // Promise immediately, before the awaited body inside it has run. Without a
+  // guard, writeTransaction would run COMMIT (or, nested, return) right then --
+  // committing before the callback's real work happens, with those writes
+  // landing outside any transaction and no error raised anywhere. These tests
+  // are the RED case a silent misuse would otherwise sail through: a
+  // `work` that returns a Promise must be rejected loudly, and rejecting it
+  // must not leave the connection or the depth counter in a bad state.
+  describe("rejects an async (thenable-returning) work callback", () => {
+    // Deliberately bypassing the NotPromise<T> compile-time guard with `any`
+    // to exercise the runtime one (rejectIfThenable) -- callers who get past
+    // the type system some other way (`any`, a pre-built callback reference,
+    // a conditionally-async function) must still be caught at runtime.
+    function callWithAsyncWork(sql: string): unknown {
+      const asyncWork = async (tx: ReturnType<typeof client.getDb>) => {
+        raw(tx).exec(sql);
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see comment above
+      return client.writeTransaction(asyncWork as any);
+    }
+
+    it("throws synchronously instead of silently accepting the Promise", () => {
+      expect(() => callWithAsyncWork("INSERT INTO items (value) VALUES ('async')")).toThrow(
+        /writeTransaction.*Promise/i,
+      );
+    });
+
+    it("commits nothing from the async body, and rolls back the BEGIN it opened", () => {
+      try {
+        callWithAsyncWork("INSERT INTO items (value) VALUES ('async-should-not-land')");
+      } catch {
+        // expected -- asserted in the previous test
+      }
+
+      const rows = raw(client.getDb()).prepare("SELECT value FROM items").all();
+      expect(rows).toEqual([]);
+      // The connection itself must not be left mid-transaction either.
+      expect(raw(client.getDb()).inTransaction).toBe(false);
+    });
+
+    it("leaves the depth counter clean, so a subsequent writeTransaction still works", () => {
+      try {
+        callWithAsyncWork("INSERT INTO items (value) VALUES ('async-2')");
+      } catch {
+        // expected
+      }
+
+      let sawTransactionOpen = false;
+      client.writeTransaction((tx) => {
+        sawTransactionOpen = raw(tx).inTransaction;
+        raw(tx).exec("INSERT INTO items (value) VALUES ('after-async-rejection')");
+      });
+
+      expect(sawTransactionOpen).toBe(true);
+      const rows = raw(client.getDb()).prepare("SELECT value FROM items").all();
+      expect(rows).toEqual([{ value: "after-async-rejection" }]);
+    });
+
+    it("rejects a nested async callback the same way", () => {
+      const asyncWork = async (tx: ReturnType<typeof client.getDb>) => {
+        raw(tx).exec("INSERT INTO items (value) VALUES ('nested-async')");
+      };
+
+      expect(() =>
+        client.writeTransaction((outerTx) => {
+          raw(outerTx).exec("INSERT INTO items (value) VALUES ('outer-before-nested-async')");
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see callWithAsyncWork above
+          client.writeTransaction(asyncWork as any);
+        }),
+      ).toThrow(/writeTransaction.*Promise/i);
+
+      // The outer transaction must roll back too -- the nested rejection
+      // propagates as a thrown error out of the outer `work`.
+      const rows = raw(client.getDb()).prepare("SELECT value FROM items").all();
+      expect(rows).toEqual([]);
+    });
+  });
 });
