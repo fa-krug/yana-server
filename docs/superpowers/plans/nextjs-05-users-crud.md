@@ -13,7 +13,7 @@
 - **Every route in this phase is admin-only**, enforced by `requireAdmin()` from phase 4 — which 404s rather than 403s.
 - Search and filter state lives in **URL search params**. A component-state filter is a defect: it breaks linkability and back-navigation.
 - **Destructive actions always confirm**, naming what will be affected and how many.
-- An admin **cannot delete their own account** and cannot remove their own admin flag — both would be a self-lockout. Also refuse to delete the last remaining admin.
+- An admin **cannot delete their own account** and cannot demote themselves out of `role: "admin"` — both would be a self-lockout. Also refuse to delete the last remaining admin. (Phase 4 made `users.role` the authorization model and dropped `is_admin`; "admin" means `role === "admin"` everywhere below.)
 - Deleting a user cascades to their feeds, tags, articles and settings. The confirmation must state this, with counts.
 - The CRUD kit is generic. Any user-specific logic inside `src/components/crud/` is misplaced.
 - List queries are paginated — never `SELECT *` unbounded. Default page size 25.
@@ -291,8 +291,8 @@ describe("deleteUsers", () => {
 });
 
 describe("updateUser", () => {
-  it("refuses to clear the acting admin's own admin flag", async () => {
-    const result = await updateUser(await currentAdminId(), { isAdmin: false });
+  it("refuses to demote the acting admin out of the admin role", async () => {
+    const result = await updateUser(await currentAdminId(), { role: "user" });
     expect(result.ok).toBe(false);
   });
 
@@ -307,9 +307,9 @@ Write the three helpers (`currentAdminId`, `onlyOtherAdminId`, `someNonAdminId`)
 
 - [ ] **Step 2: Implement**
 
-`listUsers` builds a Drizzle query with `like` on email/firstName/lastName for `q`, an `isAdmin` equality when `filters.role` is set, `limit`/`offset` from paging, and a separate `count()` for `total`. Both queries run in the same read — do not paginate in JavaScript.
+`listUsers` builds a Drizzle query with `like` on email/firstName/lastName for `q`, a `users.role` equality when `filters.role` is set, `limit`/`offset` from paging, and a separate `count()` for `total`. Both queries run in the same read — do not paginate in JavaScript. (The filter was already *named* `role`; phase 4 made the column agree, so this is now a direct equality rather than a boolean translation.)
 
-`createUser` goes through `auth.api.signUpEmail` so hashing matches, then applies `isAdmin` and seeds a `userSettings` row.
+`createUser` goes through **`createUserWithPassword()` from `@/lib/auth/server`**, not `auth.api.signUpEmail` — phase 4 set `disableSignUp: true`, so that endpoint refuses everyone. The seam hashes with Better Auth's own scrypt and takes `role` directly, so there is no second write to apply it. Then seed a `userSettings` row.
 
 `deleteUsers` refuses in this order, before deleting anything: acting user in the set → last admin in the set → otherwise delete. The FK cascades from phase 2 handle feeds/tags/articles/settings, which is why `foreign_keys=ON` is load-bearing here.
 

@@ -15,4 +15,12 @@ import { createAuthClient } from "better-auth/react";
  */
 export const authClient = createAuthClient({ plugins: [passkeyClient()] });
 
-export const { signIn, signOut, signUp, useSession } = authClient;
+/**
+ * No `signUp`. The server sets `disableSignUp`, so the endpoint behind it
+ * answers BAD_REQUEST unconditionally -- re-exporting it would only invite a
+ * later phase into wiring a registration form against a route that refuses.
+ * Accounts come from the admin bootstrap or from admin creation in phase 5.
+ * Passkey calls reach the client through `authClient.passkey` /
+ * `authClient.signIn.passkey`, added by the plugin above.
+ */
+export const { signIn, signOut, useSession } = authClient;

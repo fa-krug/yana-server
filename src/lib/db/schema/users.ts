@@ -2,9 +2,23 @@ import { sql } from "drizzle-orm";
 import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
- * Shaped to Better Auth's expectations (phase 4) so that phase only adds the
- * satellite tables -- sessions, accounts, passkeys -- rather than migrating this
- * one. `isAdmin` is the entire authorization model: no roles, no groups.
+ * Shaped to Better Auth's expectations. Phase 2 got the core columns right;
+ * phase 4 added the four the `admin()` plugin declares (see below) and dropped
+ * the `isAdmin` boolean phase 2 had guessed at.
+ *
+ * **`role` is the authorization model.** It replaced `isAdmin` when phase 4
+ * enabled Better Auth's `admin()` plugin, whose schema is role-based: keeping a
+ * boolean alongside it would have meant two sources of truth for "may this
+ * person delete users", one written by the plugin's `setRole` and one by our own
+ * UI, with nothing keeping them agreed. A string also scales past two tiers,
+ * where a boolean needs a migration plus a rewrite of every check. Still no
+ * groups and no permission table: the only role this app reads is `"admin"`.
+ *
+ * `role`, `banned`, `banReason` and `banExpires` are the plugin's declared field
+ * set, copied from `better-auth/dist/plugins/admin/schema.mjs` rather than from
+ * memory -- the adapter throws on any field it declares that the table lacks.
+ * `banned`/`banReason`/`banExpires` have no UI in any planned phase; they exist
+ * because the plugin writes them.
  */
 export const users = sqliteTable(
   "users",
@@ -17,7 +31,19 @@ export const users = sqliteTable(
     emailVerified: integer("email_verified", { mode: "boolean" }).notNull().default(false),
     /** Uploaded avatar path. Null means render initials on a generated colour. */
     image: text("image"),
-    isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),
+    /**
+     * `"admin"` or `"user"`. Better Auth declares this optional, so its model
+     * would tolerate NULL; the column does not, because a nullable role makes
+     * every check in phases 5-13 ask whether NULL means `"user"`. Nothing in
+     * Better Auth writes NULL here -- `setRole` and the plugin's `createUser`
+     * both write a string, and plain sign-up omits the field, which is what the
+     * SQL default is for.
+     */
+    role: text("role").notNull().default("user"),
+    banned: integer("banned", { mode: "boolean" }).notNull().default(false),
+    /** Nullable: the plugin's `unbanUser` writes NULL to both ban columns. */
+    banReason: text("ban_reason"),
+    banExpires: integer("ban_expires", { mode: "timestamp" }),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),

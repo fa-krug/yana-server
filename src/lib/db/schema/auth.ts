@@ -49,6 +49,13 @@ export const sessions = sqliteTable(
     expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
     ipAddress: text("ip_address"),
     userAgent: text("user_agent"),
+    /**
+     * The `admin()` plugin's one session column: the admin id behind an
+     * impersonation session. No phase impersonates -- phase 5 declined it -- but
+     * the plugin declares the field, and the adapter throws on a declared field
+     * the table lacks, so it exists.
+     */
+    impersonatedBy: text("impersonated_by"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),

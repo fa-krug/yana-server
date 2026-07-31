@@ -55,14 +55,14 @@ describe("ensureBootstrapUser", () => {
 
     const connection = new Database(dbPath);
     const user = connection
-      .prepare("SELECT id, email, is_admin FROM users WHERE id = ?")
+      .prepare("SELECT id, email, role FROM users WHERE id = ?")
       .get(bootstrap.BOOTSTRAP_USER_ID);
     const settings = connection
       .prepare("SELECT user_id FROM user_settings WHERE user_id = ?")
       .get(bootstrap.BOOTSTRAP_USER_ID);
     connection.close();
 
-    expect(user).toMatchObject({ id: "bootstrap", email: "admin@admin.com", is_admin: 1 });
+    expect(user).toMatchObject({ id: "bootstrap", email: "admin@admin.com", role: "admin" });
     expect(settings).toMatchObject({ user_id: "bootstrap" });
   });
 

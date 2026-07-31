@@ -136,7 +136,10 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   (`better-auth` → `better-sqlite3`) exists because better-auth 1.6.25 declares
   a `peerOptional better-sqlite3@^12` it never loads (we use the Drizzle
   adapter). Without the override `npm install` fails ERESOLVE against this
-  repo's 13.0.2 pin; with it, `npm ci` — what CI runs — resolves cleanly.
+  repo's 13.0.2 pin; with it, `npm ci` — what CI runs — resolves cleanly. That
+  version is a **hand-maintained duplicate** of the top-level `better-sqlite3`
+  pin: npm records it nowhere in the lockfile root, so bumping the dependency
+  without bumping the override leaves the two disagreeing. Change both together.
 - **Database access is centralized.** `getDb()` from `@/lib/db/client` is the
   only place a connection is opened (a lazy singleton). Every write goes through
   `writeTransaction()` from the same module — never raw
@@ -172,24 +175,64 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   lines up. The corollary is a trap: a property renamed for local taste
   (`credentialId` for Better Auth's `credentialID`) typechecks and then throws
   at the first request. None of this is visible to `tsc`, so
-  `src/lib/auth/server.test.ts` signs a user up against a real migrated file;
+  `src/lib/auth/server.test.ts` provisions a user against a real migrated file;
   keep that test honest when the config changes.
+- **`users.role` is the authorization model — there is no `isAdmin` boolean.**
+  Phase 4 enabled Better Auth's `admin()` plugin, whose schema is role-based
+  (`role`, `banned`, `banReason`, `banExpires` on the user, `impersonatedBy` on
+  the session). Keeping a boolean beside it would have been two sources of
+  truth for "may this person delete users" — the plugin's `setRole` writing one
+  and our UI the other, with nothing keeping them agreed. Still no groups and
+  no permission table: `"admin"` is the only role anything reads. The plugin's
+  own endpoints go unused (phase 5 hand-rolls user CRUD and declines
+  impersonation); it is here for the `role` field and its server-side
+  semantics, above all `input: false`, which makes Better Auth answer
+  `FIELD_NOT_ALLOWED` to any request body carrying a role.
+- **There is no self-registration.** `emailAndPassword.disableSignUp` is `true`,
+  so `/api/auth/sign-up/email` answers `EMAIL_PASSWORD_SIGN_UP_DISABLED` to
+  everyone: an open sign-up on a self-hosted server hands an account to anyone
+  who can reach the host, with feed-URL fetching as an amplification surface
+  behind it. Accounts exist only via `createUserWithPassword()` in
+  `src/lib/auth/server.ts` — the admin bootstrap at startup, and admin-created
+  users in phase 5. That seam reaches `auth.$context.internalAdapter` directly
+  and hashes with the context's own `password.hash` (Better Auth's scrypt,
+  never hand-rolled), which is also why `role` can be set there: `input: false`
+  guards request bodies, not server code. `src/lib/auth/client.ts` deliberately
+  does not re-export `signUp`. A phase adding invitations is _reopening_
+  registration — design the token first.
 - **The Better Auth instance takes a lazy database proxy, never `getDb()`
   directly.** `drizzleAdapter()` wants the handle by value, but `next build`
   imports every route's module graph and `data/` does not exist until
-  `docker-entrypoint.sh` migrates it. The proxy in `src/lib/auth/server.ts`
-  resolves `getDb()` on first property access; `betterAuth()` itself is safe at
-  module scope because it builds its context lazily, on the first request.
-  Better Auth's own writes do not go through `writeTransaction()` — its
-  adapter's `transaction` option stays `false` on purpose, since it would wrap
-  writes in `db.transaction(async …)` over a synchronous driver.
-- **Better Auth's `admin()` plugin is deliberately not enabled**, despite what
-  the direction record's tech table says. Read at 1.6.25 it is role-based: its
-  schema adds `role`/`banned`/`banReason`/`banExpires` to the user model and
-  `impersonatedBy` to the session, and the adapter throws on any field the
-  table lacks. `users.isAdmin` is the entire authorization model — no roles, no
-  groups — so enabling it would mean altering `users` to carry a role column.
-  Nothing needs it: `requireAdmin()` and the sidebar both read `isAdmin`.
+  `docker-entrypoint.sh` migrates it. Do not read `betterAuth()` as lazy: it
+  calls `init(options)` at import and stores the promise unawaited
+  (`better-auth/dist/auth/base.mjs`), and that reaches the adapter factory
+  immediately. What makes it safe is narrower — `drizzleAdapter`'s factory never
+  _dereferences_ the handle (`createCustomAdapter(db)` closes over it without
+  reading it; every `db.*` access sits inside an adapter method) — so the proxy
+  is doing all the work. Two more consequences: the eager init means a rejection
+  there (a missing `BETTER_AUTH_SECRET` under `NODE_ENV=production`) would be an
+  unhandled rejection at module load, which under Node's default
+  `--unhandled-rejections=throw` can take a worker down, so `server.ts` attaches
+  a handler to `auth.$context` to turn it back into a failed request; and the
+  proxy's `{}` target means `instanceof`, `Object.keys` and spread see nothing,
+  while a bare `"x" in db` opens the connection.
+- **Ratified exception to "every write goes through `writeTransaction()`":
+  Better Auth's own writes do not.** Its adapter issues autocommit single
+  statements, which never perform the WAL read→write lock upgrade
+  `BEGIN IMMEDIATE` exists to prevent, and `busy_timeout` still applies because
+  it runs on the same `getDb()` singleton — so the guarantee that rule buys is
+  not lost here. The adapter's `transaction` option stays `false`, but as
+  documentation only: every `db.transaction(...)` call site in it is gated on
+  `provider === "mysql"`, so on SQLite the async-transaction hazard is
+  unreachable either way. This exception covers Better Auth's own tables only;
+  application code still uses `writeTransaction()`.
+- **The passkey plugin ships as its own package.** `@better-auth/passkey` for
+  the server plugin and `@better-auth/passkey/client` for the client half —
+  it is no longer re-exported from `better-auth/plugins`, so a snippet that
+  imports `passkey` from there is pre-1.6 and will not resolve. (`admin` _is_
+  still exported from `better-auth/plugins`.) Both passkey halves must be
+  registered: only one gives a client whose passkey methods do not exist, with
+  no type error to say so.
 - **The passkey plugin ships as its own package.** `@better-auth/passkey` for
   the server plugin and `@better-auth/passkey/client` for the client half —
   it is no longer re-exported from `better-auth/plugins`, so a snippet that

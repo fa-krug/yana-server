@@ -35,7 +35,11 @@ export async function ensureBootstrapUser(): Promise<string> {
           name: "Admin",
           firstName: "Admin",
           lastName: "",
-          isAdmin: true,
+          // Retargeted from the `isAdmin` boolean phase 4 dropped when it made
+          // `role` the authorization model. This seeder is itself retired by
+          // phase 4's task 2 (`ensureAdminExists`), which creates a *real*
+          // account through Better Auth; this row has no credentials at all.
+          role: "admin",
         })
         .run();
     }

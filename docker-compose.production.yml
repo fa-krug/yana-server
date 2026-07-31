@@ -57,6 +57,21 @@ services:
         reservations:
           cpus: "0.5"
           memory: 512M
+    # TODO(phase 15): confirm `web` actually terminates TLS before this file is
+    # deployed. Auth makes the answer load-bearing in three ways, none of which
+    # existed when the Django stack used the same label:
+    #   1. Session cookies are `secure` under NODE_ENV=production, so over plain
+    #      HTTP the browser never sends them back and login silently fails --
+    #      no error, just a login page that loops.
+    #   2. WebAuthn requires a secure context, so passkeys cannot be registered
+    #      or used at all over HTTP.
+    #   3. PUBLIC_URL/BETTER_AUTH_URL above say `https://`; if the browser is on
+    #      `http://` the origin check fails and WebAuthn refuses.
+    # If `web` is the plain-HTTP entrypoint, point this at the TLS one (commonly
+    # `websecure`) and add a certresolver. Not changed blind: the live stack
+    # file is in Portainer and `old/docker-compose.production.yml` -- the only
+    # precedent in this repo -- says `web` too while serving `https://`, so the
+    # entrypoint names in that traefik install cannot be inferred from here.
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.yana.rule=Host(`${YANA_DOMAIN:-yana.fa-krug.de}`)"

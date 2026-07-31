@@ -15,6 +15,13 @@
       "when": 1785506637897,
       "tag": "0001_whole_sage",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785508900662,
+      "tag": "0002_puzzling_nightcrawler",
+      "breakpoints": true
     }
   ]
 }

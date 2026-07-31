@@ -76,7 +76,7 @@ paths; read those as repository-root paths.
 | UI | shadcn/ui + Tailwind, mobile-first | — |
 | Toasts | `sonner` | shadcn's own recommendation |
 | i18n | `next-intl` | EN/DE; App Router native |
-| Auth | **Better Auth** | Decided by passkeys: first-class WebAuthn, Drizzle adapter, cookie sessions, and an admin plugin matching the "admin boolean, no roles or groups" requirement. Auth.js passkey support is still experimental |
+| Auth | **Better Auth** | Decided by passkeys: first-class WebAuthn, Drizzle adapter, cookie sessions. Auth.js passkey support is still experimental. **Corrected in phase 4:** this row originally credited "an admin plugin matching the 'admin boolean, no roles or groups' requirement". At 1.6.25 the `admin()` plugin is role-based (`role`/`banned`/`banReason`/`banExpires`), so no such match exists — the requirement was changed rather than the library. See the phase 4 note below |
 | Lint / format | **ESLint + Prettier** | The `create-next-app` default and the beaten path. Biome was considered and rejected on ecosystem familiarity — its `next`/`drizzle`/`types` domains do cover this project, so the swap stays available later as a config-only change |
 | Type check | `tsc --noEmit` | The `mypy` analogue |
 | Tests | Vitest | Golden-fixture assertions dominate the suite |
@@ -378,9 +378,26 @@ case-insensitive redirect resolves `Yana` → `yana`, which has already caused o
 Decisions phase 2's whole-phase review surfaced that belong to a **later** phase. Recorded here
 because phase 2's workspace is deleted, not because they are open questions for phase 2.
 
-- **Phase 4 (auth).** The table is `users` with `snake_case` columns, so Better Auth needs an
-  explicit model/field mapping (or the Drizzle adapter's `usePlural`). The column set is already
-  right; only the naming needs config. Separately, `ensureBootstrapUser()` hard-codes
+- **Phase 4 (auth) — settled, with one decision reversed.** The mapping question resolved to
+  `usePlural: true` and nothing else: the Drizzle adapter indexes the **table object**, so it
+  matches JS property names, and phase 2's camelCase-property/snake_case-column shape already lined
+  up. No per-field mapping was needed.
+
+  The reversal: **`role` replaced `isAdmin` as the authorization model, and `users.is_admin` was
+  dropped** (migration `0002`). Enabling `admin()` — which the tech table above assumed was
+  boolean-shaped — forces `role`, `banned`, `banReason` and `banExpires` onto the user model, and
+  running a boolean beside the plugin's `role` would have been two sources of truth for the same
+  authorization question, one written by `setRole` and one by our own UI. A string also scales past
+  two tiers where a boolean needs a migration. Still no groups and no permission table: `"admin"` is
+  the only role anything reads, and the plugin's endpoints go unused because phase 5 hand-rolls user
+  CRUD and declines impersonation.
+
+  Also settled in phase 4: **there is no self-registration.** `disableSignUp` closes
+  `/api/auth/sign-up/email`, because an open sign-up on a self-hosted server hands an account to
+  anyone who can reach the host. Accounts come from the startup bootstrap and from admin creation in
+  phase 5, both through `createUserWithPassword()` in `src/lib/auth/server.ts`.
+
+  Separately, `ensureBootstrapUser()` hard-codes
   `email: "admin@admin.com"` and `users.email` is uniquely indexed, so if phase 4 creates a real
   admin at that address while the bootstrap row is gone, the seeder throws
   `SQLITE_CONSTRAINT_UNIQUE`. Phase 4 either scopes the existence check to the email too or retires
