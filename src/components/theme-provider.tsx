@@ -16,7 +16,11 @@ export function ThemeProvider({
   // it in another browser, this device keeps showing its own localStorage
   // value until it is cleared. That is intentional: theme is effectively
   // per-device after first use, not a bug to "fix" by forcing the database
-  // value over local state.
+  // value over local state. In short: localStorage is authoritative for the
+  // *applied* theme, the database row for the *portable* preference. The
+  // settings control reads the first of those (see
+  // components/settings/general-section.tsx) so it can never display a theme
+  // other than the one on screen.
   defaultTheme?: string;
 }) {
   return (

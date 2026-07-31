@@ -2,7 +2,7 @@
 
 import { useTheme } from "next-themes";
 import { useTranslations } from "next-intl";
-import { useState, useTransition } from "react";
+import { useState, useSyncExternalStore, useTransition } from "react";
 import { toast } from "sonner";
 
 import { updateGeneralSettings } from "@/lib/settings/actions";
@@ -15,18 +15,80 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+// `as const`, so `value` below is "light" | "dark" | "system" rather than
+// string and t(`theme.${value}`) resolves to real catalog keys the compiler can
+// check (see src/i18n/next-intl.d.ts). A plain string[] widens the template
+// literal to `theme.${string}`, which matches nothing.
+const THEMES = ["light", "dark", "system"] as const;
+const LANGUAGES = ["en", "de"] as const;
+
+type Theme = (typeof THEMES)[number];
+
+function isTheme(value: string | undefined): value is Theme {
+  return THEMES.includes(value as Theme);
+}
+
+/**
+ * True once the client has hydrated, false on the server and during the
+ * hydration render itself.
+ *
+ * useSyncExternalStore rather than useState + useEffect, the same technique
+ * src/hooks/use-mobile.ts uses: React renders getServerSnapshot() on the server
+ * *and* during hydration, then switches to getSnapshot() on the first commit
+ * after. That yields a deliberate second render with no setState in an effect
+ * body, which react-hooks/set-state-in-effect forbids here. The store never
+ * emits, so subscribe() is a no-op returning a no-op unsubscribe.
+ */
+const subscribeNothing = () => () => {};
+const alwaysTrue = () => true;
+const alwaysFalse = () => false;
+
+function useHydrated(): boolean {
+  return useSyncExternalStore(subscribeNothing, alwaysTrue, alwaysFalse);
+}
+
+/**
+ * Theme has two stores, and they answer different questions:
+ *
+ * - **localStorage is authoritative for the *applied* theme.** next-themes
+ *   resolves `localStorage.getItem(key) || defaultTheme`, so once this device
+ *   has ever picked a theme, its own choice is what paints -- the database
+ *   value the root layout passes in as `defaultTheme` is only the
+ *   pre-hydration fallback for a browser that has no stored value yet. See
+ *   src/components/theme-provider.tsx.
+ * - **The database row is authoritative for the *portable* preference.** It is
+ *   what a fresh browser starts from, so the write is kept.
+ *
+ * The control therefore displays useTheme()'s value, never the server prop:
+ * seeding it from the prop made it show the losing store (toggle to dark here,
+ * light on a phone, come back -- the page is dark and the Select said light,
+ * and re-picking "dark" was a no-op from its perspective).
+ *
+ * The `theme` prop survives as the pre-hydration value only. next-themes'
+ * state initializer bails out when `typeof window === "undefined"`, so
+ * useTheme().theme is `undefined` on the server and would render an empty
+ * control; and it is already the localStorage value during the hydration
+ * render, so switching to it there is a guaranteed hydration mismatch on the
+ * trigger's text. useHydrated() defers the switch to the commit after
+ * hydration, which is the one point where the two are allowed to differ.
+ */
 export function GeneralSection({ theme, language }: { theme: string; language: string }) {
   const t = useTranslations("settings");
-  const { setTheme } = useTheme();
+  const { theme: appliedTheme, setTheme } = useTheme();
+  const hydrated = useHydrated();
   const [pending, start] = useTransition();
   // Controlled, not defaultValue: a language change revalidates the whole
   // layout (see actions.ts), which re-renders this already-mounted component
   // with fresh theme/language props without remounting it. An uncontrolled
   // Select only reads defaultValue once at mount, and Base UI logs a console
-  // error if that prop later changes anyway -- controlling the value from
-  // state sidesteps that rather than fighting an uncontrolled component.
-  const [themeValue, setThemeValue] = useState(theme);
+  // error if that prop later changes anyway -- controlling the value sidesteps
+  // that rather than fighting an uncontrolled component.
   const [languageValue, setLanguageValue] = useState(language);
+
+  // isTheme() guards the localStorage read: next-themes hands back whatever
+  // string is under its key, and a value outside this list would leave the
+  // trigger blank with no matching item.
+  const themeValue = hydrated && isTheme(appliedTheme) ? appliedTheme : theme;
 
   function save(next: { theme: string; language: string }) {
     start(async () => {
@@ -54,9 +116,9 @@ export function GeneralSection({ theme, language }: { theme: string; language: s
             // option) -- the guard exists to satisfy that wider type, not
             // because null is reachable here.
             if (value === null) return;
-            // Applied locally at once so the change is visible before the round
-            // trip; the server write is what makes it persist.
-            setThemeValue(value);
+            // setTheme() is both the local apply and the display update: it
+            // writes localStorage and moves next-themes' state, which is what
+            // `themeValue` above reads. No separate useState to keep in sync.
             setTheme(value);
             save({ theme: value, language: languageValue });
           }}
@@ -65,7 +127,7 @@ export function GeneralSection({ theme, language }: { theme: string; language: s
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {["light", "dark", "system"].map((value) => (
+            {THEMES.map((value) => (
               <SelectItem key={value} value={value}>
                 {t(`theme.${value}`)}
               </SelectItem>
@@ -89,7 +151,7 @@ export function GeneralSection({ theme, language }: { theme: string; language: s
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {["en", "de"].map((value) => (
+            {LANGUAGES.map((value) => (
               <SelectItem key={value} value={value}>
                 {t(`language.${value}`)}
               </SelectItem>
