@@ -77,6 +77,24 @@ export function passwordErrorKey(error: SignInError | null | undefined): AuthMes
 }
 
 /**
+ * The one registration failure worth its own sentence.
+ *
+ * `passkeyErrorKey()` below prefix-matches, so this would otherwise land in the
+ * cancelled branch and tell the user "no passkey was created" -- truthful and
+ * useless, because what actually happened is that this authenticator is already
+ * enrolled and the server's `excludeCredentials` refused a duplicate. Only
+ * reachable from registration (`authClient.passkey.addPasskey()`), never from
+ * sign-in, so it is exported as a code for that call site to test rather than
+ * folded into the mapper below.
+ *
+ * A `WebAuthnErrorCode` member; `sign-in-errors.test.ts` pins it against the
+ * library's union so a rename there fails `npm run typecheck` rather than
+ * silently downgrading the message. Not a type-only import here, because
+ * `@simplewebauthn/browser` is a devDependency and this module ships.
+ */
+export const PASSKEY_ALREADY_REGISTERED_CODE = "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED";
+
+/**
  * The catalog key for a failed passkey sign-in.
  *
  * The cancelled/no-credential case is separated from a real failure because the

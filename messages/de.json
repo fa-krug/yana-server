@@ -32,6 +32,7 @@
   "account": {
     "title": "Konto",
     "saveFailed": "Änderungen konnten nicht gespeichert werden",
+    "requestFailed": "Der Server hat nicht geantwortet. Prüfe deine Verbindung und versuche es erneut.",
     "profile": {
       "title": "Profil",
       "description": "Dein Name und deine E-Mail-Adresse. Der Name erscheint in der Seitenleiste und in der Passkey-Abfrage deines Browsers.",
@@ -78,6 +79,7 @@
       "adding": "Warte auf dein Gerät",
       "added": "Passkey hinzugefügt",
       "addFailed": "Der Passkey wurde nicht hinzugefügt. Bitte versuche es erneut.",
+      "alreadyRegistered": "Dieses Gerät hat bereits einen Passkey für Yana.",
       "addCancelled": "Es wurde kein Passkey erstellt.",
       "unsupported": "Dieser Browser unterstützt keine Passkeys.",
       "none": "Noch keine Passkeys.",

@@ -20,9 +20,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { removePasskey } from "@/lib/account/actions";
+import { attempt } from "@/lib/account/result";
 import type { PasskeySummary } from "@/lib/account/queries";
 import { authClient } from "@/lib/auth/client";
-import { passkeyErrorKey } from "@/lib/auth/sign-in-errors";
+import {
+  PASSKEY_ALREADY_REGISTERED_CODE,
+  passkeyErrorKey,
+  type SignInError,
+} from "@/lib/auth/sign-in-errors";
 
 /**
  * Register, list and remove passkeys.
@@ -89,10 +94,24 @@ export function PasskeySection({
       // `await fetch(...)` unwrapped, so a network-level failure rejects. Same
       // trap the login form documents.
       const result = await authClient.passkey.addPasskey();
-      if (result?.error) {
-        // passkeyErrorKey() maps a cancelled ceremony (or a device with nothing
-        // to offer) away from a real failure; the two need different words.
-        const cancelled = passkeyErrorKey(result.error) === "passkeyUnavailable";
+      // Read through the structural `SignInError`, the same shape
+      // passkeyErrorKey() takes: the client's own return type is a union whose
+      // `code` is present in some members and absent in others, so the field
+      // is not reachable on the union itself.
+      const error: SignInError | undefined = result?.error ?? undefined;
+      if (error) {
+        // Three outcomes, not two. "Already enrolled" is separated first
+        // because passkeyErrorKey() prefix-matches every ERROR_* code into the
+        // cancelled branch, which would tell someone nothing happened when in
+        // fact the server refused a duplicate via excludeCredentials.
+        if (error.code === PASSKEY_ALREADY_REGISTERED_CODE) {
+          toast.error(t("passkeys.alreadyRegistered"));
+          return;
+        }
+        // passkeyErrorKey() then maps a cancelled ceremony (or a device with
+        // nothing to offer) away from a real failure; the two need different
+        // words.
+        const cancelled = passkeyErrorKey(error) === "passkeyUnavailable";
         toast.error(cancelled ? t("passkeys.addCancelled") : t("passkeys.addFailed"));
         return;
       }
@@ -108,7 +127,8 @@ export function PasskeySection({
 
   function remove(id: string) {
     start(async () => {
-      const result = await removePasskey({ id });
+      // attempt(), never a bare await. See @/lib/account/result.
+      const result = await attempt(() => removePasskey({ id }));
       if (result.ok) {
         toast.success(t("passkeys.removed"));
         return;

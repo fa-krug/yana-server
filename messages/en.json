@@ -32,6 +32,7 @@
   "account": {
     "title": "Account",
     "saveFailed": "Could not save your changes",
+    "requestFailed": "The server did not answer. Check your connection and try again.",
     "profile": {
       "title": "Profile",
       "description": "Your name and email address. The name is shown in the sidebar and in your browser's passkey prompt.",
@@ -78,6 +79,7 @@
       "adding": "Waiting for your device",
       "added": "Passkey added",
       "addFailed": "The passkey was not added. Please try again.",
+      "alreadyRegistered": "This device already has a passkey for Yana.",
       "addCancelled": "No passkey was created.",
       "unsupported": "This browser does not support passkeys.",
       "none": "No passkeys yet.",

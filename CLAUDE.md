@@ -404,7 +404,9 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   internal `await import("next/headers.js")` — `vitest.config.ts` inlines that
   single module for the `node` project, and **every `vi.mock("next/headers")`
   in this repository must therefore also export `cookies`**, or the hook throws
-  a TypeError it does not catch.
+  a TypeError it does not catch. Build the stub from
+  `nextHeadersStub()` in `src/test/next-headers.ts` rather than typing it out
+  again, which is what keeps that rule from being four copies of itself.
 - **Displaying a user's own columns uses `currentUserRow()`, not
   `currentUser()`.** The session is served from a five-minute signed cookie and
   React's per-request `cache()` freezes even that, so after a server action
@@ -417,6 +419,23 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   Writes additionally call **`refreshSession()`**, which re-reads with
   `disableCookieCache: true` so the _cookie_ is honest on the next request —
   and that rewrite only lands because `nextCookies()` is registered.
+- **No server action is ever awaited bare from a client component.** An action
+  can fail _without returning_ — Next refusing a body over `bodySizeLimit`, a
+  dropped connection, the container restarting mid-request — and an unhandled
+  rejection inside a `useTransition` scope escalates to the nearest error
+  boundary, which on `/account` replaces the whole page (and the half-typed
+  form) with "Something went wrong". Every call goes through `attempt()` in
+  `src/lib/account/result.ts`, which maps a rejection to the `requestFailed`
+  catalog key. Same failure and the same remedy as `attempt()` in
+  `src/components/auth/login-form.tsx`, which exists because
+  `@better-fetch/fetch` leaves its own `fetch` unwrapped — this is the second
+  time the class has been fixed, so treat a bare `await someAction(...)` in a
+  client component as a defect on sight.
+- **A component gets the columns it renders, never the row.** `<AppSidebar>`
+  and `<ProfileSection>` both take the five `AvatarUser` fields, not a `User`:
+  the row also carries `role`, the three ban columns, `emailVerified` and the
+  timestamps, and passing it whole serializes all of them into the RSC payload
+  of every page that renders it.
 - **`/account` is the one page that writes `users` directly.** Better Auth's
   `/update-user` is in `disabledPaths` (it accepts an arbitrary `image`), so
   `src/lib/account/actions.ts` writes the columns through `writeTransaction()`

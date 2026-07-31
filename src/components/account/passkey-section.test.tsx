@@ -160,6 +160,57 @@ describe("<PasskeySection>", () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 
+  it("says the device is already enrolled rather than 'nothing happened'", async () => {
+    // The code passkeyErrorKey() would otherwise prefix-match into the
+    // cancelled branch, telling the user no passkey was created when in fact
+    // the server refused a duplicate through excludeCredentials.
+    pretendWebAuthnExists();
+    addPasskey.mockResolvedValue({
+      data: null,
+      error: { code: "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED", status: 400 },
+    });
+    renderWithProviders(<PasskeySection passkeys={[LAPTOP]} hasPassword />, { locale: "de" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Passkey hinzufügen" }));
+
+    await vi.waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith("Dieses Gerät hat bereits einen Passkey für Yana."),
+    );
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("survives a removal that rejects instead of returning", async () => {
+    removePasskey.mockRejectedValue(new Error("Failed to fetch"));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      renderWithProviders(<PasskeySection passkeys={[LAPTOP, PHONE]} hasPassword />);
+      // Open the confirmation, then press its action button. Both are labelled
+      // "Remove"; the dialog's carries Base UI's data-slot, which is what tells
+      // them apart without depending on document order.
+      fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]);
+      const confirm = await vi.waitFor(() => {
+        const button = screen
+          .getAllByRole("button", { name: "Remove" })
+          .find((candidate) => candidate.getAttribute("data-slot") === "alert-dialog-action");
+        if (!button) throw new Error("the confirmation button never appeared");
+        return button;
+      });
+      fireEvent.click(confirm);
+
+      await vi.waitFor(() => expect(removePasskey).toHaveBeenCalledWith({ id: LAPTOP.id }));
+      await vi.waitFor(() =>
+        expect(toastError).toHaveBeenCalledWith(
+          "The server did not answer. Check your connection and try again.",
+        ),
+      );
+      // Still mounted -- the rejection did not take the card with it.
+      expect(screen.getByRole("button", { name: "Add a passkey" })).toBeDefined();
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
   it("survives a request that never reached the server", async () => {
     // @better-fetch/fetch leaves its own `await fetch(...)` unwrapped, so a
     // network-level failure *rejects* rather than resolving to `{ error }`.

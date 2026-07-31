@@ -4,7 +4,12 @@ import { describe, expect, it } from "vitest";
 
 import en from "../../../messages/en.json";
 
-import { NETWORK_FAILURE, passkeyErrorKey, passwordErrorKey } from "./sign-in-errors";
+import {
+  NETWORK_FAILURE,
+  PASSKEY_ALREADY_REGISTERED_CODE,
+  passkeyErrorKey,
+  passwordErrorKey,
+} from "./sign-in-errors";
 
 /** Every value these two functions can return has to exist in the catalogs. */
 function resolves(key: string): boolean {
@@ -91,6 +96,23 @@ describe("passkeyErrorKey", () => {
     for (const code of codes) {
       expect(passkeyErrorKey({ code, status: 400 })).toBe("passkeyUnavailable");
     }
+  });
+});
+
+describe("PASSKEY_ALREADY_REGISTERED_CODE", () => {
+  it("is a real member of the library's union", () => {
+    // The annotation is the assertion: a rename in @simplewebauthn/browser
+    // stops this compiling instead of silently downgrading the account page's
+    // "this device already has a passkey" to "no passkey was created".
+    const pinned: WebAuthnErrorCode = PASSKEY_ALREADY_REGISTERED_CODE;
+
+    expect(pinned).toBe("ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED");
+  });
+
+  it("is exactly the code the prefix mapper would swallow", () => {
+    // Which is why registration tests it *before* calling the mapper: on its
+    // own, passkeyErrorKey() cannot tell it from a dismissed dialog.
+    expect(passkeyErrorKey({ code: PASSKEY_ALREADY_REGISTERED_CODE })).toBe("passkeyUnavailable");
   });
 });
 

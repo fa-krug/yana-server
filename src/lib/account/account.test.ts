@@ -36,15 +36,9 @@ const { requestHeaders, cookieJar } = vi.hoisted(() => ({
   cookieJar: new Map<string, string>(),
 }));
 
-vi.mock("next/headers", () => ({
-  headers: () => Promise.resolve(requestHeaders.current),
-  cookies: () =>
-    Promise.resolve({
-      set: (name: string, value: string) => cookieJar.set(name, value),
-      get: (name: string) => (cookieJar.has(name) ? { name, value: cookieJar.get(name) } : void 0),
-      delete: (name: string) => cookieJar.delete(name),
-    }),
-}));
+vi.mock("next/headers", async () =>
+  (await import("@/test/next-headers")).nextHeadersStub(requestHeaders, cookieJar),
+);
 
 /** Better Auth's session cookie, by the name it uses with no `advanced.cookiePrefix`. */
 const SESSION_COOKIE = "better-auth.session_token";

@@ -366,6 +366,7 @@ Carried over from the previous direction record and still out of scope:
 | AI provider expansion | iOS supports 7 providers, the server 3. Cleanly separable from this migration |
 | AI options shape | Server uses flat `ai_*` keys, iOS nests under `ai`. Harmonize when phase 13 pins the options contract |
 | Deleting iOS `Yana/Aggregators/` | After phase 13 ships and the server is proven authoritative |
+| **Per-user** time zone | **Only this half is still open.** Phase 4 settled the process-level default: `src/i18n/request.ts` configures next-intl with `process.env.TZ \|\| "UTC"`, documented in `.env.example`. It had to, and not as scope creep — the account page's passkey list is the first rendered date, and with no configured zone next-intl falls back to the *environment's*: the container's on the server, the visitor's own in the browser, which is a hydration mismatch plus an ENVIRONMENT_FALLBACK warning on every render. Phases 5–10 inherit a working deployment-wide default and one question: whether a `user_settings.time_zone` column is worth it. Do not re-litigate the default |
 
 ## Repository note
 

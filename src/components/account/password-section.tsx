@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { changePassword } from "@/lib/account/actions";
+import { attempt } from "@/lib/account/result";
 
 /**
  * Better Auth's own minimum, restated for the client-side hint. The server is
@@ -47,7 +48,12 @@ export function PasswordSection({ hasPassword }: { hasPassword: boolean }) {
     }
 
     start(async () => {
-      const result = await changePassword({ currentPassword: current, newPassword: next });
+      // attempt(), never a bare await -- a rejected action would take the page
+      // to the error boundary with three filled password fields on it. See
+      // @/lib/account/result.
+      const result = await attempt(() =>
+        changePassword({ currentPassword: current, newPassword: next }),
+      );
       if (result.ok) {
         // Cleared only on success: a wrong *current* password should leave the
         // new one typed, so the retry is one field and not three.

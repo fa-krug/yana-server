@@ -10,8 +10,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { UserAvatar } from "@/components/user-avatar";
-import type { NamespaceKey } from "@/i18n/next-intl";
 import { removeAvatar, updateProfile, uploadAvatar } from "@/lib/account/actions";
+import { attempt, type AccountKey, type AccountResult } from "@/lib/account/result";
 import {
   AVATAR_FOREGROUND,
   AVATAR_MAX_BYTES,
@@ -67,7 +67,7 @@ export function ProfileSection({ user }: { user: AvatarUser & { image: string | 
    * rejection that did not *name* the limit it hit would be the useless
    * "processing failed" message this is written to avoid.
    */
-  function failed(errorKey: NamespaceKey<"account"> | undefined): void {
+  function failed(errorKey: AccountKey | undefined): void {
     toast.error(
       errorKey
         ? t(errorKey, {
@@ -79,10 +79,7 @@ export function ProfileSection({ user }: { user: AvatarUser & { image: string | 
     );
   }
 
-  function report(
-    result: { ok: boolean; errorKey?: NamespaceKey<"account"> },
-    success: string,
-  ): void {
+  function report(result: AccountResult, success: string): void {
     if (result.ok) toast.success(success);
     else failed(result.errorKey);
   }
@@ -90,7 +87,13 @@ export function ProfileSection({ user }: { user: AvatarUser & { image: string | 
   function saveProfile(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     start(async () => {
-      report(await updateProfile({ email, firstName, lastName }), t("profile.saved"));
+      // attempt(), never a bare await: a rejected action inside a transition
+      // escalates to the (app) error boundary and replaces the whole page --
+      // including the form the user is halfway through. See @/lib/account/result.
+      report(
+        await attempt(() => updateProfile({ email, firstName, lastName })),
+        t("profile.saved"),
+      );
     });
   }
 
@@ -123,7 +126,7 @@ export function ProfileSection({ user }: { user: AvatarUser & { image: string | 
     body.set("avatar", file);
 
     start(async () => {
-      const result = await uploadAvatar(body);
+      const result = await attempt(() => uploadAvatar(body));
       if (!result.ok) setPreview(null);
       report(result, t("avatar.uploaded"));
     });
@@ -131,7 +134,7 @@ export function ProfileSection({ user }: { user: AvatarUser & { image: string | 
 
   function discardPicture() {
     start(async () => {
-      const result = await removeAvatar();
+      const result = await attempt(() => removeAvatar());
       if (result.ok) setPreview(null);
       report(result, t("avatar.removed"));
     });

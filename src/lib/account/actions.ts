@@ -8,7 +8,6 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { z } from "zod";
 
-import type { NamespaceKey } from "@/i18n/next-intl";
 import { auth } from "@/lib/auth/server";
 import { refreshSession, requireUser } from "@/lib/auth/session";
 import { AVATAR_MAX_BYTES, avatarUrlFor } from "@/lib/avatar";
@@ -17,6 +16,7 @@ import { writeTransaction } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
 
 import { hasPasswordCredential } from "./queries";
+import type { AccountKey, AccountResult as Result } from "./result";
 
 /**
  * Everything `/account` writes.
@@ -31,8 +31,8 @@ import { hasPasswordCredential } from "./queries";
  *    `@/lib/settings/actions` and `@/lib/auth/sign-in-errors`: Better Auth's
  *    messages are English constants and zod's are English too, and either one
  *    rendered into a German UI is a bug the type system can catch instead. The
- *    key is typed `AccountKey` at its *source*, so a key neither catalog
- *    defines fails `npm run typecheck`.
+ *    key is typed `AccountKey` at its *source* (see `./result`), so a key
+ *    neither catalog defines fails `npm run typecheck`.
  * 3. **Every write to `users` goes through `writeTransaction()`** (CLAUDE.md),
  *    with a synchronous callback -- and is followed by `refreshSession()`,
  *    because a direct column write is invisible to `currentUser()` for five
@@ -40,11 +40,13 @@ import { hasPasswordCredential } from "./queries";
  * 4. **`users.image` receives `avatarUrlFor(user.id)`, never a filesystem
  *    path.** The wrong value fails silently: it 404s, `AvatarImage` never
  *    mounts, and the initials show forever with nothing thrown.
+ *
+ * A fifth rule belongs to the *callers*: none of these may be awaited bare. An
+ * action can fail without returning -- Next refusing an over-sized body, a
+ * dropped connection -- and an unhandled rejection inside a `useTransition`
+ * scope takes the whole page to the error boundary. Every call site goes
+ * through `attempt()` in `./result`.
  */
-type AccountKey = NamespaceKey<"account">;
-
-type Result = { ok: boolean; errorKey?: AccountKey };
-
 /**
  * Better Auth's own bounds, restated so a rejection is a translated sentence
  * instead of an English `PASSWORD_TOO_SHORT` from the library. `8` is
@@ -225,6 +227,28 @@ async function errorCode(response: Response): Promise<string | null> {
 }
 
 /**
+ * This user's avatar file, or `null` after logging why there is no such path.
+ *
+ * **Both halves of the avatar invariant go through here**, so "the signed-in id
+ * is not avatar-shaped" cannot mean two different things: the upload refuses
+ * before it writes anything, and the removal refuses before it nulls the
+ * column. It is unreachable while ids are Better Auth's -- `avatar-storage.ts`
+ * pins the pattern to `generateId()` and a test pins it to an id Better Auth
+ * really minted -- but an invariant with two readings is one that will
+ * eventually be read the wrong way.
+ *
+ * Refusing is the safe direction for both. Reporting success on a removal whose
+ * file this process cannot name would leave the picture being served by
+ * `src/app/media/avatars/[userId]/route.ts`, which is exactly what unlinking
+ * exists to prevent.
+ */
+function avatarPathOrRefuse(userId: string, caller: string): string | null {
+  const file = avatarFilePath(userId);
+  if (!file) console.error(`${caller}: the signed-in id is not avatar-shaped: ${userId}`);
+  return file;
+}
+
+/**
  * Store an uploaded avatar.
  *
  * **Size is checked twice, and the order matters.** `File.size` arrives from
@@ -255,14 +279,8 @@ export async function uploadAvatar(formData: FormData): Promise<Result> {
   // Actual length second: this is the check that holds against a lying client.
   if (received.byteLength > AVATAR_MAX_BYTES) return { ok: false, errorKey: "avatar.tooLarge" };
 
-  const file = avatarFilePath(user.id);
-  if (!file) {
-    // Unreachable while ids are Better Auth's -- `avatar-storage.test.ts` pins
-    // the shape against a real one -- but a null here must never become a
-    // path built some other way.
-    console.error(`uploadAvatar: the signed-in id is not avatar-shaped: ${user.id}`);
-    return { ok: false };
-  }
+  const file = avatarPathOrRefuse(user.id, "uploadAvatar");
+  if (!file) return { ok: false };
 
   let encoded: Buffer;
   try {
@@ -308,10 +326,17 @@ export async function uploadAvatar(formData: FormData): Promise<Result> {
  * The column is cleared first here -- the opposite of the upload's order, and
  * for the same reason. Whichever step fails, the state in between is "nothing
  * is displayed", never "the column points at a file that is gone".
+ *
+ * An id that is not avatar-shaped refuses *before* the column is nulled, the
+ * same way the upload refuses before it writes. The alternative -- null the
+ * column and skip the unlink -- would report success over a file this process
+ * has decided it cannot name, which is the one outcome the unlink exists to
+ * prevent.
  */
 export async function removeAvatar(): Promise<Result> {
   const user = await requireUser();
-  const file = avatarFilePath(user.id);
+  const file = avatarPathOrRefuse(user.id, "removeAvatar");
+  if (!file) return { ok: false };
 
   try {
     writeTransaction((tx) =>
@@ -319,7 +344,7 @@ export async function removeAvatar(): Promise<Result> {
     );
     // `force: true` so an already-absent file is success, not an error: the
     // user asked for "no avatar" and that is what they have.
-    if (file) await fs.rm(file, { force: true });
+    await fs.rm(file, { force: true });
   } catch (error) {
     console.error("Failed to remove an avatar", error);
     return { ok: false };

@@ -32,6 +32,12 @@ const config: NextConfig = {
    * anything worth calling a DoS surface. **Keep it above `AVATAR_MAX_BYTES`**:
    * the application's limit is the one that produces a translated message, and
    * this one exists only so that limit is the first to be hit.
+   *
+   * **It is global to every Server Action, not just the upload** -- Next offers
+   * no per-action cap. Nothing else in this application posts a body worth
+   * measuring, so the exposure is the avatar route's either way; a later phase
+   * that adds a genuinely large upload should reconsider the number here rather
+   * than assume it was chosen for that upload too.
    */
   experimental: {
     serverActions: { bodySizeLimit: "2304kb" },

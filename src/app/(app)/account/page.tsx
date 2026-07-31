@@ -24,7 +24,21 @@ async function Sections() {
 
   return (
     <div className="space-y-6">
-      <ProfileSection user={user} />
+      {/* Five named columns, not the `User` row -- the same rule the (app)
+          layout applies to the sidebar footer, and for the same reason: the
+          row also carries `role`, the three ban columns, `emailVerified` and
+          the timestamps, and passing it whole serializes all of them into the
+          RSC payload for no purpose. Own-row data, so nothing crosses between
+          users; it is still more than the card renders. */}
+      <ProfileSection
+        user={{
+          id: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          image: user.image,
+        }}
+      />
       <PasswordSection hasPassword={hasPassword} />
       <PasskeySection passkeys={passkeys} hasPassword={hasPassword} />
     </div>

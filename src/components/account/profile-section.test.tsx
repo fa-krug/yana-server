@@ -172,6 +172,40 @@ describe("<ProfileSection>", () => {
     expect(uploadAvatar).toHaveBeenCalled();
   });
 
+  it.each([
+    ["a profile save", () => updateProfile],
+    ["an avatar upload", () => uploadAvatar],
+  ])("survives %s that rejects instead of returning", async (_label, action) => {
+    // Not a thought experiment: an over-sized body makes Next reject the
+    // action, and an unhandled rejection inside a useTransition scope escalates
+    // to the (app) error boundary -- the whole page becomes "Something went
+    // wrong" and the half-typed form is gone. attempt() is what stops it.
+    action().mockRejectedValue(new Error("Body exceeded 2304kb limit"));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const { container } = renderWithProviders(<ProfileSection user={ADA} />, { locale: "de" });
+
+      if (action() === updateProfile) {
+        fireEvent.submit(screen.getByLabelText("Vorname").closest("form")!);
+      } else {
+        fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, {
+          target: { files: [new File(["small"], "me.png", { type: "image/png" })] },
+        });
+      }
+
+      await vi.waitFor(() =>
+        expect(toastError).toHaveBeenCalledWith(
+          "Der Server hat nicht geantwortet. Prüfe deine Verbindung und versuche es erneut.",
+        ),
+      );
+      // Still mounted, still holding what was typed -- the page did not go away.
+      expect((screen.getByLabelText("Vorname") as HTMLInputElement).value).toBe("Ada");
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
   it("names the megapixel limit when the upload is refused", async () => {
     // The requirement the brief is explicit about: never "processing failed".
     updateProfile.mockResolvedValue({ ok: true });

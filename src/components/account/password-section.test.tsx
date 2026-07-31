@@ -102,6 +102,35 @@ describe("<PasswordSection>", () => {
     );
   });
 
+  it("survives a change request that rejects instead of returning", async () => {
+    // Same cliff as the profile card, with three filled password fields on it.
+    changePassword.mockRejectedValue(new Error("Failed to fetch"));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      renderWithProviders(<PasswordSection hasPassword />);
+      fill({
+        "Current password": "correct horse battery staple",
+        "New password": "a brand new password",
+        "Confirm new password": "a brand new password",
+      });
+      fireEvent.submit(screen.getByLabelText("New password").closest("form")!);
+
+      await vi.waitFor(() =>
+        expect(toastError).toHaveBeenCalledWith(
+          "The server did not answer. Check your connection and try again.",
+        ),
+      );
+      // Nothing was cleared: the request never happened, so the retry is one
+      // click and not three fields.
+      expect((screen.getByLabelText("Current password") as HTMLInputElement).value).toBe(
+        "correct horse battery staple",
+      );
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
   it("offers no form at all to an account with no password credential", () => {
     // Phase 5 can provision a passkey-only account. A form here would return
     // CREDENTIAL_ACCOUNT_NOT_FOUND on every submission.
