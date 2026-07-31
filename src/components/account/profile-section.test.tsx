@@ -172,10 +172,39 @@ describe("<ProfileSection>", () => {
     expect(uploadAvatar).toHaveBeenCalled();
   });
 
+  /**
+   * All **three** action calls this card makes, one row each.
+   *
+   * The third exists because `discardPicture()`'s `attempt()` wrap was the one
+   * mutation the suite did not catch: replacing it with a bare `await` failed
+   * nothing at all. The row needs its own trigger and its own fixture -- the
+   * "Remove picture" button only renders when there is a picture to remove --
+   * which is exactly why the original two-row version could not simply be
+   * extended with a third action reference.
+   */
   it.each([
-    ["a profile save", () => updateProfile],
-    ["an avatar upload", () => uploadAvatar],
-  ])("survives %s that rejects instead of returning", async (_label, action) => {
+    [
+      "a profile save",
+      () => updateProfile,
+      ADA,
+      () => fireEvent.submit(screen.getByLabelText("Vorname").closest("form")!),
+    ],
+    [
+      "an avatar upload",
+      () => uploadAvatar,
+      ADA,
+      (container: HTMLElement) =>
+        fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, {
+          target: { files: [new File(["small"], "me.png", { type: "image/png" })] },
+        }),
+    ],
+    [
+      "an avatar removal",
+      () => removeAvatar,
+      { ...ADA, image: avatarUrlFor(ADA.id) },
+      () => fireEvent.click(screen.getByRole("button", { name: "Bild entfernen" })),
+    ],
+  ])("survives %s that rejects instead of returning", async (_label, action, user, trigger) => {
     // Not a thought experiment: an over-sized body makes Next reject the
     // action, and an unhandled rejection inside a useTransition scope escalates
     // to the (app) error boundary -- the whole page becomes "Something went
@@ -184,16 +213,11 @@ describe("<ProfileSection>", () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
     try {
-      const { container } = renderWithProviders(<ProfileSection user={ADA} />, { locale: "de" });
+      const { container } = renderWithProviders(<ProfileSection user={user} />, { locale: "de" });
 
-      if (action() === updateProfile) {
-        fireEvent.submit(screen.getByLabelText("Vorname").closest("form")!);
-      } else {
-        fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, {
-          target: { files: [new File(["small"], "me.png", { type: "image/png" })] },
-        });
-      }
+      trigger(container);
 
+      await vi.waitFor(() => expect(action()).toHaveBeenCalled());
       await vi.waitFor(() =>
         expect(toastError).toHaveBeenCalledWith(
           "Der Server hat nicht geantwortet. Prüfe deine Verbindung und versuche es erneut.",

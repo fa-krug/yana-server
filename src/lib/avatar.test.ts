@@ -52,6 +52,55 @@ describe("displayNameFor", () => {
   });
 });
 
+/**
+ * **The measuring stick, measured.**
+ *
+ * Every contrast assertion below calls `contrastWithWhite()` -- and so does the
+ * solver inside `colourFor()`. A shared helper that agreed with itself would
+ * satisfy all of them while being wrong about colour entirely: swap sRGB
+ * gamma-expansion for a linear ratio, or the luminance coefficients for equal
+ * thirds, and the solver would pick different lightnesses, the tests would
+ * still pass, and half of all users would be back to unreadable initials.
+ *
+ * The two endpoints of WCAG's formula are constants nothing here can move:
+ * black on white is exactly 21:1 and white on white exactly 1:1. Pinning them
+ * anchors the function to the specification rather than to itself.
+ */
+describe("contrastWithWhite", () => {
+  it("gives the two ratios WCAG fixes by definition", () => {
+    // (1.0 + 0.05) / (0.0 + 0.05) = 21, and (1.05 / 1.05) = 1.
+    expect(contrastWithWhite(0, 0, 0)).toBeCloseTo(21, 5);
+    expect(contrastWithWhite(0, 0, 100)).toBeCloseTo(1, 5);
+  });
+
+  it("puts a mid grey where the sRGB transfer curve does, not where a linear ratio would", () => {
+    // 50% lightness is sRGB #808080, whose *relative luminance* is 0.2140 --
+    // not 0.5. A model that skipped gamma expansion would land near 2.0:1
+    // instead, which is the single most likely way to get this wrong.
+    expect(contrastWithWhite(0, 0, 50)).toBeCloseTo(3.977, 3);
+  });
+
+  it("weights the three channels the way sRGB does", () => {
+    // Greys cannot show this: r = g = b, so *any* coefficients summing to 1 --
+    // equal thirds included -- reproduce the assertions above exactly. The
+    // three primaries can, and their ratios against white are published
+    // constants: #FF0000 3.998:1, #00FF00 1.372:1, #0000FF 8.592:1. Green
+    // carries 0.7152 of the luminance and blue 0.0722, which is also *why*
+    // `colourFor()` has to solve per hue instead of pinning a lightness.
+    expect(contrastWithWhite(0, 100, 50)).toBeCloseTo(3.998, 3);
+    expect(contrastWithWhite(120, 100, 50)).toBeCloseTo(1.372, 3);
+    expect(contrastWithWhite(240, 100, 50)).toBeCloseTo(8.592, 3);
+  });
+
+  it("is monotonic in lightness", () => {
+    // Cheap, and it fails for any channel mix-up that happens to preserve the
+    // endpoints above.
+    for (let l = 1; l <= 100; l += 1) {
+      expect(contrastWithWhite(210, 55, l)).toBeLessThan(contrastWithWhite(210, 55, l - 1));
+    }
+  });
+});
+
 describe("colourFor", () => {
   it("is stable for the same id", () => {
     expect(colourFor("user-1")).toBe(colourFor("user-1"));

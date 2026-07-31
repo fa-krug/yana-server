@@ -2,6 +2,7 @@ import { fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PasskeySummary } from "@/lib/account/queries";
+import { setRouter } from "@/test/next-navigation";
 import { renderWithProviders } from "@/test/render";
 
 import { PasskeySection } from "./passkey-section";
@@ -22,8 +23,16 @@ vi.mock("@/lib/account/actions", () => ({ removePasskey }));
 const { addPasskey } = vi.hoisted(() => ({ addPasskey: vi.fn() }));
 vi.mock("@/lib/auth/client", () => ({ authClient: { passkey: { addPasskey } } }));
 
+/**
+ * The shared router stub, not an inline factory. `vi.mock` replaces the whole
+ * module, so a hand-rolled `{ useRouter }` breaks the moment anything in the
+ * tree reaches another export -- which is exactly what happened when
+ * `attempt()` started calling `unstable_rethrow`. `@/test/next-navigation`
+ * re-exports the real one.
+ */
 const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+vi.mock("next/navigation", () => import("@/test/next-navigation"));
+setRouter({ refresh });
 
 const { toastError, toastSuccess } = vi.hoisted(() => ({
   toastError: vi.fn(),
