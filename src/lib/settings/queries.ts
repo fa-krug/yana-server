@@ -1,77 +1,25 @@
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { cache } from "react";
 
-import { ADMIN_ROLES } from "@/lib/auth/server";
+import { currentUserId } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
-import { type UserSettings, userSettings, users } from "@/lib/db/schema";
+import { type UserSettings, userSettings } from "@/lib/db/schema";
 
 /**
- * Per-process memo of the owner lookup. There is exactly one owner right now --
- * the bootstrap administrator -- so the answer cannot go stale within a process,
- * and it only needs resolving once rather than on every page render (locale
- * resolution in the root layout asks for it every time).
+ * Re-exported, not reimplemented: `src/lib/auth/session.ts` owns the seam now,
+ * and this is where phase 3 put it. Every phase-3 consumer -- the root layout's
+ * locale and theme reads, the settings actions -- imports it from here and did
+ * not have to change when it became session-backed.
  *
- * Caches the *promise*, not the resolved id, so concurrent callers that land
- * before the first lookup settles all await that one in-flight attempt.
- * Cleared on rejection so a transient failure (the database briefly locked at
- * startup, or the admin bootstrap not finished yet) isn't cached for the life
- * of the process -- the next call gets a fresh attempt.
+ * There is deliberately no memo left in this module. The one that used to live
+ * here cached a single id per *process*, which was sound only while a
+ * hard-coded owner was the whole authorization model; keeping it now would hand
+ * the first visitor's identity to every other session.
  */
-// ==> TASK 3: DELETE THIS MEMO. It is per *process*, and a session id is not.
-// Keeping it while `resolveOwnerId()` becomes a session read caches the first
-// visitor's id and serves it to every other session -- every user would see,
-// and overwrite, that one user's settings. The memo is only sound while a single
-// hard-coded owner is the whole authorization model; it stops being sound the
-// moment the answer depends on the request.
-let ownerId: Promise<string> | undefined;
-
-// INTERIM (Task 2 -> Task 3). Task 3 replaces this body with a session read and
-// nothing else in the app changes -- the signature is the seam. "Nothing else"
-// covers the *callers*: the memo above is part of this body and must go with it.
-//
-// There is exactly one account at this point: the administrator
-// `ensureAdminExists()` creates at startup (src/lib/auth/bootstrap.ts, run from
-// src/instrumentation.ts). Resolving it by role rather than by a hard-coded id
-// is what lets the phase-3 seeder -- which owned the id "bootstrap" and wrote a
-// user with no credentials -- be deleted outright. A read, never a write: this
-// no longer seeds anything, so nothing here can create the account it looks
-// for.
-async function resolveOwnerId(): Promise<string> {
-  const row = getDb()
-    .select({ id: users.id })
-    .from(users)
-    .where(inArray(users.role, ADMIN_ROLES))
-    .orderBy(users.createdAt)
-    .get();
-
-  if (!row) {
-    throw new Error(
-      "currentUserId: no administrator exists. ensureAdminExists() runs at server " +
-        "start from src/instrumentation.ts and creates one; this means it did not " +
-        "run, or the database is not the one it wrote to.",
-    );
-  }
-  return row.id;
-}
+export { currentUserId };
 
 /**
- * The phase 3/4 seam, deliberately one function.
- *
- * Until Task 3 lands session reads, everything is owned by the bootstrap
- * administrator. Task 3 replaces this body and nothing else in the app changes.
- */
-export async function currentUserId(): Promise<string> {
-  if (!ownerId) {
-    ownerId = resolveOwnerId().catch((error: unknown) => {
-      ownerId = undefined;
-      throw error;
-    });
-  }
-  return ownerId;
-}
-
-/**
- * Returns the current owner's settings row.
+ * Returns the signed-in user's settings row.
  *
  * Wrapped in React's cache() so the root layout's locale lookup and a page's
  * data regions -- both asking for the same row within one render -- share a
@@ -82,13 +30,16 @@ export async function currentUserId(): Promise<string> {
  * every test call still hits the real database.
  *
  * A plain read, no writeTransaction(): that helper is for writes (see
- * client.ts). currentUserId() writes nothing either, so a typical call here
- * does zero writes.
+ * client.ts). currentUserId() reads the session and writes nothing of ours --
+ * the one write that can happen behind it is Better Auth sliding a session's
+ * expiry once `session.updateAge` has elapsed, which goes through its own
+ * adapter.
  *
- * No insert-if-absent fallback here: ensureAdminExists() creates the row
- * alongside the account it bootstraps -- see src/lib/auth/bootstrap.ts. If the
- * row is somehow still missing, that is a bug in the provisioning path worth
- * surfacing loudly rather than papering over with a second insert here.
+ * No insert-if-absent fallback here: an account is provisioned with its
+ * settings row -- ensureAdminExists() does it for the bootstrap administrator
+ * (src/lib/auth/bootstrap.ts) and phase 5's user creation must do the same. If
+ * the row is missing, that is a bug in the provisioning path worth surfacing
+ * loudly rather than papering over with a second insert on the read path.
  */
 export const getSettings = cache(async (): Promise<UserSettings> => {
   const userId = await currentUserId();

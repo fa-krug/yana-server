@@ -43,7 +43,7 @@ file.
 │   │   ├── health/route.ts        # GET /health — SELECT 1 against the database
 │   │   ├── api/auth/[...all]/     # route.ts — every Better Auth endpoint
 │   │   └── (app)/                 # sidebar + breadcrumb chrome for every real page
-│   │       ├── layout.tsx         # sidebar, content frame
+│   │       ├── layout.tsx         # sidebar, content frame; awaits requireUser()
 │   │       ├── loading.tsx        # route-level Suspense fallback
 │   │       ├── page.tsx           # dashboard
 │   │       ├── error.tsx          # error boundary for every route in the group
@@ -60,12 +60,16 @@ file.
 │   │   ├── request.ts             # next-intl request config; reads getSettings()
 │   │   └── next-intl.d.ts         # AppConfig augmentation — compiler-checked catalog keys
 │   ├── instrumentation.ts         # register(): the one startup hook — see src/lib/startup.ts
+│   ├── proxy.ts                   # route protection (Next 16's name for middleware.ts)
 │   ├── lib/
 │   │   ├── startup.ts             # runStartupTasks(): migrate, then ensure an admin exists
 │   │   ├── auth/
+│   │   │   ├── roles.ts           # ADMIN_ROLE(S) + isAdminRole() — imports nothing, on purpose
 │   │   │   ├── server.ts          # the Better Auth instance — the single config point
+│   │   │   ├── session.ts         # currentUser/requireUser/requireAdmin/currentUserId
 │   │   │   ├── bootstrap.ts       # ensureAdminExists() — the default admin, when none exists
-│   │   │   └── client.ts          # browser client (signIn/signOut/useSession, passkey)
+│   │   │   ├── client.ts          # browser client (signIn/signOut/useSession, passkey)
+│   │   │   └── test-support.ts    # TEST-ONLY: sign in, and turn Set-Cookie into a Cookie header
 │   │   ├── db/
 │   │   │   ├── client.ts          # getDb(), writeTransaction(), PRAGMAs
 │   │   │   ├── migrate.ts         # the only migrate() call — startup and tests share it
@@ -75,7 +79,8 @@ file.
 │   │   │   ├── test-support.ts    # TEST-ONLY: migrate()-based fixture databases
 │   │   │   └── *.test.ts          # client, schema, relations, schema/enums
 │   │   ├── nav.ts                 # NAV_ITEMS + breadcrumbsFor() — single source for both
-│   │   ├── settings/               # queries.ts (getSettings), actions.ts (server actions)
+│   │   ├── settings/               # queries.ts (getSettings + the re-exported currentUserId),
+│   │   │                           #   actions.ts (server actions)
 │   │   └── utils.ts               # cn()
 │   └── test/                      # TEST-ONLY: shared setup for the jsdom project
 │       ├── render.tsx             # renderWithProviders() — real catalogs, optional theme
@@ -199,10 +204,13 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   truth for "may this person delete users" — the plugin's `setRole` writing one
   and our UI the other, with nothing keeping them agreed. Still no groups and
   no permission table: `"admin"` is the only role anything reads, and it is
-  written once — `ADMIN_ROLE`/`ADMIN_ROLES` in `src/lib/auth/server.ts` are what
-  the plugin's `adminRoles` is configured with _and_ what every "is this an
-  admin" check reads, so a second literal `"admin"` in a query is a drift bug,
-  not a shortcut. The plugin's
+  written once — `ADMIN_ROLE`/`ADMIN_ROLES`/`isAdminRole()` in
+  **`src/lib/auth/roles.ts`** are what the plugin's `adminRoles` is configured
+  with _and_ what every "is this an admin" check reads, so a second literal
+  `"admin"` in a query is a drift bug, not a shortcut. That module **imports
+  nothing** and must stay that way: it is the one piece of the auth stack a DOM
+  test, a client component or `src/proxy.ts` may read without dragging
+  `better-sqlite3` in behind it. The plugin's
   own endpoints go unused (phase 5 hand-rolls user CRUD and declines
   impersonation); it is here for the `role` field and its server-side
   semantics, above all `input: false`, which makes Better Auth answer
@@ -298,7 +306,10 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   itself, as its first statement**, before any translation or data call:
   `src/app/layout.tsx`, `src/app/health/route.ts`, `src/app/(app)/page.tsx` and
   `src/app/(app)/settings/page.tsx` today. A new page that reads anything needs
-  its own line. The health route calls it _outside_ its `try`, because inside it
+  its own line — unless it already awaits a Dynamic API, which opts the route
+  out just as well: `src/app/(app)/layout.tsx` needs no `connection()` because
+  `requireUser()` awaits `headers()` before anything touches SQLite.
+  The health route calls it _outside_ its `try`, because inside it
   the prerender bail-out (itself a thrown error) would be caught and turned into
   a 503, silently reinstating a static `{"status":"ok"}`. To check the invariant:
   delete `data/`, run `npm run build`, and confirm it was not recreated.
@@ -339,17 +350,37 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   `src/components/data-skeleton.tsx`, **plus an error boundary** — once the
   shell has flushed its first byte the response status is already 200 and
   cannot become a 5xx, so a throw inside a Suspense boundary with no error
-  boundary above it just truncates the stream. Locale resolution in the root
-  layout is the one documented exception to "chrome never waits on data".
-- **`getSettings()` is `cache()`d per request; `currentUserId()` is the
-  phase-4 seam**, and its owner lookup is memoized per process — deliberately
-  **not** self-healing, so a `user_settings` row deleted at runtime stays
-  deleted until restart. It resolves the administrator by role and **writes
-  nothing**: seeding moved to startup (see the bullet below), so the settings
-  path can no longer create the account it reads. The root layout's two reads
-  (locale, theme) fall back instead of throwing (locale → `en`, theme →
-  `system`) so a missing row cannot 500 the whole app; everywhere else the throw
-  propagates on purpose.
+  boundary above it just truncates the stream. There are exactly two documented
+  exceptions to "chrome never waits on data": locale resolution in the root
+  layout, and the `requireUser()` in `src/app/(app)/layout.tsx` — both are a
+  cookie read plus at most one indexed query, and the sidebar cannot render
+  before the second one, since which items it contains depends on the answer.
+  The layout's await is also the last point at which a `redirect()` can still
+  change the response; after the first byte flushes it cannot.
+- **Identity comes from the session: `currentUser()`, `requireUser()`,
+  `requireAdmin()` and `currentUserId()` in `src/lib/auth/session.ts`.**
+  `currentUserId()` keeps the signature phase 3 gave it and is re-exported from
+  `src/lib/settings/queries.ts`, which is why closing the seam changed no
+  consumer. **Never memoize an identity across requests** — the per-process memo
+  that lived here while a single hard-coded owner _was_ the authorization model
+  would now serve the first visitor's identity, and settings, to everyone else;
+  `cache()` (per request) is the only sound memo, and `currentUser()` carries it.
+  Two rules on top:
+  - **`requireAdmin()` passes `disableCookieCache: true`, and must keep doing
+    so.** `session.cookieCache` serves the whole user object — `role` included —
+    from a signed cookie for 5 minutes with no database read, so an admin
+    demoted a minute ago is still an admin to any check that trusts it. Identity
+    reads may keep the cache (a stale id is not a privilege bug, and that is the
+    read on every render); authorization may not.
+  - **`requireAdmin()` answers 404, not 403.** A 403 confirms the route exists,
+    which a non-admin has no reason to learn.
+- **`getSettings()` is `cache()`d per request and has no insert-if-absent
+  fallback**: a missing `user_settings` row is a provisioning bug and throws.
+  The root layout's two reads (locale, theme) are the exception — they fall back
+  (locale → `en`, theme → `system`) so a missing row cannot 500 the whole app,
+  and they also swallow the signed-out `redirect()` (`isLoginRedirect()`),
+  because this layout renders on `/login` too and propagating it there would
+  loop forever. Everywhere else the throw propagates on purpose.
 - **There is one startup path: `register()` in `src/instrumentation.ts`, which
   awaits `runStartupTasks()` in `src/lib/startup.ts`.** Next calls it once per
   server instance before the first request — `next dev`, `npm start` and the
@@ -386,9 +417,33 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     behaviour that does not exist. The single failure that reaches neither is a
     duplicate-key loss to a concurrent bootstrap, absorbed inside
     `ensureAdminExists()`.
+- **Route protection is `src/proxy.ts` — Next 16's rename of `middleware.ts`,
+  and it is not cosmetic.** The old name still works but warns on every build,
+  and a Proxy defaults to the **Node.js** runtime where middleware was compiled
+  for the edge (the `runtime` segment config is rejected in this file). Both the
+  file name and the exported function name (`proxy`, not `middleware`) have to
+  change together: half a rename is a file Next silently never calls, which
+  would leave every route unguarded with nothing failing. The doc is
+  `node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md`.
+  Two rules:
+  - **It checks cookie _presence_ only, and is not authentication.** It cannot
+    reach the database — `@/lib/db/*` and `@/lib/auth/server` are banned there,
+    pinned by `src/proxy.test.ts`, because a proxy is documented as code that may
+    run outside the application's main runtime (and under the old edge
+    compilation such an import failed the _build_ and made `next dev` 500 on
+    every route). What it buys is a redirect with `?next=` before Next renders
+    anything. The real check is `requireUser()`/`requireAdmin()` in the layout or
+    the server action — which is also Next's own guidance, for a sharper reason:
+    a server function is a POST to the route that uses it, so a matcher change
+    can silently remove proxy coverage from it.
+  - **Use `getSessionCookie()` from `better-auth/cookies`**, never a
+    `name.includes("session")` substring match: it knows the configured prefix
+    and the `__Secure-` prefix that appears the moment this is served over
+    HTTPS, so the substring version is a check that works locally and sends
+    every authenticated production request to `/login`.
 - **The default admin: `admin@admin.com` / `admin`, created only when no admin
   exists.** Three things are load-bearing. The check is keyed on **"any user
-  holds an admin role"** (`ADMIN_ROLES` from `auth/server.ts`, the same list the
+  holds an admin role"** (`ADMIN_ROLES` from `auth/roles.ts`, the same list the
   `admin()` plugin is configured with), never on the address — so a renamed or
   deleted default does not come back on the next boot. The account is created
   through `createUserWithPassword()`, so it has a real scrypt credential and can
@@ -435,19 +490,31 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   next-themes silently fall back to `defaultTheme`).
 
   A `next/navigation` stub is a _router_ stub and does **not** violate the
-  no-driver-mocks convention above, which is about the database. Messages are
-  never stubbed — a test carrying its own message objects would pass while the
-  shipped catalogs were broken.
+  no-driver-mocks convention above, which is about the database. The same goes
+  for `next/headers` and for `@/lib/auth/session` in a `.tsx` test: they stand in
+  for a request scope no unit test can boot. Stub the _session_, never the
+  derivation — `src/app/(app)/layout.test.tsx` stubs `requireUser()` and then
+  calls the real `isAdminRole()`, which is why `auth/roles.ts` is dependency-free.
+  A **node** test needing cookies does the honest thing instead: sign in for real
+  through `signInCookie()` (`src/lib/auth/test-support.ts`) against a real
+  database, and put the result behind a `vi.hoisted()` box that a
+  `vi.mock("next/headers", ...)` factory reads (a stub module imported inside the
+  factory does not survive `vi.resetModules()`). Messages are never stubbed — a
+  test carrying its own message objects would pass while the shipped catalogs
+  were broken.
 
   **`async` server components cannot be rendered by testing-library** — that
   covers `settings/page.tsx` and the `Sections`/`LibrarySummary` data regions,
-  which stay untested. Don't reshape production code to make them testable. A
-  synchronous server component is fine: `src/app/(app)/layout.tsx` is rendered
-  in `layout.test.tsx`.
+  which stay untested. Don't reshape production code to make them testable. The
+  one case that works is an async component whose _output_ is synchronous:
+  `src/app/(app)/layout.tsx` is awaited as a plain function and its result
+  handed to `renderWithProviders()` (see `layout.test.tsx`). That is not a
+  licence to split a data component in two so it fits.
 
   What is covered so far is exactly what phase 3's escaped defects needed: one
   `<main>` landmark, no `li` inside `li`, breadcrumbs translating nav segments
-  while showing record ids verbatim, and the Select trigger's translated label.
+  while showing record ids verbatim, the Select trigger's translated label, and
+  (phase 4) admin-only navigation hidden from a non-admin.
   Assert against `de.json` where English is too close to the raw value to prove
   anything ("Dark" vs. `dark`). New structural assertions are worth checking
   against the defect they describe — reintroduce it, watch the test fail, revert

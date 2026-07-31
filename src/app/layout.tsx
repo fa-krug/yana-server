@@ -6,6 +6,7 @@ import { getLocale } from "next-intl/server";
 
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { isLoginRedirect } from "@/lib/auth/session";
 import { getSettings } from "@/lib/settings/queries";
 
 import "./globals.css";
@@ -46,12 +47,18 @@ async function themePreference(): Promise<string> {
   try {
     return (await getSettings()).theme;
   } catch (error) {
-    // Logged, not swallowed silently: otherwise the fallback is invisible and
-    // the app just looks like it forgot the theme setting.
-    console.error(
-      `Root layout: could not read the stored theme; falling back to "${FALLBACK_THEME}".`,
-      error,
-    );
+    // The signed-out case is expected here and is not logged: getSettings()
+    // redirects to /login when there is no session, and this layout renders on
+    // /login too -- see isLoginRedirect(), and the same branch in
+    // src/i18n/request.ts. Everything else is logged, not swallowed silently:
+    // otherwise the fallback is invisible and the app just looks like it forgot
+    // the theme setting.
+    if (!isLoginRedirect(error)) {
+      console.error(
+        `Root layout: could not read the stored theme; falling back to "${FALLBACK_THEME}".`,
+        error,
+      );
+    }
     return FALLBACK_THEME;
   }
 }

@@ -7,6 +7,8 @@ import { getDb } from "@/lib/db/client";
 import * as schema from "@/lib/db/schema";
 import type { User } from "@/lib/db/schema";
 
+import { ADMIN_ROLES } from "./roles";
+
 /**
  * `drizzleAdapter()` takes the database handle by value, but `getDb()` opens
  * the SQLite file on its first call and `data/` does not exist until
@@ -34,20 +36,6 @@ import type { User } from "@/lib/db/schema";
  * is guaranteed across better-auth upgrades -- if an upgrade starts inspecting
  * the handle at factory time, this is the first place to look.
  */
-/**
- * The role the bootstrap grants and phases 5-13 check for, and the full list of
- * roles the `admin()` plugin treats as administrative.
- *
- * Exported and fed *into* the plugin below rather than written twice: anything
- * asking "is this user an admin" (`ensureAdminExists()` in `./bootstrap`, every
- * later authorization check) has to agree with the plugin's own `adminRoles`,
- * and a second literal `"admin"` somewhere else is exactly how those drift. The
- * array is deliberately mutable-typed -- `admin()` takes `string[]`, and an
- * `as const` tuple would need a spread at the call site, which is another copy.
- */
-export const ADMIN_ROLE = "admin";
-export const ADMIN_ROLES: string[] = [ADMIN_ROLE];
-
 const lazyDb = new Proxy({} as ReturnType<typeof getDb>, {
   get(_target, property) {
     const db = getDb();
@@ -157,6 +145,10 @@ export const auth = betterAuth({
      * `users.role`. Both options below are the library defaults, set explicitly
      * because the values are load-bearing for every check in phases 5-13 and
      * should not have to be looked up in a `??` chain inside the plugin.
+     *
+     * `adminRoles` comes from `./roles`, which is also where `isAdminRole()`
+     * reads it: the plugin's notion of an admin and the application's are the
+     * same array, by construction.
      *
      * Its endpoints (list/create/ban/impersonate users) go unused: phase 5 hand
      * -rolls user CRUD against Drizzle and declines impersonation. What the

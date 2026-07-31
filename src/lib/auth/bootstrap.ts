@@ -3,7 +3,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { accounts, passkeys, userSettings, users } from "@/lib/db/schema";
 
-import { ADMIN_ROLE, ADMIN_ROLES, createUserWithPassword, linkPasswordCredential } from "./server";
+import { ADMIN_ROLE, ADMIN_ROLES } from "./roles";
+import { createUserWithPassword, linkPasswordCredential } from "./server";
 
 /**
  * The account a fresh instance boots with. Both values are printed by the
@@ -21,8 +22,8 @@ const DEFAULT_PASSWORD = "admin";
  * deletes the default account has made a decision, and an email-keyed check
  * would undo it on the next restart -- handing back an account with a published
  * password that the operator believes is gone. `ADMIN_ROLES` comes from
- * `./server`, where it is also what the `admin()` plugin is configured with, so
- * this cannot drift from the plugin's own notion of an admin.
+ * `./roles`, which is also what the `admin()` plugin is configured with in
+ * `./server`, so this cannot drift from the plugin's own notion of an admin.
  *
  * Plain reads throughout this module, no writeTransaction(): that helper is for
  * writes.
