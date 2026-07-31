@@ -33,6 +33,14 @@ function primeSchema(dbPath: string): void {
 describe("ensureBootstrapUser", () => {
   let dbPath: string;
   let bootstrap: typeof import("./bootstrap");
+  let client: typeof import("./client");
+
+  // Same escape hatch client.ts itself uses to reach the raw better-sqlite3
+  // handle -- needed here to close the module singleton's connection in
+  // afterEach, the way client.test.ts does.
+  function raw(db: unknown): Database.Database {
+    return (db as { $client: Database.Database }).$client;
+  }
 
   beforeEach(async () => {
     vi.resetModules();
@@ -43,10 +51,13 @@ describe("ensureBootstrapUser", () => {
     primeSchema(dbPath);
     process.env.DATABASE_PATH = dbPath;
     bootstrap = await import("./bootstrap");
+    client = await import("./client");
   });
 
   afterEach(() => {
     delete process.env.DATABASE_PATH;
+    const connection = raw(client.getDb());
+    if (connection.open) connection.close();
     for (const suffix of ["", "-shm", "-wal"]) {
       fs.rmSync(`${dbPath}${suffix}`, { force: true });
     }
