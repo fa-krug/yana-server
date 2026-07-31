@@ -4,22 +4,18 @@ import { cache } from "react";
 
 import type { User } from "@/lib/db/schema";
 
+// LOGIN_PATH is where every `redirect()` below sends an unauthenticated
+// request. `src/proxy.ts` sends the same requests to the same place *with* a
+// `next` parameter -- it has the pathname and this does not -- so the proxy's
+// redirect is the one a user normally sees. These are the backstop for
+// everything the matcher cannot cover: a server action, and any request that
+// carries a session cookie the proxy had to take on trust but that turns out to
+// be expired, revoked or forged. It is imported rather than declared twice
+// because `./next-path` has to know the path anyway, to refuse a `?next=` that
+// points back here.
 import { LOGIN_PATH } from "./next-path";
 import { isAdminRole } from "./roles";
 import { auth } from "./server";
-
-/**
- * Where an unauthenticated request is sent. `src/proxy.ts` sends the same
- * requests to the same place *with* a `next` parameter -- it has the pathname
- * and this does not -- so the proxy's redirect is the one a user normally sees.
- * This one is the backstop for everything the matcher cannot cover: a server
- * action, and any request that carries a session cookie the proxy had to take
- * on trust but that turns out to be expired, revoked or forged.
- *
- * Imported from `./next-path` rather than declared twice: that module has to
- * know this path anyway, because a `?next=` pointing back at the login page is
- * an infinite redirect it must refuse.
- */
 
 /**
  * Better Auth's user object, as this app's `users` row.
