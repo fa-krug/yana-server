@@ -25,6 +25,37 @@ export const metadata: Metadata = {
   description: "Self-hosted RSS aggregator",
 };
 
+/** The theme applied when the stored preference cannot be read at all. */
+const FALLBACK_THEME = "system";
+
+/**
+ * The stored theme, or "system" if it cannot be read.
+ *
+ * Degrades for the same reason src/i18n/request.ts does: this read happens in
+ * the *root* layout, so an exception here is a 500 on every route in the app
+ * -- including /settings, the only page from which a user could fix the
+ * underlying state. getSettings() throws by design when the user_settings row
+ * is missing (see queries.ts) and the bootstrap seed is memoized per process,
+ * so that state survives until a restart. The value is only a pre-hydration
+ * default for next-themes, so falling back costs at most a wrong first paint;
+ * propagating costs the whole application. Deliberately limited to this one
+ * call: the dashboard's and /settings' own reads of getSettings() still throw
+ * and surface a real error through the error boundary.
+ */
+async function themePreference(): Promise<string> {
+  try {
+    return (await getSettings()).theme;
+  } catch (error) {
+    // Logged, not swallowed silently: otherwise the fallback is invisible and
+    // the app just looks like it forgot the theme setting.
+    console.error(
+      `Root layout: could not read the stored theme; falling back to "${FALLBACK_THEME}".`,
+      error,
+    );
+    return FALLBACK_THEME;
+  }
+}
+
 export default async function RootLayout({
   children,
 }: Readonly<{
@@ -43,7 +74,7 @@ export default async function RootLayout({
   // getSettings() is cache()d (see src/lib/settings/queries.ts), so this
   // shares the request's single SELECT with getLocale() above rather than
   // issuing a second one -- adding the theme bridge below costs no extra query.
-  const { theme } = await getSettings();
+  const theme = await themePreference();
   return (
     <html
       lang={locale}

@@ -23,9 +23,13 @@ export async function GET() {
     getDb().get("SELECT 1");
     return Response.json({ status: "ok" });
   } catch (error) {
-    return Response.json(
-      { status: "error", detail: error instanceof Error ? error.message : "unknown" },
-      { status: 503 },
-    );
+    // Logged, not returned. This is the only unauthenticated route in the app,
+    // and the failure messages available here are exactly the ones worth not
+    // publishing: getDb() starts with fs.mkdirSync(), whose EACCES message
+    // carries an absolute server path ("mkdir '/app/data'"), and
+    // better-sqlite3's own errors disclose driver internals. The operator gets
+    // the detail from the container log; the caller gets the status only.
+    console.error("Health check failed: the database is not reachable", error);
+    return Response.json({ status: "error" }, { status: 503 });
   }
 }

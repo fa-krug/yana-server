@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import type { NamespaceKey } from "@/i18n/next-intl";
 import { writeTransaction } from "@/lib/db/client";
 import { userSettings } from "@/lib/db/schema";
 
@@ -27,7 +28,9 @@ const library = z.object({
  * to the caller; returning zod's English message would render it verbatim
  * into whatever language the UI happens to be showing.
  */
-type Result = { ok: boolean; errorKey?: string };
+type SettingsKey = NamespaceKey<"settings">;
+
+type Result = { ok: boolean; errorKey?: SettingsKey };
 
 // Maps a failing field to its catalog key under settings.library. Only the
 // two range-validated library fields get a specific key -- anything else
@@ -35,15 +38,27 @@ type Result = { ok: boolean; errorKey?: string };
 // a value that isn't one of the hard-coded enum members, never a real user
 // input) falls through to undefined, and the caller shows the generic
 // settings.saveFailed toast instead.
-const FIELD_ERROR_KEYS: Record<string, string> = {
+//
+// Typed SettingsKey, not string: these values reach t() in the client sections,
+// where the type flows in through this action's inferred return type. A key
+// neither catalog defines is now a typecheck failure instead of a raw key path
+// rendered into a toast.
+const FIELD_ERROR_KEYS: Record<string, SettingsKey> = {
   articleRetentionDays: "library.retentionRange",
   updateIntervalMinutes: "library.intervalRange",
 };
 
-function errorKeyFor(issues: z.core.$ZodIssue[]): string | undefined {
+function errorKeyFor(issues: z.core.$ZodIssue[]): SettingsKey | undefined {
   const field = issues[0]?.path[0];
   return typeof field === "string" ? FIELD_ERROR_KEYS[field] : undefined;
 }
+
+/**
+ * What the UPDATE actually did: how many rows it touched, and the language the
+ * row held beforehand. Both are read in one transaction so "did the language
+ * change?" cannot be answered from a row some other write has since replaced.
+ */
+type WriteOutcome = { changes: number; previousLanguage: string | undefined };
 
 /**
  * Shared write path for both actions below, inside writeTransaction() per
@@ -55,10 +70,31 @@ function errorKeyFor(issues: z.core.$ZodIssue[]): string | undefined {
  */
 async function write(values: Partial<typeof userSettings.$inferInsert>): Promise<Result> {
   const userId = await currentUserId();
+  let outcome: WriteOutcome;
   try {
-    writeTransaction((tx) => {
-      tx.update(userSettings).set(values).where(eq(userSettings.userId, userId)).run();
+    outcome = writeTransaction((tx) => {
+      const before = tx
+        .select({ language: userSettings.language })
+        .from(userSettings)
+        .where(eq(userSettings.userId, userId))
+        .get();
+      const result = tx
+        .update(userSettings)
+        .set(values)
+        .where(eq(userSettings.userId, userId))
+        .run();
+      return { changes: result.changes, previousLanguage: before?.language };
     });
+    if (outcome.changes === 0) {
+      // `WHERE user_id = ?` matched nothing, so nothing persisted. Returning
+      // { ok: true } here would show "Settings saved" over a change that a
+      // reload silently reverts. Reachable whenever the row is absent -- see
+      // getSettings()'s throw in queries.ts -- and expected to be *normal* in
+      // phase 4 for a user whose settings row was never created. Thrown rather
+      // than returned so the catch below is the single place that reports a
+      // failed write.
+      throw new Error(`write: no user_settings row for user "${userId}"`);
+    }
   } catch (error) {
     // Logged here, not returned: a driver error is not a catalog key either,
     // and putting it in the result would reintroduce the untranslated-string
@@ -67,9 +103,25 @@ async function write(values: Partial<typeof userSettings.$inferInsert>): Promise
     console.error("Failed to write user settings", error);
     return { ok: false };
   }
-  // The locale is read server-side per request, so a language change must
-  // invalidate every rendered route, not just this page.
-  revalidatePath("/", "layout");
+
+  // Only a *language* change needs the layout-wide invalidation. The locale is
+  // resolved server-side per request (src/i18n/request.ts) and every rendered
+  // layout and page holds already-translated markup, so nothing short of
+  // revalidatePath("/", "layout") is correct for it.
+  //
+  // Everything else here is read only by /settings, and the layout-wide form
+  // throws away the entire client router cache -- every visited route has to be
+  // re-fetched on the next navigation -- so using it for a retention or
+  // interval change is pure waste. A theme change does not need it either: the
+  // root layout passes the stored theme to next-themes as a pre-hydration
+  // default only, and the settings control has already applied the new value
+  // client-side via setTheme() before this action resolves (see
+  // components/settings/general-section.tsx).
+  if (values.language !== undefined && values.language !== outcome.previousLanguage) {
+    revalidatePath("/", "layout");
+  } else {
+    revalidatePath("/settings");
+  }
   return { ok: true };
 }
 
