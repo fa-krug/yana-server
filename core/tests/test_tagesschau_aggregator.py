@@ -2,6 +2,7 @@ import json
 from unittest.mock import patch
 
 import pytest
+from bs4 import BeautifulSoup
 
 from core.aggregators.tagesschau.aggregator import _MEDIA_HEADER_CACHE_KEY, TagesschauAggregator
 from core.aggregators.tagesschau.media_processor import extract_media_header
@@ -207,6 +208,30 @@ def _media_player_html(mc: dict, plugin_data: dict | None = None) -> str:
     return f'<div data-v-type="MediaPlayer" class="mediaplayer" data-v=\'{data_v}\'></div>'
 
 
+def _entity_encoded_media_player_html(mc: dict, plugin_data: dict | None = None) -> str:
+    """
+    Same as ``_media_player_html``, but HTML-entity-encodes the JSON payload
+    before embedding it, matching real Tagesschau markup (see
+    ``_parse_player_data``'s comment: "Tagesschau uses some HTML entities in
+    the JSON string"). Needed whenever a malicious value must itself contain
+    a raw quote character (e.g. a single-quoted ``src`` inside an injected
+    ``embedCode``) -- ``_media_player_html``'s naive single-quote wrapping
+    would let that quote prematurely terminate the outer ``data-v``
+    attribute, which is a limitation of the test fixture, not the code
+    under test.
+    """
+    player_data = {"mc": mc, "pluginData": plugin_data or {}}
+    raw = json.dumps(player_data)
+    encoded = (
+        raw.replace("&", "&amp;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+    return f'<div data-v-type="MediaPlayer" class="mediaplayer" data-v="{encoded}"></div>'
+
+
 REMOTE_IMAGE_URL = "https://www.tagesschau.de/multimedia/bild-123~1280x720.jpg"
 STORED_REF = f"yana-img://{'a' * 64}"
 
@@ -318,3 +343,157 @@ class TestTagesschauMediaHeaderImageLocalization:
 
         assert result is not None
         assert f'<img src="{REMOTE_IMAGE_URL}"' in result
+
+
+@patch("core.aggregators.tagesschau.media_processor.store_image_ref_from_url", return_value=None)
+class TestTagesschauMediaHeaderHtmlInjection:
+    """
+    Every field pulled from the page's embedded `data-v` JSON (stream URLs,
+    mime types, the embed iframe's `src`) or the surrounding DOM
+    (`_get_player_image`) is attacker-reachable if the scraped Tagesschau page
+    is compromised, and was being spliced straight into the header markup by
+    f-string interpolation with no escaping and no scheme check.
+    """
+
+    def test_video_stream_url_and_mime_type_are_escaped(self, mock_store):
+        malicious_url = 'https://dl.example/video.mp4"><script>alert(1)</script>'
+        malicious_mime = 'video/mp4"><script>alert(2)</script>'
+        html_ = _media_player_html(
+            {
+                "streams": [
+                    {
+                        "isAudioOnly": False,
+                        "media": [{"url": malicious_url, "mimeType": malicious_mime}],
+                    }
+                ],
+            }
+        )
+
+        result = extract_media_header(html_)
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find("script") is None
+        source = soup.find("source")
+        assert source is not None
+        assert source["src"] == malicious_url
+        assert source["type"] == malicious_mime
+
+    def test_audio_stream_url_and_mime_type_are_escaped(self, mock_store):
+        malicious_url = 'https://dl.example/audio.mp3"><script>alert(1)</script>'
+        malicious_mime = 'audio/mpeg"><script>alert(2)</script>'
+        html_ = _media_player_html(
+            {
+                "streams": [
+                    {
+                        "isAudioOnly": True,
+                        "media": [{"url": malicious_url, "mimeType": malicious_mime}],
+                    }
+                ],
+            }
+        )
+
+        result = extract_media_header(html_)
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find("script") is None
+        source = soup.find("source")
+        assert source is not None
+        assert source["src"] == malicious_url
+        assert source["type"] == malicious_mime
+
+    def test_unsafe_scheme_stream_url_is_skipped(self, mock_store):
+        """A `javascript:`/`data:` stream URL is not a link -- it's media --
+        so it's skipped entirely rather than rendered bare."""
+        html_ = _media_player_html(
+            {
+                "streams": [
+                    {
+                        "isAudioOnly": False,
+                        "media": [
+                            {"url": "javascript:alert(1)", "mimeType": "video/mp4"},
+                        ],
+                    }
+                ],
+            }
+        )
+
+        result = extract_media_header(html_)
+
+        assert result is None
+
+    def test_unsafe_scheme_image_url_skips_the_image_only(self, mock_store):
+        """An unsafe poster/preview image is skipped, but the safe video
+        stream itself still renders."""
+        html_ = _media_player_html(
+            {
+                "streams": [
+                    {
+                        "isAudioOnly": False,
+                        "media": [{"url": "https://dl.example/video.mp4", "mimeType": "video/mp4"}],
+                    }
+                ],
+                "image": "javascript:alert(1)",
+            }
+        )
+
+        result = extract_media_header(html_)
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find("script") is None
+        video = soup.find("video")
+        assert video is not None
+        assert not video.has_attr("poster")
+        assert soup.find("source") is not None
+
+    def test_embed_code_iframe_src_quote_does_not_break_the_attribute(self, mock_store):
+        # The injected embed markup quotes its `src` with single quotes so the
+        # literal double quote in `malicious_src` survives BeautifulSoup's
+        # *first* parse (of the untrusted embed code itself) intact -- this
+        # isolates the case under test: whether *our own* reconstructed
+        # `<iframe src="...">` (always double-quoted) escapes that value
+        # before splicing it in.
+        malicious_src = '//www.tagesschau.de/multimedia/embed-777.html"><script>alert(1)</script>'
+        html_ = _entity_encoded_media_player_html(
+            {"streams": [{"isAudioOnly": True}]},
+            plugin_data={"sharing@web": {"embedCode": f"<iframe src='{malicious_src}'></iframe>"}},
+        )
+
+        result = extract_media_header(html_)
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find("script") is None
+        iframe = soup.find("iframe")
+        assert iframe is not None
+        assert iframe["src"] == "https:" + malicious_src
+
+    def test_embed_code_unsafe_scheme_falls_back_to_streams(self, mock_store):
+        """An unsafe iframe `src` is dropped entirely; the aggregator falls
+        back to rendering the HTML5 stream player instead of a broken/unsafe
+        embed."""
+        html_ = _media_player_html(
+            {
+                "streams": [
+                    {
+                        "isAudioOnly": True,
+                        "media": [
+                            {"url": "https://dl.example/audio.mp3", "mimeType": "audio/mpeg"}
+                        ],
+                    }
+                ],
+            },
+            plugin_data={
+                "sharing@web": {"embedCode": '<iframe src="javascript:alert(1)"></iframe>'}
+            },
+        )
+
+        result = extract_media_header(html_)
+
+        assert result is not None
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find("iframe") is None
+        assert soup.find("script") is None
+        assert soup.find("audio") is not None

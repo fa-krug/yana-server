@@ -1,12 +1,75 @@
 """Podcast RSS aggregator implementation."""
 
+import html
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from bs4 import BeautifulSoup
 
 from ..rss import RssAggregator
-from ..utils import clean_html, format_article_content, sanitize_class_names
+from ..utils import (
+    clean_html,
+    format_article_content,
+    remove_sanitized_attributes,
+    sanitize_class_names,
+    sanitize_html_attributes,
+)
+from ..utils.block_parser import is_safe_url
+
+
+def _safe_url_attr(url: Optional[str]) -> Optional[str]:
+    """
+    Return ``url`` escaped for an ``href``/``src`` attribute, or ``None`` if
+    it is missing or uses an unsafe scheme.
+
+    Every URL here (the RSS enclosure's media URL, the episode artwork URL)
+    is attacker-reachable straight from the feed, so it needs both the escape
+    (a literal quote would break out of the attribute) and the scheme check
+    (a well-formed ``javascript:``/``data:`` URL is an XSS vector escaping
+    alone does not fix -- see ``is_safe_url``). Callers skip the image/media
+    element entirely, or fall back to bare text for the download link, when
+    this returns ``None``.
+    """
+    if not url:
+        return None
+    if not is_safe_url(url):
+        return None
+    return html.escape(url, quote=True)
+
+
+def _sanitize_show_notes_html(content_html: str) -> str:
+    """
+    Sanitize a podcast episode's show-notes HTML (the RSS
+    ``<description>``/``<summary>`` field) before it is spliced into stored
+    article content.
+
+    This is genuine third-party HTML -- show notes routinely carry
+    paragraphs, links, and bold/italic markup -- so it can't just be escaped;
+    that would turn it into literal, visibly-escaped text. It must be
+    sanitized instead. ``clean_html()`` alone is NOT enough here: it only
+    strips HTML comments, so a ``<script>``, an ``onerror=`` attribute, or a
+    ``javascript:``/``data:`` href or img src would pass through it
+    untouched. This layers on ``sanitize_html_attributes()`` (removes
+    script/object/embed/style/iframe elements and every ``on*`` attribute)
+    plus an explicit ``is_safe_url`` scheme check on every ``href``/``src``,
+    matching the pipeline used for third-party HTML elsewhere (e.g.
+    ``core/aggregators/heise/aggregator.py``'s ``_sanitize_comment_html``).
+    """
+    soup = BeautifulSoup(clean_html(content_html), "html.parser")
+    sanitize_html_attributes(soup)
+    remove_sanitized_attributes(soup)
+
+    for tag in soup.find_all("a"):
+        href = tag.get("href")
+        if href and not is_safe_url(href):
+            del tag["href"]
+
+    for tag in soup.find_all("img"):
+        src = tag.get("src")
+        if src and not is_safe_url(src):
+            tag.decompose()
+
+    return str(soup)
 
 
 class PodcastAggregator(RssAggregator):
@@ -144,24 +207,34 @@ class PodcastAggregator(RssAggregator):
                 enriched.append(article)
                 continue
 
+            # `media_url` is the RSS enclosure's URL -- attacker-reachable
+            # straight from the feed -- and lands in both a `<source src>`
+            # and a download `<a href>` below. An unsafe scheme disables the
+            # player and falls the download link back to bare text rather
+            # than a broken/unsafe anchor (see `_safe_url_attr`).
+            safe_media_url = _safe_url_attr(media_url)
+
             html_parts = []
 
-            # Artwork
-            image_url = article.get("_image_url")
-            if image_url:
+            # Artwork. Same reasoning as `media_url`: an unsafe image URL is
+            # skipped entirely rather than escaped into place.
+            safe_image_url = _safe_url_attr(article.get("_image_url"))
+            if safe_image_url:
                 html_parts.append(
                     f'<div data-sanitized-class="podcast-artwork" style="margin-bottom: 1em;">'
-                    f'<img src="{image_url}" alt="Episode artwork" style="max-width: {artwork_size}px; height: auto; border-radius: 8px;">'
+                    f'<img src="{safe_image_url}" alt="Episode artwork" '
+                    f'style="max-width: {artwork_size}px; height: auto; border-radius: 8px;">'
                     f"</div>"
                 )
 
             # Player
-            if include_player:
+            player_rendered = include_player and safe_media_url is not None
+            if player_rendered:
                 media_type = article.get("_media_type", "audio/mpeg")
                 html_parts.append(
                     f'<div data-sanitized-class="podcast-player" style="margin-bottom: 1em;">'
                     f'<audio controls preload="metadata" style="width: 100%;">'
-                    f'<source src="{media_url}" type="{media_type}">'
+                    f'<source src="{safe_media_url}" type="{html.escape(media_type, quote=True)}">'
                     f"Your browser does not support the audio element."
                     f"</audio>"
                 )
@@ -171,13 +244,20 @@ class PodcastAggregator(RssAggregator):
             duration = article.get("_duration")
             if duration:
                 meta_parts.append(
-                    f'<span data-sanitized-class="podcast-duration">Duration: {self._format_duration(duration)}</span>'
+                    f'<span data-sanitized-class="podcast-duration">Duration: '
+                    f"{html.escape(self._format_duration(duration), quote=True)}</span>"
                 )
 
             if include_download_link:
-                meta_parts.append(
-                    f'<a href="{media_url}" data-sanitized-class="podcast-download" download>Download Episode</a>'
-                )
+                if safe_media_url:
+                    meta_parts.append(
+                        f'<a href="{safe_media_url}" data-sanitized-class="podcast-download" '
+                        f"download>Download Episode</a>"
+                    )
+                else:
+                    meta_parts.append(
+                        '<span data-sanitized-class="podcast-download">Download Episode</span>'
+                    )
 
             if (include_player or include_download_link) and meta_parts:
                 html_parts.append(
@@ -186,15 +266,16 @@ class PodcastAggregator(RssAggregator):
                     f"</div>"
                 )
 
-            if include_player:
+            if player_rendered:
                 html_parts.append("</div>")
 
-            # Description
+            # Description (show notes) -- genuine third-party HTML, so it is
+            # sanitized rather than escaped (see `_sanitize_show_notes_html`).
             description = article.get("content", "")
             if description:
                 html_parts.append('<div data-sanitized-class="podcast-description">')
                 html_parts.append("<h4>Show Notes</h4>")
-                html_parts.append(description)
+                html_parts.append(_sanitize_show_notes_html(description))
                 html_parts.append("</div>")
 
             # Final content processing

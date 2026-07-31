@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 import praw.exceptions
 import prawcore.exceptions
 import pytest
+from bs4 import BeautifulSoup
 
 from core.aggregators.reddit.aggregator import RedditAggregator
 
@@ -948,3 +949,81 @@ class TestRedditDirectImagePostKeepsItsImage:
 
         assert "header_html" not in finalized[0]
         assert "_reddit_header_image_url" not in finalized[0]
+
+
+class TestRedditVideoCaptionLinkSecurity:
+    """HTML-injection regression tests for the "View Video" caption link built
+    in finalize_articles() around _reddit_video_url.
+
+    These assert on the PARSED structure (BeautifulSoup element counts and
+    attribute values), not just substring absence, so they prove the markup
+    stays well-formed rather than merely pattern-matching escaped text.
+    """
+
+    @pytest.fixture
+    def reddit_agg(self, reddit_feed, user_with_settings):
+        return RedditAggregator(reddit_feed)
+
+    @staticmethod
+    def _video_article(video_url):
+        return {
+            "name": "Cool Video",
+            "identifier": "https://reddit.com/r/videos/comments/abc123/cool/",
+            "raw_content": "",
+            "content": "",
+            "date": None,
+            "author": "someone",
+            "_reddit_header_image_url": "https://v.redd.it/cool/thumb.jpg",
+            "_reddit_video_url": video_url,
+        }
+
+    @patch("core.aggregators.reddit.aggregator.build_header_html")
+    @patch("core.aggregators.reddit.aggregator.store_image_ref_from_url")
+    def test_video_url_with_quote_and_script_is_escaped(self, mock_store, mock_header, reddit_agg):
+        mock_store.return_value = "yana-img://" + "a" * 64
+        mock_header.return_value = "<header></header>"
+        article = self._video_article('https://v.redd.it/x"><script>alert(1)</script>')
+
+        reddit_agg.finalize_articles([article])
+
+        _, kwargs = mock_header.call_args
+        caption_html = kwargs.get("header_caption_html") or ""
+        soup = BeautifulSoup(caption_html, "html.parser")
+        assert soup.find_all("script") == []
+        anchors = soup.find_all("a")
+        assert len(anchors) == 1
+        assert anchors[0]["href"] == 'https://v.redd.it/x"><script>alert(1)</script>'
+
+    @patch("core.aggregators.reddit.aggregator.build_header_html")
+    @patch("core.aggregators.reddit.aggregator.store_image_ref_from_url")
+    def test_javascript_video_url_is_not_rendered_as_href(
+        self, mock_store, mock_header, reddit_agg
+    ):
+        mock_store.return_value = "yana-img://" + "a" * 64
+        mock_header.return_value = "<header></header>"
+        article = self._video_article("javascript:alert(1)")
+
+        reddit_agg.finalize_articles([article])
+
+        _, kwargs = mock_header.call_args
+        caption_html = kwargs.get("header_caption_html") or ""
+        soup = BeautifulSoup(caption_html, "html.parser")
+        assert soup.find_all("a") == []
+        assert "View Video" in caption_html
+
+    @patch("core.aggregators.reddit.aggregator.build_header_html")
+    @patch("core.aggregators.reddit.aggregator.store_image_ref_from_url")
+    def test_normal_video_url_regression(self, mock_store, mock_header, reddit_agg):
+        mock_store.return_value = "yana-img://" + "a" * 64
+        mock_header.return_value = "<header></header>"
+        article = self._video_article("https://v.redd.it/cool.mp4")
+
+        reddit_agg.finalize_articles([article])
+
+        _, kwargs = mock_header.call_args
+        caption_html = kwargs.get("header_caption_html") or ""
+        soup = BeautifulSoup(caption_html, "html.parser")
+        anchors = soup.find_all("a")
+        assert len(anchors) == 1
+        assert anchors[0]["href"] == "https://v.redd.it/cool.mp4"
+        assert anchors[0].get_text() == "▶ View Video"

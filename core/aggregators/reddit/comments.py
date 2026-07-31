@@ -7,7 +7,7 @@ import prawcore.exceptions
 
 from ..exceptions import ArticleSkipError
 from .auth import get_praw_instance
-from .markdown import convert_reddit_markdown, escape_html
+from .markdown import convert_reddit_markdown, escape_html, safe_link_html
 from .types import RedditComment
 
 logger = logging.getLogger(__name__)
@@ -24,12 +24,18 @@ def format_comment_html(comment: RedditComment) -> str:
         HTML string
     """
     author = comment.author or "[deleted]"
+    # convert_reddit_markdown() sanitizes its own output (raw <script>,
+    # on*=, javascript:/data: links) before returning, so `body` is already
+    # safe to splice in below.
     body = convert_reddit_markdown(comment.body or "")
+    # comment.permalink is attacker-reachable (sourced from the Reddit API for
+    # a post/comment an arbitrary user authored), so the link is built through
+    # safe_link_html rather than interpolated raw into the href attribute.
     comment_url = f"https://reddit.com{comment.permalink}"
 
     return f"""
 <blockquote>
-<p><strong>{escape_html(author)}</strong> | <a href="{comment_url}" target="_blank" rel="noopener">source</a></p>
+<p><strong>{escape_html(author)}</strong> | {safe_link_html(comment_url, "source")}</p>
 <div>{body}</div>
 </blockquote>
 """

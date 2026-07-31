@@ -1,5 +1,6 @@
 """Oglaf aggregator implementation."""
 
+import html
 import logging
 from typing import Any, Dict, Optional
 
@@ -7,6 +8,7 @@ from bs4 import BeautifulSoup, Tag
 
 from ..services.image_store import store_image_ref_from_url
 from ..utils import format_article_content, get_attr_str
+from ..utils.block_parser import is_safe_url
 from ..website import FullWebsiteAggregator
 
 logger = logging.getLogger(__name__)
@@ -79,11 +81,11 @@ class OglafAggregator(FullWebsiteAggregator):
         """Disable header element extraction for Oglaf as the comic is the main content."""
         return None
 
-    def process_content(self, html: str, article: Dict[str, Any]) -> str:
+    def process_content(self, html_content: str, article: Dict[str, Any]) -> str:
         """Process Oglaf content by extracting and storing the comic image."""
         show_alt_text = self.feed.options.get("show_alt_text", True)
 
-        soup = BeautifulSoup(html, "html.parser")
+        soup = BeautifulSoup(html_content, "html.parser")
 
         # Find the comic image
         comic_img = soup.select_one("#strip")
@@ -100,17 +102,33 @@ class OglafAggregator(FullWebsiteAggregator):
                 # Handle other relative paths if any (usually media.oglaf.com)
                 img_url = "https://media.oglaf.com/comic/" + img_url
 
-            # Extract alt text (Oglaf uses 'title' for the extra joke)
-            alt_text = get_attr_str(comic_img, "alt") or "Oglaf comic"
-            joke_text = get_attr_str(comic_img, "title")
+            # Extract alt text (Oglaf uses 'title' for the extra joke). Both
+            # are scraped from the comic page, so both are plain text that
+            # needs escaping wherever it lands: `alt_text` in an attribute,
+            # `joke_text` in element content.
+            alt_text = html.escape(get_attr_str(comic_img, "alt") or "Oglaf comic", quote=True)
+            joke_text = html.escape(get_attr_str(comic_img, "title"), quote=True)
 
-            # Store the comic once; fall back to the remote URL if that fails.
-            img_src = store_image_ref_from_url(img_url) or img_url
+            # `img_url` is scraped from the comic page too, and is the one
+            # value here that lands in a `src` attribute -- it needs the
+            # scheme check on top of the escape (see `is_safe_url`), unlike
+            # the plain-text alt/title above. An unsafe scheme skips storage
+            # (fetching a `javascript:`/`data:` "image" makes no sense) and
+            # skips the `<img>` entirely rather than escaping it into place.
+            img_src = None
+            if is_safe_url(img_url):
+                # Store the comic once; fall back to the remote URL if that
+                # fails. Both outcomes are already known-safe at this point
+                # (a stored `yana-img://` ref, or `img_url` itself, which
+                # just passed the check above), so this is escaped for
+                # attribute-safety only, not scheme-checked again.
+                img_src = html.escape(store_image_ref_from_url(img_url) or img_url, quote=True)
 
-            new_html = (
-                f'<div style="text-align: center;">'
-                f'<img src="{img_src}" alt="{alt_text}" style="max-width: 100%; height: auto;">'
-            )
+            new_html = '<div style="text-align: center;">'
+            if img_src:
+                new_html += (
+                    f'<img src="{img_src}" alt="{alt_text}" style="max-width: 100%; height: auto;">'
+                )
 
             if show_alt_text and joke_text:
                 new_html += (
@@ -120,7 +138,7 @@ class OglafAggregator(FullWebsiteAggregator):
             new_html += "</div>"
         else:
             # If no image found, use the cleaned HTML (from extract_content)
-            new_html = html
+            new_html = html_content
 
         # Wrap content (no header image for Oglaf)
         return format_article_content(

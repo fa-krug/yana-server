@@ -1,11 +1,12 @@
 """Reddit content building utilities."""
 
+import html
 import logging
 from typing import List
 
 from ..exceptions import ArticleSkipError
 from .comments import fetch_post_comments, format_comment_html
-from .markdown import convert_reddit_markdown, escape_html
+from .markdown import convert_reddit_markdown, safe_img_html, safe_link_html
 from .types import RedditPostData
 from .urls import decode_html_entities_in_url, fix_reddit_media_url
 
@@ -82,13 +83,23 @@ def _process_gallery_item(item: dict, post: RedditPostData) -> str | None:
     caption = item.get("caption", "")
     alt = "Gallery image"
     if caption:
-        alt = escape_html(caption)
+        alt = caption
     elif is_animated:
         alt = "Animated GIF"
 
+    # fixed_url and alt/caption are attacker-reachable (gallery data comes
+    # from the Reddit API for a post an arbitrary user submitted), so the
+    # image is built through safe_img_html rather than interpolated raw: an
+    # unsafe scheme (javascript:/data:) skips the image entirely instead of
+    # rendering it, and a quote in either value can't break out of its
+    # attribute.
+    img_html = safe_img_html(fixed_url, alt)
+    if not img_html:
+        return None
+
     if caption:
-        return f'<figure><img src="{fixed_url}" alt="{alt}"><figcaption>{alt}</figcaption></figure>'
-    return f'<p><img src="{fixed_url}" alt="{alt}"></p>'
+        return f"<figure>{img_html}<figcaption>{html.escape(alt, quote=True)}</figcaption></figure>"
+    return f"<p>{img_html}</p>"
 
 
 def _add_gallery_media(post: RedditPostData, content_parts: List[str]) -> None:
@@ -114,11 +125,12 @@ def _add_link_media(post: RedditPostData, content_parts: List[str], is_cross_pos
     if _process_link_media(post, url, content_parts):
         return
 
-    # Fallback link
+    # Fallback link. url is the post's own submitted link -- attacker-
+    # reachable -- so it goes through safe_link_html rather than being
+    # interpolated raw: an unsafe scheme renders as bare text instead of a
+    # live href, and a quote in the URL can't break out of the attribute.
     if not is_cross_post and not post.is_self:
-        content_parts.append(
-            f'<p><a href="{url}" target="_blank" rel="noopener">{escape_html(url)}</a></p>'
-        )
+        content_parts.append(f"<p>{safe_link_html(url, url)}</p>")
 
 
 def _process_link_media(post: RedditPostData, url: str, content_parts: List[str]) -> bool:
@@ -133,8 +145,9 @@ def _process_link_media(post: RedditPostData, url: str, content_parts: List[str]
             url[:-1] if url_lower.endswith(".gifv") else url
         )
         fixed_url = fix_reddit_media_url(gif_url)
-        if fixed_url:
-            content_parts.append(f'<p><img src="{fixed_url}" alt="Animated GIF"></p>')
+        img_html = safe_img_html(fixed_url, "Animated GIF")
+        if img_html:
+            content_parts.append(f"<p>{img_html}</p>")
         return True
 
     # Handle direct image media
@@ -145,9 +158,7 @@ def _process_link_media(post: RedditPostData, url: str, content_parts: List[str]
     if is_image:
         fixed_url = fix_reddit_media_url(url)
         if fixed_url:
-            content_parts.append(
-                f'<p><a href="{fixed_url}" target="_blank" rel="noopener">{escape_html(fixed_url)}</a></p>'
-            )
+            content_parts.append(f"<p>{safe_link_html(fixed_url, fixed_url)}</p>")
         return True
 
     # Handle video media (Reddit videos and YouTube)
@@ -157,9 +168,7 @@ def _process_link_media(post: RedditPostData, url: str, content_parts: List[str]
         return True
 
     if "youtube.com" in url_lower or "youtu.be" in url_lower:
-        content_parts.append(
-            f'<p><a href="{url}" target="_blank" rel="noopener">▶ View Video on YouTube</a></p>'
-        )
+        content_parts.append(f"<p>{safe_link_html(url, '▶ View Video on YouTube')}</p>")
         return True
 
     # Handle Twitter/X links (embed is rendered in the header, not in body)
@@ -176,9 +185,7 @@ def _add_comments_section(
     """Add comments section to content."""
     decoded_permalink = decode_html_entities_in_url(post.permalink)
     permalink = f"https://reddit.com{decoded_permalink}"
-    comment_section_parts = [
-        f'<h3><a href="{permalink}" target="_blank" rel="noopener">Comments</a></h3>'
-    ]
+    comment_section_parts = [f"<h3>{safe_link_html(permalink, 'Comments')}</h3>"]
 
     if comment_limit > 0:
         try:

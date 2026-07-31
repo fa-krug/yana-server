@@ -24,6 +24,7 @@ from .auth import (
 )
 from .content import build_post_content
 from .images import extract_header_image_url, extract_thumbnail_url
+from .markdown import safe_link_html
 from .posts import fetch_reddit_post
 from .types import RedditPostData
 from .urls import (
@@ -592,10 +593,15 @@ class RedditAggregator(BaseAggregator):
                     render_url = self._store_header_image(header_source_url, article)
 
                 # Only show "View Video" when the header is not already the video.
+                # video_url is attacker-reachable (the post's own submitted
+                # media URL), so it is built through safe_link_html rather
+                # than interpolated raw: an unsafe scheme renders as bare text
+                # instead of a live href, and a quote can't break out of the
+                # attribute.
                 header_caption_html = None
                 video_url = article.get("_reddit_video_url")
                 if video_url and not is_youtube_header:
-                    header_caption_html = f'<p><a href="{video_url}">▶ View Video</a></p>'
+                    header_caption_html = f"<p>{safe_link_html(video_url, '▶ View Video')}</p>"
 
                 header_html = build_header_html(
                     render_url,

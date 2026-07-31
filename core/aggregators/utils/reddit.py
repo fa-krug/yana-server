@@ -4,7 +4,6 @@ Reddit utilities for header element extraction.
 Provides functions for:
 - Detecting Reddit embed URLs
 - Extracting post info (subreddit, post ID)
-- Generating Reddit embed HTML
 - Fetching subreddit icons
 """
 
@@ -64,48 +63,6 @@ def extract_post_info_from_url(url: str) -> dict[str, str | None]:
         result["post_id"] = match.group(2)
 
     return result
-
-
-def create_reddit_embed_html(embed_url: str, caption: str = "") -> str:
-    """
-    Create HTML for embedded Reddit video.
-
-    Generates an iframe with responsive styling for Reddit embeds.
-
-    Args:
-        embed_url: Reddit embed URL (vxreddit.com or reddit.com/embed)
-        caption: Optional caption to append after iframe
-
-    Returns:
-        HTML string with reddit-embed-container div and iframe
-    """
-    html = (
-        f'<div class="reddit-embed-container">'
-        f"<style>"
-        f".reddit-embed-container iframe {{ "
-        f"width: 100%; "
-        f"height: calc((100% / 16) * 9); "
-        f"aspect-ratio: 16 / 9; "
-        f"}}"
-        f"@media (max-width: 512px) {{ "
-        f".reddit-embed-container iframe {{ "
-        f"height: calc((100vw / 16) * 9); "
-        f"}}"
-        f"}}"
-        f"</style>"
-        f'<iframe src="{embed_url}" '
-        f'title="Reddit video player" '
-        f'frameborder="0" '
-        f'scrolling="no" '
-        f"allowfullscreen></iframe>"
-    )
-
-    if caption:
-        html += caption
-
-    html += "</div>"
-
-    return html
 
 
 def fetch_subreddit_icon(subreddit: str, user_id: int | None = None) -> Optional[str]:

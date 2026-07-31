@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import prawcore.exceptions
 import pytest
+from bs4 import BeautifulSoup
 
 from core.aggregators.exceptions import ArticleSkipError
 from core.aggregators.reddit.comments import (
@@ -304,3 +305,119 @@ class TestFormatCommentHtml:
 
         assert "<script>" not in result
         assert "&lt;script&gt;" in result
+
+
+class TestFormatCommentHtmlSecurity:
+    """HTML-injection regression tests for format_comment_html().
+
+    These assert on the PARSED structure (BeautifulSoup element counts and
+    attribute values), not just substring absence, so they prove the markup
+    stays well-formed rather than merely pattern-matching escaped text.
+    """
+
+    def test_author_with_script_and_apostrophe_is_escaped(self):
+        comment = RedditComment(
+            {
+                "id": "c1",
+                "body": "hello",
+                "author": "o'brien<script>alert(1)</script>",
+                "permalink": "/r/test/comments/abc/title/c1/",
+            }
+        )
+
+        result = format_comment_html(comment)
+
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find_all("script") == []
+        assert "o'brien<script>alert(1)</script>" not in result
+
+    def test_permalink_with_quote_does_not_break_href_attribute(self):
+        comment = RedditComment(
+            {
+                "id": "c1",
+                "body": "hello",
+                "author": "user1",
+                "permalink": '/r/test/comments/abc"><script>alert(1)</script>/c1/',
+            }
+        )
+
+        result = format_comment_html(comment)
+
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find_all("script") == []
+        anchors = soup.find_all("a")
+        assert len(anchors) == 1
+        assert anchors[0]["href"] == (
+            'https://reddit.com/r/test/comments/abc"><script>alert(1)</script>/c1/'
+        )
+        assert anchors[0].get_text() == "source"
+
+    def test_body_with_raw_script_is_sanitized(self):
+        comment = RedditComment(
+            {
+                "id": "c1",
+                "body": "hi <script>alert(1)</script> there",
+                "author": "user1",
+                "permalink": "/r/test/comments/abc/title/c1/",
+            }
+        )
+
+        result = format_comment_html(comment)
+
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find_all("script") == []
+
+    def test_body_with_onerror_attribute_is_sanitized(self):
+        comment = RedditComment(
+            {
+                "id": "c1",
+                "body": "<img src=x onerror=alert(1)>",
+                "author": "user1",
+                "permalink": "/r/test/comments/abc/title/c1/",
+            }
+        )
+
+        result = format_comment_html(comment)
+
+        soup = BeautifulSoup(result, "html.parser")
+        for img in soup.find_all("img"):
+            assert "onerror" not in img.attrs
+
+    def test_body_with_javascript_link_is_not_rendered_as_href(self):
+        comment = RedditComment(
+            {
+                "id": "c1",
+                "body": "[click me](javascript:alert(1))",
+                "author": "user1",
+                "permalink": "/r/test/comments/abc/title/c1/",
+            }
+        )
+
+        result = format_comment_html(comment)
+
+        soup = BeautifulSoup(result, "html.parser")
+        for a in soup.find_all("a"):
+            assert not (a.get("href") or "").lower().startswith("javascript:")
+
+    def test_normal_comment_regression(self):
+        comment = RedditComment(
+            {
+                "id": "c1",
+                "body": "This is a **great** point.",
+                "author": "user1",
+                "permalink": "/r/test/comments/abc/title/c1/",
+            }
+        )
+
+        result = format_comment_html(comment)
+
+        soup = BeautifulSoup(result, "html.parser")
+        assert len(soup.find_all("blockquote")) == 1
+        # First <strong> is the escaped author; the body's own **great**
+        # markdown produces the second.
+        strongs = soup.find_all("strong")
+        assert strongs[0].get_text() == "user1"
+        assert strongs[1].get_text() == "great"
+        source_links = [a for a in soup.find_all("a") if a.get_text() == "source"]
+        assert len(source_links) == 1
+        assert source_links[0]["href"] == "https://reddit.com/r/test/comments/abc/title/c1/"

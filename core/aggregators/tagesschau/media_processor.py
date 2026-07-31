@@ -1,13 +1,15 @@
 """Tagesschau media player extraction logic."""
 
+import html
 import json
 import logging
 from typing import Any, Dict, List, Optional
 
 from bs4 import BeautifulSoup, Tag
 
-from ..services.image_store import store_image_ref_from_url
+from ..services.image_store import IMAGE_REF_SCHEME, store_image_ref_from_url
 from ..utils import get_attr_list, get_attr_str
+from ..utils.block_parser import is_safe_url
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +131,30 @@ def _localize_image_url(image_url: Optional[str]) -> Optional[str]:
     return image_url
 
 
+def _safe_image_src(image_url: Optional[str]) -> Optional[str]:
+    """
+    Return ``image_url`` ready to interpolate into an ``img src``/``video
+    poster`` attribute, or ``None`` to skip the image entirely.
+
+    ``image_url`` here is whatever ``_localize_image_url`` produced: either a
+    trusted ``yana-img://<hash>`` reference from our own storage (returned
+    verbatim -- ``is_safe_url`` doesn't recognize that scheme and would wrongly
+    reject it, see ``block_parser._resolve_url``), or the original remote URL
+    passed through unchanged on a storage failure (or a non-http(s) URL that
+    ``_localize_image_url`` never attempted to store at all). That remote
+    value is attacker-reachable -- scraped from the page's DOM or its embedded
+    JSON -- so it still needs the same escape + scheme check every other
+    aggregator's images get (see ``is_safe_url``).
+    """
+    if not image_url:
+        return None
+    if image_url.startswith(IMAGE_REF_SCHEME):
+        return image_url
+    if not is_safe_url(image_url):
+        return None
+    return html.escape(image_url, quote=True)
+
+
 def _get_player_image_from_metadata(mc: Dict[str, Any]) -> Optional[str]:
     """Extract image URL from metadata fields."""
     fields = ["poster", "image", "thumbnail", "preview", "cover"]
@@ -193,16 +219,31 @@ def _build_header_from_embed_code(
     elif src.startswith("/"):
         src = "https://www.tagesschau.de" + src
 
+    # `src` is scraped from the embed markup carried in the page's `data-v`
+    # JSON -- attacker-reachable if that page is compromised -- and lands in
+    # an iframe's `src` attribute, so it needs both the escape (a literal
+    # quote would break out of the attribute) and the scheme check (a
+    # well-formed `javascript:`/`data:` URL is an XSS vector escaping alone
+    # does not fix -- see `is_safe_url`). An unsafe scheme drops the embed
+    # entirely; the caller falls back to `_build_header_from_streams`.
+    if not is_safe_url(src):
+        return None
+    safe_src = html.escape(src, quote=True)
+
     height = "200" if is_audio_only else "315"
     player_html = (
         f'<div class="media-player" style="width: 100%;">'
-        f'<iframe src="{src}" width="100%" height="{height}" '
+        f'<iframe src="{safe_src}" width="100%" height="{height}" '
         f'frameborder="0" allowfullscreen scrolling="no"></iframe>'
         f"</div>"
     )
 
-    if is_audio_only and image_url:
-        img_part = f'<div class="media-image"><img src="{image_url}" alt="Article image" style="max-width: 100%; height: auto; border-radius: 8px;"></div>'
+    safe_image = _safe_image_src(image_url)
+    if is_audio_only and safe_image:
+        img_part = (
+            f'<div class="media-image"><img src="{safe_image}" alt="Article image" '
+            f'style="max-width: 100%; height: auto; border-radius: 8px;"></div>'
+        )
         return f'<header class="media-header">{img_part}{player_html}</header>'
 
     return f'<header class="media-header">{player_html}</header>'
@@ -212,12 +253,14 @@ def _build_header_from_streams(
     streams: List[Dict[str, Any]], is_audio_only: bool, image_url: Optional[str]
 ) -> Optional[str]:
     """Build header HTML using HTML5 audio/video tags from streams."""
+    safe_image = _safe_image_src(image_url)
     if is_audio_only:
         audio_media = _find_media_by_mime_type(streams, "audio")
         if audio_media:
             img_part = (
-                f'<div class="media-image"><img src="{image_url}" alt="Article image" style="max-width: 100%; height: auto; border-radius: 8px;"></div>'
-                if image_url
+                f'<div class="media-image"><img src="{safe_image}" alt="Article image" '
+                f'style="max-width: 100%; height: auto; border-radius: 8px;"></div>'
+                if safe_image
                 else ""
             )
             return (
@@ -231,7 +274,7 @@ def _build_header_from_streams(
     else:
         video_media = _find_media_by_mime_type(streams, "video")
         if video_media:
-            poster = f'poster="{image_url}"' if image_url else ""
+            poster = f'poster="{safe_image}"' if safe_image else ""
             return (
                 f'<header class="media-header">'
                 f'<div class="media-player" style="width: 100%;">'
@@ -246,11 +289,25 @@ def _build_header_from_streams(
 def _find_media_by_mime_type(
     streams: List[Dict[str, Any]], media_type: str
 ) -> Optional[Dict[str, str]]:
-    """Find media URL and mime type from streams."""
+    """
+    Find media URL and mime type from streams.
+
+    Both fields land straight in a ``<source src type>`` below and come from
+    the page's embedded ``data-v`` JSON -- attacker-reachable if that page is
+    compromised -- so both are escaped here (once, at the one place both
+    call sites in ``_build_header_from_streams`` read them), and the URL is
+    additionally scheme-checked: escaping alone does not neutralize a
+    well-formed ``javascript:``/``data:`` URL (see ``is_safe_url``). A stream
+    whose URL fails the check is treated as not found, matching how an unsafe
+    image URL is skipped rather than rendered (see ``_safe_image_src``).
+    """
     for stream in streams:
         for media in stream.get("media", []):
             url = media.get("url")
             mime_type = media.get("mimeType", "")
-            if url and media_type in mime_type.lower():
-                return {"url": url, "mime_type": mime_type}
+            if url and media_type in mime_type.lower() and is_safe_url(url):
+                return {
+                    "url": html.escape(url, quote=True),
+                    "mime_type": html.escape(mime_type, quote=True),
+                }
     return None

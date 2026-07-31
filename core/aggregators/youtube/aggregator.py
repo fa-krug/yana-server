@@ -7,12 +7,85 @@ from typing import Any, Dict, List, Optional
 
 from django.utils import timezone
 
+from bs4 import BeautifulSoup
+
 from ..base import BaseAggregator
-from ..utils import format_article_content
+from ..utils import (
+    clean_html,
+    format_article_content,
+    remove_sanitized_attributes,
+    sanitize_html_attributes,
+)
+from ..utils.block_parser import is_safe_url
 from ..utils.youtube import create_youtube_embed_html
 from ..utils.youtube_client import YouTubeAPIError, YouTubeClient
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_comment_author_html(name: Optional[str], channel_url: Optional[str]) -> str:
+    """Render a comment author's escaped display name, linked to their
+    channel when ``channel_url`` is present and uses a safe scheme.
+
+    ``name``/``channel_url`` are ``Optional`` because YouTube's API can omit
+    either field on a comment snippet. The name is always plain text (never
+    HTML), so it is escaped, never sanitized; the link is rejected outright
+    (falling back to bare escaped text) rather than merely escaped when its
+    scheme is unsafe -- escaping alone does not neutralize a well-formed
+    ``javascript:``/``data:`` href (see ``is_safe_url``).
+    """
+    escaped_name = html.escape(name or "Unknown", quote=True)
+    if channel_url and is_safe_url(channel_url):
+        return f'<a href="{html.escape(channel_url, quote=True)}">{escaped_name}</a>'
+    return escaped_name
+
+
+def _safe_comment_avatar_html(avatar_url: Optional[str]) -> str:
+    """Render a comment author's avatar ``<img>``, or ``""`` to skip it
+    entirely when ``avatar_url`` is missing or uses an unsafe scheme -- see
+    ``_safe_comment_author_html`` for why an unsafe URL isn't merely escaped.
+    """
+    if avatar_url and is_safe_url(avatar_url):
+        return (
+            f'<img src="{html.escape(avatar_url, quote=True)}" alt="" '
+            'class="youtube-comment-avatar">'
+        )
+    return ""
+
+
+def _sanitize_comment_body_html(content_html: str) -> str:
+    """Sanitize a YouTube comment's ``textDisplay`` body before it is spliced
+    into stored article content.
+
+    ``textDisplay`` is genuine HTML -- the YouTube Data API renders links,
+    line breaks and basic markup into it when fetched with
+    ``textFormat=html`` -- so it can't just be escaped -- that would turn it
+    into literal, visibly-escaped text. It must be sanitized instead.
+    ``clean_html()`` alone is NOT enough here: it only strips HTML comments,
+    so a ``<script>``, an ``onerror=`` attribute, or a ``javascript:``/
+    ``data:`` href or img src would pass through it untouched. This layers on
+    ``sanitize_html_attributes()`` (removes script/object/embed/style/iframe
+    elements and every ``on*`` attribute) plus an explicit ``is_safe_url``
+    scheme check on every ``href``/``src``, which ``sanitize_html_attributes``
+    does not perform. Matches the pipeline used for third-party comment HTML
+    in ``core/aggregators/heise/aggregator.py`` (``_sanitize_comment_html``)
+    and ``core/aggregators/reddit/markdown.py`` (``_sanitize_markdown_html``).
+    """
+    soup = BeautifulSoup(clean_html(content_html), "html.parser")
+    sanitize_html_attributes(soup)
+    remove_sanitized_attributes(soup)
+
+    for tag in soup.find_all("a"):
+        href = tag.get("href")
+        if href and not is_safe_url(href):
+            del tag["href"]
+
+    for tag in soup.find_all("img"):
+        src = tag.get("src")
+        if src and not is_safe_url(src):
+            tag.decompose()
+
+    return str(soup)
 
 
 class YouTubeAggregator(BaseAggregator):
@@ -331,17 +404,31 @@ class YouTubeAggregator(BaseAggregator):
             for comment in comments:
                 top_level = comment.get("snippet", {}).get("topLevelComment", {})
                 snippet = top_level.get("snippet", {})
-                author = snippet.get("authorDisplayName", "Unknown")
-                body = snippet.get("textDisplay", "")
-                comment_id = comment.get("id")
+                author = snippet.get("authorDisplayName")
+                channel_url = snippet.get("authorChannelUrl")
+                avatar_url = snippet.get("authorProfileImageUrl")
+                # textDisplay is genuine HTML (YouTube renders links/line
+                # breaks into it), so it must be sanitized -- never escaped,
+                # which would turn it into visibly-escaped literal text.
+                body = snippet.get("textDisplay") or ""
+                comment_id = comment.get("id") or ""
 
-                # Construct link to specific comment
-                comment_url = f"https://www.youtube.com/watch?v={video_id}&lc={comment_id}"
+                # Construct link to specific comment. comment_id is
+                # API-supplied text landing in an href attribute, so it is
+                # escaped even though the scheme/host here are hardcoded.
+                comment_url = (
+                    f"https://www.youtube.com/watch?v={video_id}"
+                    f"&lc={html.escape(str(comment_id), quote=True)}"
+                )
+
+                author_html = _safe_comment_author_html(author, channel_url)
+                avatar_html = _safe_comment_avatar_html(avatar_url)
+                sanitized_body = _sanitize_comment_body_html(body)
 
                 html_content += f"""
 <blockquote>
-<p><strong>{html.escape(author)}</strong> | <a href="{comment_url}" target="_blank" rel="noopener">source</a></p>
-<div>{body}</div>
+{avatar_html}<p><strong>{author_html}</strong> | <a href="{comment_url}" target="_blank" rel="noopener">source</a></p>
+<div>{sanitized_body}</div>
 </blockquote>
 """
             html_content += "</div>"
