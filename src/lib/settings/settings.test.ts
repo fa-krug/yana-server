@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import Database from "better-sqlite3";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { applyMigrationsAt } from "@/lib/db/test-support";
@@ -24,6 +25,7 @@ describe("settings", () => {
   let queries: typeof import("./queries");
   let actions: typeof import("./actions");
   let client: typeof import("@/lib/db/client");
+  let schema: typeof import("@/lib/db/schema");
 
   // Same escape hatch client.ts itself uses to reach the raw better-sqlite3
   // handle -- needed here to close the module singleton's connection in
@@ -43,6 +45,11 @@ describe("settings", () => {
     queries = await import("./queries");
     actions = await import("./actions");
     client = await import("@/lib/db/client");
+    // Same module epoch as `client` above (no resetModules() in between), so
+    // this is the identical userSettings table object client.ts's own
+    // internal `import * as schema from "./schema"` resolves to -- required
+    // for the delete below to act on the connection getDb() actually opened.
+    schema = await import("@/lib/db/schema");
   });
 
   afterEach(() => {
@@ -94,6 +101,29 @@ describe("settings", () => {
       const settings = await queries.getSettings();
       expect(settings.theme).toBe("dark");
       expect(settings.language).toBe("de");
+    });
+  });
+
+  describe("currentUserId", () => {
+    it("memoizes the bootstrap seed per process: a deleted settings row stays deleted", async () => {
+      const userId = await queries.currentUserId();
+
+      // Delete the row the first call's seed created, through
+      // writeTransaction() per the project's write convention -- never a bare
+      // db.delete() outside one.
+      client.writeTransaction((tx) => {
+        tx.delete(schema.userSettings).where(eq(schema.userSettings.userId, userId)).run();
+      });
+
+      await queries.currentUserId();
+
+      // If the bootstrap seed had re-run, ensureBootstrapUser()'s
+      // existing-row check would have found none and recreated it. It
+      // doesn't: the seed already ran once for this process and is memoized,
+      // so the second call is a no-op. This also documents the real tradeoff
+      // of that memoization -- the seed is not self-healing within a
+      // process's lifetime.
+      await expect(queries.getSettings()).rejects.toThrow(/no user_settings row/);
     });
   });
 });
