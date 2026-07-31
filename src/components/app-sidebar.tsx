@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
 
+import { SignOutButton } from "@/components/auth/sign-out-button";
 import { UserAvatar } from "@/components/user-avatar";
 import { type AvatarUser, displayNameFor } from "@/lib/avatar";
 import { NAV_ITEMS } from "@/lib/nav";
@@ -75,6 +76,12 @@ export function AppSidebar({ isAdmin, user }: { isAdmin: boolean; user: SidebarU
               <UserAvatar user={user} />
               <span className="truncate">{displayNameFor(user)}</span>
             </SidebarMenuButton>
+          </SidebarMenuItem>
+          {/* Directly under the identity it ends. Sessions last 30 days, so a
+              way out is not optional; the footer is the only chrome on every
+              route, which is why it is here and not on /account. */}
+          <SidebarMenuItem>
+            <SignOutButton />
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>

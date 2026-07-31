@@ -24,7 +24,10 @@
     "signInFailed": "Anmeldung fehlgeschlagen. Bitte versuche es erneut.",
     "invalidCredentials": "E-Mail-Adresse oder Passwort ist falsch.",
     "passkeyUnavailable": "Es wurde kein Passkey verwendet. Melde dich stattdessen mit deinem Passwort an.",
-    "passkeyUnsupported": "Dieser Browser unterstützt keine Passkeys. Melde dich mit deinem Passwort an."
+    "passkeyUnsupported": "Dieser Browser unterstützt keine Passkeys. Melde dich mit deinem Passwort an.",
+    "signOut": "Abmelden",
+    "signingOut": "Abmeldung läuft",
+    "signOutFailed": "Abmeldung fehlgeschlagen. Bitte versuche es erneut."
   },
   "avatar": {
     "label": "Profilbild von {name}"
@@ -33,6 +36,7 @@
     "title": "Konto",
     "saveFailed": "Änderungen konnten nicht gespeichert werden",
     "requestFailed": "Der Server hat nicht geantwortet. Prüfe deine Verbindung und versuche es erneut.",
+    "sessionEnded": "Deine Sitzung ist abgelaufen. Melde dich erneut an.",
     "profile": {
       "title": "Profil",
       "description": "Dein Name und deine E-Mail-Adresse. Der Name erscheint in der Seitenleiste und in der Passkey-Abfrage deines Browsers.",

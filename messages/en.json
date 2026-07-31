@@ -24,7 +24,10 @@
     "signInFailed": "Could not sign in. Please try again.",
     "invalidCredentials": "Wrong email address or password.",
     "passkeyUnavailable": "No passkey was used. Sign in with your password instead.",
-    "passkeyUnsupported": "This browser does not support passkeys. Sign in with your password instead."
+    "passkeyUnsupported": "This browser does not support passkeys. Sign in with your password instead.",
+    "signOut": "Sign out",
+    "signingOut": "Signing out",
+    "signOutFailed": "Could not sign out. Please try again."
   },
   "avatar": {
     "label": "Avatar of {name}"
@@ -33,6 +36,7 @@
     "title": "Account",
     "saveFailed": "Could not save your changes",
     "requestFailed": "The server did not answer. Check your connection and try again.",
+    "sessionEnded": "Your session ended. Sign in again to continue.",
     "profile": {
       "title": "Profile",
       "description": "Your name and email address. The name is shown in the sidebar and in your browser's passkey prompt.",

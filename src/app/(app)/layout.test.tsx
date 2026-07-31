@@ -107,6 +107,20 @@ describe("the (app) layout", () => {
     expect(container.querySelectorAll('a[href="/account"]')).toHaveLength(1);
   });
 
+  it("offers a way out, in the footer under the identity it ends", async () => {
+    // Phase 4 shipped `signOut` in src/lib/auth/client.ts with no importer and
+    // no catalog strings: sessions last 30 days and there was no way to end one
+    // from the UI at all. This pins the button's *presence in the chrome* --
+    // what it does on click is `sign-out-button.test.tsx`.
+    setPathname("/");
+    signInAs("user");
+
+    const { container } = await renderLayout();
+
+    const footer = container.querySelector("[data-slot=sidebar-footer]");
+    expect(footer?.textContent).toContain("Sign out");
+  });
+
   it("names an unnamed user by their address in the footer", async () => {
     // The bootstrap administrator has "" for both name columns, so a naive
     // `${firstName} ${lastName}` would render a blank row.
