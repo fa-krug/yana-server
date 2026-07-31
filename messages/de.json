@@ -1,0 +1,32 @@
+{
+  "nav": {
+    "dashboard": "Übersicht",
+    "feeds": "Feeds",
+    "articles": "Artikel",
+    "tags": "Tags",
+    "users": "Benutzer",
+    "settings": "Einstellungen",
+    "integrations": "Integrationen",
+    "ai": "KI",
+    "account": "Konto"
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "general": { "title": "Allgemein", "theme": "Design", "language": "Sprache" },
+    "theme": { "light": "Hell", "dark": "Dunkel", "system": "System" },
+    "language": { "en": "Englisch", "de": "Deutsch" },
+    "library": {
+      "title": "Bibliothek",
+      "retention": "Aufbewahrung",
+      "retentionHelp": "Ältere Artikel werden entfernt. Markierte Artikel bleiben erhalten.",
+      "interval": "Aktualisierungsintervall",
+      "intervalHelp": "Wie oft Feeds auf neue Artikel geprüft werden.",
+      "days": "Tage",
+      "minutes": "Minuten"
+    },
+    "about": { "title": "Über", "source": "Quellcode", "issues": "Problem melden" },
+    "saved": "Einstellungen gespeichert",
+    "saveFailed": "Einstellungen konnten nicht gespeichert werden"
+  },
+  "common": { "save": "Speichern", "cancel": "Abbrechen", "loading": "Wird geladen" }
+}

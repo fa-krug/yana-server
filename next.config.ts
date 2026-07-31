@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import createNextIntlPlugin from "next-intl/plugin";
 
 const config: NextConfig = {
   // The Docker image copies .next/standalone; without this the image would
@@ -21,4 +22,8 @@ const config: NextConfig = {
   serverExternalPackages: ["better-sqlite3"],
 };
 
-export default config;
+// Wraps the config to inject next-intl's request-config module (src/i18n/request.ts)
+// into the server bundle so getLocale()/getTranslations() can find it.
+const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
+
+export default withNextIntl(config);

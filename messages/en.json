@@ -1,0 +1,32 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "feeds": "Feeds",
+    "articles": "Articles",
+    "tags": "Tags",
+    "users": "Users",
+    "settings": "Settings",
+    "integrations": "Integrations",
+    "ai": "AI",
+    "account": "Account"
+  },
+  "settings": {
+    "title": "Settings",
+    "general": { "title": "General", "theme": "Theme", "language": "Language" },
+    "theme": { "light": "Light", "dark": "Dark", "system": "System" },
+    "language": { "en": "English", "de": "German" },
+    "library": {
+      "title": "Library",
+      "retention": "Article retention",
+      "retentionHelp": "Articles older than this are removed. Starred articles are kept.",
+      "interval": "Update interval",
+      "intervalHelp": "How often feeds are checked for new articles.",
+      "days": "days",
+      "minutes": "minutes"
+    },
+    "about": { "title": "About", "source": "Source code", "issues": "Report an issue" },
+    "saved": "Settings saved",
+    "saveFailed": "Could not save settings"
+  },
+  "common": { "save": "Save", "cancel": "Cancel", "loading": "Loading" }
+}
