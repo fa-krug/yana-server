@@ -58,18 +58,22 @@ file.
 │   ├── i18n/
 │   │   ├── request.ts             # next-intl request config; reads getSettings()
 │   │   └── next-intl.d.ts         # AppConfig augmentation — compiler-checked catalog keys
-│   └── lib/
-│       ├── db/
-│       │   ├── client.ts          # getDb(), writeTransaction(), PRAGMAs
-│       │   ├── bootstrap.ts       # BOOTSTRAP_USER_ID + ensureBootstrapUser() (phase 3 calls it)
-│       │   ├── schema.ts          # barrel: re-exports schema/, declares every relation
-│       │   ├── schema/            # enums.ts, users.ts, references.ts, feeds.ts,
-│       │   │                      #   articles.ts, jobs.ts — one module per table group
-│       │   ├── test-support.ts    # TEST-ONLY: migrate()-based fixture databases
-│       │   └── *.test.ts          # client, schema, relations, bootstrap, schema/enums
-│       ├── nav.ts                 # NAV_ITEMS + breadcrumbsFor() — single source for both
-│       ├── settings/               # queries.ts (getSettings), actions.ts (server actions)
-│       └── utils.ts               # cn()
+│   ├── lib/
+│   │   ├── db/
+│   │   │   ├── client.ts          # getDb(), writeTransaction(), PRAGMAs
+│   │   │   ├── bootstrap.ts       # BOOTSTRAP_USER_ID + ensureBootstrapUser() (phase 3 calls it)
+│   │   │   ├── schema.ts          # barrel: re-exports schema/, declares every relation
+│   │   │   ├── schema/            # enums.ts, users.ts, references.ts, feeds.ts,
+│   │   │   │                      #   articles.ts, jobs.ts — one module per table group
+│   │   │   ├── test-support.ts    # TEST-ONLY: migrate()-based fixture databases
+│   │   │   └── *.test.ts          # client, schema, relations, bootstrap, schema/enums
+│   │   ├── nav.ts                 # NAV_ITEMS + breadcrumbsFor() — single source for both
+│   │   ├── settings/               # queries.ts (getSettings), actions.ts (server actions)
+│   │   └── utils.ts               # cn()
+│   └── test/                      # TEST-ONLY: shared setup for the jsdom project
+│       ├── render.tsx             # renderWithProviders() — real catalogs, optional theme
+│       ├── next-navigation.ts     # usePathname stub (a router stub, not a data mock)
+│       └── setup.ts               # cleanup + matchMedia/localStorage repair
 ├── messages/                      # en.json, de.json — must define identical keys (enforced)
 ├── drizzle/                       # generated migrations + meta/_journal.json
 ├── drizzle.config.ts              # drizzle-kit config (schema in, drizzle/ out)
@@ -193,7 +197,13 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   against this component library; see `src/components/app-sidebar.tsx` and
   `src/components/route-breadcrumbs.tsx` for the working form. Phases 5–13 will
   paste many shadcn snippets from documentation and tutorials that still assume
-  Radix — expect this every time.
+  Radix — expect this every time. One Base UI trap the phase-3 review caught
+  late: **a `<Select>` needs an `items` prop** (a record, or a
+  `{ value, label }[]`) or its collapsed trigger prints the raw value —
+  `<Select.Value>` resolves labels from `items` alone and never reads
+  `<Select.ItemText>`, so translated popup items prove nothing about the
+  trigger. Build the list once and render the `<SelectItem>`s from it, as
+  `src/components/settings/general-section.tsx` does.
 - **Every user-facing string comes from `messages/en.json` + `messages/de.json`**,
   which must define identical key sets — enforced by `src/i18n/messages.test.ts`.
   Use `useTranslations(namespace)` in client components and synchronous server
@@ -231,12 +241,45 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   _applied_ (next-themes resolves `localStorage.getItem(key) || defaultTheme`);
   the database column is the _portable_ preference that seeds a fresh browser.
   The settings control displays the applied value.
-- **Testing:** vitest runs `environment: "node"` with `include:
-["src/**/*.test.ts"]` — **no `.tsx`, no jsdom, no testing-library, so no
-  component has any test and a test file written for a component would be
-  silently ignored.** Nothing currently warns anyone of this. When a harness is
-  eventually added, a `next/navigation` stub is a _router_ stub and does not
-  violate the no-driver-mocks convention above.
+- **Testing: two vitest projects, and the file extension picks one.**
+  `vitest.config.ts` declares `test.projects` (the vitest 4 mechanism; the
+  `workspace` field is gone), both inheriting the `@` alias via `extends: true`:
+  - **`node`** — `environment: "node"`, `include: ["src/**/*.test.ts"]`. The
+    real-SQLite library tests above. Keep this glob `.ts`-only.
+  - **`dom`** — `environment: "jsdom"`, `include: ["src/**/*.test.tsx"]`,
+    `setupFiles: ["src/test/setup.ts"]`. Component tests, colocated with the
+    component; `@testing-library/react` + plain DOM queries and vitest's own
+    `expect` (no `jest-dom`).
+
+  Shared wrappers live in **`src/test/`** so later phases extend them instead of
+  copy-pasting: `render.tsx` (`renderWithProviders`, which wraps
+  `NextIntlClientProvider` with the **real** `messages/*.json` and optionally
+  next-themes' provider), `next-navigation.ts` (`usePathname` + `setPathname`,
+  registered per file with `vi.mock("next/navigation", () => import(...))`), and
+  `setup.ts` (testing-library cleanup, plus repair for two APIs the runtime
+  lacks: `window.matchMedia`, which jsdom declares but leaves `undefined`, and
+  `localStorage`, which Node 25 shadows with a method-less object that makes
+  next-themes silently fall back to `defaultTheme`).
+
+  A `next/navigation` stub is a _router_ stub and does **not** violate the
+  no-driver-mocks convention above, which is about the database. Messages are
+  never stubbed — a test carrying its own message objects would pass while the
+  shipped catalogs were broken.
+
+  **`async` server components cannot be rendered by testing-library** — that
+  covers `settings/page.tsx` and the `Sections`/`LibrarySummary` data regions,
+  which stay untested. Don't reshape production code to make them testable. A
+  synchronous server component is fine: `src/app/(app)/layout.tsx` is rendered
+  in `layout.test.tsx`.
+
+  What is covered so far is exactly what phase 3's escaped defects needed: one
+  `<main>` landmark, no `li` inside `li`, breadcrumbs translating nav segments
+  while showing record ids verbatim, and the Select trigger's translated label.
+  Assert against `de.json` where English is too close to the raw value to prove
+  anything ("Dark" vs. `dark`). New structural assertions are worth checking
+  against the defect they describe — reintroduce it, watch the test fail, revert
+  — because a `.tsx` test used to be ignored outright and a green test proves
+  nothing on its own.
 
 ## Porting: `parity/` is the oracle
 
