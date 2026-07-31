@@ -1168,3 +1168,36 @@ database reachability instead of just proving Node is running."
 **Type consistency.** `getSettings()` returns `UserSettings` from phase 2's inferred types, and the section props destructure real column names (`articleRetentionDays`, `updateIntervalMinutes`, `theme`, `language`). `currentUserId()` is `Promise<string>` in Task 2 and consumed as such. `breadcrumbsFor` returns `{ href, labelKey }[]` in Task 3 Step 3 and is destructured identically in Step 6. `NavItem.adminOnly` is set in `nav.ts` and read by `AppSidebar`'s filter.
 
 **One deferred item.** `AppSidebar` takes `isAdmin` and the layout passes `true` unconditionally, because no session exists yet. Phase 4 replaces that literal and phase 5 relies on the filter already being in place — so the prop exists now deliberately rather than being added later.
+
+---
+
+## Post-execution record (added after phase 3 landed)
+
+This plan is an executed historical record — the tasks above are not rewritten. What follows is what
+executing it actually revealed, kept here so later phase plans do not repeat it.
+
+- **Task 3 Step 6's `AppLayout` snippet nested a second `<main>` inside `SidebarInset`**, which already
+  renders a `<main>` landmark (see `src/components/ui/sidebar.tsx`). Two nested `<main>` elements is
+  non-conforming HTML that hands assistive tech two "main" regions to choose between; it produces no
+  hydration warning and no lint error. The executed code uses a plain `<div>` there instead.
+- **The File Structure table listed no error boundary.** `src/app/(app)/error.tsx` is half of the
+  streaming pattern this phase establishes — `<Suspense>` **plus** an error boundary — but the table
+  never mentioned it.
+- **Two snippets hardcoded user-facing English against this plan's own Global Constraint** ("every
+  user-facing string comes from a message catalog — no literals in components"): Task 4 Step 2's
+  `LibrarySummary` text ("Retention {n} days · updates every {n} minutes") and Task 5 Step 2's
+  fallback `"Save"` string. Both were routed through the message catalog instead.
+- **`src/i18n/routing.ts`, listed in the File Structure table, was correctly never created.** There is
+  no `[locale]` URL segment in this app — locale comes from the stored user preference, not the URL —
+  so the file would have had nothing to do.
+- **The `curl -N` verification criterion in Task 4 Step 4 stopped reliably discriminating streaming
+  from non-streaming once `getSettings()` was wrapped in `cache()`.** A cached read resolves quickly
+  enough that the shell and the data region can arrive close together in that one curl, which is
+  exactly the failure mode the check exists to catch — it needs a slower, less-memoized data read to
+  stay a meaningful test.
+- **Task 1 depended on Task 2, so the plan's stated order could not compile.** Task 1 Step 5 writes
+  `src/i18n/request.ts`, which imports `getSettings` from `@/lib/settings/queries` — a module Task 2
+  creates. Executed in the reverse order (Task 2 before Task 1) instead.
+- **`asChild` appears throughout this plan's JSX snippets** (`SidebarMenuButton asChild`,
+  `BreadcrumbLink asChild`) — that prop does not exist in this component library, which is built on
+  Base UI, not Radix. Every such snippet was rewritten to use Base UI's `render` prop instead.

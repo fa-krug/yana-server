@@ -37,9 +37,27 @@ file.
 ```
 .                                  # the Next.js app (this is the project)
 ├── src/
-│   ├── app/                       # App Router: layout.tsx, page.tsx, globals.css
-│   ├── components/ui/             # shadcn components (Base UI + Tailwind v4)
+│   ├── app/
+│   │   ├── layout.tsx             # root: providers, theme, locale, <Toaster>
+│   │   ├── global-error.tsx       # last-resort boundary — no providers, English only
+│   │   ├── health/route.ts        # GET /health — SELECT 1 against the database
+│   │   └── (app)/                 # sidebar + breadcrumb chrome for every real page
+│   │       ├── layout.tsx         # sidebar, content frame
+│   │       ├── loading.tsx        # route-level Suspense fallback
+│   │       ├── page.tsx           # dashboard
+│   │       ├── error.tsx          # error boundary for every route in the group
+│   │       └── settings/page.tsx
+│   ├── components/
+│   │   ├── ui/                    # shadcn components (Base UI + Tailwind v4)
+│   │   ├── settings/               # general-, library-, about-section.tsx
+│   │   ├── app-sidebar.tsx         # navigation, from src/lib/nav.ts
+│   │   ├── route-breadcrumbs.tsx   # segment-derived breadcrumbs
+│   │   ├── data-skeleton.tsx       # TableSkeleton, CardSkeleton
+│   │   └── theme-provider.tsx      # next-themes wrapper
 │   ├── hooks/                     # use-mobile.ts (hand-modified — see below)
+│   ├── i18n/
+│   │   ├── request.ts             # next-intl request config; reads getSettings()
+│   │   └── next-intl.d.ts         # AppConfig augmentation — compiler-checked catalog keys
 │   └── lib/
 │       ├── db/
 │       │   ├── client.ts          # getDb(), writeTransaction(), PRAGMAs
@@ -49,7 +67,10 @@ file.
 │       │   │                      #   articles.ts, jobs.ts — one module per table group
 │       │   ├── test-support.ts    # TEST-ONLY: migrate()-based fixture databases
 │       │   └── *.test.ts          # client, schema, relations, bootstrap, schema/enums
+│       ├── nav.ts                 # NAV_ITEMS + breadcrumbsFor() — single source for both
+│       ├── settings/               # queries.ts (getSettings), actions.ts (server actions)
 │       └── utils.ts               # cn()
+├── messages/                      # en.json, de.json — must define identical keys (enforced)
 ├── drizzle/                       # generated migrations + meta/_journal.json
 ├── drizzle.config.ts              # drizzle-kit config (schema in, drizzle/ out)
 ├── public/                        # static assets served at /
@@ -153,6 +174,69 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   inferred, Next walks up looking for a lockfile and can nest the whole absolute
   path under `.next/standalone`, which breaks the Dockerfile's assumption that
   `server.js` lands at the tree root.
+- **Opt a route or layout out of prerendering with `await connection()` from
+  `next/server`, never `export const dynamic = "force-dynamic"`.**
+  `better-sqlite3` is synchronous, so its queries complete during prerendering,
+  and without this a production build would bake a page against `data/` — which
+  is gitignored and does not exist until the entrypoint's migration step runs at
+  container start. Next 16 removes `dynamic` once Cache Components is enabled,
+  so `connection()` is the form that keeps working; the local doc is
+  `node_modules/next/dist/docs/01-app/03-api-reference/04-functions/connection.md`,
+  section "Synchronous database drivers", which names `better-sqlite3`
+  explicitly. Used in `src/app/layout.tsx` and `src/app/health/route.ts` — the
+  health route calls it _outside_ its `try`, because inside it the
+  prerender bail-out (itself a thrown error) would be caught and turned into a
+  503, silently reinstating a static `{"status":"ok"}`.
+- **shadcn components here are built on Base UI (`@base-ui/react`), not Radix:
+  compose with the `render` prop, never Radix's `asChild`.** A Radix-flavored
+  snippet — `asChild` on a trigger, wrapping a `<Link>` — will not typecheck
+  against this component library; see `src/components/app-sidebar.tsx` and
+  `src/components/route-breadcrumbs.tsx` for the working form. Phases 5–13 will
+  paste many shadcn snippets from documentation and tutorials that still assume
+  Radix — expect this every time.
+- **Every user-facing string comes from `messages/en.json` + `messages/de.json`**,
+  which must define identical key sets — enforced by `src/i18n/messages.test.ts`.
+  Use `useTranslations(namespace)` in client components and synchronous server
+  components; `await getTranslations(namespace)` in async server components.
+  The one accepted literal is the brand name "Yana".
+- **Catalog keys are compiler-checked** via the `AppConfig` augmentation in
+  `src/i18n/next-intl.d.ts`. The widely-copied `declare global { interface
+IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
+  derives message types from `AppConfig` instead. A dynamic key must be typed
+  narrowly at its _source_ (see `NavItem["labelKey"]` in `src/lib/nav.ts` and
+  the `errorKey` field in `src/lib/settings/actions.ts`) — casting at a `t()`
+  call site defeats the check.
+- **Server actions return a catalog `errorKey`, never a zod or driver
+  message**, or an English validator string reaches a German UI. See
+  `src/lib/settings/actions.ts`.
+- **Changing a catalog value requires re-running `npm run build`** before it
+  shows up in a production server: webpack's context module inlines the
+  dynamically-imported JSON into the server chunk at build time. `npm run dev`
+  is unaffected. This cost an agent an hour already.
+- **The streaming pattern:** chrome renders synchronously; data regions are
+  async components inside `<Suspense>` with fallbacks from
+  `src/components/data-skeleton.tsx`, **plus an error boundary** — once the
+  shell has flushed its first byte the response status is already 200 and
+  cannot become a 5xx, so a throw inside a Suspense boundary with no error
+  boundary above it just truncates the stream. Locale resolution in the root
+  layout is the one documented exception to "chrome never waits on data".
+- **`getSettings()` is `cache()`d per request; `currentUserId()` is the
+  phase-4 seam**, and its bootstrap seed is memoized per process —
+  deliberately **not** self-healing, so a `user_settings` row deleted at
+  runtime stays deleted until restart. The root layout's two reads (locale,
+  theme) fall back instead of throwing (locale → `en`, theme → `system`) so a
+  missing row cannot 500 the whole app; everywhere else the throw propagates on
+  purpose.
+- **Theme has two stores:** `localStorage` is authoritative for what is
+  _applied_ (next-themes resolves `localStorage.getItem(key) || defaultTheme`);
+  the database column is the _portable_ preference that seeds a fresh browser.
+  The settings control displays the applied value.
+- **Testing:** vitest runs `environment: "node"` with `include:
+["src/**/*.test.ts"]` — **no `.tsx`, no jsdom, no testing-library, so no
+  component has any test and a test file written for a component would be
+  silently ignored.** Nothing currently warns anyone of this. When a harness is
+  eventually added, a `next/navigation` stub is a _router_ stub and does not
+  violate the no-driver-mocks convention above.
 
 ## Porting: `parity/` is the oracle
 
@@ -176,10 +260,12 @@ was retired. It is how a ported aggregator is proven correct.
 direction record — the decisions every phase builds on (multi-tenant, real tags,
 greenfield data, SQLite `jobs` table with an in-process worker). Per-phase plans
 are `docs/superpowers/plans/nextjs-*.md`, executed in order. Phase 1 (scaffold),
-phase 2 (schema, migration `0000` and the bootstrap user) and the folder swap
-(phase 14, reworked to keep `old/`) are done; phases 3–13 — app shell, auth,
-CRUD, aggregators, jobs and client API — are not. The direction record's last
-section carries the decisions phase 2's review left to those phases.
+phase 2 (schema, migration `0000` and the bootstrap user), phase 3 (app shell —
+i18n/theme, sidebar/breadcrumbs, streaming skeletons, the settings page and
+`/health`) and the folder swap (phase 14, reworked to keep `old/`) are done;
+phases 4–13 — auth, CRUD, aggregators, jobs and client API — are not. The
+direction record's last sections carry the decisions phases 2's and 3's reviews
+left to those phases.
 
 Plans written before the swap use `yana-next/`-prefixed paths. Those are
 repository-root paths now.

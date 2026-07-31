@@ -5,13 +5,13 @@
 **Scope:** Why we are moving to Next.js, the target architecture, the schema, the aggregator parity
 contract, and the phase route. Individual phases are planned in `docs/superpowers/plans/nextjs-*.md`.
 
-**Progress (2026-07-31):** Phase 0 (goldens), phase 1 (scaffold) and phase 2
-(schema) are done, and **phase 14's folder swap has been executed early** — the
-Next.js app is the repository root and the Django tree now sits in `old/`.
-Phases 3–13 and 15 are open. Two decisions below were changed by that early swap: Python is **not**
-deleted (`old/` is kept as read-only reference until nothing needs to read it),
-and CI no longer publishes or deploys. See
-`docs/superpowers/plans/nextjs-14-folder-swap.md`.
+**Progress (2026-07-31):** Phase 0 (goldens), phase 1 (scaffold), phase 2
+(schema) and phase 3 (app shell) are done, and **phase 14's folder swap has
+been executed early** — the Next.js app is the repository root and the Django
+tree now sits in `old/`. Phases 4–13 and 15 are open. Two decisions below were
+changed by that early swap: Python is **not** deleted (`old/` is kept as
+read-only reference until nothing needs to read it), and CI no longer
+publishes or deploys. See `docs/superpowers/plans/nextjs-14-folder-swap.md`.
 
 ## Background
 
@@ -396,3 +396,49 @@ because phase 2's workspace is deleted, not because they are open questions for 
   level prevents the same `(feedId, identifier)` twice — Django was the same. Greenfield could make
   duplicate detection a constraint instead of a query, and it is far cheaper to decide before the
   table has rows.
+
+## Carried forward from phase 3's review
+
+Decisions phase 3's whole-phase review surfaced that belong to a **later** phase. Recorded here
+because phase 3's workspace is deleted, not because they are open questions for phase 3.
+
+- **Phases 5–13 (shadcn additions).** Every shadcn component in this repository is built on Base UI
+  (`@base-ui/react`), not Radix — compose with the `render` prop (see `src/components/app-sidebar.tsx`
+  and `src/components/route-breadcrumbs.tsx`), never Radix's `asChild`. Phase 3's own plan
+  (`nextjs-03-app-shell.md`) pasted `asChild` snippets throughout and none of them typechecked as
+  written. Expect the same friction from any shadcn/Radix example copied into phases 5–13.
+- **Phase 4 (auth) must create a `user_settings` row in the same transaction that creates a user.**
+  `getSettings()` (`src/lib/settings/queries.ts`) throws when the row is absent, by design — there is
+  no insert-if-absent fallback there (see the file's own comment on why). Only the root layout's two
+  reads degrade instead of throwing (locale → `en`, theme → `system`); the dashboard and `/settings`
+  still surface the real error through the error boundary. Without a settings row, a newly signed-up
+  user would fail both.
+- **`timeZone` is not set in `src/i18n/request.ts`**, so next-intl defaults to the container's zone
+  (UTC in the Docker image). Phases 5–10 render article timestamps and must decide whether to add a
+  `timeZone` column to `user_settings` or read the browser's
+  (`Intl.DateTimeFormat().resolvedOptions().timeZone`, captured once at settings-save time). The
+  migration is cheap now, before any article-facing UI assumes UTC; it is not cheap later.
+
+### Known gaps
+
+Deliberately not fixed in phase 3 — small enough to defer, but each should be a known gap rather than
+a later surprise:
+
+- `<SelectValue />` renders raw enum values (`light`, `de`) instead of translated labels on
+  `/settings`, because `src/components/ui/select.tsx` passes Base UI's `Select.Value` neither
+  `children` nor `items`. Cosmetic, affects both selects.
+- `breadcrumbsFor` falls back to the raw URL segment, so a planned route like `/feeds/new` will render
+  an untranslated `new`.
+- `src/app/(app)/loading.tsx` uses a 4-column `TableSkeleton` for every route in the group, including
+  the settings form.
+- `messages.test.ts` checks key parity but not ICU **placeholder** parity — a translation dropping
+  `{minutes}` fails silently.
+- `GeneralSection` applies the theme locally before the server write is confirmed and never rolls back
+  on failure — the pattern every later CRUD form will copy.
+- Dead catalog keys: `nav.account`, `common.cancel`, `common.loading`.
+- Changing the language also rewrites the theme column to the local `localStorage` value.
+- `global-error.tsx` is English-only (no provider, and the locale lives in SQLite, not a cookie), and
+  carries no font variables or `<title>`.
+- A jsdom + testing-library harness would have caught three defects in this phase alone — the nested
+  `<main>` (missed by five reviews), the theme display/applied divergence, and the `<SelectValue />`
+  bug. It is the highest-value deferred item.
