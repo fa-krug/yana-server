@@ -16,6 +16,22 @@ import { NextResponse, type NextRequest } from "next/server";
 const PUBLIC_PREFIXES = ["/login", "/health", "/api/auth"];
 
 /**
+ * Is this one of the public routes -- **at a path boundary**?
+ *
+ * A bare `pathname.startsWith(prefix)` is wrong in the direction that matters:
+ * it opens routes rather than closing them. `/loginx` is not `/login`, and
+ * `/api/authorize` is not under `/api/auth`, yet a prefix test exempts both --
+ * so any future route whose name merely begins with one of these strings would
+ * ship unguarded, silently, with nothing failing. The equality-or-separator
+ * form is the standard fix and still covers everything the prefix was there
+ * for: `/api/auth/sign-in/email`, `/login/` and `/login?next=/settings` (a
+ * query string is not part of `pathname`).
+ */
+function isPublic(pathname: string): boolean {
+  return PUBLIC_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
+/**
  * **`proxy`, not `middleware`.** Next 16 renamed the file convention and the
  * exported function; `middleware.ts` still works but logs a deprecation warning
  * on every build, and the rename is not cosmetic -- a Proxy defaults to the
@@ -60,7 +76,7 @@ const PUBLIC_PREFIXES = ["/login", "/health", "/api/auth"];
  */
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  if (PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return NextResponse.next();
+  if (isPublic(pathname)) return NextResponse.next();
 
   if (!getSessionCookie(request)) {
     const url = request.nextUrl.clone();
@@ -79,10 +95,30 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   /**
-   * Everything except the static assets Next serves itself and the
-   * user-uploaded `media/` tree. Without a matcher a proxy runs on every
-   * request including `_next/static`, which is build output with no user data
-   * in it -- pure added latency.
+   * Everything except static assets: Next's own build output, the
+   * user-uploaded `media/` tree, and the files served straight out of
+   * `public/`. Without a matcher a proxy runs on every request including
+   * `_next/static`, which has no user data in it -- pure added latency.
+   *
+   * The extension list is what covers `public/`, and it is not an
+   * optimization. Files there are served from the site root (`/globe.svg`),
+   * which no prefix can distinguish from a route, so before it every asset the
+   * **login page** loads answered `307 -> /login` instead of its own bytes --
+   * on the one page that is unauthenticated by definition, whose visitor has
+   * no session to redirect *with*. Next's own docs give this exact shape of
+   * exclusion (`'/((?!api|_next/static|_next/image|.*\.png$).*)'`, see
+   * `03-file-conventions/proxy.md`, "Matcher"). Routes in this app never end
+   * in a file extension, so nothing that needs guarding can match it.
+   *
+   * The list stays limited to image, font and crawler-metadata extensions --
+   * the things that actually live in `public/`. Every entry added to it is a
+   * path shape that can never be guarded again, so `.json` and `.js` are
+   * deliberately absent: an API route could plausibly end in one.
+   *
+   * `media/` carries its trailing slash for the same reason `isPublic()`
+   * checks a boundary: written as `media`, it also exempted `/medialibrary`.
    */
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|media).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|media/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico|woff|woff2|ttf|otf|txt|xml|webmanifest)$).*)",
+  ],
 };

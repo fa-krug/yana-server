@@ -91,6 +91,22 @@ describe("proxy", () => {
     },
   );
 
+  it.each(["/loginx", "/login-help", "/api/authorize", "/healthz"])(
+    "does not exempt %s just because a public prefix starts it",
+    (url) => {
+      // A prefix test opens routes rather than closing them: `/api/authorize`
+      // is not under `/api/auth`, and `/loginx` is not `/login`. Any future
+      // route whose name merely begins with one of these would have shipped
+      // unguarded, with nothing failing.
+      expect(proxy(request(url)).status).toBe(307);
+    },
+  );
+
+  it("still exempts a public route's own subtree and trailing slash", () => {
+    expect(isPassThrough(proxy(request("/api/auth/sign-in/email")))).toBe(true);
+    expect(isPassThrough(proxy(request("/login/")))).toBe(true);
+  });
+
   it("lets a request carrying a session cookie through", () => {
     // Presence only -- this is not authentication, and the cookie below is not
     // a valid session. src/lib/auth/session.ts is what validates it, and
@@ -132,5 +148,28 @@ describe("proxy", () => {
     expect(matches("/media/logo.png")).toBe(false);
     expect(matches("/settings")).toBe(true);
     expect(matches("/")).toBe(true);
+  });
+
+  it("does not run on files served out of public/", () => {
+    // These are served from the site root, so no prefix distinguishes them
+    // from a route -- and every one of them 307'd to /login before the
+    // extension exclusion. That breaks the *login page* above all: it is
+    // unauthenticated by definition, so its visitor has no session with which
+    // to be redirected anywhere, and its own icons and fonts would have come
+    // back as redirects.
+    const matches = (url: string) => unstable_doesMiddlewareMatch({ config, url });
+
+    expect(matches("/globe.svg")).toBe(false);
+    expect(matches("/apple-touch-icon.png")).toBe(false);
+    expect(matches("/fonts/inter.woff2")).toBe(false);
+    expect(matches("/robots.txt")).toBe(false);
+  });
+
+  it("still guards routes that merely start with an exempted directory name", () => {
+    // `media` without its separator also exempted these.
+    const matches = (url: string) => unstable_doesMiddlewareMatch({ config, url });
+
+    expect(matches("/medialibrary")).toBe(true);
+    expect(matches("/_next-steps")).toBe(true);
   });
 });
