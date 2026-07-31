@@ -17,7 +17,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <SidebarTrigger />
           <RouteBreadcrumbs />
         </header>
-        <main className="flex-1 p-3 md:p-6">{children}</main>
+        {/* A <div>, deliberately not a <main>: SidebarInset already renders the
+            <main> landmark (see src/components/ui/sidebar.tsx), and nesting a
+            second one is non-conforming HTML that hands assistive tech two
+            "main" regions to choose between. It produces no hydration warning
+            and no lint error, so nothing catches it automatically. The padding
+            lives here rather than on SidebarInset's className because the
+            header above must stay flush with the border. */}
+        <div className="flex-1 p-3 md:p-6">{children}</div>
       </SidebarInset>
     </SidebarProvider>
   );
