@@ -424,6 +424,36 @@ describe("the Better Auth instance", () => {
     }
   });
 
+  it("says nothing about it during a production build, and still rejects", async () => {
+    // `next build` imports every route's module graph in each of its seven
+    // workers, so on a machine with no BETTER_AUTH_SECRET this printed the
+    // warning above seven times per build -- about requests the build never
+    // serves. A message that appears when nothing is wrong trains readers to
+    // scroll past the one time it means something.
+    //
+    // Both halves are asserted: quiet, *and* the failure still reaches a
+    // caller. Suppressing the log must not suppress the error, or the guard
+    // becomes a way to hide a real misconfiguration.
+    vi.resetModules();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    process.env.BETTER_AUTH_SECRETS = "this-entry-has-no-version-prefix";
+    process.env.NEXT_PHASE = "phase-production-build";
+
+    try {
+      const broken = await import("./server");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(logged).not.toHaveBeenCalled();
+      await expect(broken.auth.api.getSession({ headers: new Headers() })).rejects.toThrow(
+        /BETTER_AUTH_SECRETS/,
+      );
+    } finally {
+      delete process.env.NEXT_PHASE;
+      delete process.env.BETTER_AUTH_SECRETS;
+      logged.mockRestore();
+    }
+  });
+
   it("does not open the database while the module is being imported", async () => {
     // `next build` imports every route's module graph, and `data/` does not
     // exist until the server's startup hook migrates it -- so an eager getDb() in

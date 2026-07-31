@@ -53,6 +53,41 @@ jobs:
       - name: Test
         run: npm test
 
+      # Nothing above this line ever *runs* the application, and this phase
+      # produced two bundler-class regressions that only a running server
+      # catches: the edge compilation of the instrumentation hook, which made
+      # `next dev` answer 500 on every route while `next build` stayed green,
+      # and the startup migration, which no unit test boots. The image jobs
+      # below do run `npm run build` through the Dockerfile, so the gap is the
+      # boot, not the build.
+      #
+      # Three requests, each proving something different:
+      #   /health  the startup hook ran and migrated a database that did not
+      #            exist -- it is a real SELECT against SQLite
+      #   /login   a page renders end to end: root layout, next-intl, theme
+      #   /        the proxy is wired and redirects an uncookied request
+      #
+      # `next dev` rather than `npm start`, deliberately: the IgnorePlugin that
+      # the instrumentation test guards only matters in dev, because that is
+      # the only mode that compiles the edge hook at all.
+      - name: Dev boot smoke
+        env:
+          BETTER_AUTH_SECRET: ci-smoke-secret-not-used-outside-this-job
+        run: |
+          set -euo pipefail
+          npm run dev > dev.log 2>&1 &
+          dev=$!
+          trap 'kill "$dev" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 60); do
+            if curl -fsS http://localhost:3000/health > /dev/null; then break; fi
+            kill -0 "$dev" 2>/dev/null || { echo "the dev server exited"; cat dev.log; exit 1; }
+            sleep 1
+          done
+          curl -fsS http://localhost:3000/health | tee /dev/stderr | grep -q '"status":"ok"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/login)" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/)" = 307
+          cat dev.log
+
   # Build AMD64 image (push:false -- see file header).
   build-amd64:
     name: Build AMD64

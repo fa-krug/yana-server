@@ -288,6 +288,25 @@ export const auth = betterAuth({
  * in the log. `void` because nothing should await this.
  */
 void auth.$context.catch((error: unknown) => {
+  /**
+   * **Silent during `next build`, and only there.**
+   *
+   * The build imports every route's module graph in each of its workers, so
+   * this handler ran seven times on a build machine with no
+   * `BETTER_AUTH_SECRET` -- seven copies of a warning about requests that
+   * cannot fail, because the build serves none. A message that appears when
+   * nothing is wrong is a message readers learn to scroll past, which is the
+   * cost: the *one* time it matters is a running server, and by then it looks
+   * like ordinary build output.
+   *
+   * `NEXT_PHASE` is Next's own signal and is the same one
+   * `registerInstrumentation()` uses to skip the startup hook during a build.
+   * Nothing is hidden from a server: `npm start`, `next dev` and the container
+   * all leave it unset and still log. The build's honest statement of the same
+   * fact lives in `.env.example` and the README, where a deployer can act on it.
+   */
+  if (process.env.NEXT_PHASE === "phase-production-build") return;
+
   console.error(
     "Better Auth failed to initialise. Every /api/auth/* request will fail " +
       "until this is fixed; the most common cause is a missing " +
