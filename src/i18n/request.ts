@@ -1,14 +1,38 @@
+import { headers } from "next/headers";
 import { getRequestConfig } from "next-intl/server";
 
+import { FALLBACK_LOCALE, negotiateLocale, type AppLocale } from "@/i18n/locale";
 import { isLoginRedirect } from "@/lib/auth/session";
 import { getSettings } from "@/lib/settings/queries";
 
-/** The locale used when the stored preference cannot be read at all. */
-const FALLBACK_LOCALE = "en";
+/**
+ * The locale for a request with no stored preference behind it.
+ *
+ * **The stored preference wins whenever there is one** -- this runs only when
+ * `getSettings()` could not answer, which in practice means /login, the one
+ * page rendered without a session. Before this, that page was always English:
+ * a German visitor met the application for the first time in the wrong
+ * language, on the only screen with no settings control on it.
+ *
+ * Wrapped again, and falling back again, for the same reason the caller does:
+ * this is the *root* layout's locale resolution, and `headers()` failing here
+ * must not be able to 500 every route in the application.
+ */
+async function browserLocale(): Promise<AppLocale> {
+  try {
+    return negotiateLocale((await headers()).get("accept-language"));
+  } catch (error) {
+    console.error(`Could not read Accept-Language; falling back to "${FALLBACK_LOCALE}".`, error);
+    return FALLBACK_LOCALE;
+  }
+}
 
 export default getRequestConfig(async () => {
-  // Locale comes from the user's stored preference, not from Accept-Language:
-  // this is a single-user-per-session app where the setting is explicit.
+  // A signed-in user's locale is their stored preference and nothing else --
+  // the setting is explicit, and a browser header must never override a choice
+  // the user made in the application. Accept-Language is consulted only when
+  // there is no stored preference to read, which is the signed-out case; see
+  // browserLocale() above.
   //
   // Wrapped, because this runs in the *root* layout via getLocale(): every
   // route in the app resolves its locale here, so an exception thrown from
@@ -21,7 +45,7 @@ export default getRequestConfig(async () => {
   // error page. This is the only place the read is allowed to degrade; the
   // dashboard and /settings still surface the real error through their own
   // error boundary.
-  let locale: "en" | "de" = FALLBACK_LOCALE;
+  let locale: AppLocale = FALLBACK_LOCALE;
   try {
     const settings = await getSettings();
     locale = settings.language === "de" ? "de" : FALLBACK_LOCALE;
@@ -39,11 +63,15 @@ export default getRequestConfig(async () => {
     // setting.
     if (!isLoginRedirect(error)) {
       console.error(
-        `Locale resolution failed; falling back to "${FALLBACK_LOCALE}". ` +
+        "Locale resolution failed; falling back to the browser's preference. " +
           "The stored language preference could not be read.",
         error,
       );
     }
+    // Both branches, not just the signed-out one: a request whose stored
+    // preference could not be read has no preference to honour either way, and
+    // the browser's is a better guess than a constant.
+    locale = await browserLocale();
   }
   return { locale, messages: (await import(`../../messages/${locale}.json`)).default };
 });

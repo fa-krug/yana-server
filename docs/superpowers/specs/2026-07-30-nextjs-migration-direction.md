@@ -427,9 +427,17 @@ because phase 3's workspace is deleted, not because they are open questions for 
 - **Phase 4 (auth) must create a `user_settings` row in the same transaction that creates a user.**
   `getSettings()` (`src/lib/settings/queries.ts`) throws when the row is absent, by design — there is
   no insert-if-absent fallback there (see the file's own comment on why). Only the root layout's two
-  reads degrade instead of throwing (locale → `en`, theme → `system`); the dashboard and `/settings`
-  still surface the real error through the error boundary. Without a settings row, a newly signed-up
-  user would fail both.
+  reads degrade instead of throwing (locale → the browser's `Accept-Language`, theme → `system`); the
+  dashboard and `/settings` still surface the real error through the error boundary. Without a
+  settings row, a newly signed-up user would fail both.
+- **Amended in phase 4 (task 4), by human ruling: a request with no stored preference negotiates its
+  locale from `Accept-Language`.** Phase 3 decided the locale comes from `user_settings.language`
+  and from nothing else, and for a *signed-in* user that still holds exactly — a browser header must
+  never override a choice made in the application. But /login renders without a session, so there is
+  no row to read, and the phase-3 rule made the first screen a German visitor ever sees English,
+  with no control on it to change that. `negotiateLocale()` (`src/i18n/locale.ts`) picks between
+  `en` and `de` on the fallback path in `src/i18n/request.ts` only. `<html lang>` follows it, since
+  the root layout reads the same `getLocale()`.
 - **`timeZone` is not set in `src/i18n/request.ts`**, so next-intl defaults to the container's zone
   (UTC in the Docker image). Phases 5–10 render article timestamps and must decide whether to add a
   `timeZone` column to `user_settings` or read the browser's

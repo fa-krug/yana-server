@@ -60,6 +60,7 @@ file.
 │   ├── hooks/                     # use-mobile.ts (hand-modified — see below)
 │   ├── i18n/
 │   │   ├── request.ts             # next-intl request config; reads getSettings()
+│   │   ├── locale.ts              # LOCALES + negotiateLocale() — the signed-out locale
 │   │   └── next-intl.d.ts         # AppConfig augmentation — compiler-checked catalog keys
 │   ├── instrumentation.ts         # register(): the one startup hook — see src/lib/startup.ts
 │   ├── proxy.ts                   # route protection (Next 16's name for middleware.ts)
@@ -82,13 +83,14 @@ file.
 │   │   │   │                      #   articles.ts, jobs.ts — one module per table group
 │   │   │   ├── test-support.ts    # TEST-ONLY: migrate()-based fixture databases
 │   │   │   └── *.test.ts          # client, schema, relations, schema/enums
+│   │   ├── browser-location.ts    # replaceLocation() — the one hard navigation, and its test seam
 │   │   ├── nav.ts                 # NAV_ITEMS + breadcrumbsFor() — single source for both
 │   │   ├── settings/               # queries.ts (getSettings + the re-exported currentUserId),
 │   │   │                           #   actions.ts (server actions)
 │   │   └── utils.ts               # cn()
 │   └── test/                      # TEST-ONLY: shared setup for the jsdom project
 │       ├── render.tsx             # renderWithProviders() — real catalogs, optional theme
-│       ├── next-navigation.ts     # usePathname + useRouter stubs (a router stub, not a data mock)
+│       ├── next-navigation.ts     # usePathname stub (a router stub, not a data mock)
 │       └── setup.ts               # cleanup + matchMedia/localStorage repair
 ├── messages/                      # en.json, de.json — must define identical keys (enforced)
 ├── drizzle/                       # generated migrations + meta/_journal.json
@@ -453,17 +455,31 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     `.*\.(?:svg|png|…|woff2)$` exclusion is what covers `public/`, whose files
     are served from the site root where no prefix can tell them from a route:
     without it `/globe.svg` answered `307 → /login`, on the one page whose
-    visitor has no session to be redirected with. Every extension added there
-    is a path shape that can never be guarded again, so `.json` and `.js` stay
-    off the list.
-- **`/login` is the whole unauthenticated UI, and three things about it are
+    visitor has no session to be redirected with. **Every extension on that
+    list is a path shape that can never be guarded again**, so it is kept to
+    what `public/` actually holds: `svg|ico|txt|xml|webmanifest` and the fonts.
+    The raster extensions are deliberately _not_ on it — `.png`, `.jpg` and
+    `.webp` are what user content is served as, and exempting them removed
+    proxy coverage from routes phases 5–13 have yet to write. `media/` is not
+    exempted either, for the same reason: nothing serves it yet. Naming
+    `public/`'s three files instead (`(?!file\.svg|globe\.svg|window\.svg)`)
+    is legal — a matcher entry is a regex — and is rejected only because it
+    needs editing every time a file is added there.
+- **`/login` is the whole unauthenticated UI, and five things about it are
   load-bearing.** It lives at `src/app/login/page.tsx`, deliberately outside
   `(app)`: that group's layout awaits `requireUser()`, so a login form inside it
   would redirect to itself. (1) **`?next=` is validated, never followed as
   given.** `safeNextPath()` in `src/lib/auth/next-path.ts` accepts only a path
-  on this origin and falls back to `/` — `//evil.tld`, `/\evil.tld` and
-  `/<TAB>/evil.tld` all resolve off-site, and `?next=/login` is an infinite
-  redirect. The page reads `searchParams` on the **server** and passes the
+  on this origin and falls back to `/`. **It validates the value it returns,
+  not the value it received**, and that distinction is the whole guard: the
+  first version tested the raw input for a leading `//` and shipped a working
+  open redirect anyway, because `URL` normalization _creates_ one —
+  `/.//evil.tld` and `/a/..//evil.tld` are single-slash inputs that come out as
+  `//evil.tld`, which a browser follows off-site. A new guard therefore belongs
+  _below_ the parse. `?next=/login` is refused too, not because it loops (it
+  does not: `redirect(LOGIN_PATH)` carries no query, so the next hop reads no
+  `next` and stops) but because one pointless hop back to the sign-in page is
+  not a destination. The page reads `searchParams` on the **server** and passes the
   checked value to the client component, which is both Next's own advice for a
   Server Component page and the reason no `useSearchParams()` Suspense boundary
   is needed here. (2) **Failures become catalog keys, never Better Auth
@@ -479,8 +495,25 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   untestable here** — no unit test can drive an authenticator, so
   `login-form.test.tsx` covers the password path and the _result handling_ of a
   passkey attempt, and the ceremony is only ever exercised by hand.
-  One known gap: signed out there is no user, so `src/i18n/request.ts` falls
-  back to `en` and the login page is always English however good `de.json` is.
+  (4) **Signed out, the locale comes from `Accept-Language`** — negotiated
+  against `["en", "de"]` by `negotiateLocale()` in `src/i18n/locale.ts` and
+  applied in `src/i18n/request.ts`'s fallback path, which is the only path a
+  request with no session takes. A signed-in user's stored preference still
+  wins outright; a header never overrides a choice made in the application.
+  (5) **A rejected sign-in call is a caught error, not an escaped one.**
+  `@better-fetch/fetch` turns HTTP failures into `{ data, error }` but leaves
+  its own `await fetch(...)` unwrapped, so a restarting container _rejects_ —
+  and an unhandled rejection there left the form on "Signing in" forever with
+  no message, recoverable only by reloading. Both handlers go through
+  `attempt()`, which maps a throw to `signInFailed` and clears `busy`.
+  And one rule that falls out of (4): **a successful sign-in is a full document
+  navigation** (`replaceLocation()` in `src/lib/browser-location.ts`), never
+  `router.replace()`. The root layout owns `<html lang>`, the intl provider and
+  the theme, and a soft navigation does not re-render it — so the user would
+  land inside chrome built for the request _before_ they had an identity. That
+  was visible the moment (4) shipped: a German-locale browser signing in to an
+  English-preference account got a German sidebar around an English page until
+  a manual reload.
 - **The default admin: `admin@admin.com` / `admin`, created only when no admin
   exists.** Three things are load-bearing. The check is keyed on **"any user
   holds an admin role"** (`ADMIN_ROLES` from `auth/roles.ts`, the same list the
