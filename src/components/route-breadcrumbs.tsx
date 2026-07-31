@@ -25,9 +25,12 @@ export function RouteBreadcrumbs() {
       <BreadcrumbList>
         {crumbs.map((crumb, index) => {
           const isLast = index === crumbs.length - 1;
-          // A labelKey containing a dot is a catalog path; anything else is a
-          // literal record id and must not be translated.
-          const label = crumb.labelKey.includes(".") ? t(crumb.labelKey) : crumb.labelKey;
+          // A crumb carries either a catalog key (a known route) or a literal
+          // record id that must not be translated -- see Crumb in lib/nav.ts.
+          // Discriminating on the field name rather than on "does the string
+          // contain a dot?" is both typecheckable and correct for an id that
+          // happens to contain one.
+          const label = "labelKey" in crumb ? t(crumb.labelKey) : crumb.label;
           return (
             // BreadcrumbSeparator is a sibling of BreadcrumbItem here, not a
             // child of it -- both render an <li>, and nesting one inside the

@@ -10,9 +10,20 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import type { CatalogKey } from "@/i18n/next-intl";
+
+/**
+ * A key under the `nav` namespace, not any string: these are handed straight to
+ * t(), and a typo in one would render the raw key path ("nav.feds") into the
+ * sidebar and the breadcrumbs. Derived from en.json via the AppConfig
+ * augmentation in src/i18n/next-intl.d.ts, so adding a route without adding its
+ * label is a typecheck failure rather than a visual one.
+ */
+export type NavLabelKey = Extract<CatalogKey, `nav.${string}`>;
+
 export type NavItem = {
   href: string;
-  labelKey: string;
+  labelKey: NavLabelKey;
   icon: LucideIcon;
   adminOnly: boolean;
 };
@@ -29,7 +40,18 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/settings", labelKey: "nav.settings", icon: Settings, adminOnly: false },
 ];
 
-const LABELS = new Map(NAV_ITEMS.map((item) => [item.href, item.labelKey]));
+const LABELS = new Map<string, NavLabelKey>(NAV_ITEMS.map((item) => [item.href, item.labelKey]));
+
+/**
+ * One breadcrumb: either a known route, which carries a catalog key to
+ * translate, or an unmatched segment (a record id), which is shown verbatim.
+ *
+ * Two shapes rather than one `labelKey: string`, because the caller has to tell
+ * them apart before calling t() and the old "does it contain a dot?" heuristic
+ * was both untypeable and wrong for a segment id that happens to contain one
+ * (a slug, a filename, a version). The discriminant is now the field name.
+ */
+export type Crumb = { href: string; labelKey: NavLabelKey } | { href: string; label: string };
 
 /**
  * Breadcrumbs from the URL alone.
@@ -38,14 +60,15 @@ const LABELS = new Map(NAV_ITEMS.map((item) => [item.href, item.labelKey]));
  * registration step -- which is why every view must be a real route.
  * An unmatched segment (a record id) is shown verbatim.
  */
-export function breadcrumbsFor(pathname: string): { href: string; labelKey: string }[] {
+export function breadcrumbsFor(pathname: string): Crumb[] {
   const segments = pathname.split("/").filter(Boolean);
-  const crumbs = [{ href: "/", labelKey: "nav.dashboard" }];
+  const crumbs: Crumb[] = [{ href: "/", labelKey: "nav.dashboard" }];
 
   let href = "";
   for (const segment of segments) {
     href += `/${segment}`;
-    crumbs.push({ href, labelKey: LABELS.get(href) ?? segment });
+    const labelKey = LABELS.get(href);
+    crumbs.push(labelKey ? { href, labelKey } : { href, label: segment });
   }
   return crumbs;
 }
