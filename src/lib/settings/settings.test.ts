@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { applyMigrationsAt } from "@/lib/db/test-support";
+import en from "../../../messages/en.json";
 
 // Real-database test, no driver mocks -- see CLAUDE.md's testing convention
 // and src/lib/db/bootstrap.test.ts, which this follows. Each test points
@@ -61,21 +62,41 @@ describe("settings", () => {
     }
   });
 
+  // Resolves an action's errorKey (a dot path relative to the `settings`
+  // catalog namespace, e.g. "library.retentionRange") against the real
+  // en.json import. The catalog-parity test (src/i18n/messages.test.ts) only
+  // compares the two catalogs to each other -- it has no way to know that an
+  // action emits a key neither catalog defines, which would render the raw
+  // key path to the user. This closes that gap by checking against the
+  // actual file rather than a hard-coded list of expected keys.
+  function settingsMessage(key: string | undefined): unknown {
+    if (!key) return undefined;
+    return key
+      .split(".")
+      .reduce<unknown>((node, part) => (node as Record<string, unknown>)?.[part], en.settings);
+  }
+
   describe("updateLibrarySettings", () => {
-    it("rejects a retention of zero days", async () => {
+    it("rejects a retention of zero days with a real catalog key", async () => {
       const result = await actions.updateLibrarySettings({
         articleRetentionDays: 0,
         updateIntervalMinutes: 30,
       });
       expect(result.ok).toBe(false);
+      const message = settingsMessage(result.errorKey);
+      expect(typeof message).toBe("string");
+      expect(message).not.toBe("");
     });
 
-    it("rejects an update interval below one minute", async () => {
+    it("rejects an update interval below one minute with a real catalog key", async () => {
       const result = await actions.updateLibrarySettings({
         articleRetentionDays: 60,
         updateIntervalMinutes: 0,
       });
       expect(result.ok).toBe(false);
+      const message = settingsMessage(result.errorKey);
+      expect(typeof message).toBe("string");
+      expect(message).not.toBe("");
     });
 
     it("accepts sane values and persists them", async () => {
@@ -101,6 +122,16 @@ describe("settings", () => {
       const settings = await queries.getSettings();
       expect(settings.theme).toBe("dark");
       expect(settings.language).toBe("de");
+    });
+
+    it("falls back to no errorKey for a value outside the fixed enums", async () => {
+      // Unreachable from this app's own UI (the Select only ever offers the
+      // enum's own members), but exercised directly to lock in the fallback:
+      // a field with no entry in FIELD_ERROR_KEYS leaves errorKey undefined,
+      // and the caller shows the generic settings.saveFailed toast.
+      const result = await actions.updateGeneralSettings({ theme: "purple", language: "de" });
+      expect(result.ok).toBe(false);
+      expect(result.errorKey).toBeUndefined();
     });
   });
 

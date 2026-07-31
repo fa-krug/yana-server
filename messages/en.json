@@ -25,7 +25,9 @@
       "interval": "Update interval",
       "intervalHelp": "How often feeds are checked for new articles.",
       "days": "days",
-      "minutes": "minutes"
+      "minutes": "minutes",
+      "retentionRange": "Article retention must be between 1 and 3650 days.",
+      "intervalRange": "Update interval must be between 1 and 1440 minutes."
     },
     "about": { "title": "About", "source": "Source code", "issues": "Report an issue" },
     "saved": "Settings saved",

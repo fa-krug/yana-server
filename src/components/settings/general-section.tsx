@@ -34,7 +34,7 @@ export function GeneralSection({ theme, language }: { theme: string; language: s
       if (result.ok) {
         toast.success(t("saved"));
       } else {
-        toast.error(result.error ?? t("saveFailed"));
+        toast.error(result.errorKey ? t(result.errorKey) : t("saveFailed"));
       }
     });
   }

@@ -25,7 +25,9 @@
       "interval": "Aktualisierungsintervall",
       "intervalHelp": "Wie oft Feeds auf neue Artikel geprüft werden.",
       "days": "Tage",
-      "minutes": "Minuten"
+      "minutes": "Minuten",
+      "retentionRange": "Die Aufbewahrung muss zwischen 1 und 3650 Tagen liegen.",
+      "intervalRange": "Das Aktualisierungsintervall muss zwischen 1 und 1440 Minuten liegen."
     },
     "about": { "title": "Über", "source": "Quellcode", "issues": "Problem melden" },
     "saved": "Einstellungen gespeichert",
