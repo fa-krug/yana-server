@@ -1,9 +1,9 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { accounts, passkeys, userSettings, users } from "@/lib/db/schema";
 
-import { ADMIN_ROLE, ADMIN_ROLES } from "./roles";
+import { ADMIN_ROLE, isAdminRole } from "./roles";
 import { createUserWithPassword, linkPasswordCredential } from "./server";
 
 /**
@@ -16,7 +16,36 @@ const DEFAULT_EMAIL = "admin@admin.com";
 const DEFAULT_PASSWORD = "admin";
 
 /**
- * Is there any administrator at all?
+ * Is this row an administrator who could actually administer the instance?
+ *
+ * Two halves, and both were bugs the phase-4 whole-branch review found.
+ *
+ * **The role is read through `isAdminRole()`**, never with SQL equality. The
+ * `admin()` plugin treats `users.role` as a comma-separated *list*, so
+ * `"user,admin"` -- which its own `/admin/set-role` would happily write -- is
+ * an administrator to every Better Auth endpoint. An `inArray(users.role,
+ * ADMIN_ROLES)` test says otherwise, and the disagreement is not cosmetic: this
+ * function decides whether to *create* `admin@admin.com`, the address a `users`
+ * row already holds, so a false answer is a `users_email_unique` violation at
+ * startup and a server that never boots again.
+ *
+ * **A banned admin does not count.** The plugin refuses to create a session for
+ * one (`plugins/admin/admin.mjs`, the `session.create.before` hook), so an
+ * instance whose only administrator is banned has no administrator in the only
+ * sense that matters. An *expired* ban does count as unbanned, because that
+ * same hook lifts it on the next sign-in rather than refusing.
+ *
+ * Plain reads throughout this module, no writeTransaction(): that helper is for
+ * writes.
+ */
+function isUsableAdmin(row: { role: string; banned: boolean; banExpires: Date | null }): boolean {
+  if (!isAdminRole(row.role)) return false;
+  if (!row.banned) return true;
+  return row.banExpires !== null && row.banExpires.getTime() < Date.now();
+}
+
+/**
+ * Is there any usable administrator at all?
  *
  * Keyed on the *role*, never on `DEFAULT_EMAIL`. An operator who renames or
  * deletes the default account has made a decision, and an email-keyed check
@@ -25,23 +54,39 @@ const DEFAULT_PASSWORD = "admin";
  * `./roles`, which is also what the `admin()` plugin is configured with in
  * `./server`, so this cannot drift from the plugin's own notion of an admin.
  *
- * Plain reads throughout this module, no writeTransaction(): that helper is for
- * writes.
+ * The role test happens in JavaScript rather than in the `WHERE` clause because
+ * comma-list membership is what `isAdminRole()` implements and duplicating it
+ * as SQL is exactly the drift this module is written to avoid. The cost is a
+ * scan of `users`, once per server start, on a table a self-hosted instance
+ * measures in tens of rows.
  */
 function adminExists(): boolean {
-  return (
-    getDb().select({ id: users.id }).from(users).where(inArray(users.role, ADMIN_ROLES)).get() !==
-    undefined
-  );
+  return getDb()
+    .select({ role: users.role, banned: users.banned, banExpires: users.banExpires })
+    .from(users)
+    .all()
+    .some(isUsableAdmin);
 }
 
-/** The default account, but only while it still holds an admin role. */
-function findDefaultAdminId(): string | undefined {
+/** The default account's row, whatever role it currently holds. */
+function findDefaultAdmin():
+  { id: string; role: string; banned: boolean; banExpires: Date | null } | undefined {
   return getDb()
-    .select({ id: users.id })
+    .select({
+      id: users.id,
+      role: users.role,
+      banned: users.banned,
+      banExpires: users.banExpires,
+    })
     .from(users)
-    .where(and(eq(users.email, DEFAULT_EMAIL), inArray(users.role, ADMIN_ROLES)))
-    .get()?.id;
+    .where(eq(users.email, DEFAULT_EMAIL))
+    .get();
+}
+
+/** The default account, but only while it is still a usable administrator. */
+function findDefaultAdminId(): string | undefined {
+  const row = findDefaultAdmin();
+  return row && isUsableAdmin(row) ? row.id : undefined;
 }
 
 function hasPasswordCredential(userId: string): boolean {
@@ -181,47 +226,114 @@ export function ensureAdminExists(): Promise<void> {
   return inFlight;
 }
 
+/**
+ * Give the default account its administrator role back.
+ *
+ * **Reached only when the instance has no usable administrator at all** and a
+ * `users` row already holds `DEFAULT_EMAIL`. Creating one is then impossible --
+ * `users.email` is uniquely indexed -- so the choice is between repairing that
+ * row and throwing out of `register()`, which `src/instrumentation.ts` turns
+ * into `process.exit(1)`. **A server that cannot boot is the worse outcome**,
+ * and it is worse in a way this application has no answer to: there is no
+ * self-registration, no mail transport and no CLI, so recovery would mean
+ * editing SQLite by hand. That is the same reasoning the last-passkey guard in
+ * `@/lib/account/actions` is built on.
+ *
+ * Restores three things, all narrowly: the role (a typo, a demotion, or a
+ * comma-list `/admin/set-role` wrote), and the ban columns, because a banned
+ * sole administrator can no more sign in than a demoted one -- the plugin
+ * refuses to create their session. It does **not** touch the password: that is
+ * `completeDefaultAdmin()`'s job and only when the account has no way to sign
+ * in at all, so an operator who knows this account's password keeps it.
+ *
+ * Two honest consequences, both loudly warned about rather than hidden:
+ *
+ * - If `admin@admin.com` is an *ordinary* user phase 5 created, and the real
+ *   administrator was then deleted, this promotes them. Whoever holds that
+ *   address becomes the administrator of an instance that had none. The
+ *   alternative was refusing to boot, and the address is this application's
+ *   documented default admin, not an arbitrary one.
+ * - It does not fire while any other usable administrator exists, so an
+ *   operator who deliberately demoted or banned this account and promoted
+ *   somebody else keeps that arrangement across every restart.
+ */
+function restoreDefaultAdminRole(id: string): void {
+  writeTransaction((tx) => {
+    tx.update(users)
+      .set({ role: ADMIN_ROLE, banned: false, banReason: null, banExpires: null })
+      .where(eq(users.id, id))
+      .run();
+  });
+
+  console.warn(
+    `Yana restored the administrator role on ${DEFAULT_EMAIL}: this instance had no ` +
+      `usable admin account, and that address was already taken so a new one could not ` +
+      `be created. If that was not intended, promote the account you want and demote ` +
+      `this one.`,
+  );
+}
+
 async function runEnsureAdminExists(): Promise<void> {
   if (!adminExists()) {
-    try {
-      await createUserWithPassword({
-        email: DEFAULT_EMAIL,
-        password: DEFAULT_PASSWORD,
-        name: "Admin",
-        firstName: "Admin",
-        role: ADMIN_ROLE,
-      });
+    /**
+     * The row is checked *before* creating, not only in the catch below.
+     * `users.email` is unique, so if `DEFAULT_EMAIL` is taken there is nothing
+     * to create -- attempting it and recovering from the constraint would work
+     * too, but it makes the ordinary repair path run through an exception and
+     * leaves a wrapped driver error to interpret.
+     */
+    const existing = findDefaultAdmin();
+    if (existing) {
+      restoreDefaultAdminRole(existing.id);
+    } else {
+      try {
+        await createUserWithPassword({
+          email: DEFAULT_EMAIL,
+          password: DEFAULT_PASSWORD,
+          name: "Admin",
+          firstName: "Admin",
+          role: ADMIN_ROLE,
+        });
 
-      console.warn(
-        `Yana created the default administrator ${DEFAULT_EMAIL} with the password ` +
-          `"${DEFAULT_PASSWORD}" because this instance had no admin account. Sign in ` +
-          `and change it now -- until you do, anyone who can reach this server is an ` +
-          `administrator.`,
-      );
-    } catch (error) {
-      /**
-       * Two different failures land here.
-       *
-       * The one this guard is for: a genuine race. The check above is
-       * synchronous and the creation is not, so two callers can both pass it.
-       * The loser fails on the `users_email_unique` index having written
-       * nothing, and must not take the server down -- this runs inside
-       * instrumentation's `register()`, where a rejection stops the server from
-       * starting at all.
-       *
-       * The other: our own creation half-succeeded (the user landed,
-       * `linkAccount` threw). `adminExists()` cannot tell those apart -- it
-       * would see our own useless row and report success -- which is why it is
-       * deliberately not the last word. Either way `completeDefaultAdmin()`
-       * below still runs and has to make the postcondition true; only if no
-       * admin exists at all was the failure total, and then it is the caller's.
-       *
-       * Narrowed by re-reading the database rather than by matching the driver's
-       * error text: `SQLITE_CONSTRAINT_UNIQUE` arrives here wrapped by both the
-       * Drizzle adapter and Better Auth, so the message is not ours to depend
-       * on.
-       */
-      if (!adminExists()) throw error;
+        console.warn(
+          `Yana created the default administrator ${DEFAULT_EMAIL} with the password ` +
+            `"${DEFAULT_PASSWORD}" because this instance had no admin account. Sign in ` +
+            `and change it now -- until you do, anyone who can reach this server is an ` +
+            `administrator.`,
+        );
+      } catch (error) {
+        /**
+         * Three different failures land here, and only the last is fatal.
+         *
+         * A genuine race: the check above is synchronous and the creation is
+         * not, so two callers -- or two *processes*, which the in-flight memo
+         * cannot see -- can both pass it. The loser fails on
+         * `users_email_unique` having written nothing, and must not take the
+         * server down; this runs inside instrumentation's `register()`, where a
+         * rejection stops the server from starting at all.
+         *
+         * Our own creation half-succeeded (the user landed, `linkAccount`
+         * threw). `adminExists()` cannot tell that apart from the race -- it
+         * sees our own row and reports success -- which is why it is
+         * deliberately not the last word: `completeDefaultAdmin()` below still
+         * runs and has to make the postcondition true.
+         *
+         * And the one that made this a `catch` rather than a rethrow: a
+         * `DEFAULT_EMAIL` row that appeared between the check and the write,
+         * holding no admin role. Repair it, for exactly the reasons on
+         * `restoreDefaultAdminRole()`.
+         *
+         * Narrowed by re-reading the database rather than by matching the
+         * driver's error text: `SQLITE_CONSTRAINT_UNIQUE` arrives here wrapped
+         * by both the Drizzle adapter and Better Auth, so the message is not
+         * ours to depend on.
+         */
+        if (!adminExists()) {
+          const raced = findDefaultAdmin();
+          if (!raced) throw error;
+          restoreDefaultAdminRole(raced.id);
+        }
+      }
     }
   }
 

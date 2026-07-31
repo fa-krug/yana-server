@@ -50,6 +50,62 @@ const lazyDb = new Proxy({} as ReturnType<typeof getDb>, {
   },
 });
 
+/**
+ * **Every endpoint the `admin()` plugin mounts. All of them are closed.**
+ *
+ * The plugin is enabled for its `role` field and its server-side semantics, not
+ * for its HTTP surface -- no phase from 4 to 13 calls one of these, and phase 5
+ * hand-rolls its user CRUD against Drizzle. Left open they were a live hazard
+ * rather than dead weight, in three separate ways found by the phase-4 review:
+ *
+ * - **`/admin/set-role` accepts an arbitrary string or array.** With no custom
+ *   `roles` map configured there is nothing to validate against, so an
+ *   administrator could write `["user","admin"]` and land the literal
+ *   `"user,admin"` in the column. The plugin reads that as a list and this
+ *   application read it as one string, so the two disagreed about who was an
+ *   administrator -- and `adminExists()` then reported "no admin" for an
+ *   instance that had one, tried to recreate `admin@admin.com`, hit
+ *   `users_email_unique` and took startup down **permanently**, with no
+ *   in-app recovery. `isAdminRole()` splitting on commas (`./roles`) and the
+ *   bootstrap repairing instead of rethrowing (`./bootstrap`) close the other
+ *   two halves of that; this closes the cheapest way to trigger it.
+ * - **`/admin/create-user` writes no `user_settings` row.** Only
+ *   `ensureAdminExists()` does. `getSettings()` throws when the row is absent
+ *   and is deliberately not self-healing, so a user created this way could sign
+ *   in and then meet the error boundary on `/settings` forever.
+ * - **`/admin/update-user` passes `ctx.body.data` (`z.record(z.any(),
+ *   z.any())`) straight to `internalAdapter.updateUser`** -- an arbitrary-column
+ *   write, which is why closing individual fields (as `/update-user` needed for
+ *   `image`) would have been whack-a-mole here.
+ *
+ * `disabledPaths` gates **HTTP routing only** (`api/index.mjs`, `onRequest`),
+ * so `auth.api.*` calls from server code still work -- which is how
+ * `roles.test.ts` cross-checks `isAdminRole()` against the plugin's own
+ * `/admin/has-permission` semantics without reopening the route.
+ *
+ * The list is written out rather than derived, because the plugin exports no
+ * manifest of its paths; it is pinned against the installed library by
+ * `server.test.ts`, which fails if a future version adds an endpoint this list
+ * does not name.
+ */
+export const ADMIN_PLUGIN_PATHS = [
+  "/admin/ban-user",
+  "/admin/create-user",
+  "/admin/get-user",
+  "/admin/has-permission",
+  "/admin/impersonate-user",
+  "/admin/list-user-sessions",
+  "/admin/list-users",
+  "/admin/remove-user",
+  "/admin/revoke-user-session",
+  "/admin/revoke-user-sessions",
+  "/admin/set-role",
+  "/admin/set-user-password",
+  "/admin/stop-impersonating",
+  "/admin/unban-user",
+  "/admin/update-user",
+];
+
 export const auth = betterAuth({
   database: drizzleAdapter(lazyDb, {
     provider: "sqlite",
@@ -127,10 +183,12 @@ export const auth = betterAuth({
    * This is the write-side half. The render-side half -- `safeAvatarSrc()` in
    * `@/lib/avatar`, which renders the column only when it equals
    * `avatarUrlFor(user.id)` -- is the one that holds regardless of how a value
-   * reached the column, including through the `admin()` plugin's own
-   * `/admin/update-user`, which is still routable to an administrator.
+   * reached the column, and it stays the control that matters: it holds for
+   * anything phase 5's hand-rolled user CRUD writes too. The plugin's own
+   * `/admin/update-user` used to be the other routable way in and is now closed
+   * with the rest of `ADMIN_PLUGIN_PATHS` above.
    */
-  disabledPaths: ["/update-user"],
+  disabledPaths: ["/update-user", ...ADMIN_PLUGIN_PATHS],
 
   session: {
     expiresIn: 60 * 60 * 24 * 30,
@@ -177,11 +235,13 @@ export const auth = betterAuth({
      * reads it: the plugin's notion of an admin and the application's are the
      * same array, by construction.
      *
-     * Its endpoints (list/create/ban/impersonate users) go unused: phase 5 hand
-     * -rolls user CRUD against Drizzle and declines impersonation. What the
-     * plugin is here for is the `role` field and its server-side semantics --
-     * including `input: false` on `role`, which is what stops a request body
-     * from setting it.
+     * Its endpoints (list/create/ban/impersonate users) go unused -- phase 5
+     * hand-rolls user CRUD against Drizzle and declines impersonation -- and
+     * they are **closed**, not merely uncalled: see `ADMIN_PLUGIN_PATHS` above
+     * and the `disabledPaths` entry that spreads it. What the plugin is here
+     * for is the `role` field and its server-side semantics -- including
+     * `input: false` on `role`, which is what stops a request body from setting
+     * it.
      */
     admin({ defaultRole: "user", adminRoles: ADMIN_ROLES }),
     /**

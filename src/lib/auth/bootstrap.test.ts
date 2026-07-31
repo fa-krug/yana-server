@@ -251,6 +251,127 @@ describe("ensureAdminExists", () => {
     ]);
   });
 
+  /**
+   * **The bricking sequence, end to end.**
+   *
+   * Reproduced live by the phase-4 whole-branch review before any of it was
+   * fixed: `POST /api/auth/admin/set-role {"role":["user","admin"]}` answered
+   * 200 and wrote the literal `"user,admin"`. The plugin reads that as a list
+   * and still treated the account as an administrator; `adminExists()` tested
+   * the whole string for equality and did not -- so the next restart tried to
+   * create `admin@admin.com`, hit `users_email_unique`, rethrew out of
+   * `register()` and `process.exit(1)`. The server never booted again, and
+   * there is no in-app recovery from that: no self-registration, no mail
+   * transport, no CLI.
+   *
+   * Three defences close it and each is asserted separately below, because any
+   * one of them alone still leaves a broken instance:
+   * `disabledPaths` (`./server`) removes the cheapest trigger, `isAdminRole()`
+   * (`./roles`) makes the two notions of "admin" agree, and the repair here
+   * means *any* other route to the same state -- a typo, a case change, a
+   * phase-5 write -- costs a warning instead of the instance.
+   */
+  it("boots through the role list the admin plugin can write", async () => {
+    await bootstrap.ensureAdminExists();
+    // Exactly what /admin/set-role stored, verified live at 200.
+    client.writeTransaction((tx) => {
+      tx.update(schema.users)
+        .set({ role: "user,admin" })
+        .where(eq(schema.users.email, "admin@admin.com"))
+        .run();
+    });
+
+    await expect(bootstrap.ensureAdminExists()).resolves.toBeUndefined();
+
+    // No second account was attempted, and the role was left exactly as the
+    // operator's tooling wrote it -- this is already an administrator.
+    expect(all<{ role: string }>("SELECT role FROM users")).toEqual([{ role: "user,admin" }]);
+  });
+
+  it("repairs the role instead of refusing to boot when the address is taken", async () => {
+    // The general case: *any* write that leaves admin@admin.com without an
+    // administrative role reaches this, not just /admin/set-role. Before the
+    // fix this threw SQLITE_CONSTRAINT_UNIQUE out of register().
+    await bootstrap.ensureAdminExists();
+    client.writeTransaction((tx) => {
+      tx.update(schema.users)
+        .set({ role: "user" })
+        .where(eq(schema.users.email, "admin@admin.com"))
+        .run();
+    });
+
+    await expect(bootstrap.ensureAdminExists()).resolves.toBeUndefined();
+
+    expect(all<{ email: string; role: string }>("SELECT email, role FROM users")).toEqual([
+      { email: "admin@admin.com", role: "admin" },
+    ]);
+    // Repaired, not duplicated, and not re-credentialed: the account could
+    // already sign in, so its password is untouched.
+    expect(all<unknown>("SELECT id FROM accounts")).toHaveLength(1);
+    expect(warned).toHaveBeenCalledWith(expect.stringContaining("restored the administrator role"));
+  });
+
+  it("does not restore the role while another admin is still usable", async () => {
+    // The operator's deliberate arrangement -- demote the default, promote
+    // somebody else -- must survive every restart. This is what keeps the
+    // repair above from being a standing privilege grant.
+    await bootstrap.ensureAdminExists();
+    client.writeTransaction((tx) => {
+      tx.update(schema.users)
+        .set({ role: "user" })
+        .where(eq(schema.users.email, "admin@admin.com"))
+        .run();
+      tx.insert(schema.users)
+        .values({ id: "someone", email: "real@admin.tld", role: "admin" })
+        .run();
+    });
+
+    await bootstrap.ensureAdminExists();
+
+    expect(all<{ role: string }>("SELECT role FROM users WHERE email = 'admin@admin.com'")).toEqual(
+      [{ role: "user" }],
+    );
+  });
+
+  it("treats a banned sole admin as no admin, and unbans the default", async () => {
+    // The plugin refuses to create a session for a banned user
+    // (plugins/admin/admin.mjs, session.create.before), so an instance whose
+    // only administrator is banned has none in the only sense that matters --
+    // and adminExists() counting them left it with no way back in.
+    await bootstrap.ensureAdminExists();
+    client.writeTransaction((tx) => {
+      tx.update(schema.users)
+        .set({ banned: true, banReason: "locked out", banExpires: null })
+        .where(eq(schema.users.email, "admin@admin.com"))
+        .run();
+    });
+
+    await bootstrap.ensureAdminExists();
+
+    expect(
+      all<{ banned: number; ban_reason: string | null }>("SELECT banned, ban_reason FROM users"),
+    ).toEqual([{ banned: 0, ban_reason: null }]);
+  });
+
+  it("leaves an admin whose ban has already expired alone", async () => {
+    // Better Auth lifts an expired ban on the next sign-in rather than
+    // refusing it, so this account is usable and nothing here should fire.
+    await bootstrap.ensureAdminExists();
+    client.writeTransaction((tx) => {
+      tx.update(schema.users)
+        .set({ banned: true, banReason: "over", banExpires: new Date(Date.now() - 60_000) })
+        .where(eq(schema.users.email, "admin@admin.com"))
+        .run();
+    });
+
+    await bootstrap.ensureAdminExists();
+
+    expect(all<{ banned: number }>("SELECT banned FROM users")).toEqual([{ banned: 1 }]);
+    expect(warned).not.toHaveBeenCalledWith(
+      expect.stringContaining("restored the administrator role"),
+    );
+  });
+
   it("tolerates a concurrent second call instead of crashing boot", async () => {
     // Both callers pass the "no admin exists" check before either await
     // resolves, so the loser hits the users.email unique index. That is the

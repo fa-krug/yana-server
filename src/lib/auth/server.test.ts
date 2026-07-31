@@ -8,6 +8,32 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyMigrationsAt } from "@/lib/db/test-support";
 
 /**
+ * Every `/admin/*` path the **installed** `admin()` plugin declares, read off
+ * its own source rather than copied.
+ *
+ * `./server` cannot be imported at module scope here -- the suite sets
+ * `DATABASE_PATH` and `BETTER_AUTH_SECRET` before each dynamic import, and one
+ * test asserts the module opens no database at import time -- so the endpoint
+ * list is derived independently and the config's copy is compared against it in
+ * its own test below.
+ */
+const DECLARED_ADMIN_PATHS: string[] = [
+  ...new Set(
+    [
+      ...fs
+        .readFileSync(
+          path.join(
+            path.resolve(import.meta.dirname, "../../.."),
+            "node_modules/better-auth/dist/plugins/admin/routes.mjs",
+          ),
+          "utf8",
+        )
+        .matchAll(/createAuthEndpoint\(\s*"(\/admin\/[a-z-]+)"/g),
+    ].map((match) => match[1]),
+  ),
+].toSorted();
+
+/**
  * Real-database test, no driver mocks -- the convention in CLAUDE.md, and here
  * it is the only kind of test worth writing. Two things are under test and
  * neither is visible to `tsc`:
@@ -184,6 +210,109 @@ describe("the Better Auth instance", () => {
     expect(query<{ image: string | null }>("SELECT image FROM users WHERE id = ?", id).image).toBe(
       null,
     );
+  });
+
+  /**
+   * **Every endpoint the `admin()` plugin mounts answers 404, to an
+   * administrator.**
+   *
+   * Signed in as a real admin, because that is the caller these routes were
+   * written for -- a non-admin already gets a 403 from the plugin's own
+   * middleware, so proving they are closed to one proves nothing. Driven
+   * through the mounted route rather than `auth.api`, because `disabledPaths`
+   * is enforced in the router's `onRequest` and nowhere else.
+   */
+  async function seedAdminAndSignIn(): Promise<{ cookie: string; id: string }> {
+    const user = await createUserWithPassword({
+      email: "boss@example.com",
+      password: "correct horse battery staple",
+      name: "Boss",
+      role: "admin",
+    });
+    const response = await auth.api.signInEmail({
+      body: { email: "boss@example.com", password: "correct horse battery staple" },
+      asResponse: true,
+    });
+    expect(response.status).toBe(200);
+    return { cookie: response.headers.get("set-cookie") ?? "", id: user.id };
+  }
+
+  it.each(DECLARED_ADMIN_PATHS)("refuses to route %s even for an admin", async (adminPath) => {
+    const { cookie } = await seedAdminAndSignIn();
+
+    const request = new Request(`http://localhost:3000/api/auth${adminPath}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: "{}",
+    });
+    const response = await (adminPath === "/admin/get-user" || adminPath === "/admin/list-users"
+      ? route.GET(
+          new Request(`http://localhost:3000/api/auth${adminPath}`, { headers: { cookie } }),
+        )
+      : route.POST(request));
+
+    expect(response.status).toBe(404);
+  });
+
+  it("names every admin endpoint the installed plugin declares", async () => {
+    // The list in `./server` is hand-written because the plugin exports no
+    // manifest of its paths, so it can go stale silently -- a better-auth
+    // upgrade that adds an endpoint would mount it open, and nothing else here
+    // would notice. `DECLARED_ADMIN_PATHS` is read off the library's own
+    // source, which is where the paths are declared.
+    const { ADMIN_PLUGIN_PATHS } = await import("./server");
+
+    expect(ADMIN_PLUGIN_PATHS.toSorted()).toEqual(DECLARED_ADMIN_PATHS);
+  });
+
+  it("cannot be talked into the role list that used to brick the next restart", async () => {
+    // The review's live reproduction, in one call: /admin/set-role took an
+    // arbitrary array with no validation (no custom `roles` map is configured,
+    // so there is nothing to validate against) and wrote "user,admin". From
+    // there the app and the plugin disagreed about who was an admin, and the
+    // next boot tried to recreate admin@admin.com and died on
+    // users_email_unique. See the bricking tests in ./bootstrap.test.ts.
+    const { cookie, id } = await seedAdminAndSignIn();
+
+    const response = await route.POST(
+      new Request("http://localhost:3000/api/auth/admin/set-role", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify({ userId: id, role: ["user", "admin"] }),
+      }),
+    );
+
+    expect(response.status).toBe(404);
+    expect(query<{ role: string }>("SELECT role FROM users WHERE id = ?", id).role).toBe("admin");
+  });
+
+  it("cannot create a user that would have no settings row", async () => {
+    // /admin/create-user writes `users` and nothing else -- only
+    // ensureAdminExists() writes user_settings -- and getSettings() throws by
+    // design with no insert-if-absent fallback. So a user created this way
+    // could sign in, use /account, and meet the error boundary on /settings
+    // permanently. Closing the path is what fixes it; getSettings() keeps
+    // throwing.
+    const { cookie } = await seedAdminAndSignIn();
+
+    const response = await route.POST(
+      new Request("http://localhost:3000/api/auth/admin/create-user", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify({
+          email: "ghost@example.com",
+          password: "correct horse battery staple",
+          name: "Ghost",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(404);
+    expect(
+      query<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM users WHERE email = 'ghost@example.com'",
+      ).count,
+    ).toBe(0);
   });
 
   it("still lets a server action write users.image, which is how task 6 sets it", async () => {
