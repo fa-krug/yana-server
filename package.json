@@ -33,6 +33,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.3.3",
+    "@testing-library/react": "16.3.2",
     "@types/better-sqlite3": "7.6.13",
     "@types/node": "25.9.5",
     "@types/react": "19.2.18",
@@ -41,6 +42,7 @@
     "eslint": "9.39.5",
     "eslint-config-next": "16.2.12",
     "eslint-config-prettier": "10.1.8",
+    "jsdom": "30.0.1",
     "prettier": "3.9.6",
     "shadcn": "4.16.0",
     "tailwindcss": "4.3.3",
