@@ -51,7 +51,7 @@ export default async function AccountPage() {
    * that can needs its own call, first thing. `getTranslations()` below already
    * resolves the next-intl request config, which reads `getSettings()`, which
    * opens the database; without this, `next build` bakes this page against a
-   * `data/` directory that does not exist until the container's entrypoint
+   * `data/` directory that does not exist until the server's own startup hook
    * migrates one.
    */
   await connection();

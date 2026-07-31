@@ -123,10 +123,14 @@ export const config = {
    * impossibility: it would have to be edited every time a file is added to
    * `public/`, and the failure mode of forgetting is an asset that redirects.
    *
-   * `media/` used to be exempted too, and no longer is. Nothing serves it: the
-   * directory exists for article images and avatars that no route reads yet, so
-   * the exemption was coverage removed in advance of the code that needs it.
-   * Task 6's avatar route carries its own authentication requirement.
+   * `media/` used to be exempted too, and no longer is. The exemption was
+   * written when nothing served the directory, which made it coverage removed
+   * in advance of the code that would need it; `/media/avatars/[userId]` now
+   * serves it and the exemption would have been a hole rather than a
+   * pre-emptive one. It authenticates itself as well -- a route handler has no
+   * layout above it -- and this pass is what gives a cookie-less request the
+   * uniform `307 -> /login` that the handler deliberately does not diverge
+   * from.
    */
   matcher: [
     "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|ico|txt|xml|webmanifest|woff|woff2|ttf|otf)$).*)",

@@ -5,13 +5,14 @@
 **Scope:** Why we are moving to Next.js, the target architecture, the schema, the aggregator parity
 contract, and the phase route. Individual phases are planned in `docs/superpowers/plans/nextjs-*.md`.
 
-**Progress (2026-07-31):** Phase 0 (goldens), phase 1 (scaffold), phase 2
-(schema) and phase 3 (app shell) are done, and **phase 14's folder swap has
-been executed early** — the Next.js app is the repository root and the Django
-tree now sits in `old/`. Phases 4–13 and 15 are open. Two decisions below were
-changed by that early swap: Python is **not** deleted (`old/` is kept as
-read-only reference until nothing needs to read it), and CI no longer
-publishes or deploys. See `docs/superpowers/plans/nextjs-14-folder-swap.md`.
+**Progress (2026-08-01):** Phase 0 (goldens), phase 1 (scaffold), phase 2
+(schema), phase 3 (app shell) and **phase 4 (authentication)** are done, and
+**phase 14's folder swap has been executed early** — the Next.js app is the
+repository root and the Django tree now sits in `old/`. Phases 5–13 and 15 are
+open. Two decisions below were changed by that early swap: Python is **not**
+deleted (`old/` is kept as read-only reference until nothing needs to read it),
+and CI no longer publishes or deploys. See
+`docs/superpowers/plans/nextjs-14-folder-swap.md`.
 
 ## Background
 
@@ -88,9 +89,16 @@ paths; read those as repository-root paths.
 Deliberately not ported: `django-autocomplete-light`, `django-import-export`, `djangoql` (admin-only,
 and admin is what we are replacing) and `supervisord` (single process now).
 
-CI keeps its current job graph exactly — lint, format check, type check, test, then AMD64 and ARM64
-image builds, a multi-arch manifest, and the Portainer redeploy. Only the commands inside the test
-job change.
+**Amended.** CI was to keep the Django pipeline's job graph exactly, changing only the commands
+inside the test job. It does not: the multi-arch manifest and the Portainer redeploy are **gone**
+(the early folder swap removed them — production still runs the last Django image, and publishing
+`:latest` from here would swap a working aggregator for an unfinished port), and the image jobs
+build both architectures with `push: false` so the Dockerfile keeps getting exercised. Phase 4 added
+one job step the Django pipeline had no equivalent of: a **dev-boot smoke** that starts `next dev`
+and fetches `/health`, `/login` and `/`. Nothing else in CI ever runs the application, and phase 4
+produced two bundler-class regressions that only a running server catches. Restoring publish and
+deploy is phase 15's business; see `.github/workflows/ci.yml`, whose header carries the current
+rule.
 
 ## Schema
 
@@ -368,6 +376,29 @@ Carried over from the previous direction record and still out of scope:
 | Deleting iOS `Yana/Aggregators/` | After phase 13 ships and the server is proven authoritative |
 | **Per-user** time zone | **Only this half is still open.** Phase 4 settled the process-level default: `src/i18n/request.ts` configures next-intl with `process.env.TZ \|\| "UTC"`, documented in `.env.example`. It had to, and not as scope creep — the account page's passkey list is the first rendered date, and with no configured zone next-intl falls back to the *environment's*: the container's on the server, the visitor's own in the browser, which is a hydration mismatch plus an ENVIRONMENT_FALLBACK warning on every render. Phases 5–10 inherit a working deployment-wide default and one question: whether a `user_settings.time_zone` column is worth it. Do not re-litigate the default |
 
+## Carried forward from phase 4's review
+
+Decisions phase 4's whole-branch review surfaced that belong to a **later** phase.
+
+- **Phase 5 owns the `<Select>` `items` gap.** Already listed under phase 3's known gaps; phase 5 is
+  the first phase to add new selects, so it is the phase that closes it.
+- **A social or OAuth provider widens the bootstrap's "can this account sign in" test.**
+  `completeDefaultAdmin()` in `src/lib/auth/bootstrap.ts` knows exactly two things: an
+  `accounts` row with `providerId = "credential"`, and the `passkeys` table. An admin at
+  `admin@admin.com` whose only login is OAuth reads as "no way to sign in", and the published
+  default password gets minted back for them.
+- **`attempt()` is the pattern every later form copies.** `src/lib/account/result.ts`: never `await`
+  a server action bare from a client component; `unstable_rethrow` first; then recognise the
+  signed-out response rather than reporting it as a network failure. Phase 5's user CRUD is the
+  first place this gets copied, and a third caller is the point at which it and
+  `login-form.tsx`'s namesake should be unified.
+- **Identity changing without re-rendering the root layout is a standing hazard, not a sign-in
+  quirk.** Sign-in and sign-out are both full document navigations for it. An account switcher or
+  impersonation done in place would reproduce the mixed-locale render.
+- **`requireAdmin()` must be called at the top of a page or layout, never inside a Suspense
+  boundary**, or its `notFound()` arrives after the first byte and truncates the stream instead of
+  producing a 404. Nothing, lint included, flags its currently-unused export — do not "clean it up".
+
 ## Repository note
 
 `fa-krug/Yana` is the iOS/macOS client; `fa-krug/yana-server` is this project. GitHub's
@@ -398,11 +429,48 @@ because phase 2's workspace is deleted, not because they are open questions for 
   anyone who can reach the host. Accounts come from the startup bootstrap and from admin creation in
   phase 5, both through `createUserWithPassword()` in `src/lib/auth/server.ts`.
 
-  Separately, `ensureBootstrapUser()` hard-codes
-  `email: "admin@admin.com"` and `users.email` is uniquely indexed, so if phase 4 creates a real
-  admin at that address while the bootstrap row is gone, the seeder throws
-  `SQLITE_CONSTRAINT_UNIQUE`. Phase 4 either scopes the existence check to the email too or retires
-  the seeder.
+  And **every `/admin/*` endpoint the plugin mounts is closed** (`disabledPaths`). None of phases
+  4–13 calls one — phase 5 hand-rolls user CRUD and declines impersonation — and left open they were
+  three live hazards, not dead weight: `/admin/set-role` took an unvalidated role array,
+  `/admin/create-user` wrote no `user_settings` row (so `getSettings()` threw for that user forever),
+  and `/admin/update-user` passes `ctx.body.data` straight to `internalAdapter.updateUser`, which is
+  an arbitrary-column write. **Phase 5 must not reopen one to save writing a query.**
+
+  Two structural facts phase 4 introduced that this record did not name, and that phases 5–13 build
+  directly on:
+
+  - **`src/proxy.ts` is where route protection lives** — Next 16's rename of `middleware.ts`, and
+    not cosmetic: a Proxy defaults to the **Node.js** runtime, and the exported function is `proxy`,
+    not `middleware`. Half a rename is a file Next silently never calls, which leaves every route
+    unguarded with nothing failing. It checks cookie *presence* only and may not reach the database
+    (pinned by `src/proxy.test.ts`); the real gate is `requireUser()`/`requireAdmin()` in the layout
+    or the server action. **Every new public path is one line in `PUBLIC_PREFIXES` and a decision
+    about the whole unauthenticated surface**, and every extension added to its matcher is a path
+    shape that can never be guarded again.
+  - **Migrations run in the application's startup path**, not from an entrypoint script.
+    `register()` in `src/instrumentation.ts` awaits `runStartupTasks()`, which migrates and then
+    ensures an admin exists — one path for `next dev`, `npm start` and the container alike, so a
+    fresh checkout is not running against an empty database. `docker-entrypoint.sh` is deleted. Two
+    consequences with teeth: **a startup failure exits the process**, so anything a later phase adds
+    to `runStartupTasks()` (phase 12's job worker, above all) must not throw for a recoverable
+    reason; and `src/instrumentation.ts` **imports exactly one module**, because webpack compiles
+    the hook for the edge runtime too and `next.config.ts` cuts that single specifier out with an
+    `IgnorePlugin`. Add startup steps inside `runStartupTasks()`, never a second import in the hook.
+
+  **Closed.** `ensureBootstrapUser()` hard-coded `email: "admin@admin.com"` against a unique index,
+  so it and any phase-4 admin at that address would collide. Phase 4 **retired the seeder** —
+  `src/lib/db/bootstrap.ts` is gone, replaced by `ensureAdminExists()` in
+  `src/lib/auth/bootstrap.ts`, which creates a real credentialed account through
+  `createUserWithPassword()` and runs from the startup hook rather than per request.
+
+  The collision itself turned out to be sharper than this note guessed, and phase 4's whole-branch
+  review found it live: the existence check is keyed on the *role*, not the address, so anything
+  that leaves `admin@admin.com` holding a non-admin role — a demotion, a ban, or the comma list
+  `/admin/set-role` would write — made the bootstrap try to create an account that already existed,
+  and the `SQLITE_CONSTRAINT_UNIQUE` propagated out of `register()` into `process.exit(1)`.
+  Permanently: there is no self-registration and no CLI to recover with. The rule that came out of
+  it, and that every later phase touching `users` inherits: **a startup repair repairs; it does not
+  rethrow.** See CLAUDE.md's "The default admin" bullet.
 - **The image-reaper phase.** `old/core/aggregators/services/image_store.py` scans both `image_ref`
   and `embed_thumbnail_ref`, but only `image_ref` is indexed here (faithful to Django). Greenfield is
   the moment to index `embed_thumbnail_ref` and make the second pass an index scan. Also, dropping
@@ -439,11 +507,14 @@ because phase 3's workspace is deleted, not because they are open questions for 
   with no control on it to change that. `negotiateLocale()` (`src/i18n/locale.ts`) picks between
   `en` and `de` on the fallback path in `src/i18n/request.ts` only. `<html lang>` follows it, since
   the root layout reads the same `getLocale()`.
-- **`timeZone` is not set in `src/i18n/request.ts`**, so next-intl defaults to the container's zone
-  (UTC in the Docker image). Phases 5–10 render article timestamps and must decide whether to add a
-  `timeZone` column to `user_settings` or read the browser's
-  (`Intl.DateTimeFormat().resolvedOptions().timeZone`, captured once at settings-save time). The
-  migration is cheap now, before any article-facing UI assumes UTC; it is not cheap later.
+- ~~**`timeZone` is not set in `src/i18n/request.ts`**~~ **Closed by phase 4**, and this paragraph
+  contradicted the "Deferred" table above it, which already records the decision as settled. It
+  **is** set — `process.env.TZ || "UTC"` — because the account page's passkey list is the first
+  rendered date and an unset zone means next-intl falls back to the *environment's*: the container's
+  on the server, the visitor's own in the browser, which is a hydration mismatch plus an
+  ENVIRONMENT_FALLBACK warning on every render. Only the **per-user** half is still open, and only
+  as a question phases 5–10 may answer with a `user_settings.time_zone` column. Do not re-litigate
+  the deployment-wide default.
 
 ### Known gaps
 
@@ -476,7 +547,8 @@ a later surprise:
   `{minutes}` fails silently.
 - `GeneralSection` applies the theme locally before the server write is confirmed and never rolls back
   on failure — the pattern every later CRUD form will copy.
-- Dead catalog keys: `nav.account`, `common.cancel`, `common.loading`.
+- Dead catalog keys: `common.cancel`, `common.loading`. (`nav.account` was on this list and is
+  live — phase 4's sidebar footer and `UNLISTED_ROUTES` in `src/lib/nav.ts` both read it.)
 - Changing the language also rewrites the theme column to the local `localStorage` value.
 - `global-error.tsx` is English-only (no provider, and the locale lives in SQLite, not a cookie), and
   carries no font variables or `<title>`.

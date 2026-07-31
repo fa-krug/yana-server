@@ -73,7 +73,7 @@ export default async function RootLayout({
   // queries complete during prerendering (see Next's docs on `connection`,
   // "Synchronous database drivers"), so without this the production build
   // would prerender "/" against data/, which is gitignored and starts empty
-  // until the entrypoint's migration step runs. connection() opts this
+  // until the server's own startup hook migrates it. connection() opts this
   // layout out of prerendering instead; force-dynamic can't be used here
   // because Next 16 drops it once Cache Components is enabled.
   await connection();

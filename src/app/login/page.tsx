@@ -21,7 +21,7 @@ export default async function LoginPage({
 }) {
   // Per CLAUDE.md: better-sqlite3 is synchronous, so its queries would
   // otherwise complete during prerendering and bake this page against a data/
-  // directory that does not exist until the entrypoint migrates. `currentUser()`
+  // directory that does not exist until the startup hook migrates it. `currentUser()`
   // below reaches the database whenever the session cookie cache has expired.
   await connection();
 

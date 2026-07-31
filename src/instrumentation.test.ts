@@ -21,12 +21,14 @@ function read(relative: string): string {
  * pulls in `node:fs` and `better-sqlite3`, fails, and **`next dev` answers 500
  * on every route**.
  *
- * Nothing we run would notice. `next build` provably never compiles the edge
- * instrumentation hook (it emits one only when edge routes exist, and this app
- * has none), `npm start` does not either, and CI runs lint, format, typecheck
- * and test -- no build, no dev boot. So the tripwire is here, in the test suite,
- * and it is deliberately a source check rather than a bundler one: reading the
- * emitted edge chunk would mean running a build to test a build flag.
+ * Almost nothing we run would notice. `next build` provably never compiles the
+ * edge instrumentation hook (it emits one only when edge routes exist, and this
+ * app has none) and `npm start` does not either, so the image jobs are no help.
+ * CI's dev-boot smoke step *would* catch it, by fetching a page from a real
+ * `next dev` -- but a `npm test` failure names the coupling, where a 500 from a
+ * curl names only the symptom, and this runs in a second rather than a minute.
+ * Deliberately a source check rather than a bundler one: reading the emitted
+ * edge chunk would mean running a build to test a build flag.
  */
 describe("the instrumentation hook's bundler contract", () => {
   /** Every module specifier `src/instrumentation.ts` imports, static or dynamic. */
