@@ -5,10 +5,10 @@
 **Scope:** Why we are moving to Next.js, the target architecture, the schema, the aggregator parity
 contract, and the phase route. Individual phases are planned in `docs/superpowers/plans/nextjs-*.md`.
 
-**Progress (2026-07-31):** Phase 0 (goldens) and phase 1 (scaffold) are done, and
-**phase 14's folder swap has been executed early** — the Next.js app is the
-repository root and the Django tree now sits in `old/`. Phases 2–13 and 15 are
-open. Two decisions below were changed by that early swap: Python is **not**
+**Progress (2026-07-31):** Phase 0 (goldens), phase 1 (scaffold) and phase 2
+(schema) are done, and **phase 14's folder swap has been executed early** — the
+Next.js app is the repository root and the Django tree now sits in `old/`.
+Phases 3–13 and 15 are open. Two decisions below were changed by that early swap: Python is **not**
 deleted (`old/` is kept as read-only reference until nothing needs to read it),
 and CI no longer publishes or deploys. See
 `docs/superpowers/plans/nextjs-14-folder-swap.md`.
@@ -96,9 +96,11 @@ job change.
 
 Greenfield permits idiomatic names, so the `core_*` prefix goes.
 
-**Ported unchanged** — same columns, same indexes, same constraints: `feeds`, `articles`,
-`article_blocks`, `article_inline_runs`, `article_images`, `user_settings`, `reddit_subreddits`,
-`youtube_channels`.
+**Ported unchanged** — same columns, same indexes, same constraints: `articles`, `article_blocks`,
+`article_inline_runs`, `article_images`, `user_settings`, `reddit_subreddits`, `youtube_channels`.
+
+**Corrected 2026-07-31 (phase 2 review):** `feeds` was listed here and does not belong — it carries
+two deliberate changes, deviations 1 and 5 below.
 
 The `uniq_block_position` caveat ports with it: SQLite treats NULLs as distinct in a unique index, so
 the constraint does **not** cover root-level rows (`parentId IS NULL`). Root position uniqueness stays
@@ -111,10 +113,12 @@ enforced in application code, as it is today in `core/blocks/storage.py`.
 
 ### Deviations from "the same schema as we currently have"
 
-Four, each deliberate:
+Five, each deliberate. (Four when this was written; the fifth was already implemented in phase 2 and
+went unrecorded until that phase's review — see below.)
 
 1. **`tags` + `feed_tags`** replaces `FeedGroup` + the single `Feed.group` FK. A feed's grouping
    becomes an array, which is a client API contract change — carried into phase 13's open questions.
+   `Feed.group` therefore does not exist: `feeds` has no `group` column at all.
 2. **`Article.content` is not created.** It currently holds processed HTML that blocks are rebuilt
    from, and the project already records it as "no longer a contract… slated for removal once blocks
    are trusted." Greenfield is the moment: nothing needs migrating, so it never exists. `rawContent`
@@ -127,6 +131,12 @@ Four, each deliberate:
    purposes: validating writes, typing reads, and generating phase 9's aggregator-dependent form
    body. Each option may declare a `requires: 'youtube' | 'reddit' | 'ai'` guard, which is what
    implements "hide the options where integration or AI is not configured".
+5. **`Feed.user` is tightened to `NOT NULL` with `ON DELETE CASCADE`.** Django had
+   `null=True, on_delete=SET_NULL`, which allowed an unowned feed. Multi-tenancy makes that
+   meaningless — an unowned feed is invisible to every query — and the `NOT NULL` FK is what makes
+   the ownership cascade in the diagram below actually delete a user's feeds, articles, blocks and
+   runs rather than orphan them. Recorded here retroactively: phase 2 shipped it, this record
+   claimed `feeds` was ported unchanged.
 
 `Article.icon` is retained — it is live, written by the `header_element` service as the per-article
 header image.
@@ -362,3 +372,27 @@ Carried over from the previous direction record and still out of scope:
 `fa-krug/Yana` is the iOS/macOS client; `fa-krug/yana-server` is this project. GitHub's
 case-insensitive redirect resolves `Yana` → `yana`, which has already caused one misconfigured
 `origin` here. Always write `yana-server` when you mean this repo.
+
+## Carried forward from phase 2's review
+
+Decisions phase 2's whole-phase review surfaced that belong to a **later** phase. Recorded here
+because phase 2's workspace is deleted, not because they are open questions for phase 2.
+
+- **Phase 4 (auth).** The table is `users` with `snake_case` columns, so Better Auth needs an
+  explicit model/field mapping (or the Drizzle adapter's `usePlural`). The column set is already
+  right; only the naming needs config. Separately, `ensureBootstrapUser()` hard-codes
+  `email: "admin@admin.com"` and `users.email` is uniquely indexed, so if phase 4 creates a real
+  admin at that address while the bootstrap row is gone, the seeder throws
+  `SQLITE_CONSTRAINT_UNIQUE`. Phase 4 either scopes the existence check to the email too or retires
+  the seeder.
+- **The image-reaper phase.** `old/core/aggregators/services/image_store.py` scans both `image_ref`
+  and `embed_thumbnail_ref`, but only `image_ref` is indexed here (faithful to Django). Greenfield is
+  the moment to index `embed_thumbnail_ref` and make the second pass an index scan. Also, dropping
+  `Article.content` removes the reaper's blockless-article fallback branch entirely — do not port a
+  vestigial equivalent.
+- **The search phase.** `plainText` is the documented search column with no index and no FTS5 table
+  (parity with Django, which had neither). Choose FTS5 versus `LIKE` scans deliberately.
+- **The aggregator phase.** `articles_feed_identifier_idx` is not unique, so nothing at the database
+  level prevents the same `(feedId, identifier)` twice — Django was the same. Greenfield could make
+  duplicate detection a constraint instead of a query, and it is far cheaper to decide before the
+  table has rows.

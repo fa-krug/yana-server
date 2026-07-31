@@ -43,8 +43,12 @@ file.
 │   └── lib/
 │       ├── db/
 │       │   ├── client.ts          # getDb(), writeTransaction(), PRAGMAs
-│       │   ├── client.test.ts     # real-database tests, no driver mocks
-│       │   └── schema.ts          # Drizzle tables (empty until phase 2)
+│       │   ├── bootstrap.ts       # BOOTSTRAP_USER_ID + ensureBootstrapUser() (phase 3 calls it)
+│       │   ├── schema.ts          # barrel: re-exports schema/, declares every relation
+│       │   ├── schema/            # enums.ts, users.ts, references.ts, feeds.ts,
+│       │   │                      #   articles.ts, jobs.ts — one module per table group
+│       │   ├── test-support.ts    # TEST-ONLY: migrate()-based fixture databases
+│       │   └── *.test.ts          # client, schema, relations, bootstrap, schema/enums
 │       └── utils.ts               # cn()
 ├── drizzle/                       # generated migrations + meta/_journal.json
 ├── drizzle.config.ts              # drizzle-kit config (schema in, drizzle/ out)
@@ -112,10 +116,33 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   `foreign_keys = ON`, `busy_timeout = 30000`) plus `BEGIN IMMEDIATE` on every
   write transaction. `busy_timeout` alone does not prevent the WAL
   read-to-write lock-upgrade deadlock; `IMMEDIATE` is what does.
+- **`CHECK` constraints mirror Django's field types, deliberately.** Django's
+  SQLite backend emitted them for `Positive*IntegerField` and `JSONField`, so
+  the port declares them with `check()` (see `schema/articles.ts`,
+  `schema/feeds.ts`, `schema/jobs.ts`). The JSON ones are the load-bearing pair:
+  without `json_valid(...)` a malformed write is _accepted_ and the row becomes
+  poison — every later read throws inside Drizzle's `mapFromDriverValue`, far
+  from the write that caused it. On nullable columns a bare `>= 0` is correct;
+  `NULL >= 0` is NULL, which SQLite treats as satisfied, exactly as Django had
+  it. Adding a `CHECK` to an existing SQLite table needs the 12-step table
+  rebuild, so add them with the column, not later.
+- **`updatedAt` columns carry `$onUpdate(() => new Date())`** — the port of
+  Django's `auto_now=True`. It is client-side (invisible in the DDL), so it only
+  holds for writes that go through Drizzle, which the `writeTransaction()`
+  convention already requires. Declared once in the schema so no call site has
+  to remember; `DEFAULT (unixepoch())` alone would leave `updated_at` frozen at
+  `created_at` forever.
 - **Tests:** Vitest, `src/**/*.test.ts`, run with `npm test`. New library code
   (`src/lib/**`) gets **real-database** tests in the style of
   `src/lib/db/client.test.ts` — no driver mocks. Each test points
-  `DATABASE_PATH` at its own temp file.
+  `DATABASE_PATH` at its own temp file. Get the schema from
+  `src/lib/db/test-support.ts`, which applies migrations with `migrate()` — the
+  same call `docker-entrypoint.sh` makes, so tests and production agree about
+  `drizzle/meta/_journal.json`. Never hand-roll a loader that `exec`s the
+  `.sql` files directly: it ignores the journal, so a stale entry stays green in
+  CI and dies at container startup. Relation declarations are invisible to
+  `tsc` — a new one needs a real `db.query.*` traversal in
+  `src/lib/db/relations.test.ts` or it can ship broken.
 - **`src/hooks/use-mobile.ts` is hand-modified, not stock shadcn output.** It
   was rewritten from the CLI's generated `useState`+`useEffect` form to
   `useSyncExternalStore` to clear a `react-hooks/set-state-in-effect` lint
@@ -148,9 +175,11 @@ was retired. It is how a ported aggregator is proven correct.
 `docs/superpowers/specs/2026-07-30-nextjs-migration-direction.md` is the
 direction record — the decisions every phase builds on (multi-tenant, real tags,
 greenfield data, SQLite `jobs` table with an in-process worker). Per-phase plans
-are `docs/superpowers/plans/nextjs-*.md`, executed in order. Phase 1 (scaffold)
-and this folder swap (phase 14, reworked to keep `old/`) are done; the schema,
-app shell, auth, CRUD, aggregators, jobs and client API are not.
+are `docs/superpowers/plans/nextjs-*.md`, executed in order. Phase 1 (scaffold),
+phase 2 (schema, migration `0000` and the bootstrap user) and the folder swap
+(phase 14, reworked to keep `old/`) are done; phases 3–13 — app shell, auth,
+CRUD, aggregators, jobs and client API — are not. The direction record's last
+section carries the decisions phase 2's review left to those phases.
 
 Plans written before the swap use `yana-next/`-prefixed paths. Those are
 repository-root paths now.
