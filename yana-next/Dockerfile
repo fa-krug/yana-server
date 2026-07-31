@@ -64,8 +64,10 @@ COPY --from=builder --chown=nextjs:nodejs /build/public ./public
 # runtime "dependencies" of its own (only optional driver peerDependencies),
 # so copying just these two package directories is sufficient; no transitive
 # closure is needed.
-COPY --from=builder --chown=nextjs:nodejs /build/node_modules/better-sqlite3 ./node_modules/
-COPY --from=builder --chown=nextjs:nodejs /build/node_modules/drizzle-orm ./node_modules/
+COPY --from=builder --chown=nextjs:nodejs \
+    /build/node_modules/better-sqlite3 ./node_modules/better-sqlite3
+COPY --from=builder --chown=nextjs:nodejs \
+    /build/node_modules/drizzle-orm ./node_modules/drizzle-orm
 
 # yana-next/drizzle/ is committed with a placeholder meta/_journal.json
 # (version "7", dialect "sqlite", entries: []) so this source directory
@@ -86,6 +88,15 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh && \
 
 USER nextjs
 EXPOSE 3000
+# A Docker-managed volume (named or anonymous) inherits ownership from what's
+# already at this path in the image -- nextjs:nodejs (1001:1001), chowned
+# above -- so it's writable out of the box. A bind mount does NOT get chowned
+# by Docker; a freshly created host directory is commonly root:root, and
+# SQLite needs write permission on the *directory* (for -wal/-shm siblings),
+# not just the db file. If bind-mounting (as this image's own dev-run example
+# does), run `chown -R 1001:1001 ./data` on the host before first start, or
+# use a named volume instead. This is a new requirement versus the Django
+# image, which ran as root with no USER directive.
 VOLUME ["/app/data", "/app/media"]
 
 ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
