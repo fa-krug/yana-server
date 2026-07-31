@@ -42,6 +42,7 @@ file.
 │   │   ├── global-error.tsx       # last-resort boundary — no providers, English only
 │   │   ├── health/route.ts        # GET /health — SELECT 1 against the database
 │   │   ├── api/auth/[...all]/     # route.ts — every Better Auth endpoint
+│   │   ├── media/avatars/[userId]/ # route.ts — the only thing that serves media/
 │   │   ├── login/page.tsx         # /login — outside (app): no sidebar, no requireUser()
 │   │   └── (app)/                 # sidebar + breadcrumb chrome for every real page
 │   │       ├── layout.tsx         # sidebar, content frame; awaits requireUser()
@@ -53,6 +54,7 @@ file.
 │   │   ├── ui/                    # shadcn components (Base UI + Tailwind v4)
 │   │   ├── auth/                   # login-form.tsx — passkey first, password revealed
 │   │   ├── settings/               # general-, library-, about-section.tsx
+│   │   ├── user-avatar.tsx         # image, else initials on a colour from the id
 │   │   ├── app-sidebar.tsx         # navigation, from src/lib/nav.ts
 │   │   ├── route-breadcrumbs.tsx   # segment-derived breadcrumbs
 │   │   ├── data-skeleton.tsx       # TableSkeleton, CardSkeleton
@@ -83,6 +85,8 @@ file.
 │   │   │   │                      #   articles.ts, jobs.ts — one module per table group
 │   │   │   ├── test-support.ts    # TEST-ONLY: migrate()-based fixture databases
 │   │   │   └── *.test.ts          # client, schema, relations, schema/enums
+│   │   ├── avatar.ts              # initialsFor/colourFor/displayNameFor/avatarUrlFor — imports nothing
+│   │   ├── avatar-storage.ts      # SERVER-ONLY: processAvatar() (sharp), avatarFilePath(), mediaRoot()
 │   │   ├── browser-location.ts    # replaceLocation() — the one hard navigation, and its test seam
 │   │   ├── nav.ts                 # NAV_ITEMS + breadcrumbsFor() — single source for both
 │   │   ├── settings/               # queries.ts (getSettings + the re-exported currentUserId),
@@ -383,7 +387,8 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
 - **`getSettings()` is `cache()`d per request and has no insert-if-absent
   fallback**: a missing `user_settings` row is a provisioning bug and throws.
   The root layout's two reads (locale, theme) are the exception — they fall back
-  (locale → `en`, theme → `system`) so a missing row cannot 500 the whole app,
+  (locale → `negotiateLocale()` against `Accept-Language`, theme → `system`) so
+  a missing row cannot 500 the whole app,
   and they also swallow the signed-out `redirect()` (`isLoginRedirect()`),
   because this layout renders on `/login` too and propagating it there would
   loop forever. Everywhere else the throw propagates on purpose.
@@ -465,6 +470,65 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     `public/`'s three files instead (`(?!file\.svg|globe\.svg|window\.svg)`)
     is legal — a matcher entry is a regex — and is rejected only because it
     needs editing every time a file is added there.
+- **A route handler serving `media/` authenticates itself — nothing above it
+  does.** `src/app/media/avatars/[userId]/route.ts` is the first one and the
+  pattern for phases 9/11's article images, which are numerous, per-user and may
+  be paywalled. The proxy _runs_ for these paths (`media/` is not exempted and
+  the raster extensions are off the matcher's list) but only checks that _a_
+  session cookie exists, and **a route handler has no layout above it**, so no
+  `requireUser()` is otherwise in its path. Five rules:
+  - `requireUser()` inside the handler, **then** compare the requested id to the
+    caller's. Being signed in is not authorization to read someone else's file.
+  - **The filesystem path is built from the session's id, never from the URL
+    segment** — the segment is only ever compared. Same lesson as
+    `safeNextPath()`: validate the value you _use_, not the value you received.
+  - **The id is checked against a whole-string allow-list, never sanitised.**
+    `avatarFilePath()` in `src/lib/avatar-storage.ts` owns that check —
+    `/^[A-Za-z0-9]{32}$/`, which is Better Auth's `generateId()` exactly — and
+    returns `null` rather than a path, so no caller can build one from an
+    unchecked string. A blocklist only refuses the encodings someone remembered;
+    this refuses `%2e%2e%2f`, a NUL, a backslash and a bare `.` without naming
+    them. The route test pins the pattern against an id Better Auth really
+    minted, so a `generateId` change fails a test instead of 404ing every avatar.
+  - **Every refusal is the same empty 404.** "Not yours", "no such user" and
+    "nothing uploaded" must be indistinguishable, or the 200-vs-404 difference
+    is a user-id enumeration oracle. (`requireAdmin()` answers 404 for the same
+    reason.)
+  - **`Cache-Control: private, no-store`, deliberately**, plus `nosniff` and a
+    constant `Content-Type`. The URL carries no version token, so any freshness
+    lifetime would survive a re-upload; give the URL a content hash first if a
+    later phase wants `immutable`.
+
+  The media root is `process.env.MEDIA_PATH ?? ./media` (`/app/media` in the
+  image), read **per call** rather than pinned at module load like `DB_PATH` —
+  there is no connection to cache, and a test can then point it at a temp
+  directory without resetting the module registry. And type the handler's
+  context **structurally** (`{ params: Promise<{ userId: string }> }`), not with
+  the global `RouteContext<"/…">` helper the Next docs show: that type is
+  generated into `.next/types/routes.d.ts` by `next dev`/`build`/`typegen`, and
+  CI runs `npm run typecheck` after none of them. (`next-env.d.ts` imports the
+  same missing file and gets away with it only because `skipLibCheck` ignores
+  errors inside declaration files.)
+
+- **Uploads are re-encoded, never stored as received.** `processAvatar()` in
+  `src/lib/avatar-storage.ts` decodes to pixels and emits a 256×256 WebP
+  (`.rotate()` before `.resize()`, so EXIF orientation is honoured before it is
+  stripped). Serving an upload back untouched is how an "image" becomes stored
+  HTML or an SVG carrying script; re-encoding is also what makes the handler's
+  fixed `image/webp` a fact rather than a guess. `sharp` is pinned at the same
+  version Next already resolves transitively (`0.34.5`) — bump both together.
+- **`src/lib/avatar.ts` imports nothing, like `auth/roles.ts`.** `<UserAvatar>`
+  is rendered from client components as well as the server, so anything
+  reachable from it reaches the browser bundle — `sharp` and `node:fs` live in
+  `avatar-storage.ts` and nothing in `src/components` may import that.
+  `<UserAvatar>` is deliberately not `"use client"`: it holds no state and
+  next-intl's `useTranslations()` works in both contexts, so it adopts whichever
+  one renders it. Two Base UI facts it is written around: `AvatarImage` renders
+  **nothing** until a `new window.Image()` load resolves in the browser, so the
+  server's first frame is always the initials fallback and jsdom never produces
+  an `<img>` at all; and the accessible name lives on the root
+  (`role="img"` + a translated `aria-label`) because the two children are never
+  both present and the initials would otherwise be announced as the text "AL".
 - **`/login` is the whole unauthenticated UI, and five things about it are
   load-bearing.** It lives at `src/app/login/page.tsx`, deliberately outside
   `(app)`: that group's layout awaits `requireUser()`, so a login form inside it

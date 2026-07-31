@@ -26,6 +26,9 @@
     "passkeyUnavailable": "Es wurde kein Passkey verwendet. Melde dich stattdessen mit deinem Passwort an.",
     "passkeyUnsupported": "Dieser Browser unterstützt keine Passkeys. Melde dich mit deinem Passwort an."
   },
+  "avatar": {
+    "label": "Profilbild von {name}"
+  },
   "settings": {
     "title": "Einstellungen",
     "general": { "title": "Allgemein", "theme": "Design", "language": "Sprache" },

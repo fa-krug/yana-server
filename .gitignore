@@ -122,7 +122,16 @@ test.db-wal
 logs/
 
 # Media (hosted article images and feed logos)
-media/
+#
+# Anchored with a leading slash: the volume is `/media` at the repository root
+# and nothing else. Unanchored, this pattern matches a directory named `media`
+# at *any* depth -- which silently swallowed the whole of
+# `src/app/media/avatars/[userId]/` (the route handler that serves the volume)
+# when it was added. Keep the slash.
+/media/
+# The retired Django tree's own volume, named explicitly now that the pattern
+# above no longer matches it at depth.
+/old/media/
 staticfiles/
 
 # Build artifacts

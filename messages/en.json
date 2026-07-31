@@ -26,6 +26,9 @@
     "passkeyUnavailable": "No passkey was used. Sign in with your password instead.",
     "passkeyUnsupported": "This browser does not support passkeys. Sign in with your password instead."
   },
+  "avatar": {
+    "label": "Avatar of {name}"
+  },
   "settings": {
     "title": "Settings",
     "general": { "title": "General", "theme": "Theme", "language": "Language" },
