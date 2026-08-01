@@ -62,6 +62,44 @@ describe("testRedditCredentials", () => {
     expect(headers.Authorization).toBe(expectedAuth);
   });
 
+  it("never rejects for a client secret containing a character above U+00FF", async () => {
+    // btoa() alone throws InvalidCharacterError for any code unit above
+    // U+00FF (an emoji, here) -- this pins that testRedditCredentials still
+    // resolves to a classified ProbeResult rather than letting that escape.
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(new Response(JSON.stringify({ access_token: "t" }), { status: 200 })),
+    );
+    await expect(
+      testRedditCredentials({ ...credentials, clientSecret: "secret-🔒-emoji" }),
+    ).resolves.toMatchObject({ ok: true });
+  });
+
+  it("base64-encodes a non-ASCII Latin-1-range credential as UTF-8, not Latin-1", async () => {
+    // "é" (U+00E9) is a code unit btoa() accepts on its own, but as one byte
+    // (0xE9) rather than the two-byte UTF-8 sequence a server expects --
+    // this pins the Authorization header against the UTF-8 base64 that
+    // Buffer.from(s, "utf8").toString("base64") produces, not the Latin-1
+    // one plain btoa() would produce.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ access_token: "t" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const nonAsciiCredentials = { ...credentials, clientSecret: "café-sécret" };
+    await testRedditCredentials(nonAsciiCredentials);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    const raw = `${nonAsciiCredentials.clientId}:${nonAsciiCredentials.clientSecret}`;
+    const expectedUtf8Auth = `Basic ${Buffer.from(raw, "utf8").toString("base64")}`;
+    const wrongLatin1Auth = `Basic ${btoa(raw)}`;
+    expect(headers.Authorization).toBe(expectedUtf8Auth);
+    expect(headers.Authorization).not.toBe(wrongLatin1Auth);
+  });
+
   it("never echoes the client secret or client id in a failure result", async () => {
     vi.stubGlobal(
       "fetch",
