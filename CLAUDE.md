@@ -64,11 +64,15 @@ file.
 │   │   │                           #   bulk-action-bar, confirm-destructive,
 │   │   │                           #   selection.ts, use-list-params.ts
 │   │   ├── integrations/           # youtube-section.tsx, reddit-section.tsx and
-│   │   │                           #   section-parts.tsx (the badge, the
-│   │   │                           #   keep-existing sentinel, one toast reporter)
+│   │   │                           #   section-parts.tsx — the `integrations`
+│   │   │                           #   binding of ../section-kit.tsx
 │   │   ├── users/                  # the kit, wired to users: users-table.tsx,
 │   │   │                           #   user-form.tsx, delete-user-section.tsx,
 │   │   │                           #   use-user-impact.ts
+│   │   ├── section-kit.tsx         # the credential-card kit, namespace-agnostic:
+│   │   │                           #   the keep-existing sentinel, the mask
+│   │   │                           #   placeholder, statusBadgeIn(),
+│   │   │                           #   reportOutcomeIn() — phase 7's second consumer
 │   │   ├── user-avatar.tsx         # image, else initials on a colour from the id
 │   │   ├── app-sidebar.tsx         # navigation, from src/lib/nav.ts
 │   │   ├── route-breadcrumbs.tsx   # segment-derived breadcrumbs
@@ -114,7 +118,9 @@ file.
 │   │   │                          #   auth/roles), queries.ts (SERVER-ONLY reads),
 │   │   │                          #   actions.ts (writes), result.ts (attempt() binding)
 │   │   ├── attempt.ts             # attemptCall() + attemptIn() — the one guard in front of
-│   │   │                          #   every server action called from the browser
+│   │   │                          #   every server action called from the browser; also
+│   │   │                          #   ActionResult/ActionFailure/NoticeResult, the shapes
+│   │   │                          #   an action resolves to
 │   │   ├── avatar.ts              # initialsFor/colourFor/displayNameFor/avatarUrlFor/
 │   │   │                          #   safeAvatarSrc + AVATAR_MAX_* — imports nothing
 │   │   ├── avatar-storage.ts      # SERVER-ONLY: processAvatar() (sharp), avatarFilePath(), mediaRoot()

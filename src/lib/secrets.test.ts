@@ -14,8 +14,9 @@ const ROOT = path.resolve(import.meta.dirname, "../..");
  * "pinned … not just asserted in a comment".
  *
  * The rule is not tidiness. `KEEP_EXISTING` and `mask()` are read from
- * `"use client"` components (`section-parts.tsx` today, four sections once phase
- * 7 adds the AI providers), so anything reachable from here is in the browser
+ * `"use client"` components (`src/components/section-kit.tsx`, which every
+ * credential card is built from -- two today, five once phase 7 adds the AI
+ * providers), so anything reachable from here is in the browser
  * bundle. One import of `./db/client` or of a feature's `queries` module would
  * drag `better-sqlite3` in behind it, and the failure is an opaque bundler error
  * rather than anything that names this file.

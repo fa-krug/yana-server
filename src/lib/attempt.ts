@@ -183,6 +183,39 @@ export type ActionFailure<Namespace extends keyof Messages> = {
 };
 
 /**
+ * An action result that can also succeed **with a caveat**.
+ *
+ * The caveat that made this necessary is provider quota exhaustion. A quota
+ * answer means the credential is valid and only today's budget is gone, so the
+ * probe counts as a pass and the integration is switched on -- and reporting
+ * `{ ok: false }` over a row that was written and enabled would send an operator
+ * back to re-save something that already worked. So the result is `ok: true` and
+ * the card renders `noticeKey` with `toast.warning(...)` instead of
+ * `toast.success(...)`.
+ *
+ * **A union of the two arms, not an intersection, and that is the point.** As
+ * `ActionResult<…> & { noticeKey?: … }` this type let both keys sit on either
+ * arm: `{ ok: false, noticeKey }` and `{ ok: true, errorKey }` typechecked, and
+ * the reporter reads `errorKey` only when `ok` is false and `noticeKey` only when
+ * it is true -- so either mistake compiled and then silently reported the *wrong
+ * outcome with no message at all*, which is the failure mode a typed key is
+ * supposed to make impossible. Written as a union, each is a compile error at the
+ * `return`. Both arms still satisfy {@link ActionResult}, so {@link attemptIn}'s
+ * `attempt` wraps it unchanged, and the failure arm's optional `errorKey` is what
+ * {@link ActionFailure} fills in when the action never answered.
+ *
+ * **Parameterised over the key type, not the namespace**, unlike its two
+ * neighbours above. It is the argument type of a reporter that has to *render*
+ * the key it is handed, and `useTranslations(namespace)` with a generic
+ * `Namespace` yields a `t` TypeScript cannot prove accepts
+ * `NamespaceKey<Namespace>` -- see the header of `@/components/section-kit`,
+ * where that reporter lives. A feature names the instantiation once:
+ * `type SaveResult = NoticeResult<IntegrationsKey>`.
+ */
+export type NoticeResult<Key extends string> =
+  { ok: true; noticeKey?: Key } | { ok: false; errorKey?: Key };
+
+/**
  * Bind {@link attemptCall} to one catalog namespace. One binding per feature:
  *
  * ```ts

@@ -4,12 +4,8 @@ import { useTranslations } from "next-intl";
 import { useState, useTransition } from "react";
 
 import { ConfirmDestructive } from "@/components/crud/confirm-destructive";
-import {
-  secretPlaceholder,
-  StatusBadge,
-  submittedSecret,
-  useReportOutcome,
-} from "@/components/integrations/section-parts";
+import { StatusBadge, useReportOutcome } from "@/components/integrations/section-parts";
+import { secretPlaceholder, submittedSecret } from "@/components/section-kit";
 import { Button } from "@/components/ui/button";
 import {
   Card,
