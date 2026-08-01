@@ -23,7 +23,7 @@ const deleteAction: BulkAction = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  run.mockResolvedValue(undefined);
+  run.mockResolvedValue(true);
 });
 
 describe("<BulkActionBar>", () => {

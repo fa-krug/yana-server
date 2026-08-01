@@ -12,6 +12,14 @@ import { Button } from "@/components/ui/button";
  *
  * `label` is already translated -- the kit cannot know a caller's verbs.
  *
+ * **`run` resolves `true` on success**, matching `<ConfirmDestructive>`'s
+ * `onConfirm` because a destructive action's `run` *is* that `onConfirm`. The
+ * two must agree or the dialog closes on failure: `attempt()`
+ * (`@/lib/account/result`) never rejects -- it resolves `{ ok: false }` -- so
+ * "did not throw" is not evidence that anything worked. `return result.ok` is
+ * the whole of a caller's obligation; phase 5's task 4 makes that result shape
+ * the shared convention for this kit's callers.
+ *
  * **A destructive action must carry its confirmation copy**, which is why this
  * is a union rather than a flat `destructive?: boolean`. The brief's rule is
  * that destructive actions route through `<ConfirmDestructive>`, and that
@@ -24,7 +32,8 @@ import { Button } from "@/components/ui/button";
 export type BulkAction = {
   key: string;
   label: string;
-  run: () => Promise<void>;
+  /** `true` when the action succeeded. A destructive action's dialog reads it. */
+  run: () => Promise<boolean>;
 } & ({ destructive?: false | undefined } | { destructive: true; confirm: ConfirmCopy });
 
 /**
@@ -54,7 +63,9 @@ export function BulkActionBar({
 
   function run(action: BulkAction) {
     // Same shape as ConfirmDestructive's: a transition scope, unstable_rethrow
-    // first, and nothing swallowed silently.
+    // first, and nothing swallowed silently. The resolved boolean is ignored
+    // here on purpose -- there is no dialog to keep open, and reporting the
+    // failure was the caller's job either way.
     start(async () => {
       try {
         await action.run();
