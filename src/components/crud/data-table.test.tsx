@@ -68,6 +68,26 @@ describe("<DataTable>", () => {
     ).toBe("true");
   });
 
+  it("carries the attribute and the group class the dash is drawn from", () => {
+    // `aria-checked="mixed"` above is what a screen reader hears; this is what
+    // an *eye* depends on. `src/components/ui/checkbox.tsx` swaps the tick for a
+    // dash with `group-data-indeterminate/checkbox:block`, which needs both
+    // halves of the selector on the root -- and neither is visible in jsdom's
+    // rendering, so a rename of Base UI's attribute would otherwise only show
+    // up as a half-selected box wearing a full one's tick. (The compiled
+    // stylesheet really does emit
+    // `.group-data-indeterminate\/checkbox\:block:is(:where(.group\/checkbox)[data-indeterminate] *)`;
+    // that half is a build artefact and cannot be asserted here.)
+    const checkbox = headerCheckbox(renderTable(["a"]).container);
+
+    expect(checkbox.hasAttribute("data-indeterminate")).toBe(true);
+    expect(checkbox.classList.contains("group/checkbox")).toBe(true);
+    // And not on a fully selected one, or the dash would replace every tick.
+    expect(
+      headerCheckbox(renderTable(["a", "b", "c"]).container).hasAttribute("data-indeterminate"),
+    ).toBe(false);
+  });
+
   it("adds only this page's rows when the header is ticked", () => {
     // "z" is a row from another page. The bulk delete that follows must not
     // reach rows the operator never saw -- the rule toggleAll() encodes, here

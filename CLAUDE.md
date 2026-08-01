@@ -365,9 +365,18 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   `src/app/api/auth/[...all]/route.ts`, whose comment _explains why it has no
   call_. Add a new route here in the same commit. A new page that reads anything
   needs its own line — unless it already awaits a Dynamic API, which opts the
-  route out just as well: `src/app/(app)/layout.tsx` needs no `connection()`
-  because `requireUser()` awaits `headers()` before anything touches SQLite,
-  and `src/app/media/avatars/[userId]/route.ts` for the same reason.
+  route out just as well. **The five that do**: `src/app/(app)/layout.tsx`,
+  because `requireUser()` awaits `headers()` before anything touches SQLite;
+  `src/app/media/avatars/[userId]/route.ts`, for the same reason; and phase 5's
+  three `/users` routes — `src/app/(app)/users/page.tsx`,
+  `src/app/(app)/users/new/page.tsx`, `src/app/(app)/users/[id]/page.tsx` —
+  where `requireAdmin()` does it. That exemption is only worth as much as the
+  gate's **position**: it is the first statement of each of those three, ahead
+  of `getTranslations()`, `parseListParams()` and every query, which is where
+  it has to be anyway — inside a `<Suspense>` boundary its `notFound()` would
+  arrive after the first byte and truncate a 200 instead of answering 404. A
+  page that authorizes late has already opened the database, and then it needs
+  its own `connection()` line like everything else.
   The health route calls it _outside_ its `try`, because inside it
   the prerender bail-out (itself a thrown error) would be caught and turned into
   a 503, silently reinstating a static `{"status":"ok"}`. To check the invariant:
