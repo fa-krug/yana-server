@@ -1098,6 +1098,9 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     somewhere else. No legitimate API endpoint redirects a POST, so nothing real
     is lost; `undici` rejects, and the shared catch tail answers `network`.
     **Phase 12's summariser calls the same endpoint and needs the same flag.**
+    The flag is per call, so remembering is the whole mechanism today; the
+    direction record's "Carried forward from phase 7's review" carries the shape
+    that makes it structural instead, and phase 12 is where that gets built.
   - **Userinfo in the URL is refused** — `url.username || url.password` — in
     both `isStorableBaseUrl()` (`src/lib/ai/actions.ts`, the save schema) and the
     probe, for the reason the scheme check is duplicated. `apiUrl` is declared
@@ -1325,7 +1328,7 @@ live probes reusing phase 6's `defineIntegration()` descriptor, the
 folder swap (phase 14, reworked to keep `old/`) are
 done; phases 8–13 — the remaining CRUD, the aggregators, jobs and
 the client API — are not. The direction record's last sections carry the
-decisions phases 2's, 3's, 4's, 5's and 6's reviews left to those phases;
+decisions phases 2's, 3's, 4's, 5's, 6's and 7's reviews left to those phases;
 **"Carried forward from phase 6's review" is the one a phase-7 agent has to
 read**, because the two generalisations it records — namespace-parameterising
 `section-parts.tsx` and a `defineIntegration()` descriptor — are exactly what a
@@ -1336,7 +1339,14 @@ provider as that section demands: the UI half is
 consumed both. Its third item — deciding each AI provider's two probe answers
 rather than copying a neighbour's — is `quotaMeansVerified` in
 `src/lib/ai/providers.ts`, where the three answers differ and each carries its
-reason. Phase 8 still starts from "Carried
+reason. **"Carried forward from phase 7's review" holds one item that gates a
+release rather than a phase**: no live call has ever been made to OpenAI,
+Anthropic or Gemini, so nothing proves the three probes send request shapes
+those providers accept — and a shape one of them refuses lands in `judge()`'s
+write-nothing arm, which leaves that provider unconfigurable from the UI. `/ai`
+must not reach a user before one manual pass per provider; the section lists
+what the pass covers. Phase 12 reads the same section for `redirect: "error"`.
+Phase 8 still starts from "Carried
 forward from phase 5's review", where the CRUD kit's contracts are.
 
 **Four plans are amended, not authoritative.**

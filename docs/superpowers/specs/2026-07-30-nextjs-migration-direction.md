@@ -550,7 +550,74 @@ One decision from that same review is **open**, deferred on purpose rather than 
   waiting for: with two consumers a move is a rename for its own sake, churning every import and the
   file's own cross-references to buy a tidier path, while a third would settle both the question and
   what the neutral home should be called. Recorded here so it is triaged as a deliberate deferral
-  rather than re-derived as a defect by a later review.
+  rather than re-derived as a defect by a later review. One constraint on the move when it comes: the
+  lint guard is **shape-based** — `**/lib/*/define` in `eslint.config.mjs` — so any
+  `src/lib/<name>/define.ts` keeps it, while a neutral home one level up (`src/lib/define.ts`) would
+  silently drop it and would have to add its own group.
+
+## Carried forward from phase 7's review
+
+Phase 7 shipped `/ai` — a client-safe provider registry, three live probes, the `active_ai_provider`
+preference and the nine global tuning values — on phase 6's two generalisations, which it built
+first, as that section demanded. Two things it did not close are recorded here. The first is a
+**release gate rather than a merge gate**: the branch is complete and reviewed, and the feature still
+must not reach a user until someone has run it against a real provider.
+
+- **No live provider call has ever been made — not once, by anything, at any point in phase 7.**
+  Every probe test stubs `fetch`, so what is proven is that each *arm* of each probe classifies a
+  synthetic answer correctly. Nothing proves that OpenAI, Anthropic or Gemini accepts the request a
+  probe actually sends: `max_completion_tokens: 1` on `/chat/completions`, the `anthropic-version`
+  header with `max_tokens: 1`, `generationConfig.maxOutputTokens: 1` on `generateContent`. **The
+  failure mode is not degradation.** A provider answering `400` to a shape it dislikes is a status no
+  probe recognises, so it is `cause: "unexpected"`, which is `judge()`'s **`unknown`** arm — write
+  nothing at all. The credential is never stored, the `*_enabled` flag is never set, and the badge
+  still reads Not configured however many times the operator presses Save: the provider is
+  **unconfigurable, with no path around it from the UI**. Ranked by risk:
+  - **OpenAI's `max_completion_tokens: 1`** is the likeliest refusal — a reasoning model enforcing a
+    minimum completion budget would `400` on it — and this is also the one provider whose endpoint
+    may be a gateway rather than OpenAI itself. Its second-order risk is the 200-body check, which
+    requires a non-empty `choices` array: correct for `/chat/completions`, not obviously correct for
+    a gateway that wraps or streams the answer differently.
+  - **Anthropic's `max_tokens: 1` with the `type: "message"` envelope check.** The parameter is
+    documented as accepted at any value and the envelope discriminant is on every real answer, but
+    both were read out of documentation rather than out of a response.
+  - **Gemini** is lowest: `generateContent` is documented to answer `200` with
+    `finishReason: "MAX_TOKENS"`, and the probe judges the status alone.
+
+  **What the manual pass must cover, per provider** — five checks, not one, because three of them
+  exercise arms a working key never reaches:
+
+  1. A **real key** → success toast and Verified badge. This is the only thing that proves the
+     request shape, and it is the whole reason the pass exists.
+  2. A **deliberately wrong key** → the refusal message, a Not verified badge, and the key confirmed
+     **stored** — the store-on-rejection contract, which is what makes a typo visible rather than
+     silently producing empty summaries.
+  3. A **stale model id** forced into the row → `unexpected`, and nothing written.
+  4. **OpenAI only**: a real OpenAI-compatible gateway, plus `http://127.0.0.1:1` for the network arm
+     and `gateway.example.com/v1` for the malformed-URL arm.
+  5. **One redirecting gateway.** `redirect: "error"` is new (phase 7's fix wave), so a proxy
+     answering `http → https`, or normalising a trailing slash, with a `301`/`302` now reports as
+     unreachable. "No real API endpoint redirects a POST" is true of API endpoints proper and not
+     obviously true of a corporate proxy in front of one — so this is a way a **legitimate**
+     configuration can newly fail, and it is the one item here that is about the hardening rather
+     than about the provider.
+
+- **Phase 12 owns making `redirect: "error"` structural rather than remembered.** `CLAUDE.md`'s SSRF
+  bullet carries the ruling and already says phase 12's summariser needs the same flag; what belongs
+  here is why a note is not enough on its own. The flag is set **per call**, on the single `fetch` in
+  `src/lib/ai/openai.ts`, and the summariser is a *new* `fetch` to the same operator-supplied
+  `openaiApiUrl` from a different module — so the hardening survives only if that agent remembers it,
+  and **nothing fails if they do not**: the summariser works perfectly, following redirects.
+  Suggested shape: one **`fetchOpenaiCompatible(endpoint, init)`** that sets `redirect: "error"` and
+  the probe timeout, called by both the probe and the summariser. That is the same argument phase 7's
+  own fix wave used to move `transportFailure()` into `src/lib/integrations/probe.ts` — one
+  implementation rather than a convention that N call sites should agree — and it is worth building
+  at the second call site here for the reason it was worth building at the third there.
+
+The third thing phase 7's review left open — **where `define.ts` should live**, now that `/ai` is its
+second consumer — is recorded at the end of phase 6's section above rather than repeated here. It is
+phase 6's question; phase 7 only sharpened it by supplying the second consumer, and phases 9–11 are
+still where it gets answered.
 
 ## Carried forward from phase 4's review
 
