@@ -1,6 +1,10 @@
-import { PROBE_TIMEOUT_MS, type ProbeResult } from "@/lib/integrations/probe";
+import {
+  PROBE_TIMEOUT_MS,
+  readJson,
+  transportFailure,
+  type ProbeResult,
+} from "@/lib/integrations/probe";
 
-import { readJson, transportFailure } from "./probe-support";
 import { OPENAI_DEFAULT_API_URL } from "./providers";
 
 /**
@@ -84,6 +88,20 @@ export async function testOpenaiKey({
         detail: "The configured API URL is not an http(s) URL.",
       };
     }
+    // **A base URL may not carry userinfo.** `https://user:pass@gateway/v1` is a
+    // perfectly legal URL, so the two checks above accept it -- and `apiUrl` is
+    // the one field on this page that is projected to the browser **unmasked**
+    // (see `getAiStatus()`), which would put a plaintext credential in the
+    // page's RSC payload. Refused here as well as in the save schema for this
+    // module's usual reason: the probe's contract is structural, and Test runs
+    // the same string a Save would store. See the SSRF ruling in CLAUDE.md.
+    if (endpoint.username !== "" || endpoint.password !== "") {
+      return {
+        ok: false,
+        cause: "unexpected",
+        detail: "The configured API URL carries a username or password.",
+      };
+    }
 
     const response = await fetch(endpoint, {
       method: "POST",
@@ -96,6 +114,19 @@ export async function testOpenaiKey({
         messages: [{ role: "user", content: "hi" }],
         max_completion_tokens: 1,
       }),
+      // **Redirects are refused, not followed.** This is the one probe whose
+      // endpoint is an operator setting, so it is also the one that can be
+      // pointed at a host on this server's private network -- an accepted
+      // capability (that is what an OpenAI-compatible gateway *is*), recorded
+      // as a ruling in CLAUDE.md rather than closed off. What is *not* accepted
+      // is that capability surviving a check: with `fetch`'s default
+      // `redirect: "follow"`, any host validation a later phase adds is
+      // bypassable by a gateway answering `302` to the cloud metadata endpoint,
+      // and this probe's own `network`-vs-`unexpected` classification is a
+      // usable oracle for what is listening there. No real API endpoint
+      // redirects a POST, so nothing legitimate is lost. `undici` rejects
+      // instead, which the catch below turns into `network`.
+      redirect: "error",
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
 

@@ -123,7 +123,6 @@ const eslintConfig = defineConfig([
                */
               group: [
                 "**/lib/ai/probes",
-                "**/lib/ai/probe-support",
                 "**/lib/ai/openai",
                 "**/lib/ai/anthropic",
                 "**/lib/ai/gemini",

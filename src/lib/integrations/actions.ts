@@ -56,8 +56,11 @@ import { testYoutubeKey } from "./youtube";
  */
 const defineIntegration = defineIntegrationIn<IntegrationsKey>({
   path: "/integrations",
-  // Matches `logUnreachable()` in `./probe`, which tags its own line the same
-  // way and is the one log this binding does not reach.
+  // Tags every log line this binding writes. `logUnreachable()` in `./probe` is
+  // the one log it does not reach, and that line deliberately carries no page
+  // tag at all -- it is written by a probe, which is handed a credential and
+  // nothing else, and it is joined to this one by the provider name. See the
+  // note there.
   logPrefix: "[integrations]",
   unverifiable: { network: "unreachable", timeout: "timedOut", unexpected: "unexpected" },
   removeFailed: "removeFailed",

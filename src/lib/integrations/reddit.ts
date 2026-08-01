@@ -1,4 +1,4 @@
-import { logUnreachable, PROBE_TIMEOUT_MS, type ProbeResult } from "./probe";
+import { PROBE_TIMEOUT_MS, transportFailure, type ProbeResult } from "./probe";
 
 export interface RedditCredentials {
   clientId: string;
@@ -127,10 +127,6 @@ export async function testRedditCredentials({
     }
     return { ok: false, cause: "unexpected", detail: `Unexpected status ${response.status}.` };
   } catch (error) {
-    if (error instanceof Error && error.name === "TimeoutError") {
-      return { ok: false, cause: "timeout", detail: "The request timed out." };
-    }
-    logUnreachable("reddit", error);
-    return { ok: false, cause: "network", detail: "Could not reach the Reddit API." };
+    return transportFailure("reddit", error, "Could not reach the Reddit API.");
   }
 }

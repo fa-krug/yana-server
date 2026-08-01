@@ -276,7 +276,7 @@
       "rejected": "OpenAI would not accept these credentials. Check the API key, that the account still has credit, and that it may use the selected model.",
       "rateLimited": "OpenAI is rate limiting this endpoint right now, so these credentials could not be verified. Try again in a moment.",
       "modelUnknown": "Choose one of the models Yana offers for OpenAI.",
-      "apiUrlInvalid": "The base URL must be an http or https URL, for example “https://api.openai.com/v1”. Leave it empty to use OpenAI itself."
+      "apiUrlInvalid": "The base URL must be an http or https URL with no username or password in it, for example “https://api.openai.com/v1”. A gateway that needs credentials takes them in the API key field. Leave it empty to use OpenAI itself."
     },
     "anthropic": {
       "required": "Enter an API key first.",

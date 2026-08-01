@@ -53,11 +53,76 @@ function transportCode(error: unknown): string | undefined {
  * "this server's egress is broken" is written here instead. A platform error
  * code is not provider-controlled content, so logging it does not reopen the
  * no-echo rule -- but it must not travel any further than this call.
+ *
+ * **The line carries the provider name and no page tag, deliberately.** It used
+ * to say `[integrations]`, which was true while `/integrations` was the only
+ * page with probes. It is not any more: one unreachable OpenAI probe wrote
+ * `[integrations] openai probe could not reach the provider (ENOTFOUND)` and,
+ * immediately after it, `defineIntegrationIn()`'s own bound line
+ * `[ai] openai probe failed (network): …` -- two adjacent lines about one event
+ * under two different tags, the first of them pointing at the wrong page.
+ *
+ * The alternative was threading a prefix down here, and it was rejected on cost:
+ * a probe is handed nothing but a credential (`descriptor.probe(credential)`),
+ * so the page would have to be hard-coded in each of the five probe modules --
+ * five literals able to drift from the one `logPrefix` in each binding, which is
+ * the duplication `logPrefix` was made a binding parameter to avoid. The
+ * *provider* name is unique across all five providers and appears in both lines,
+ * so it is the handle that actually joins them; `grep openai` gets the whole
+ * story where `grep '\[ai\]'` only ever got half of it.
  */
 export function logUnreachable(provider: string, error: unknown): void {
   const code = transportCode(error);
   console.warn(
-    `[integrations] ${provider} probe could not reach the provider` +
+    `${provider} probe could not reach the provider` +
       (code ? ` (${code})` : " (no platform error code)"),
   );
+}
+
+/**
+ * The tail of every probe's `catch`: a timeout, or nothing came back at all.
+ *
+ * Shared by all five probes. It arrived in phase 7 serving the three AI ones
+ * from `src/lib/ai/probe-support.ts`, which left *three* copies of this block
+ * where there had been two -- so it moved here and `./youtube` and `./reddit`
+ * were converted, and there is now one catch tail rather than a convention that
+ * they should agree.
+ *
+ * `unreachableDetail` **must be a string literal at the call site.** It is a
+ * parameter only so the sentence can name the provider; nothing derived from a
+ * response, an error or a credential may ever be passed here. `detail` is a
+ * log line and the no-echo rule (see `ProbeResult`) is what keeps a provider
+ * from replaying a submitted key back into it.
+ *
+ * The timeout arm is checked by `error.name`, which is what
+ * `AbortSignal.timeout()` really rejects with (`DOMException("TimeoutError")`);
+ * everything else is a transport failure, and the platform's error *code* --
+ * the one thing that separates "the provider is down" from "this server's
+ * egress is broken" -- goes to the log through `logUnreachable()` rather than
+ * into the result.
+ */
+export function transportFailure(
+  provider: string,
+  error: unknown,
+  unreachableDetail: string,
+): ProbeResult {
+  if (error instanceof Error && error.name === "TimeoutError") {
+    return { ok: false, cause: "timeout", detail: "The request timed out." };
+  }
+  logUnreachable(provider, error);
+  return { ok: false, cause: "network", detail: unreachableDetail };
+}
+
+/**
+ * A response body, or `null` when it was not JSON.
+ *
+ * Typed `unknown` on purpose: every read of it has to narrow, which is what
+ * stops a probe from reaching into a shape a hostile or merely broken
+ * intermediary never sent. A rejected `.json()` (an HTML block page, an empty
+ * body, a truncated stream) is data, not a failure -- swallowing it here is
+ * what lets the classification stay inside the caller's `try` without a parse
+ * error being reported as a network fault.
+ */
+export async function readJson(response: Response): Promise<unknown> {
+  return response.json().catch(() => null);
 }

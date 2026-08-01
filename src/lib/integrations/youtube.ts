@@ -1,4 +1,4 @@
-import { logUnreachable, PROBE_TIMEOUT_MS, type ProbeResult } from "./probe";
+import { PROBE_TIMEOUT_MS, transportFailure, type ProbeResult } from "./probe";
 
 /**
  * One minimal authenticated call. Costs 1 quota unit, which is the cheapest
@@ -64,10 +64,6 @@ export async function testYoutubeKey(apiKey: string): Promise<ProbeResult> {
     }
     return { ok: false, cause: "unexpected", detail: `Unexpected status ${response.status}.` };
   } catch (error) {
-    if (error instanceof Error && error.name === "TimeoutError") {
-      return { ok: false, cause: "timeout", detail: "The request timed out." };
-    }
-    logUnreachable("youtube", error);
-    return { ok: false, cause: "network", detail: "Could not reach the YouTube API." };
+    return transportFailure("youtube", error, "Could not reach the YouTube API.");
   }
 }

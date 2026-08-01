@@ -139,13 +139,35 @@ const openaiApiUrlField = z
   .string()
   .trim()
   .max(MAX_API_URL_LENGTH)
-  .refine((value) => value === "" || isHttpUrl(value))
+  .refine((value) => value === "" || isStorableBaseUrl(value))
   .transform((value) => value || OPENAI_DEFAULT_API_URL);
 
-function isHttpUrl(value: string): boolean {
+/**
+ * An http(s) URL with no credentials embedded in it.
+ *
+ * **The userinfo half is a human ruling, not a tidiness check** (see the SSRF
+ * paragraph in CLAUDE.md). `https://user:pass@gateway.example.com/v1` is a
+ * perfectly legal URL that both older checks accepted, and `apiUrl` is the one
+ * field on this page projected to the browser **unmasked** -- it is not a
+ * secret, so `getAiStatus()` does not run it through `mask()`. Stored, it puts a
+ * plaintext gateway password into the RSC payload of `/ai`, which is plain text
+ * in a browser's network tab. That is only ever the operator's own credential,
+ * so it is not an escalation; it does contradict this page's stated contract
+ * that a credential leaves the server masked or not at all, which is enough.
+ *
+ * Refused rather than stripped: silently dropping the userinfo would send the
+ * probe to a gateway that then answers 401, and the operator would be told
+ * their *API key* was rejected. The catalog message names the requirement and
+ * says where the credential belongs instead.
+ *
+ * `testOpenaiKey()` checks the same thing again, for the reason it re-checks
+ * the scheme: its contract is to classify *every* input structurally.
+ */
+function isStorableBaseUrl(value: string): boolean {
   if (!URL.canParse(value)) return false;
-  const { protocol } = new URL(value);
-  return protocol === "http:" || protocol === "https:";
+  const url = new URL(value);
+  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  return url.username === "" && url.password === "";
 }
 
 /**

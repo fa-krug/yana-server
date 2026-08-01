@@ -276,7 +276,7 @@
       "rejected": "OpenAI hat diese Zugangsdaten nicht akzeptiert. Prüfe den API-Schlüssel, ob das Konto noch Guthaben hat und ob es das gewählte Modell nutzen darf.",
       "rateLimited": "OpenAI begrenzt gerade die Anfragen an diesen Endpunkt, daher konnten diese Zugangsdaten nicht geprüft werden. Versuche es in einem Moment erneut.",
       "modelUnknown": "Wähle eines der Modelle, die Yana für OpenAI anbietet.",
-      "apiUrlInvalid": "Die Basis-URL muss eine http- oder https-URL sein, zum Beispiel „https://api.openai.com/v1“. Lass sie leer, um OpenAI selbst zu verwenden."
+      "apiUrlInvalid": "Die Basis-URL muss eine http- oder https-URL ohne Benutzername und Passwort sein, zum Beispiel „https://api.openai.com/v1“. Ein Gateway, das Zugangsdaten braucht, bekommt sie im Feld „API-Schlüssel“. Lass sie leer, um OpenAI selbst zu verwenden."
     },
     "anthropic": {
       "required": "Trage zuerst einen API-Schlüssel ein.",

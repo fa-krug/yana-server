@@ -185,7 +185,7 @@ describe("testOpenaiKey", () => {
    *
    * Letting `new URL()` throw would fall through to the shared catch: the
    * operator would be told the OpenAI API was unreachable, and a matching
-   * `[integrations] openai probe could not reach the provider` line would agree
+   * `openai probe could not reach the provider` line would agree
    * with the wrong story while they hunted a network fault that does not exist.
    * A missing scheme is the likeliest way to get here by a wide margin, so the
    * assertion is on the *cause*, not merely on `ok: false` -- checking only the
@@ -205,6 +205,69 @@ describe("testOpenaiKey", () => {
     });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(warned).not.toHaveBeenCalled();
+  });
+
+  /**
+   * **A base URL carrying userinfo is refused, and no request is made with it.**
+   *
+   * `https://user:pass@gateway.example.com/v1` parses, and its protocol is
+   * `https:`, so both older checks accepted it. `apiUrl` is the one field on
+   * `/ai` projected to the browser **unmasked**, so storing one puts a plaintext
+   * gateway password into the page's RSC payload -- which contradicts the page's
+   * contract that a credential leaves the server masked or not at all. The save
+   * schema refuses it too (`actions.test.ts`); this is the structural half, for
+   * the reason the scheme check is duplicated. The assertion is on the *cause*
+   * and on no request having been made, not merely on `ok: false`.
+   */
+  it.each([
+    ["a username and a password", "https://gatewayuser:HUNTER2@gateway.example.com/v1"],
+    ["a username alone", "https://gatewayuser@gateway.example.com/v1"],
+    ["a password alone", "https://:HUNTER2@gateway.example.com/v1"],
+  ])("refuses a base URL carrying %s", async (_label, apiUrl) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await testOpenaiKey({ ...credentials, apiUrl });
+
+    expect(result).toMatchObject({ ok: false, cause: "unexpected" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    // The pasted credential must not survive into the result either -- `detail`
+    // is a log line built from constants, and this one names the problem
+    // without quoting the URL.
+    expect(JSON.stringify(result)).not.toContain("HUNTER2");
+    expect(JSON.stringify(result)).not.toContain("gatewayuser");
+  });
+
+  /**
+   * **The probe refuses redirects rather than following them.**
+   *
+   * This is the only provider whose endpoint is an operator setting, so it is
+   * the only one that can be aimed at a host on this server's private network.
+   * That capability is accepted deliberately (an OpenAI-compatible gateway *is*
+   * an arbitrary host -- see the ruling in CLAUDE.md); what is not accepted is
+   * it surviving a check. With `fetch`'s default `redirect: "follow"`, any host
+   * validation a later phase adds is bypassable by a gateway answering `302` to
+   * the cloud metadata endpoint, and this probe's own
+   * `network`-versus-`unexpected` split is a usable oracle for what is
+   * listening. No real API endpoint 302s a POST.
+   */
+  it("refuses to follow a redirect", async () => {
+    const fetchMock = stubFetch(completion());
+
+    await testOpenaiKey(credentials);
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(init.redirect).toBe("error");
+  });
+
+  it("classifies a refused redirect as network, not as a provider verdict", async () => {
+    // What `undici` does with `redirect: "error"`: it rejects, so the shared
+    // catch tail answers `network` and nothing is written. A redirect must never
+    // read as the provider having judged the credential.
+    stubFetch(new TypeError("fetch failed"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(await testOpenaiKey(credentials)).toMatchObject({ ok: false, cause: "network" });
   });
 
   it("never rejects for an API key that cannot be a header value", async () => {

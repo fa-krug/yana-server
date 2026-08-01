@@ -1,6 +1,9 @@
-import { PROBE_TIMEOUT_MS, type ProbeResult } from "@/lib/integrations/probe";
-
-import { readJson, transportFailure } from "./probe-support";
+import {
+  PROBE_TIMEOUT_MS,
+  readJson,
+  transportFailure,
+  type ProbeResult,
+} from "@/lib/integrations/probe";
 
 /** Fixed: `hasCustomUrl` is `false` for this provider, so there is nothing to configure. */
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";

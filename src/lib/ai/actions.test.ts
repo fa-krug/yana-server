@@ -413,6 +413,50 @@ describe("the AI actions", () => {
       expect(requests).toEqual([]);
     });
 
+    /**
+     * **A base URL with credentials in it is refused, and never stored.**
+     *
+     * Human ruling: `/ai`'s SSRF surface is an accepted capability -- an
+     * OpenAI-compatible gateway is by definition an arbitrary host -- but two
+     * cheap edges are closed, and this is the second of them (the first is
+     * `redirect: "error"` on the probe's `fetch`). `apiUrl` is declared
+     * `secret: false`, so `getAiStatus()` projects it to the browser **unmasked**
+     * and a stored `https://user:pass@gateway/v1` puts a plaintext credential in
+     * the RSC payload of every render of this page. Same-user only, so not an
+     * escalation -- but it contradicts the page's contract that a credential
+     * leaves the server masked or not at all.
+     *
+     * It shares `openai.apiUrlInvalid` rather than getting a key of its own, and
+     * the message was widened to name the requirement and say where a gateway's
+     * credentials belong instead. `fieldErrorKeys` is keyed on `field:code` and
+     * both refusals are zod `custom`, so a separate key would have meant
+     * teaching the shared `errorKeyFor()` in `@/lib/integrations/define` a third
+     * key component for one message -- which is not a cheap edge.
+     */
+    it.each([
+      ["a username and a password", "https://user:pass@gateway.example.com/v1"],
+      ["a username alone", "https://user@gateway.example.com/v1"],
+    ])("refuses a base URL carrying %s, and stores nothing", async (_label, apiUrl) => {
+      stubFetch(openaiOk);
+
+      const result = await actions.saveProvider("openai", {
+        apiKey: OPENAI_KEY,
+        model: OPENAI_MODEL,
+        apiUrl,
+      });
+
+      expect(result).toEqual({ ok: false, errorKey: "openai.apiUrlInvalid" });
+      expect(failureMessage(result)).toBeTypeOf("string");
+      // Refused before the probe, so nothing was sent anywhere and nothing was
+      // written -- including the URL itself, which is not a secret column and
+      // would otherwise be readable straight out of the next page render.
+      expect(requests).toEqual([]);
+      expect(row()).toMatchObject({
+        openai_api_key: "",
+        openai_api_url: OPENAI_DEFAULT_API_URL,
+      });
+    });
+
     it("gives an over-long base URL the same advice, not the generic failure", async () => {
       // `.max()` reports before `.refine()` runs, so this never reaches the
       // `custom` arm -- `too_big` needs its own entry in `fieldErrorKeys` or the

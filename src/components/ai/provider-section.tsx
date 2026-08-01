@@ -229,6 +229,17 @@ export function ProviderSection({
           // Exactly one toast per press, and this is the honest headline: the
           // key was stored (the badge will say so) but the provider the operator
           // picked is not the one in force.
+          //
+          // **The `"saved"` fallback is credential-worded, and that is latent
+          // rather than wrong.** `useReportOutcome`'s `saveFailed` is
+          // `credentialsSaveFailed` ("Could not save these credentials"), which
+          // is not what failed here -- the credentials saved. It is unreachable
+          // today: every way `setActiveProvider()` can fail returns a specific
+          // `errorKey`, and the fallback only shows when a result carries none.
+          // Left as-is on purpose, so a reviewer does not re-derive it as a
+          // defect: the fix is a third fallback key on the binding, which is
+          // worth adding the first time this action can fail keylessly, not
+          // before.
           report(activated, "saved");
           return;
         }
