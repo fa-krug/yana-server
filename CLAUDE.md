@@ -952,8 +952,21 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   one-line exports (a `"use server"` module can export nothing but async
   functions, which is why the factory cannot live there — the same constraint
   that put `attempt` in `result.ts`). Phase 7's three AI providers are three more
-  declarations. Four things that make it a guard rather than a tidy-up, all
-  checked by the compiler:
+  declarations.
+
+  **Extracting it out of `"use server"` cost it a safety net, so the net is now
+  a lint rule.** Inside `actions.ts` a stray client import was harmless by
+  construction — Next replaces such a module with reference stubs — while the
+  plain module imports `drizzle-orm`, `@/lib/db/client` and `next/cache` like
+  anything else, and it exports five _types_, which is exactly what a component
+  would reach for. `**/lib/*/define` is therefore the **third** group in
+  `eslint.config.mjs`'s `no-restricted-imports` block, beside `**/avatar-storage`
+  and `**/lib/*/queries`, with `allowTypeImports: true` so `import type` stays
+  the preferred form. Any later extraction out of a `"use server"` module
+  inherits the same hazard and belongs in that list.
+
+  Five things make it a guard rather than a tidy-up, all checked by the
+  compiler:
   - **`fields` is keyed by the name the zod schema parses**, and the two must
     agree _exactly_ — a schema field the declaration forgets would be probed and
     then silently never written, and a declared field the schema lacks would
@@ -968,11 +981,26 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   - **Column names are checked against the schema** (`TextColumn`/`FlagColumn`
     are derived from `userSettings.$inferInsert`), so a secret cannot be pointed
     at a boolean flag or the reverse.
+  - **`TextColumn` excludes `userId` by hand**, and that one exception is not
+    fussiness: it is the row's own key, so `column: "userId"` would emit
+    `SET user_id = '<the submitted API key>' WHERE user_id = ?` on every save —
+    tripping the foreign key, landing in `persist()`'s catch, and surfacing as a
+    bare `{ ok: false }` whose real cause is only in a log. `theme` and
+    `language` stay legal targets because an allow-list of the other twenty
+    columns is a list a later phase forgets to extend.
   - **The four keys that belong to the _page_** — `unreachable`, `timedOut`,
     `unexpected`, `removeFailed` — are spelled out once at the binding site, for
     the reason `attemptIn()` takes its two there: with the namespace a literal,
     the compiler checks them against the real catalogs. An `ai` namespace binds
-    its own; nothing in `define.ts` names a catalog.
+    its own; nothing in `define.ts` names a catalog — **including the log
+    prefix**, which is a fifth binding field for the same reason. A hard-coded
+    `[integrations]` would have the AI page reporting
+    `[integrations] openai probe failed`, a wrong answer to the only question a
+    prefix is asked. It is threaded through `logProbe()`, `logMissingRow()` and
+    `persist()`'s catch. `logUnreachable()` in `probe.ts` is the one line the
+    binding does not reach — it belongs to the probes, not to the page, and it
+    still writes `[integrations]` literally.
+
 - **`/login` is the whole unauthenticated UI, and five things about it are
   load-bearing.** It lives at `src/app/login/page.tsx`, deliberately outside
   `(app)`: that group's layout awaits `requireUser()`, so a login form inside it

@@ -54,10 +54,20 @@ type ColumnsHolding<Value> = {
  * Derived from the schema rather than listed, so a column renamed in
  * `schema/users.ts` fails `npm run typecheck` at the declaration that names it.
  * It is wider than "a credential column" -- `theme` and `language` are text too,
- * and nothing in the schema distinguishes them -- but it does rule out the
- * mistake worth ruling out, which is naming a boolean flag here.
+ * and nothing in the schema distinguishes them -- but it rules out the two
+ * mistakes that are not merely wrong: naming a boolean flag here, and naming
+ * **`userId`**.
+ *
+ * `userId` is excluded by hand because it is the row's own key and the only text
+ * column whose misuse is not just a wrong value. A declaration carrying
+ * `column: "userId"` compiles without the `Exclude`, and then every save emits
+ * `SET user_id = '<the submitted API key>' WHERE user_id = ?` -- which trips the
+ * foreign key to `users`, lands in `persist()`'s catch, and reports a bare
+ * `{ ok: false }` with the real cause only in a server log. One hand-maintained
+ * exception is worth that; an allow-list of the other twenty columns would not
+ * be, because it is a list a later phase forgets to extend.
  */
-export type TextColumn = ColumnsHolding<string>;
+export type TextColumn = Exclude<ColumnsHolding<string>, "userId">;
 
 /** The `*_enabled` side of the same derivation. */
 export type FlagColumn = ColumnsHolding<boolean>;
@@ -257,8 +267,8 @@ type Verified<Field extends string, Key extends string> =
  * copies of a log line are five chances for one of them to say something
  * different about the same state.
  */
-function logMissingRow(userId: string): void {
-  console.error(`[integrations] no user_settings row for user "${userId}"`);
+function logMissingRow(prefix: string, userId: string): void {
+  console.error(`${prefix} no user_settings row for user "${userId}"`);
 }
 
 /**
@@ -269,9 +279,9 @@ function logMissingRow(userId: string): void {
  * reads when the translated toast is not specific enough -- which is the whole
  * reason `detail` exists.
  */
-function logProbe(provider: string, probe: ProbeResult): void {
+function logProbe(prefix: string, provider: string, probe: ProbeResult): void {
   if (probe.ok) return;
-  console.warn(`[integrations] ${provider} probe failed (${probe.cause}): ${probe.detail}`);
+  console.warn(`${prefix} ${provider} probe failed (${probe.cause}): ${probe.detail}`);
 }
 
 /** The stored row an unchanged submission resolves against. */
@@ -295,20 +305,20 @@ function storedSettings(userId: string) {
  * stamps it on every Drizzle write, and a second place to set it is a second
  * place for it to drift.
  */
-function persist(userId: string, values: Partial<SettingsValues>): boolean {
+function persist(prefix: string, userId: string, values: Partial<SettingsValues>): boolean {
   try {
     const changes = writeTransaction(
       (tx) =>
         tx.update(userSettings).set(values).where(eq(userSettings.userId, userId)).run().changes,
     );
     if (changes === 0) {
-      logMissingRow(userId);
+      logMissingRow(prefix, userId);
       return false;
     }
     return true;
   } catch (error) {
     // Logged, not returned: a driver message is not a catalog key either.
-    console.error("[integrations] failed to write credentials", error);
+    console.error(`${prefix} failed to write credentials`, error);
     return false;
   }
 }
@@ -336,6 +346,7 @@ function errorKeyFor<Key extends string>(
  * // src/lib/integrations/actions.ts
  * const defineIntegration = defineIntegrationIn<IntegrationsKey>({
  *   path: "/integrations",
+ *   logPrefix: "[integrations]",
  *   unverifiable: { network: "unreachable", timeout: "timedOut", unexpected: "unexpected" },
  *   removeFailed: "removeFailed",
  * });
@@ -344,6 +355,17 @@ function errorKeyFor<Key extends string>(
 export function defineIntegrationIn<Key extends string>(binding: {
   /** Revalidated after every write, and never after a Test. */
   path: string;
+  /**
+   * What every log line this module writes is tagged with.
+   *
+   * Here rather than a constant, for the same reason nothing else in this module
+   * names a page: a hard-coded `[integrations]` would have an `ai` binding
+   * reporting `[integrations] openai probe failed`, which is a wrong answer to
+   * the only question a log prefix is asked -- where do I go and look. It is
+   * threaded through `logProbe()`, `logMissingRow()` and `persist()`'s catch, so
+   * adding it later would have meant three call sites instead of this one.
+   */
+  logPrefix: string;
   /** The causes that mean "the question was not answered", not "the answer is no". */
   unverifiable: Record<"network" | "timeout" | "unexpected", Key>;
   removeFailed: Key;
@@ -402,7 +424,7 @@ export function defineIntegrationIn<Key extends string>(binding: {
 
       const stored = storedSettings(userId);
       if (!stored) {
-        logMissingRow(userId);
+        logMissingRow(binding.logPrefix, userId);
         return { status: "refused", result: { ok: false } };
       }
 
@@ -424,7 +446,7 @@ export function defineIntegrationIn<Key extends string>(binding: {
       }
 
       const probe = await descriptor.probe(credential);
-      logProbe(descriptor.provider, probe);
+      logProbe(binding.logPrefix, descriptor.provider, probe);
       return { status: "verified", credential, judgement: judge(probe) };
     }
 
@@ -452,7 +474,7 @@ export function defineIntegrationIn<Key extends string>(binding: {
         }
         values[descriptor.flagColumn] = judgement.outcome === "good";
 
-        if (!persist(userId, values)) return { ok: false };
+        if (!persist(binding.logPrefix, userId, values)) return { ok: false };
         revalidatePath(binding.path);
         return report(judgement);
       },
@@ -498,7 +520,9 @@ export function defineIntegrationIn<Key extends string>(binding: {
         }
         values[descriptor.flagColumn] = false;
 
-        if (!persist(userId, values)) return { ok: false, errorKey: binding.removeFailed };
+        if (!persist(binding.logPrefix, userId, values)) {
+          return { ok: false, errorKey: binding.removeFailed };
+        }
         revalidatePath(binding.path);
         return { ok: true };
       },

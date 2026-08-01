@@ -30,6 +30,16 @@ const eslintConfig = defineConfig([
    * half of a feature lives in a dependency-free `fields.ts` beside it, which
    * is the `@/lib/avatar` to `queries.ts`'s `@/lib/avatar-storage`.
    *
+   * A feature's `define.ts` is the third shape, and it arrived by *extraction*
+   * rather than by being written: phase 7's refactor lifted the integrations
+   * save/test/remove sequence out of `actions.ts`, and the safety it lost in the
+   * move is invisible. Inside a `"use server"` module an accidental client
+   * import is harmless by construction -- Next replaces the module with
+   * reference stubs -- while the plain module it became imports `drizzle-orm`,
+   * `@/lib/db/client` and `next/cache` like any other. It exports five *types*,
+   * which is precisely what a component would reach for. Any later extraction
+   * out of a `"use server"` module inherits this hazard and belongs here too.
+   *
    * **`allowTypeImports` is on, and that is the preferred form.** An
    * `import type { PasskeySummary } from "@/lib/account/queries"` is erased
    * before anything is bundled, so it cannot pull the driver in, and it keeps
@@ -43,7 +53,7 @@ const eslintConfig = defineConfig([
    * Scoped to `src/components/**` because that is the whole of the client
    * component surface today; a route handler, page or server action importing
    * these is correct and must keep working. Extend the `group` list, not the
-   * message, when a third server-only shape appears.
+   * message, when a fourth server-only shape appears.
    */
   {
     files: ["src/components/**"],
@@ -70,6 +80,23 @@ const eslintConfig = defineConfig([
                 "client-safe constants from the feature's fields.ts, call the feature's " +
                 'server actions, or use `import type` for a row projection ("use server" ' +
                 "modules cannot export types, which is why the projection lives here).",
+            },
+            {
+              // The third shape, and the one with the least warning attached to
+              // it. `src/lib/integrations/define.ts` holds code that used to sit
+              // inside a `"use server"` module, where an accidental client
+              // import was safe by construction -- Next replaces such a module
+              // with reference stubs. Extracted into a plain module it is an
+              // ordinary import of drizzle-orm, @/lib/db/client and next/cache,
+              // and its five exported *types* are exactly the reason a component
+              // would reach for it.
+              group: ["**/lib/*/define"],
+              allowTypeImports: true,
+              message:
+                "A feature's define module is server-only (it reaches getDb() and " +
+                "next/cache to build the save/test/remove actions). `import type` is fine " +
+                "for the descriptor shapes; the actions themselves are reached through the " +
+                'feature\'s "use server" actions module.',
             },
           ],
         },

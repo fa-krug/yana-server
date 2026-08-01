@@ -56,6 +56,9 @@ import { testYoutubeKey } from "./youtube";
  */
 const defineIntegration = defineIntegrationIn<IntegrationsKey>({
   path: "/integrations",
+  // Matches `logUnreachable()` in `./probe`, which tags its own line the same
+  // way and is the one log this binding does not reach.
+  logPrefix: "[integrations]",
   unverifiable: { network: "unreachable", timeout: "timedOut", unexpected: "unexpected" },
   removeFailed: "removeFailed",
 });
