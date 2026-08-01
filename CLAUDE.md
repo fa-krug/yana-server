@@ -112,7 +112,9 @@ file.
 │   │   ├── secrets.ts             # KEEP_EXISTING/mask/resolveSecret — imports nothing
 │   │   ├── integrations/          # probe.ts (ProbeResult + the timeout), youtube.ts
 │   │   │                          #   and reddit.ts (live probes), queries.ts
-│   │   │                          #   (SERVER-ONLY, masked only), actions.ts (writes),
+│   │   │                          #   (SERVER-ONLY, masked only), define.ts (the
+│   │   │                          #   descriptor: one declaration -> save/test/remove),
+│   │   │                          #   actions.ts (the two declarations + the exports),
 │   │   │                          #   result.ts (attempt() binding + SaveResult)
 │   │   ├── users/                 # fields.ts (client-safe constants — imports only
 │   │   │                          #   auth/roles), queries.ts (SERVER-ONLY reads),
@@ -899,7 +901,8 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   one is written straight to the log by `logUnreachable()` rather than returned,
   because a field on the result is a field something can render.
 - **What a probe's verdict does to the row is `judge()`, and its three arms are
-  not symmetric.** `src/lib/integrations/actions.ts`:
+  not symmetric.** `src/lib/integrations/define.ts` (`Judgement`, and the `save`
+  it feeds — `actions.ts` is the two declarations that parameterise it):
   - **`good`** — store the credential, switch the integration on.
   - **`bad`** (the provider refused it) — **store it anyway**, integration off,
     so the badge agrees with the toast and a typo is visible rather than silently
@@ -921,7 +924,8 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   flag is probe-derived, so nothing else could ever unconfigure an integration.
 
 - **"A rate limit proves the credential was accepted" is a per-provider fact, and
-  it has a name.** `quotaMeansVerified` on each provider's keys in
+  it has a name.** `quotaMeansVerified` on each provider's keys — a **required**
+  field of `ProviderKeys` in `define.ts`, answered per declaration in
   `actions.ts` — `true` for YouTube, because Google validates the API key
   _before_ it accounts for quota, so a 403 carrying
   `quotaExceeded`/`dailyLimitExceeded`/`RESOURCE_EXHAUSTED` is only reachable
@@ -930,14 +934,45 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   looking at the Basic auth header, and datacentre ranges — where a self-hosted
   aggregator lives — are throttled routinely. Sharing YouTube's answer meant a
   first-ever save of _wrong_ Reddit credentials from a throttled host stored them
-  and set `reddit_enabled = 1`. It is a named field rather than a branch inside
-  `judge()` so that **adding a provider forces the decision** instead of
-  inheriting one. The same reasoning splits the two success arms: a probe may
+  and set `reddit_enabled = 1`. It is a named, non-optional field rather than a
+  branch inside `judge()` so that **adding a provider forces the decision**
+  instead of inheriting one — omitting it is a `npm run typecheck` failure, not a
+  comment somebody was supposed to read. The same reasoning splits the two
+  success arms: a probe may
   require a field in the body (Reddit's `access_token` — a token endpoint answers
   `200 {"error":"unsupported_grant_type"}`, and its edge serves 200 HTML block
   pages) or judge the status alone (YouTube — `channels?forHandle=…` legitimately
   answers `200 {"items": []}`, so requiring a field would reject a good key).
   Both asymmetries are commented where they live; neither is sloppiness to tidy.
+- **A credential provider is a _declaration_, never a copy of the sequence.**
+  `defineIntegrationIn<Key>(…)` in `src/lib/integrations/define.ts` owns the
+  whole path — parse, load the row, resolve each secret, guard the empty case,
+  probe, log, judge, write — and returns one provider's `save`/`test`/`remove`.
+  `src/lib/integrations/actions.ts` is then a table of two declarations plus six
+  one-line exports (a `"use server"` module can export nothing but async
+  functions, which is why the factory cannot live there — the same constraint
+  that put `attempt` in `result.ts`). Phase 7's three AI providers are three more
+  declarations. Four things that make it a guard rather than a tidy-up, all
+  checked by the compiler:
+  - **`fields` is keyed by the name the zod schema parses**, and the two must
+    agree _exactly_ — a schema field the declaration forgets would be probed and
+    then silently never written, and a declared field the schema lacks would
+    resolve to `undefined`. Both are type errors, in both directions.
+  - **`secret: true | false` is one bit with two consequences**: a secret is
+    resolved against the stored row by `resolveSecret()`, must be non-empty
+    before anything is probed, and is wiped by Remove; a plain field
+    (Reddit's `userAgent`, phase 7's `model` and `apiUrl`) is submitted in full,
+    never resolved, and **deliberately survives Remove**. That one flag is what
+    generalises "YouTube refuses when its one key is empty, Reddit when either of
+    its two is".
+  - **Column names are checked against the schema** (`TextColumn`/`FlagColumn`
+    are derived from `userSettings.$inferInsert`), so a secret cannot be pointed
+    at a boolean flag or the reverse.
+  - **The four keys that belong to the _page_** — `unreachable`, `timedOut`,
+    `unexpected`, `removeFailed` — are spelled out once at the binding site, for
+    the reason `attemptIn()` takes its two there: with the namespace a literal,
+    the compiler checks them against the real catalogs. An `ai` namespace binds
+    its own; nothing in `define.ts` names a catalog.
 - **`/login` is the whole unauthenticated UI, and five things about it are
   load-bearing.** It lives at `src/app/login/page.tsx`, deliberately outside
   `(app)`: that group's layout awaits `requireUser()`, so a login form inside it
@@ -1140,7 +1175,12 @@ decisions phases 2's, 3's, 4's, 5's and 6's reviews left to those phases;
 **"Carried forward from phase 6's review" is the one a phase-7 agent has to
 read**, because the two generalisations it records — namespace-parameterising
 `section-parts.tsx` and a `defineIntegration()` descriptor — are exactly what a
-third, fourth and fifth provider earn. Phase 8 still starts from "Carried
+third, fourth and fifth provider earn. **Both are now built**, ahead of the third
+provider as that section demands: the UI half is
+`src/components/section-kit.tsx` and the actions half is
+`src/lib/integrations/define.ts` (see the two bullets above them). What remains
+of that section for phase 7 is its third item — deciding each AI provider's two
+probe answers rather than copying them. Phase 8 still starts from "Carried
 forward from phase 5's review", where the CRUD kit's contracts are.
 
 **Three plans are amended, not authoritative.**
