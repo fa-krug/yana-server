@@ -21,6 +21,28 @@
 
 export type AiProviderKey = "openai" | "anthropic" | "gemini";
 
+/**
+ * Where an OpenAI credential is probed, and what a fresh `user_settings` row
+ * starts on, when the operator configured no base URL of their own.
+ *
+ * **It lives in the client-safe half deliberately**, even though `./openai` is
+ * its only *probe*-side reader. Three other places need the same string and none
+ * of them may import a probe module: the column default in
+ * `src/lib/db/schema/users.ts`, the empty-field fallback in
+ * `src/lib/ai/actions.ts`, and the `/ai` form's placeholder in task 3 -- which is
+ * a client component, and `eslint.config.mjs` restricts the whole of
+ * `src/lib/ai/*` probe surface from `src/components/**` for bundle weight. Task
+ * 1 put it in `./openai`, where it was the one fact about the provider that a
+ * form could not reach; moving it here is the "reconcile" the phase-7 task-2
+ * addendum asked for.
+ *
+ * The schema's DDL default is a hand-maintained duplicate of this value --
+ * `defaults.test.ts` migrates a real database and compares the two, so a change
+ * here that is not accompanied by a migration fails a test rather than leaving a
+ * fresh account pointed at a stale endpoint.
+ */
+export const OPENAI_DEFAULT_API_URL = "https://api.openai.com/v1";
+
 /** One entry in a provider's model select. `label` is a brand name, never translated. */
 export type AiModel = { value: string; label: string };
 

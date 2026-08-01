@@ -22,6 +22,13 @@
       "when": 1785508900662,
       "tag": "0002_puzzling_nightcrawler",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1785595018087,
+      "tag": "0003_ai_model_defaults",
+      "breakpoints": true
     }
   ]
 }

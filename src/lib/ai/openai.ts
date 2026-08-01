@@ -1,17 +1,19 @@
 import { PROBE_TIMEOUT_MS, type ProbeResult } from "@/lib/integrations/probe";
 
 import { readJson, transportFailure } from "./probe-support";
+import { OPENAI_DEFAULT_API_URL } from "./providers";
 
 /**
- * Where an OpenAI credential is probed when the operator configured no base URL.
+ * Re-exported so this module still reads as the home of everything the OpenAI
+ * probe needs, while the constant itself lives in the client-safe registry --
+ * the column default, the action's empty-field fallback and task 3's form
+ * placeholder all need it, and none of them may import a probe module.
  *
- * `user_settings.openaiApiUrl` carries the same string as its column default,
- * and the two are a hand-maintained duplicate today -- see the report for
- * phase 7 task 1. The probe still defaults, because `apiUrl` is optional on
- * `AiCredentials` and a probe that cannot resolve an endpoint would have to
+ * The probe still defaults, rather than requiring `apiUrl`: it is optional on
+ * `AiCredentials`, and a probe that could not resolve an endpoint would have to
  * invent a failure for a state the schema makes impossible.
  */
-export const OPENAI_DEFAULT_API_URL = "https://api.openai.com/v1";
+export { OPENAI_DEFAULT_API_URL };
 
 /**
  * One 1-token chat completion -- the cheapest call that proves the key, the

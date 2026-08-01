@@ -95,21 +95,56 @@ export const userSettings = sqliteTable(
     youtubeEnabled: integer("youtube_enabled", { mode: "boolean" }).notNull().default(false),
     youtubeApiKey: text("youtube_api_key").notNull().default(""),
 
-    // --- AI provider selection: empty disables AI entirely ---
+    /**
+     * --- AI provider selection: empty disables AI entirely ---
+     *
+     * **A value here is a preference, not a permission.** It is only acted on
+     * when the named provider's `*Enabled` flag -- which is probe-derived, never
+     * request-derived -- is also true. `setActiveProvider()` refuses to write a
+     * provider that has not passed a probe, and the two paths that can switch a
+     * flag off (a save whose probe came back `unauthorized`, and a removal) clear
+     * this column when it names the provider they just disabled; `getAiStatus()`
+     * reports it as unset if it ever disagrees anyway. See
+     * `src/lib/ai/actions.ts`.
+     */
     activeAiProvider: text("active_ai_provider").notNull().default(""),
 
+    /**
+     * **The four defaults below are hand-maintained duplicates of
+     * `src/lib/ai/providers.ts`**, and `src/lib/ai/defaults.test.ts` is what
+     * keeps them honest: it migrates a real database, inserts a bare row, and
+     * compares what SQLite filled in against `OPENAI_DEFAULT_API_URL` and each
+     * provider's `defaultModel`.
+     *
+     * They are literals rather than imports of the registry on purpose. A
+     * derived DDL default would change silently whenever a model list is
+     * refreshed, and the migration that has to accompany it would be discovered
+     * by a container that boots against an out-of-date table rather than by CI.
+     * Written out, refreshing the registry fails that test until the migration
+     * exists -- which is the same "duplicate plus tripwire" arrangement the
+     * `better-sqlite3` override and `bodySizeLimit` already use.
+     *
+     * Phase 2 copied the Django-era ids (`gpt-4o-mini`,
+     * `claude-3-5-sonnet-20240620`, `gemini-1.5-flash`) verbatim so that
+     * refreshing them would be a visible, deliberate change. Migration `0003` is
+     * that change. It matters beyond tidiness: a stored model absent from its
+     * provider's list makes Base UI's `<Select.Value>` print the raw id, because
+     * it resolves its label from `items` alone (CLAUDE.md). `getAiStatus()` falls
+     * back to `defaultModel` for exactly that reason -- this default is what
+     * keeps the fallback from being needed on every new account.
+     */
     openaiEnabled: integer("openai_enabled", { mode: "boolean" }).notNull().default(false),
     openaiApiUrl: text("openai_api_url").notNull().default("https://api.openai.com/v1"),
     openaiApiKey: text("openai_api_key").notNull().default(""),
-    openaiModel: text("openai_model").notNull().default("gpt-4o-mini"),
+    openaiModel: text("openai_model").notNull().default("gpt-5.6-luna"),
 
     anthropicEnabled: integer("anthropic_enabled", { mode: "boolean" }).notNull().default(false),
     anthropicApiKey: text("anthropic_api_key").notNull().default(""),
-    anthropicModel: text("anthropic_model").notNull().default("claude-3-5-sonnet-20240620"),
+    anthropicModel: text("anthropic_model").notNull().default("claude-haiku-4-5"),
 
     geminiEnabled: integer("gemini_enabled", { mode: "boolean" }).notNull().default(false),
     geminiApiKey: text("gemini_api_key").notNull().default(""),
-    geminiModel: text("gemini_model").notNull().default("gemini-1.5-flash"),
+    geminiModel: text("gemini_model").notNull().default("gemini-3.5-flash-lite"),
 
     // --- Global AI tuning (phase 7's advanced section) ---
     aiTemperature: real("ai_temperature").notNull().default(0.3),
