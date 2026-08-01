@@ -854,6 +854,84 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   (green carries 0.7152 of it, blue 0.0722), so no single lightness can serve
   every hue. `avatar.test.ts` asserts the ratio across **all 360 hues**;
   sampling a couple of ids is what let the first version ship.
+- **A stored provider credential leaves the server masked or not at all.** This
+  is `/integrations`' whole contract, and it is a **protocol between three
+  files**, not a habit: `getIntegrationStatus()` (`src/lib/integrations/queries.ts`)
+  projects every secret through `mask()` and names the field `…Masked`; the
+  section renders that mask as the input's **`placeholder`** with the value
+  starting empty; and an empty submission means **keep what is stored**, which
+  `resolveSecret()` (`src/lib/secrets.ts`) turns back into the real value on the
+  server. Break any one part and the other two fail quietly. Two consequences a
+  phase adding a provider inherits:
+  - **The projection type is the boundary.** A client component's props are the
+    page's RSC payload, which is plain text in a browser's network tab, so
+    `IntegrationStatus` is typed to have no field that _could_ hold a secret.
+    Add a `…Masked` field; never a raw one, and never "just for a moment".
+  - **`KEEP_EXISTING` is a NUL byte plus `keep`, and binding it to an
+    `<input value>` breaks it.** No legitimate key contains a NUL, which is what
+    makes it a safe sentinel — but an HTML input strips or mangles one, so it
+    survives only as an RSC-serialized _argument_. That is why a secret field
+    renders empty rather than pre-filled with the sentinel, and why every
+    submitted secret is `.trim()`ed _before_ `resolveSecret()` sees it: a NUL is
+    not JS whitespace, so trimming leaves the sentinel intact
+    (`secrets.test.ts` pins that) while stripping the trailing newline a paste
+    from a console or a password manager brings with it. Untrimmed, that newline
+    was **credential destruction**, not a bad message — see the write-on-rejection
+    rule below. `src/lib/secrets.ts` **imports nothing**, like `auth/roles.ts`
+    and `avatar.ts`, and is pinned by a specifier tripwire rather than a comment.
+- **A probe never rejects, and its `detail` is log-only prose built from
+  constants.** `ProbeResult` (`src/lib/integrations/probe.ts`) is the shape both
+  live probes report and the three AI providers in phase 7 will report; every
+  probe resolves to it for _every_ input, which is why URL building and Basic-auth
+  encoding happen **inside** the `try` — the guarantee has to be structural, not
+  an argument about which characters a credential can contain. `detail` is what
+  an operator reads in the server log when the translated toast is not specific
+  enough, and it must never interpolate a response body, an error message or a
+  credential: a provider can echo the very key just submitted, and only a catalog
+  key crosses the wire (`src/lib/integrations/result.ts`). A status _number_ is
+  fine, and so is a platform error code (`ENOTFOUND`, `ECONNREFUSED`) — but that
+  one is written straight to the log by `logUnreachable()` rather than returned,
+  because a field on the result is a field something can render.
+- **What a probe's verdict does to the row is `judge()`, and its three arms are
+  not symmetric.** `src/lib/integrations/actions.ts`:
+  - **`good`** — store the credential, switch the integration on.
+  - **`bad`** (the provider refused it) — **store it anyway**, integration off,
+    so the badge agrees with the toast and a typo is visible rather than silently
+    producing empty feeds.
+  - **`unknown`** (no answer: network, timeout, an unrecognised status) — **write
+    nothing at all.** With no verdict there is nothing to derive the flag from,
+    and both alternatives are worse: a momentary outage would either disable a
+    working integration or leave `*Enabled = true`, earned by a _different_
+    credential, vouching for one that was never tested.
+
+  **Do not "fix" `bad` into a no-write arm for consistency.** The asymmetry was
+  put to the human explicitly, next to the option of refusing the write, and
+  storing was chosen: Save's contract is "what you typed is now what is stored",
+  and the alternative leaves an operator reasoning about which of two invisible
+  values the server kept. **Test** is what makes it safe (it writes nothing, so a
+  replacement can be proved before it replaces anything) and **Remove** is the
+  deliberate path back to "not configured" — an explicit action behind
+  `<ConfirmDestructive>`, also a human ruling, because empty means keep and the
+  flag is probe-derived, so nothing else could ever unconfigure an integration.
+
+- **"A rate limit proves the credential was accepted" is a per-provider fact, and
+  it has a name.** `quotaMeansVerified` on each provider's keys in
+  `actions.ts` — `true` for YouTube, because Google validates the API key
+  _before_ it accounts for quota, so a 403 carrying
+  `quotaExceeded`/`dailyLimitExceeded`/`RESOURCE_EXHAUSTED` is only reachable
+  with a key it accepted; `false` for Reddit, because a 429 from
+  `/api/v1/access_token` is IP/edge-level load shedding returned _without_
+  looking at the Basic auth header, and datacentre ranges — where a self-hosted
+  aggregator lives — are throttled routinely. Sharing YouTube's answer meant a
+  first-ever save of _wrong_ Reddit credentials from a throttled host stored them
+  and set `reddit_enabled = 1`. It is a named field rather than a branch inside
+  `judge()` so that **adding a provider forces the decision** instead of
+  inheriting one. The same reasoning splits the two success arms: a probe may
+  require a field in the body (Reddit's `access_token` — a token endpoint answers
+  `200 {"error":"unsupported_grant_type"}`, and its edge serves 200 HTML block
+  pages) or judge the status alone (YouTube — `channels?forHandle=…` legitimately
+  answers `200 {"items": []}`, so requiring a field would reject a good key).
+  Both asymmetries are commented where they live; neither is sloppiness to tidy.
 - **`/login` is the whole unauthenticated UI, and five things about it are
   load-bearing.** It lives at `src/app/login/page.tsx`, deliberately outside
   `(app)`: that group's layout awaits `requireUser()`, so a login form inside it
@@ -1043,23 +1121,35 @@ retired by phase 4's admin bootstrap), phase 3 (app shell —
 i18n/theme, sidebar/breadcrumbs, streaming skeletons, the settings page and
 `/health`), phase 4 (auth — Better Auth with passkeys, `role` as the
 authorization model, the startup admin bootstrap, `src/proxy.ts`, `/login`,
-`/account` and avatars), **phase 5 (the admin-only users tab at `/users`, and
+`/account` and avatars), phase 5 (the admin-only users tab at `/users`, and
 the reusable CRUD kit under it — `src/lib/crud/params.ts` plus
 `src/components/crud/`, which phases 8, 9 and 10 consume for tags, feeds and
-articles)** and the folder swap (phase 14, reworked to keep `old/`) are done;
-phases 6–13 — the remaining CRUD, the aggregators, jobs and the client API —
-are not. The direction record's last sections carry the decisions phases 2's,
-3's, 4's and 5's reviews left to those phases; **"Carried forward from phase 5"
-is the one a phase-6 agent has to read**, because the kit's contracts are what
-it is about to build on.
+articles), **phase 6 (the integrations tab at `/integrations` — the per-user
+credential store, `src/lib/secrets.ts`, and the live YouTube and Reddit probes
+whose verdict derives the `*Enabled` flags; phase 7 adds three AI providers to
+the same page)** and the folder swap (phase 14, reworked to keep `old/`) are
+done; phases 7–13 — AI options, the remaining CRUD, the aggregators, jobs and
+the client API — are not. The direction record's last sections carry the
+decisions phases 2's, 3's, 4's, 5's and 6's reviews left to those phases;
+**"Carried forward from phase 6's review" is the one a phase-7 agent has to
+read**, because the two generalisations it records — namespace-parameterising
+`section-parts.tsx` and a `defineIntegration()` descriptor — are exactly what a
+third, fourth and fifth provider earn. Phase 8 still starts from "Carried
+forward from phase 5's review", where the CRUD kit's contracts are.
 
-**Two plans are amended, not authoritative.**
+**Three plans are amended, not authoritative.**
 `docs/superpowers/plans/nextjs-04-auth.md` was written before three human
 rulings and one framework rename, and its task bodies still show
 `users.isAdmin` and `src/middleware.ts`.
 `docs/superpowers/plans/nextjs-05-users-crud.md` was written before five, and
 still specifies `error?: string` results, a `role === "admin"` filter and a
-confirmation dialog whose `run` fetches its own copy. Both headers now say so;
+confirmation dialog whose `run` fetches its own copy.
+`docs/superpowers/plans/nextjs-06-integrations.md` was written before eleven
+controller rulings and two human ones, and still has a save returning
+`{ ok: false, error: probe.detail }` — English provider prose into a toast,
+the exact mistake the first of those rulings exists to prevent — `ProbeResult`
+defined inside `youtube.ts`, no path back to "not configured", and
+`enabled = ok || quota` for both providers. All three headers now say so;
 read this file for what those phases actually shipped.
 
 Plans written before the swap use `yana-next/`-prefixed paths. Those are

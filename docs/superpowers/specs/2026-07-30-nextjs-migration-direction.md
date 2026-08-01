@@ -380,7 +380,9 @@ Carried over from the previous direction record and still out of scope:
 
 Phase 5 shipped `/users` **and the reusable CRUD kit under it**. Phases 8, 9 and 10 (tags, feeds,
 articles) build their lists on that kit, so its contracts are inherited rather than merely
-available — this section is what a phase-6 agent reads before adding a list page.
+available — this section is what the next agent adding a **list page** reads first. That is phase 8:
+phase 6 (integrations) added forms rather than a list and consumed only `<ConfirmDestructive>`, and
+phase 7 extends the same page.
 
 - **The kit's contracts, in the order they are easiest to get wrong.**
   - **Select-all is page-scoped.** `toggleAll()` in `src/components/crud/selection.ts` never reaches
@@ -439,6 +441,41 @@ available — this section is what a phase-6 agent reads before adding a list pa
   `<UserForm>` seeds its two-option select through `isAdminRole()` but submits the **stored** string
   unless the operator actually picks a role — otherwise saving a last name rewrites the column, a
   write nobody asked for. Any later form editing a list-valued column inherits this.
+
+## Carried forward from phase 6's review
+
+Phase 6 shipped `/integrations` with two providers. **Phase 7 adds three AI providers to the same
+page**, which is what turns both items below from "a shape one could factor out" into work worth
+doing — they are recorded here rather than built because at two call sites each generalisation would
+have been guessed from one example, and both were reviewed as correct to defer. A phase-7 agent
+should build them *first*, before the third provider, not after the fifth.
+
+- **`src/components/integrations/section-parts.tsx` is hard-wired to the `integrations` catalog
+  namespace.** `useReportOutcome()` and `StatusBadge` both call `useTranslations("integrations")`, so
+  an `ai` namespace makes all 74 lines uncopyable — and the copy that gets made instead is the toast
+  reporter, which is the one piece where a mistake means "the wrong outcome, with no message". Fix
+  shape: **`reportOutcomeIn(namespace)`**, mirroring `attemptIn()` in `src/lib/attempt.ts` exactly —
+  a factory per feature, keys spelled out at the binding site so `NamespaceKey<Namespace>` stays
+  compiler-checked (TypeScript cannot prove a literal is a member of that type while `Namespace` is
+  still a parameter, which is why `attemptIn` takes its two keys as arguments). The three
+  success/fallback keys (`saved`/`tested`/`removed` and their failures) are the ones to parameterise.
+- **`storedCredentials()` hard-codes three columns, and `verifyYoutube`/`verifyReddit` are 90% the
+  same sequence** (parse → load the row → resolve each secret → guard the empty case → probe → log →
+  judge). Five providers means `actions.ts` at roughly 700 lines of near-twins, and the risk moves
+  *between* providers, where no test looks: one provider's resolve rules or empty-credential guard
+  drifting from the next's is invisible in a review of either function. Fix shape: a
+  **`defineIntegration({ schema, secretColumns, flagColumn, probe, keys, requiredKey })`** descriptor
+  that produces the save, test and remove actions for a provider from one declaration — the divergence
+  then lives in data, where a table of five is readable at a glance. Two properties must survive it:
+  Save and Test have to keep sharing the resolve-and-probe path exactly (`actions.test.ts` pins this
+  by running both entry points on one submission and comparing the requests they made), and
+  `quotaMeansVerified` must stay a **required** field, so a new provider cannot inherit YouTube's
+  answer by omission.
+- **The AI providers' probes each need their own two answers decided, not copied.** Whether a rate
+  limit proves the credential was accepted, and whether a 200 body has to be inspected, are facts
+  about a provider's API — see the `quotaMeansVerified` and success-arm notes in `CLAUDE.md`. OpenAI,
+  Anthropic and Gemini answer 429 for *both* "your key is fine, slow down" and, in some tiers,
+  quota/credit exhaustion, so this is not a formality.
 
 ## Carried forward from phase 4's review
 
