@@ -10,7 +10,7 @@ import { userSettings } from "@/lib/db/schema";
 import { resolveSecret } from "@/lib/secrets";
 
 import type { ProbeResult } from "./probe";
-import { testRedditCredentials } from "./reddit";
+import { testRedditCredentials, type RedditCredentials } from "./reddit";
 import type { IntegrationsKey, IntegrationsResult, SaveResult } from "./result";
 import { testYoutubeKey } from "./youtube";
 
@@ -113,15 +113,33 @@ const UNVERIFIABLE: Record<"network" | "timeout" | "unexpected", IntegrationsKey
  *   quota answer lands here with a `noticeKey`: the key is valid and only
  *   today's budget is gone, so refusing the save would be wrong (see
  *   `SaveResult` in `./result`).
- * - **`bad`** -- the provider refused it. Store it and switch the integration
- *   *off*, so the badge agrees with the toast and a typo is visible rather than
- *   silently producing empty feeds.
+ * - **`bad`** -- the provider refused it. **Store it anyway**, and switch the
+ *   integration off, so the badge agrees with the toast and a typo is visible
+ *   rather than silently producing empty feeds.
  * - **`unknown`** -- a network failure, a timeout, or a status no probe
  *   recognises. **Nothing is written at all.** With no answer there is nothing
- *   to derive the flag from, and the alternative is worse in both directions: a
- *   momentary outage would either disable a working integration, or leave
- *   `*Enabled = true` claiming that a key which has never been tested works.
- *   The operator is told nothing changed and can retry.
+ *   to derive the flag from, and both alternatives are worse: a momentary outage
+ *   would either disable a working integration, or leave `*Enabled = true` --
+ *   earned by a *different* credential -- vouching for one that has never been
+ *   tested. The operator is told nothing changed and can retry.
+ *
+ * **The asymmetry between those last two is deliberate, and it was argued.** A
+ * `bad` verdict overwrites a stored credential that was working, and the field
+ * only ever showed eight bullets -- so one bad paste destroys a key that cannot
+ * be read back out of this UI. That cost was put to the human explicitly, next
+ * to the option of refusing the write, and storing was chosen: Save's contract
+ * is "what you typed is now what is stored", and the alternative leaves an
+ * operator reasoning about which of two invisible values the server decided to
+ * keep, with a badge that cannot tell them apart. **Test** is what makes that
+ * safe -- it writes nothing, so a replacement can be proved before it replaces
+ * anything -- and **Remove** is the deliberate path back to "not configured".
+ *
+ * So do not "fix" `bad` into a no-write arm for consistency with `unknown`: they
+ * differ because a refusal **is** a verdict about the credential that was
+ * submitted, while an unanswered probe is no verdict at all. Collapsing them
+ * would make a save silently discard what an operator typed whenever a provider
+ * happened to say no, which is the failure this whole page exists to make
+ * visible.
  */
 type Judgement =
   | { outcome: "good"; noticeKey?: IntegrationsKey }
@@ -151,6 +169,18 @@ function judge(probe: ProbeResult, keys: ProviderKeys): Judgement {
 function logProbe(provider: string, probe: ProbeResult): void {
   if (probe.ok) return;
   console.warn(`[integrations] ${provider} probe failed (${probe.cause}): ${probe.detail}`);
+}
+
+/**
+ * The one wording of "this account has no settings row".
+ *
+ * Written once because it is the same provisioning bug wherever it is noticed
+ * (see `getSettings()`, which throws for it and must not self-heal), and five
+ * copies of a log line are five chances for one of them to say something
+ * different about the same state.
+ */
+function logMissingRow(userId: string): void {
+  console.error(`[integrations] no user_settings row for user "${userId}"`);
 }
 
 /** The stored secrets an unchanged submission resolves against. */
@@ -185,7 +215,7 @@ function persist(userId: string, values: Partial<typeof userSettings.$inferInser
         tx.update(userSettings).set(values).where(eq(userSettings.userId, userId)).run().changes,
     );
     if (changes === 0) {
-      console.error(`[integrations] no user_settings row for user "${userId}"`);
+      logMissingRow(userId);
       return false;
     }
     return true;
@@ -204,63 +234,121 @@ function report(judgement: Judgement): SaveResult {
   return { ok: false, errorKey: judgement.errorKey };
 }
 
-export async function saveYoutube(input: unknown): Promise<SaveResult> {
-  const userId = await currentUserId();
+/**
+ * What a submission resolved to, once the provider has answered about it.
+ *
+ * `refused` carries the finished `SaveResult` rather than a reason, because
+ * every refusal before the probe (a malformed body, a missing settings row, a
+ * field that is empty on both sides) is already the caller's whole answer --
+ * there is nothing left for a save to add to it.
+ */
+type Verified<Credential> =
+  | { status: "refused"; result: SaveResult }
+  | { status: "verified"; credential: Credential; judgement: Judgement };
+
+/**
+ * Resolve a submission against the stored row, probe the result, and judge it.
+ *
+ * **Save and Test share this, and the sharing is the feature.** The Test button
+ * is worth nothing unless it validates *exactly* what a Save would store, and
+ * that agreement used to be nine byte-identical lines in each of two functions:
+ * a change to the resolve rules or to the empty-credential guard applied to one
+ * copy and not the other yields a Test that passes against one credential while
+ * a Save stores a different one, with a green toast over both. Nothing about
+ * that failure is visible in a review of either function alone, so the two paths
+ * are made to be the same code instead of being kept in agreement by hand.
+ * `actions.test.ts` pins the property directly as well -- it runs both entry
+ * points on one submission and compares the requests they made.
+ *
+ * `logProbe()` lives here for the same reason: which `detail` is logged is part
+ * of what the two paths must agree on.
+ */
+async function verifyYoutube(
+  userId: string,
+  input: unknown,
+): Promise<Verified<{ apiKey: string }>> {
   const parsed = youtubeInput.safeParse(input);
-  if (!parsed.success) return { ok: false };
+  if (!parsed.success) return { status: "refused", result: { ok: false } };
 
   const stored = storedCredentials(userId);
   if (!stored) {
-    console.error(`[integrations] no user_settings row for user "${userId}"`);
-    return { ok: false };
+    logMissingRow(userId);
+    return { status: "refused", result: { ok: false } };
   }
 
   const apiKey = resolveSecret(parsed.data.apiKey, stored.youtubeApiKey);
   // Nothing submitted and nothing stored: probing "" would come back
   // "unauthorized" and blame a key that was never entered.
-  if (apiKey === "") return { ok: false, errorKey: "youtube.required" };
+  if (apiKey === "") {
+    return { status: "refused", result: { ok: false, errorKey: "youtube.required" } };
+  }
 
   const probe = await testYoutubeKey(apiKey);
   logProbe("youtube", probe);
-  const judgement = judge(probe, YOUTUBE_KEYS);
-  if (judgement.outcome === "unknown") return { ok: false, errorKey: judgement.errorKey };
+  return { status: "verified", credential: { apiKey }, judgement: judge(probe, YOUTUBE_KEYS) };
+}
 
-  if (!persist(userId, { youtubeApiKey: apiKey, youtubeEnabled: judgement.outcome === "good" })) {
-    return { ok: false };
+/** {@link verifyYoutube}'s twin -- see the note there on why both paths share it. */
+async function verifyReddit(userId: string, input: unknown): Promise<Verified<RedditCredentials>> {
+  const parsed = redditInput.safeParse(input);
+  if (!parsed.success) {
+    return {
+      status: "refused",
+      result: { ok: false, errorKey: errorKeyFor(parsed.error.issues, REDDIT_FIELD_ERROR_KEYS) },
+    };
   }
+
+  const stored = storedCredentials(userId);
+  if (!stored) {
+    logMissingRow(userId);
+    return { status: "refused", result: { ok: false } };
+  }
+
+  const credential: RedditCredentials = {
+    clientId: resolveSecret(parsed.data.clientId, stored.redditClientId),
+    clientSecret: resolveSecret(parsed.data.clientSecret, stored.redditClientSecret),
+    // Not a secret, so it is submitted in full and never resolved against the row.
+    userAgent: parsed.data.userAgent,
+  };
+  if (credential.clientId === "" || credential.clientSecret === "") {
+    return { status: "refused", result: { ok: false, errorKey: "reddit.required" } };
+  }
+
+  const probe = await testRedditCredentials(credential);
+  logProbe("reddit", probe);
+  return { status: "verified", credential, judgement: judge(probe, REDDIT_KEYS) };
+}
+
+export async function saveYoutube(input: unknown): Promise<SaveResult> {
+  const userId = await currentUserId();
+  const verified = await verifyYoutube(userId, input);
+  if (verified.status === "refused") return verified.result;
+  const { credential, judgement } = verified;
+
+  // No verdict, so nothing to derive a flag from -- see judge().
+  if (judgement.outcome === "unknown") return report(judgement);
+
+  const persisted = persist(userId, {
+    youtubeApiKey: credential.apiKey,
+    youtubeEnabled: judgement.outcome === "good",
+  });
+  if (!persisted) return { ok: false };
   revalidatePath("/integrations");
   return report(judgement);
 }
 
 export async function saveReddit(input: unknown): Promise<SaveResult> {
   const userId = await currentUserId();
-  const parsed = redditInput.safeParse(input);
-  if (!parsed.success) {
-    return { ok: false, errorKey: errorKeyFor(parsed.error.issues, REDDIT_FIELD_ERROR_KEYS) };
-  }
+  const verified = await verifyReddit(userId, input);
+  if (verified.status === "refused") return verified.result;
+  const { credential, judgement } = verified;
 
-  const stored = storedCredentials(userId);
-  if (!stored) {
-    console.error(`[integrations] no user_settings row for user "${userId}"`);
-    return { ok: false };
-  }
-
-  const clientId = resolveSecret(parsed.data.clientId, stored.redditClientId);
-  const clientSecret = resolveSecret(parsed.data.clientSecret, stored.redditClientSecret);
-  const userAgent = parsed.data.userAgent;
-  if (clientId === "" || clientSecret === "") {
-    return { ok: false, errorKey: "reddit.required" };
-  }
-
-  const probe = await testRedditCredentials({ clientId, clientSecret, userAgent });
-  logProbe("reddit", probe);
-  const judgement = judge(probe, REDDIT_KEYS);
-  if (judgement.outcome === "unknown") return { ok: false, errorKey: judgement.errorKey };
+  if (judgement.outcome === "unknown") return report(judgement);
 
   const persisted = persist(userId, {
-    redditClientId: clientId,
-    redditClientSecret: clientSecret,
-    redditUserAgent: userAgent,
+    redditClientId: credential.clientId,
+    redditClientSecret: credential.clientSecret,
+    redditUserAgent: credential.userAgent,
     redditEnabled: judgement.outcome === "good",
   });
   if (!persisted) return { ok: false };
@@ -272,55 +360,24 @@ export async function saveReddit(input: unknown): Promise<SaveResult> {
  * Try the submitted credentials without persisting anything.
  *
  * The point of the button: an operator validates a key *before* it replaces one
- * that works. So this writes nothing -- not even the `*Enabled` flag -- and does
- * not revalidate.
+ * that works -- which is also what makes an `unauthorized` save's overwrite an
+ * accepted cost rather than a trap (see `judge()`). So this writes nothing, not
+ * even the `*Enabled` flag, and does not revalidate.
+ *
+ * It differs from `saveYoutube()` in exactly that: the resolution and the probe
+ * are the same call.
  */
 export async function testYoutube(input: unknown): Promise<SaveResult> {
   const userId = await currentUserId();
-  const parsed = youtubeInput.safeParse(input);
-  if (!parsed.success) return { ok: false };
-
-  const stored = storedCredentials(userId);
-  if (!stored) {
-    console.error(`[integrations] no user_settings row for user "${userId}"`);
-    return { ok: false };
-  }
-
-  const apiKey = resolveSecret(parsed.data.apiKey, stored.youtubeApiKey);
-  if (apiKey === "") return { ok: false, errorKey: "youtube.required" };
-
-  const probe = await testYoutubeKey(apiKey);
-  logProbe("youtube", probe);
-  return report(judge(probe, YOUTUBE_KEYS));
+  const verified = await verifyYoutube(userId, input);
+  return verified.status === "refused" ? verified.result : report(verified.judgement);
 }
 
 /** {@link testYoutube}'s twin -- see the note there on why nothing is written. */
 export async function testReddit(input: unknown): Promise<SaveResult> {
   const userId = await currentUserId();
-  const parsed = redditInput.safeParse(input);
-  if (!parsed.success) {
-    return { ok: false, errorKey: errorKeyFor(parsed.error.issues, REDDIT_FIELD_ERROR_KEYS) };
-  }
-
-  const stored = storedCredentials(userId);
-  if (!stored) {
-    console.error(`[integrations] no user_settings row for user "${userId}"`);
-    return { ok: false };
-  }
-
-  const clientId = resolveSecret(parsed.data.clientId, stored.redditClientId);
-  const clientSecret = resolveSecret(parsed.data.clientSecret, stored.redditClientSecret);
-  if (clientId === "" || clientSecret === "") {
-    return { ok: false, errorKey: "reddit.required" };
-  }
-
-  const probe = await testRedditCredentials({
-    clientId,
-    clientSecret,
-    userAgent: parsed.data.userAgent,
-  });
-  logProbe("reddit", probe);
-  return report(judge(probe, REDDIT_KEYS));
+  const verified = await verifyReddit(userId, input);
+  return verified.status === "refused" ? verified.result : report(verified.judgement);
 }
 
 /**

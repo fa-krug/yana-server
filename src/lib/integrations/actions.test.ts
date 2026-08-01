@@ -97,6 +97,17 @@ describe("the integrations actions", () => {
     });
   }
 
+  /** The API key a recorded YouTube request actually carried. */
+  function youtubeKeyOf(recorded: Recorded): string | null {
+    return new URL(recorded.url).searchParams.get("key");
+  }
+
+  /** The `clientId:clientSecret` pair a recorded Reddit request actually carried. */
+  function basicAuthOf(recorded: Recorded): string {
+    const header = new Headers(recorded.init?.headers).get("authorization") ?? "";
+    return Buffer.from(header.replace(/^Basic /, ""), "base64").toString("utf8");
+  }
+
   const youtubeOk = () => new Response(JSON.stringify({ items: [] }), { status: 200 });
   const youtubeRejected = () =>
     new Response(JSON.stringify({ error: { errors: [{ reason: "badRequest" }] } }), {
@@ -314,12 +325,6 @@ describe("the integrations actions", () => {
   });
 
   describe("saveReddit", () => {
-    /** The `clientId:clientSecret` pair a recorded request actually carried. */
-    function basicAuthOf(recorded: Recorded): string {
-      const header = new Headers(recorded.init?.headers).get("authorization") ?? "";
-      return Buffer.from(header.replace(/^Basic /, ""), "base64").toString("utf8");
-    }
-
     it("stores both secrets and the user agent, and switches the integration on", async () => {
       stubFetch(redditOk);
 
@@ -444,6 +449,10 @@ describe("the integrations actions", () => {
       });
 
       expect(result).toEqual({ ok: true });
+      // What the title claims: the *stored* pair is what Reddit was asked about.
+      // Without this the test passes just as happily against two empty strings
+      // sent to a stub that answers 200 to anything.
+      expect(basicAuthOf(requests[0])).toBe(`${REDDIT_ID}:${REDDIT_SECRET}`);
       expect(row()).toMatchObject({ reddit_enabled: 0 });
     });
 
@@ -454,6 +463,71 @@ describe("the integrations actions", () => {
         ok: false,
         errorKey: "youtube.rejected",
       });
+    });
+  });
+
+  describe("a Test and a Save agree on what they probe", () => {
+    /**
+     * The property the shared `verify*` helpers exist to hold, pinned directly
+     * rather than trusted to the extraction.
+     *
+     * **A Test button that validates something other than what a Save would
+     * store is worse than no button**: it reports a green result for a credential
+     * the save then replaces with a different one. Every other test here checks
+     * one path at a time and would stay green through exactly that divergence --
+     * two copies of the resolve rules, one of them updated. These run both entry
+     * points on one submission and compare the requests they made.
+     */
+    it.each([
+      ["the keep-existing sentinel", KEEP_EXISTING],
+      ["an empty field", ""],
+      ["a freshly typed key", "AIza-a-typed-key"],
+    ])("resolve the same YouTube key for %s", async (_label, submitted) => {
+      stubFetch(youtubeOk);
+      seed({ youtubeApiKey: YOUTUBE_KEY });
+
+      await actions.testYoutube({ apiKey: submitted });
+      await actions.saveYoutube({ apiKey: submitted });
+
+      expect(requests).toHaveLength(2);
+      expect(youtubeKeyOf(requests[0])).toBe(youtubeKeyOf(requests[1]));
+      // And the row now holds precisely what the *test* validated -- which is the
+      // promise the button makes to an operator about to overwrite a working key.
+      expect(row().youtube_api_key).toBe(youtubeKeyOf(requests[0]));
+    });
+
+    it("resolve the same Reddit pair whichever field was left alone", async () => {
+      stubFetch(redditOk);
+      seed({ redditClientId: REDDIT_ID, redditClientSecret: REDDIT_SECRET });
+      const submission = {
+        clientId: KEEP_EXISTING,
+        clientSecret: "a-rotated-secret",
+        userAgent: "Yana/1.0 (by u/tester)",
+      };
+
+      await actions.testReddit(submission);
+      await actions.saveReddit(submission);
+
+      expect(requests).toHaveLength(2);
+      expect(basicAuthOf(requests[0])).toBe(basicAuthOf(requests[1]));
+      const stored = row();
+      expect(basicAuthOf(requests[0])).toBe(
+        `${stored.reddit_client_id}:${stored.reddit_client_secret}`,
+      );
+    });
+
+    it("refuse the same submission for the same reason", async () => {
+      // The guards have to agree too, not just the resolution: a Test that
+      // accepts what a Save refuses (or the reverse) sends an operator looking
+      // for a fault in the credential rather than in the empty field.
+      stubFetch(youtubeOk);
+
+      const tested = await actions.testYoutube({ apiKey: KEEP_EXISTING });
+      const saved = await actions.saveYoutube({ apiKey: KEEP_EXISTING });
+
+      expect(tested).toEqual({ ok: false, errorKey: "youtube.required" });
+      expect(saved).toEqual(tested);
+      expect(requests).toEqual([]);
     });
   });
 
