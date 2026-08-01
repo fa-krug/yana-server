@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AI_ADVANCED_BOUNDS, AI_ADVANCED_FIELDS } from "@/lib/ai/bounds";
 import type { AiAdvanced } from "@/lib/ai/queries";
 import { renderWithProviders } from "@/test/render";
 
@@ -49,20 +50,39 @@ describe("<AdvancedSection>", () => {
     saveAdvanced.mockResolvedValue({ ok: true });
   });
 
-  it("shows every stored value, with the server's bounds on the input", () => {
+  it("shows every stored value under its translated label", () => {
     render();
 
     // Asserted against de.json, where the label is nothing like the field name.
     expect(field("Temperatur").value).toBe("0.7");
-    expect(field("Temperatur").min).toBe("0");
-    expect(field("Temperatur").max).toBe("2");
     expect(field("Anfrage-Timeout (Sekunden)").value).toBe("60");
-    expect(field("Anfrage-Timeout (Sekunden)").min).toBe("5");
-    expect(field("Anfrage-Timeout (Sekunden)").max).toBe("600");
     // Nine fields, one Save: the pair rule (`monthlyLimit >= dailyLimit`) cannot
     // be checked by a field that saves itself.
     expect(screen.getAllByRole("spinbutton")).toHaveLength(9);
     expect(screen.getAllByRole("button", { name: "Speichern" })).toHaveLength(1);
+  });
+
+  it("puts the server's own bounds on every input", () => {
+    // Read from `AI_ADVANCED_BOUNDS` rather than restated, because restating
+    // them is the defect this pins: `@/lib/ai/actions` builds its zod schema out
+    // of the same table, so a hint the browser shows and the rule the server
+    // applies cannot disagree. Asserting nine literals here would be a third
+    // copy able to drift from both.
+    render();
+
+    const inputs = screen.getAllByRole("spinbutton") as HTMLInputElement[];
+    expect(inputs.map((input) => input.id)).toEqual(AI_ADVANCED_FIELDS.map((name) => `ai-${name}`));
+    for (const name of AI_ADVANCED_FIELDS) {
+      const input = document.querySelector<HTMLInputElement>(`#ai-${name}`)!;
+      expect([name, input.min, input.max]).toEqual([
+        name,
+        String(AI_ADVANCED_BOUNDS[name].min),
+        String(AI_ADVANCED_BOUNDS[name].max),
+      ]);
+      // Only `temperature` is a float column; the other eight are `.int()`
+      // server-side and must not offer a fractional step.
+      expect([name, input.step]).toEqual([name, AI_ADVANCED_BOUNDS[name].integer ? "1" : "0.1"]);
+    }
   });
 
   it("submits all nine values as numbers, including the ones untouched", async () => {

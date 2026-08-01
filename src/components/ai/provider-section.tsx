@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { useState, useTransition } from "react";
+import { toast } from "sonner";
 
 import { StatusBadge, useReportOutcome } from "@/components/ai/section-parts";
 import { ConfirmDestructive } from "@/components/crud/confirm-destructive";
@@ -180,17 +181,43 @@ export function ProviderSection({
     event.preventDefault();
     startSave(async () => {
       if (!provider) {
-        // "None (disabled)": nothing to verify, so the only write is the
-        // preference. Reported as a save, because that is the button pressed.
-        report(await attempt(() => setActiveProvider("")), "saved");
+        /**
+         * "None (disabled)": nothing to verify, so the only write is the
+         * preference.
+         *
+         * **Deliberately not routed through {@link report}.** That reporter's
+         * vocabulary is credentials -- its success is "Credentials verified and
+         * saved." and its keyless failure "Could not save these credentials." --
+         * and this path verified nothing and saved no credential, for a press of
+         * a button labelled "Switch AI off". Reporting an outcome about a
+         * different subject is the exact defect the reporter's own per-action
+         * fallbacks exist to prevent (`@/components/section-kit`); the button
+         * pressed is not the same question as what the message is about.
+         */
+        const result = await attempt(() => setActiveProvider(""));
+        if (result.ok) {
+          toast.success(t("provider.turnedOff"));
+        } else {
+          // The namespace's own `saveFailed` -- "Could not save these settings."
+          // -- because a preference is what this path writes.
+          toast.error(t(result.errorKey ?? "saveFailed"));
+        }
         return;
       }
 
       const saved = await attempt(() => saveProvider(provider.key, submission(provider)));
       if (!saved.ok) {
+        // Not cleared: a typo is corrected, not retyped.
         report(saved, "saved");
         return;
       }
+
+      // Cleared as soon as the *save* succeeds, which is the event the rule is
+      // about: the stored key has been replaced and the placeholder the save
+      // just refreshed is what the field should show. Doing it after the
+      // activation below instead left a stored key sitting in the input on the
+      // one branch that fails there, to be re-submitted by the next Save.
+      setApiKey("");
 
       // The credentials are stored and the probe passed, so the flag is on and
       // this cannot answer `activeNotVerified`. Skipped when the server already
@@ -208,10 +235,6 @@ export function ProviderSection({
       }
 
       report(saved, "saved");
-      // Cleared only on success, so the placeholder the save just refreshed is
-      // what the field shows, and a retry after a rejection still has the typed
-      // key in it to correct.
-      setApiKey("");
     });
   }
 

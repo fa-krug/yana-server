@@ -131,6 +131,36 @@ describe("<ProviderSection>", () => {
       expect(saveProvider).not.toHaveBeenCalled();
     });
 
+    it("says what actually happened, not that credentials were verified", async () => {
+      // The credential reporter's success is "Zugangsdaten geprüft und
+      // gespeichert." -- for a press of a button labelled "KI ausschalten", on a
+      // path that verified nothing and saved no credential. This path therefore
+      // does not go through it.
+      render("");
+
+      fireEvent.click(screen.getByRole("button", { name: "KI ausschalten" }));
+
+      await waitFor(() =>
+        expect(toastSuccess).toHaveBeenCalledWith("KI-Funktionen ausgeschaltet."),
+      );
+    });
+
+    it("blames a preference write, not a credential save, when it fails", async () => {
+      setActiveProvider.mockResolvedValue({ ok: false });
+      render("");
+
+      fireEvent.click(screen.getByRole("button", { name: "KI ausschalten" }));
+
+      // `ai.saveFailed`, the namespace's own -- not `credentialsSaveFailed`,
+      // which the reporter would have reached for.
+      await waitFor(() =>
+        expect(toastError).toHaveBeenCalledWith(
+          "Diese Einstellungen konnten nicht gespeichert werden.",
+        ),
+      );
+      expect(toastSuccess).not.toHaveBeenCalled();
+    });
+
     it("is reachable from an active provider, and says the change is not applied", () => {
       const { container } = render("anthropic");
 
@@ -186,6 +216,22 @@ describe("<ProviderSection>", () => {
       render("gemini");
 
       expect(screen.queryByLabelText("Basis-URL")).toBe(null);
+    });
+
+    it("asks for a Save over a provider that is already verified", () => {
+      // Three providers, one active: picking a verified one that is not the
+      // active one is legitimate, and the only route to activation is a fresh
+      // probe via Save. So the hint may not say "verify these credentials" --
+      // the badge beside it says they already are.
+      render("");
+      choose("ai-provider", "Anthropic");
+
+      expect(screen.getByText("Geprüft")).toBeTruthy();
+      expect(
+        screen.getByText(
+          "Noch nicht aktiv — speichere, um die KI-Funktionen auf diesen Anbieter umzustellen.",
+        ),
+      ).toBeTruthy();
     });
 
     it("reports an unverified provider as such", () => {
@@ -244,6 +290,27 @@ describe("<ProviderSection>", () => {
       // Cleared on success, so the refreshed placeholder is what shows and the
       // key is not sitting in the DOM waiting to be re-submitted.
       await waitFor(() => expect(field("API-Schlüssel").value).toBe(""));
+    });
+
+    it("reports the activation failure, and still clears the stored key", async () => {
+      // One toast per press, and the activation failure is the surprising fact:
+      // the badge carries the other half. The field clears because the *save*
+      // succeeded -- leaving the key in it would have it re-submitted by the
+      // next press, against a value the server already holds.
+      setActiveProvider.mockResolvedValue({ ok: false, errorKey: "saveFailed" });
+      render("");
+      choose("ai-provider", "Gemini");
+      fireEvent.change(field("API-Schlüssel"), { target: { value: "a-google-key" } });
+
+      submit();
+
+      await waitFor(() =>
+        expect(toastError).toHaveBeenCalledWith(
+          "Diese Einstellungen konnten nicht gespeichert werden.",
+        ),
+      );
+      expect(toastSuccess).not.toHaveBeenCalled();
+      expect(field("API-Schlüssel").value).toBe("");
     });
 
     it("activates nothing when the provider refused the credentials", async () => {
@@ -317,9 +384,12 @@ describe("<ProviderSection>", () => {
 
       expect(field("API-Schlüssel").value).toBe("");
       expect(triggerText(container, "ai-model")).toBe("Gemini 3.5 Flash-Lite");
+      // Worded for what to press, not for a state: this hint also shows over a
+      // provider whose badge already reads "Geprüft", because a verified
+      // provider that is not the active one still needs a Save to become it.
       expect(
         screen.getByText(
-          "Noch nicht aktiv — speichere und prüfe diese Zugangsdaten, um die KI-Funktionen auf diesen Anbieter umzustellen.",
+          "Noch nicht aktiv — speichere, um die KI-Funktionen auf diesen Anbieter umzustellen.",
         ),
       ).toBeTruthy();
     });

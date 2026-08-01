@@ -9,6 +9,7 @@ import { writeTransaction } from "@/lib/db/client";
 import { userSettings } from "@/lib/db/schema";
 import { defineIntegrationIn, type IntegrationActions } from "@/lib/integrations/define";
 
+import { AI_ADVANCED_BOUNDS, AI_ADVANCED_FIELDS, type AiAdvancedField } from "./bounds";
 import { AI_COLUMNS } from "./columns";
 import { AI_PROBES } from "./probes";
 import {
@@ -453,65 +454,42 @@ export async function setActiveProvider(key: string): Promise<AiResult> {
 }
 
 /**
- * The nine global tuning values, and **every bound here has a reason rather than
- * a round number.**
+ * The nine global tuning values, **built from `AI_ADVANCED_BOUNDS` rather than
+ * typed out here.**
  *
- * Unbounded, each of these surfaces to a user as an opaque aggregation failure
- * hours later -- a provider 400 inside a background job, with the summary simply
- * missing -- which is far harder to diagnose than a refused save. That is the
- * whole argument for validating them at the one place they are written.
+ * Every bound has a reason rather than a round number, and those reasons are in
+ * `./bounds` beside the numbers themselves. They live there because the `/ai`
+ * form puts the same nine on its inputs as `min`/`max`: written twice, an edit
+ * to one shipped a browser hint that disagreed with the server and no test could
+ * see it. `integer` drives `.int()` here and `step` there -- the columns are
+ * `integer`, and SQLite would store `2.5` in one without complaint.
  *
- * - **`temperature` 0-2.** Every supported provider refuses a higher value:
- *   OpenAI and Gemini document the range as 0-2, Anthropic as 0-1 (so 2 is
- *   already permissive). Below 0 is not a value any of them defines.
- * - **`maxTokens` 1-200000.** Zero is a *guaranteed* empty completion -- the
- *   call is made, billed for its input, and returns nothing. The ceiling is
- *   above every current model's output limit and is there so a typo cannot
- *   request a summary that costs more than the article.
- * - **`dailyLimit` 1-100000** and **`monthlyLimit` 1-100000.** A limit of zero
- *   disables AI while leaving the page saying it is on; `setActiveProvider()`
- *   is the honest way to switch it off.
- * - **`monthlyLimit` >= `dailyLimit`.** Below it the monthly cap is unreachable
- *   through the daily one and the daily limit never applies -- one of the two
- *   numbers is then decoration, and which one depends on an ordering nobody
- *   wrote down.
- * - **`maxPromptLength` 1-100000 characters.** Zero sends an empty article.
- * - **`requestTimeout` 5-600 s.** Below five seconds no provider ever answers,
- *   so every request would abort and every summary fail -- a setting that can
- *   only be wrong. Ten minutes is past any real completion.
- * - **`maxRetries` 0-10.** Zero is meaningful (do not retry); ten retries
- *   against a rate-limited provider is already an hour of `retryDelay`.
- * - **`retryDelay` 0-60 s** and **`requestDelay` 0-60 s.** Zero is meaningful
- *   for both -- no spacing at all -- and a minute between calls is as slow as a
- *   spacing setting can usefully be.
- *
- * `.int()` on everything except `temperature`: the columns are `integer`, and
- * SQLite would store `2.5` in one without complaint.
+ * The pair rule below is the one thing that cannot live in that table, because
+ * it is not a property of a single field.
  */
-const advancedInput = z
-  .object({
-    temperature: z.number().min(0).max(2),
-    maxTokens: z.number().int().min(1).max(200_000),
-    dailyLimit: z.number().int().min(1).max(100_000),
-    monthlyLimit: z.number().int().min(1).max(100_000),
-    maxPromptLength: z.number().int().min(1).max(100_000),
-    requestTimeout: z.number().int().min(5).max(600),
-    maxRetries: z.number().int().min(0).max(10),
-    retryDelay: z.number().int().min(0).max(60),
-    requestDelay: z.number().int().min(0).max(60),
-  })
-  .superRefine((values, ctx) => {
-    if (values.monthlyLimit < values.dailyLimit) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["monthlyLimit"],
-        // Never rendered: the catalog key below is what the caller is told. It
-        // is here because zod requires a message, and an English one leaking to
-        // a German UI is what `errorKey` exists to prevent.
-        message: "monthlyLimit is below dailyLimit",
-      });
-    }
-  });
+const advancedShape = Object.fromEntries(
+  AI_ADVANCED_FIELDS.map((name) => {
+    const { min, max, integer } = AI_ADVANCED_BOUNDS[name];
+    const base = integer ? z.number().int() : z.number();
+    return [name, base.min(min).max(max)];
+  }),
+  // `Object.fromEntries` widens to `{ [k: string]: … }` whatever the input tuple
+  // was; the assertion is that loss undone, and `AI_ADVANCED_BOUNDS` being a
+  // `Record<AiAdvancedField, …>` is what makes it true.
+) as Record<AiAdvancedField, z.ZodNumber>;
+
+const advancedInput = z.object(advancedShape).superRefine((values, ctx) => {
+  if (values.monthlyLimit < values.dailyLimit) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["monthlyLimit"],
+      // Never rendered: the catalog key below is what the caller is told. It
+      // is here because zod requires a message, and an English one leaking to
+      // a German UI is what `errorKey` exists to prevent.
+      message: "monthlyLimit is below dailyLimit",
+    });
+  }
+});
 
 /**
  * Which field failed, as a catalog key.

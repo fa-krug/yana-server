@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { saveAdvanced } from "@/lib/ai/actions";
+import { AI_ADVANCED_BOUNDS, AI_ADVANCED_FIELDS, type AiAdvancedField } from "@/lib/ai/bounds";
 import type { AiAdvanced } from "@/lib/ai/queries";
 import { attempt } from "@/lib/ai/result";
 
@@ -40,38 +41,24 @@ import { attempt } from "@/lib/ai/result";
  */
 
 /**
- * One field, its bounds, and the step its input moves in.
+ * The step a field's input moves in, from the one fact the server also reads.
  *
- * `as const` is what keeps `t(\`advanced.${name}\`)` compiler-checked: widened to
- * `string`, the template literal becomes `advanced.${string}`, which matches no
- * catalog key and would render the raw path (see `src/i18n/next-intl.d.ts`).
- * `satisfies` then holds the list to the projection's own field names, so a
- * renamed column fails `npm run typecheck` here rather than at a silently
- * ignored form field.
- *
- * The bounds are a hand-maintained duplicate of `advancedInput` in
- * `@/lib/ai/actions`, where each one carries the reason it is the number it is.
- * Change them together.
+ * **Nothing about a bound is written in this file.** `min`, `max` and `integer`
+ * come from `AI_ADVANCED_BOUNDS`, which `@/lib/ai/actions` builds its zod schema
+ * out of, so the browser's hint and the server's rule are the same numbers by
+ * construction. They used to be two lists that merely agreed.
  */
-const FIELDS = [
-  { name: "temperature", min: 0, max: 2, step: 0.1 },
-  { name: "maxTokens", min: 1, max: 200_000, step: 1 },
-  { name: "dailyLimit", min: 1, max: 100_000, step: 1 },
-  { name: "monthlyLimit", min: 1, max: 100_000, step: 1 },
-  { name: "maxPromptLength", min: 1, max: 100_000, step: 1 },
-  { name: "requestTimeout", min: 5, max: 600, step: 1 },
-  { name: "maxRetries", min: 0, max: 10, step: 1 },
-  { name: "retryDelay", min: 0, max: 60, step: 1 },
-  { name: "requestDelay", min: 0, max: 60, step: 1 },
-] as const satisfies readonly { name: keyof AiAdvanced; min: number; max: number; step: number }[];
-
-type FieldName = (typeof FIELDS)[number]["name"];
+function stepFor(name: AiAdvancedField): number {
+  return AI_ADVANCED_BOUNDS[name].integer ? 1 : 0.1;
+}
 
 /** What a number input holds: the typed text, not a number. */
-type Draft = Record<FieldName, string>;
+type Draft = Record<AiAdvancedField, string>;
 
 function draftFrom(advanced: AiAdvanced): Draft {
-  return Object.fromEntries(FIELDS.map(({ name }) => [name, String(advanced[name])])) as Draft;
+  return Object.fromEntries(
+    AI_ADVANCED_FIELDS.map((name) => [name, String(advanced[name])]),
+  ) as Draft;
 }
 
 /**
@@ -94,8 +81,8 @@ export function AdvancedSection({ advanced }: { advanced: AiAdvanced }) {
     event.preventDefault();
     start(async () => {
       const values = Object.fromEntries(
-        FIELDS.map(({ name }) => [name, numeric(draft[name])]),
-      ) as Record<FieldName, number>;
+        AI_ADVANCED_FIELDS.map((name) => [name, numeric(draft[name])]),
+      ) as AiAdvanced;
       // Through `attempt()`, never a bare await: an action can fail without
       // returning, and the rejection would escalate to the (app) error boundary
       // and replace the page along with the nine half-edited fields.
@@ -120,16 +107,16 @@ export function AdvancedSection({ advanced }: { advanced: AiAdvanced }) {
               one column is a long scroll, and two columns of a 100000-wide
               number do not fit a narrow viewport. */}
           <div className="grid gap-4 sm:grid-cols-2">
-            {FIELDS.map(({ name, min, max, step }) => (
+            {AI_ADVANCED_FIELDS.map((name) => (
               <div key={name} className="grid gap-2">
                 <Label htmlFor={`ai-${name}`}>{t(`advanced.${name}`)}</Label>
                 <Input
                   id={`ai-${name}`}
                   type="number"
                   inputMode="decimal"
-                  min={min}
-                  max={max}
-                  step={step}
+                  min={AI_ADVANCED_BOUNDS[name].min}
+                  max={AI_ADVANCED_BOUNDS[name].max}
+                  step={stepFor(name)}
                   value={draft[name]}
                   onChange={(event) =>
                     setDraft((current) => ({ ...current, [name]: event.target.value }))

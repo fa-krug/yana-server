@@ -462,12 +462,14 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   entry's label with it**. Neither call site passes one. (The trigger does get
   `data-placeholder` in that state, so the label renders muted — cosmetic, and
   arguably right for "none".)
-  **Driving one from a jsdom test takes a `pointerDown` before the `click`.**
-  Base UI's item refuses a click it did not see a pointer press begin on
-  (`allowMouseSelectionRef` in `select/item/SelectItem`), because opening with
-  `alignItemWithTrigger` can place an item under the cursor. `fireEvent.click`
-  alone opens the popup, highlights nothing and commits nothing — which reads as
-  a component that ignored the choice. See `choose()` in
+  **Driving one from a jsdom test takes a `pointerDown` before the item's
+  `click`.** Clicking the trigger opens the popup, as expected. It is the click
+  on the _item_ that is dropped: Base UI refuses one it did not see a pointer
+  press begin on (`allowMouseSelectionRef` in `select/item/SelectItem`), because
+  opening with `alignItemWithTrigger` can place an item under the cursor. So
+  `fireEvent.click(item)` alone selects nothing and fires no `onValueChange` —
+  which reads as a component that ignored the choice rather than as a test
+  driving it wrongly. See `choose()` in
   `src/components/ai/provider-section.test.tsx`.
 - **Every user-facing string comes from `messages/en.json` + `messages/de.json`**,
   which must define identical, non-empty key sets. That parity is what

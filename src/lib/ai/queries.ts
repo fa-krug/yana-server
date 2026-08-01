@@ -2,6 +2,7 @@ import type { UserSettings } from "@/lib/db/schema";
 import { mask } from "@/lib/secrets";
 import { getSettings } from "@/lib/settings/queries";
 
+import type { AiAdvancedField } from "./bounds";
 import { AI_COLUMNS, providersWithColumns, resolveModel } from "./columns";
 import type { AiProviderKey } from "./providers";
 import { providerByKey } from "./providers";
@@ -57,18 +58,13 @@ export type AiProviderStatus = {
  * (`aiTemperature` -> `temperature`). That renaming happens here and nowhere
  * else: the form, the action's zod schema and this projection all speak the
  * short names, and `./actions` owns the one map back to columns.
+ *
+ * Derived from `AI_ADVANCED_FIELDS` rather than listing the nine again, so the
+ * projection, the schema `./actions` builds and the form's `min`/`max` cannot
+ * end up describing different sets of fields. The names and their bounds are in
+ * `./bounds`, which imports nothing and is the one place both halves read.
  */
-export type AiAdvanced = {
-  temperature: number;
-  maxTokens: number;
-  dailyLimit: number;
-  monthlyLimit: number;
-  maxPromptLength: number;
-  requestTimeout: number;
-  maxRetries: number;
-  retryDelay: number;
-  requestDelay: number;
-};
+export type AiAdvanced = Record<AiAdvancedField, number>;
 
 export type AiStatus = {
   /**
