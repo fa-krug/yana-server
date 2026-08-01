@@ -49,6 +49,24 @@ export function usePathname() {
   return pathname;
 }
 
+let searchParams = new URLSearchParams();
+
+/**
+ * The query string `useSearchParams()` will return from here on.
+ *
+ * A real `URLSearchParams` rather than a hand-shaped object, because the CRUD
+ * kit's `useListParams()` calls `keys()`/`getAll()` on it -- and because
+ * `parseListParams` has a documented rule about repeated keys that only a real
+ * one can exercise.
+ */
+export function setSearchParams(next: string | URLSearchParams) {
+  searchParams = typeof next === "string" ? new URLSearchParams(next) : next;
+}
+
+export function useSearchParams() {
+  return searchParams;
+}
+
 /**
  * What `useRouter()` hands back. Empty by default: a test that never touches
  * the router does not have to say so, and one that does declares exactly the

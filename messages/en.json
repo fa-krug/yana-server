@@ -124,5 +124,16 @@
     "fatalTitle": "Yana could not start",
     "fatalDescription": "The application failed before it could render. Check the server log, then reload."
   },
+  "crud": {
+    "selectAll": "Select every row on this page",
+    "selectRow": "Select this row",
+    "clearSelection": "Clear selection",
+    "selectedCount": "{count} selected",
+    "empty": "Nothing to show.",
+    "pagination": "Pagination",
+    "range": "{from}–{to} of {total}",
+    "previous": "Previous page",
+    "next": "Next page"
+  },
   "common": { "save": "Save", "cancel": "Cancel", "loading": "Loading", "new": "New" }
 }
