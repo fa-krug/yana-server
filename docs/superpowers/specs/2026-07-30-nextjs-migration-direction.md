@@ -447,10 +447,14 @@ phase 7 extends the same page.
 Phase 6 shipped `/integrations` with two providers. **Phase 7 adds three AI providers to the same
 page**, which is what turns both items below from "a shape one could factor out" into work worth
 doing — they are recorded here rather than built because at two call sites each generalisation would
-have been guessed from one example, and both were reviewed as correct to defer. A phase-7 agent
-should build them *first*, before the third provider, not after the fifth.
+have been guessed from one example, and both were reviewed as correct to defer. ~~A phase-7 agent
+should build them *first*, before the third provider, not after the fifth.~~ **That is what
+happened**: phase 7 ran two refactor tasks, R1 and R2, ahead of its own three, so both
+generalisations were extracted from phase 6's two providers and already in place before the first AI
+provider was written against them. Nothing below is outstanding; each bullet is struck and answered
+in turn.
 
-- **`src/components/integrations/section-parts.tsx` is hard-wired to the `integrations` catalog
+- ~~**`src/components/integrations/section-parts.tsx` is hard-wired to the `integrations` catalog
   namespace.** `useReportOutcome()` and `StatusBadge` both call `useTranslations("integrations")`, so
   an `ai` namespace makes all 107 lines uncopyable — and the copy that gets made instead is the toast
   reporter, which is the one piece where a mistake means "the wrong outcome, with no message". Fix
@@ -458,24 +462,95 @@ should build them *first*, before the third provider, not after the fifth.
   a factory per feature, keys spelled out at the binding site so `NamespaceKey<Namespace>` stays
   compiler-checked (TypeScript cannot prove a literal is a member of that type while `Namespace` is
   still a parameter, which is why `attemptIn` takes its two keys as arguments). The three
-  success/fallback keys (`saved`/`tested`/`removed` and their failures) are the ones to parameterise.
-- **`storedCredentials()` hard-codes three columns, and `verifyYoutube`/`verifyReddit` are 90% the
+  success/fallback keys (`saved`/`tested`/`removed` and their failures) are the ones to
+  parameterise.~~ **Closed** (task R1). It shipped as **`src/components/section-kit.tsx`** —
+  at the root of `src/components`, not inside either feature folder, because a kit that lives in one
+  of the features it serves reads as that feature's private code and the second consumer copies it
+  instead of importing it, which is the exact failure this entry predicted. It exports
+  `reportOutcomeIn()` and `statusBadgeIn()`, the two factories, plus `submittedSecret()` and
+  `secretPlaceholder()`, the two one-line spellings of the keep-existing protocol that the two cards
+  had written two ways each. The **literal `reportOutcomeIn(namespace)` above does not compile**, and
+  that is the one respect in which what shipped differs: `useTranslations(namespace)` with a still-
+  generic `Namespace` yields a `t` whose key type TypeScript cannot reduce to
+  `NamespaceKey<Namespace>`, and closing that gap inside the factory needs a cast — precisely what
+  this convention exists to avoid. So each factory takes a `use`-prefixed **translator** and its keys
+  instead, and is parameterised over the key type; the binding site, where the namespace is a
+  literal, is still where the keys are checked against the real catalogs, which is the property that
+  mattered. `NoInfer` on each `keys` argument is load-bearing there — without it the key type is
+  inferred from the literals passed in and `attempt()`'s own `sessionEnded` stops being assignable.
+  The reporter's six keys are three successes **and three per-action failures**, not one fallback,
+  because a single one told an operator who pressed Test that a save had failed.
+- ~~**`storedCredentials()` hard-codes three columns, and `verifyYoutube`/`verifyReddit` are 90% the
   same sequence** (parse → load the row → resolve each secret → guard the empty case → probe → log →
   judge). Five providers means `actions.ts` at roughly 700 lines of near-twins, and the risk moves
   *between* providers, where no test looks: one provider's resolve rules or empty-credential guard
   drifting from the next's is invisible in a review of either function. Fix shape: a
   **`defineIntegration({ schema, secretColumns, flagColumn, probe, keys, requiredKey })`** descriptor
   that produces the save, test and remove actions for a provider from one declaration — the divergence
-  then lives in data, where a table of five is readable at a glance. Two properties must survive it:
-  Save and Test have to keep sharing the resolve-and-probe path exactly (`actions.test.ts` pins this
-  by running both entry points on one submission and comparing the requests they made), and
-  `quotaMeansVerified` must stay a **required** field, so a new provider cannot inherit YouTube's
-  answer by omission.
-- **The AI providers' probes each need their own two answers decided, not copied.** Whether a rate
+  then lives in data, where a table of five is readable at a glance.~~ **Closed** (task R2), as
+  **`src/lib/integrations/define.ts`**, and it is two layers rather than one for the reason
+  `attemptIn()` is: **`defineIntegrationIn(binding)`** fixes the four things that belong to a *page*
+  — its `path`, its `logPrefix`, the three `unverifiable` causes and `removeFailed` — and returns the
+  **`defineIntegration(descriptor)`** this entry asked for, whose `provider`, `schema`, `fields`,
+  `flagColumn`, `requiredKey`, optional `fieldErrorKeys`, `probe` and `keys` produce a provider's
+  `save`, `test` and `remove`. The `logPrefix` is part of the binding and not a constant precisely
+  because it now serves two pages: a hard-coded `[integrations]` would have the `ai` binding logging
+  `[integrations] openai probe failed`, a wrong answer to the only question a log prefix is asked.
+  `secretColumns` became **`fields`**, a record of `{ column, secret }`, because Reddit's `userAgent`
+  and OpenAI's `model` and `apiUrl` are submitted in full, never resolved against the row, and
+  deliberately survive a Remove; `TextColumn` and `FlagColumn` are derived from the schema rather than
+  listed, so a renamed column fails `npm run typecheck` at the declaration naming it. **Five providers
+  consume it today** — YouTube and Reddit in `src/lib/integrations/actions.ts`, OpenAI, Anthropic and
+  Gemini in `src/lib/ai/actions.ts`. Both properties this entry demanded survived: Save and Test still
+  share one `verify()` (the sharing is now structural rather than maintained by hand, and
+  `src/lib/integrations/actions.test.ts` still pins it directly by running both entry points on one
+  submission and comparing the requests they made), and `quotaMeansVerified` is a **required** field
+  on the descriptor's `keys`, so a new provider cannot inherit YouTube's answer by omission.
+- ~~**The AI providers' probes each need their own two answers decided, not copied.** Whether a rate
   limit proves the credential was accepted, and whether a 200 body has to be inspected, are facts
   about a provider's API — see the `quotaMeansVerified` and success-arm notes in `CLAUDE.md`. OpenAI,
   Anthropic and Gemini answer 429 for *both* "your key is fine, slow down" and, in some tiers,
-  quota/credit exhaustion, so this is not a formality.
+  quota/credit exhaustion, so this is not a formality.~~ **Closed**, and the three answers are
+  genuinely three. `quotaMeansVerified` lives on each entry in **`src/lib/ai/providers.ts`** —
+  **openai `false`**, **anthropic `true`**, **gemini `true`** — with the full argument beside the
+  field and its own half restated at each probe's 429 branch, because the fact and the code that
+  produces the `quota` cause now sit in different files. OpenAI is `false` for two independent
+  reasons: it is the one provider whose base URL is an operator setting, so what answers may be a
+  gateway shedding load at its edge before it reads the `Authorization` header (Reddit's situation
+  exactly); and OpenAI puts `insufficient_quota` on the same 429 as `rate_limit_exceeded`, which
+  unlike a daily budget does not heal overnight. `src/lib/ai/openai.ts` therefore **splits that 429**,
+  pulling `insufficient_quota` out into **`unauthorized`** rather than `quota` — the arm that *stores*
+  the credential with the integration off, so an operator whose only fault is an unpaid bill can still
+  save a perfectly valid key, where `quota` on a `false` provider would write nothing at all.
+  Anthropic is `true` because its rate limits are per-organisation and resolved from the key (an
+  unrecognised one answers 401 and never reaches accounting) and credit exhaustion arrives as a 403
+  `billing_error`, also classified `unauthorized`; Gemini is `true` for YouTube's stated reason rather
+  than by inheritance — quota is charged to the project the key resolves to, and a key Google does not
+  recognise answers `400 API_KEY_INVALID`, which `src/lib/ai/gemini.ts` reads out of the
+  `google.rpc.ErrorInfo` detail ahead of the generic status arms. The success-arm half split two-one:
+  **OpenAI and Anthropic inspect the 200 body** — OpenAI because a configurable endpoint may be a
+  proxy or a captive portal and `/chat/completions` has no legitimate empty success (it checks the
+  `choices` *array*, never `choices[0].message.content`, which is legitimately `""` when a reasoning
+  model spends its one token thinking), Anthropic because a TLS-inspecting middlebox can serve a 200
+  block page for any host (it checks the envelope's `type: "message"`, not `content`, which is
+  legitimately `[]` at `max_tokens: 1`) — while **Gemini judges the status alone**, like YouTube,
+  because `generateContent` has two legitimate empty-but-valid 200s and requiring a field would
+  reject a working key on both. `src/lib/ai/providers.test.ts` pins the three `quotaMeansVerified`
+  values, so a divergence in the values fails a test even though a divergence in the duplicated prose
+  cannot.
+
+One decision from that same review is **open**, deferred on purpose rather than overlooked:
+
+- **`src/lib/integrations/define.ts` now serves two pages, and its path claims an ownership it no
+  longer has.** `/integrations` and `/ai` both build their providers from it, so a reader arriving at
+  `src/lib/ai/actions.ts` follows an import into an `integrations` folder for a factory that is not
+  about integrations in particular — the same misreading `section-kit.tsx` was moved to the root of
+  `src/components` to avoid. **Whether to move it to a neutral home is deferred to phases 9–11**,
+  where the remaining CRUD either produces a third consumer or does not. That is the fact worth
+  waiting for: with two consumers a move is a rename for its own sake, churning every import and the
+  file's own cross-references to buy a tidier path, while a third would settle both the question and
+  what the neutral home should be called. Recorded here so it is triaged as a deliberate deferral
+  rather than re-derived as a defect by a later review.
 
 ## Carried forward from phase 4's review
 

@@ -117,14 +117,17 @@ file.
 │   │   ├── crud/                  # params.ts — ListParams, parseListParams(),
 │   │   │                          #   buildListHref(); the URL is the list state
 │   │   ├── secrets.ts             # KEEP_EXISTING/mask/resolveSecret — imports nothing
-│   │   ├── integrations/          # probe.ts (ProbeResult + the timeout), youtube.ts
+│   │   ├── integrations/          # probe.ts (ProbeResult, the timeout, and the catch
+│   │   │                          #   tail all five probes share), youtube.ts
 │   │   │                          #   and reddit.ts (live probes), queries.ts
 │   │   │                          #   (SERVER-ONLY, masked only), define.ts (the
 │   │   │                          #   descriptor: one declaration -> save/test/remove),
 │   │   │                          #   actions.ts (the two declarations + the exports),
 │   │   │                          #   result.ts (attempt() binding + SaveResult)
 │   │   ├── ai/                    # providers.ts (client-safe registry — imports
-│   │   │                          #   nothing), columns.ts (provider -> columns),
+│   │   │                          #   nothing), bounds.ts (the nine tuning bounds,
+│   │   │                          #   read by the form and the schema — likewise),
+│   │   │                          #   columns.ts (provider -> columns),
 │   │   │                          #   probes.ts + openai/anthropic/gemini.ts (live
 │   │   │                          #   probes, SERVER-ONLY by lint rule), queries.ts
 │   │   │                          #   (SERVER-ONLY, masked only), actions.ts (three
@@ -923,6 +926,12 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     was **credential destruction**, not a bad message — see the write-on-rejection
     rule below. `src/lib/secrets.ts` **imports nothing**, like `auth/roles.ts`
     and `avatar.ts`, and is pinned by a specifier tripwire rather than a comment.
+    **That is the standard for every dependency-free module here**, and the list
+    is now five: those three plus `src/lib/ai/providers.ts` and
+    `src/lib/ai/bounds.ts`, each with the same regex test beside it. A comment
+    saying so is not the rule being kept — `bounds.ts` had only the comment until
+    phase 7's fix wave, while feeding both the browser's `min`/`max` and the
+    server's zod schema.
 - **A probe never rejects, and its `detail` is log-only prose built from
   constants.** `ProbeResult` (`src/lib/integrations/probe.ts`) is the shape both
   live probes report and the three AI providers in phase 7 will report; every
@@ -1034,8 +1043,66 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     `[integrations] openai probe failed`, a wrong answer to the only question a
     prefix is asked. It is threaded through `logProbe()`, `logMissingRow()` and
     `persist()`'s catch. `logUnreachable()` in `probe.ts` is the one line the
-    binding does not reach — it belongs to the probes, not to the page, and it
-    still writes `[integrations]` literally.
+    binding does not reach, and it therefore **carries no page tag at all** —
+    only the provider name. It wrote `[integrations]` until the AI page made
+    that visibly wrong: one unreachable OpenAI probe emitted
+    `[integrations] openai probe could not reach the provider (ENOTFOUND)` and,
+    on the next line, `[ai] openai probe failed (network): …`. Threading the
+    prefix down there was rejected on cost — a probe is handed a credential and
+    nothing else, so the page would have to be hard-coded in each of the five
+    probe modules, five literals free to drift from the one `logPrefix` per
+    binding. The provider name is unique across all five and appears in both
+    lines, so `grep openai` is what joins them.
+
+- **All five probes share one catch tail, and the shared probe module is
+  `src/lib/integrations/probe.ts`.** It owns `ProbeResult`, `PROBE_TIMEOUT_MS`,
+  `logUnreachable()`, **`transportFailure()`** (timeout → `timeout`, anything
+  else → log the platform code, return `network`) and **`readJson()`** (a body,
+  or `null` when it was not JSON — typed `unknown` so every read has to narrow).
+  The last two arrived in phase 7 as `src/lib/ai/probe-support.ts`, serving the
+  three AI probes and leaving _three_ copies of the same catch block where there
+  had been two; they moved here and `youtube.ts` and `reddit.ts` were converted,
+  so there is one implementation rather than a convention that five should
+  agree. `transportFailure()`'s `unreachableDetail` **must be a string literal at
+  the call site** — it is a parameter only so the sentence can name the provider,
+  and `detail`'s no-echo rule is what stops a provider replaying a submitted key
+  into it.
+
+- **`/ai`'s OpenAI base URL is a deliberate SSRF capability, hardened at two
+  edges — a human ruling, not an oversight to re-derive.** `openaiApiUrl` is an
+  operator-supplied endpoint that the server then `fetch`es, so a signed-in user
+  can aim the probe at `169.254.169.254`, at a container on the Docker network,
+  or at anything else this host can reach, and read the answer through the
+  probe's own `network`-versus-`unexpected` classification — a blind-SSRF
+  oracle. **The capability is accepted**: an OpenAI-compatible gateway (LiteLLM,
+  vLLM, a corporate proxy) _is_ an arbitrary host, that is the entire point of
+  the field, and there is no self-registration — every account is admin-created,
+  so the caller is already someone this instance trusts with the server. A policy
+  gate, a host allow-list and an admin-only restriction were all considered and
+  all rejected as taking the feature away. What was closed is the two cheap
+  edges, both in phase 7's fix wave:
+  - **`redirect: "error"` on the probe's `fetch`** (`src/lib/ai/openai.ts`).
+    `fetch` follows redirects by default, so _any_ host validation a later phase
+    adds is bypassable by a gateway answering `302` to the metadata endpoint —
+    the check would pass on the URL that was validated and the request would land
+    somewhere else. No legitimate API endpoint redirects a POST, so nothing real
+    is lost; `undici` rejects, and the shared catch tail answers `network`.
+    **Phase 12's summariser calls the same endpoint and needs the same flag.**
+  - **Userinfo in the URL is refused** — `url.username || url.password` — in
+    both `isStorableBaseUrl()` (`src/lib/ai/actions.ts`, the save schema) and the
+    probe, for the reason the scheme check is duplicated. `apiUrl` is declared
+    `secret: false`, so `getAiStatus()` projects it **unmasked**, and a stored
+    `https://user:pass@gateway/v1` puts a plaintext credential in the RSC payload
+    of every render of `/ai` — plain text in a browser's network tab. It is the
+    operator's own credential, so not an escalation; it does contradict the
+    masked-or-not-at-all contract above, which is enough. Refused rather than
+    stripped: stripping would send the probe to a gateway that answers 401, and
+    the operator would be told their _API key_ was rejected. `openai.apiUrlInvalid`
+    carries the widened wording that names the requirement and says a gateway's
+    credentials go in the API key field; it is one key rather than two because
+    `fieldErrorKeys` is keyed `field:code` and both refusals are zod `custom`, so
+    splitting them would mean teaching `errorKeyFor()` a third key component for
+    one message.
 
 - **`/login` is the whole unauthenticated UI, and five things about it are
   load-bearing.** It lives at `src/app/login/page.tsx`, deliberately outside
@@ -1229,7 +1296,7 @@ authorization model, the startup admin bootstrap, `src/proxy.ts`, `/login`,
 `/account` and avatars), phase 5 (the admin-only users tab at `/users`, and
 the reusable CRUD kit under it — `src/lib/crud/params.ts` plus
 `src/components/crud/`, which phases 8, 9 and 10 consume for tags, feeds and
-articles), **phase 6 (the integrations tab at `/integrations` — the per-user
+articles), phase 6 (the integrations tab at `/integrations` — the per-user
 credential store, `src/lib/secrets.ts`, and the live YouTube and Reddit probes
 whose verdict derives the `*Enabled` flags), **phase 7 (the AI tab at `/ai` —
 `src/lib/ai/` and `src/components/ai/`: a client-safe provider registry, three
@@ -1252,7 +1319,7 @@ rather than copying a neighbour's — is `quotaMeansVerified` in
 reason. Phase 8 still starts from "Carried
 forward from phase 5's review", where the CRUD kit's contracts are.
 
-**Three plans are amended, not authoritative.**
+**Four plans are amended, not authoritative.**
 `docs/superpowers/plans/nextjs-04-auth.md` was written before three human
 rulings and one framework rename, and its task bodies still show
 `users.isAdmin` and `src/middleware.ts`.
@@ -1264,7 +1331,15 @@ controller rulings and two human rulings, and still has a save returning
 `{ ok: false, error: probe.detail }` — English provider prose into a toast,
 the exact mistake the first of those rulings exists to prevent — `ProbeResult`
 defined inside `youtube.ts`, no path back to "not configured", and
-`enabled = ok || quota` for both providers. All three headers now say so;
+`enabled = ok || quota` for both providers.
+`docs/superpowers/plans/nextjs-07-ai.md` was written before nine human rulings,
+and still has `{ ok: boolean; error?: string }` results (with an
+`expect(result.error).toMatch(/monthly/i)` assertion to match), Task 2 test
+bodies that cannot run as written, `ProbeResult` imported from `youtube.ts`, an
+`apiUrl` on every provider rather than only where `hasCustomUrl`, a `probe` on
+the client-safe registry, and a `clearActiveIfDisabled` that no longer exists
+because `active_ai_provider` is a preference the read side derives from.
+All four headers now say so;
 read this file for what those phases actually shipped.
 
 Plans written before the swap use `yana-next/`-prefixed paths. Those are
