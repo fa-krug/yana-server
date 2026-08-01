@@ -195,6 +195,46 @@
     "notFound": "Diesen Tag gibt es nicht mehr.",
     "noneSelected": "Wähle zuerst mindestens einen Tag aus."
   },
+  "feeds": {
+    "title": "Feeds",
+    "newTitle": "Neuer Feed",
+    "editTitle": "Feed bearbeiten",
+    "new": "Neuer Feed",
+    "searchPlaceholder": "Feeds suchen",
+    "enabledTrue": "Aktiviert",
+    "enabledFalse": "Deaktiviert",
+    "columns": {
+      "logo": "Logo",
+      "name": "Name",
+      "aggregator": "Aggregator",
+      "tags": "Tags",
+      "articles": "Artikel",
+      "enabled": "Aktiviert"
+    },
+    "form": {
+      "aggregator": "Aggregator",
+      "aggregatorPlaceholder": "Aggregator auswählen",
+      "name": "Name",
+      "tags": "Tags",
+      "tagsPlaceholder": "Tags auswählen",
+      "enabled": "Aktiviert",
+      "enabledDescription": "Deaktivieren, um das Abrufen neuer Artikel zu pausieren.",
+      "options": "Optionen",
+      "create": "Feed anlegen",
+      "save": "Feed speichern",
+      "created": "Feed angelegt",
+      "saved": "Feed gespeichert"
+    },
+    "saveFailed": "Feed konnte nicht gespeichert werden",
+    "logosEnqueued": "{count, plural, one {# Logo eingereiht} other {# Logos eingereiht}}",
+    "bulkUpdateLogo": "Logo aktualisieren",
+    "bulkDelete": "Löschen",
+    "bulkDeleteTitle": "{count, plural, one {Diesen Feed löschen?} other {Diese # Feeds löschen?}}",
+    "bulkDeleteDescription": "{count, plural, one {Der Feed} other {Die # Feeds}} und alle zugehörigen Artikel werden dauerhaft entfernt.",
+    "deleteConfirm": "Löschen",
+    "deleted": "{count, plural, one {# Feed gelöscht} other {# Feeds gelöscht}}",
+    "deletedNone": "Nichts wurde gelöscht — diese Feeds gibt es nicht mehr."
+  },
   "settings": {
     "title": "Einstellungen",
     "general": { "title": "Allgemein", "theme": "Design", "language": "Sprache" },

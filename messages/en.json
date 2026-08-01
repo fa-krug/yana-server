@@ -195,6 +195,46 @@
     "notFound": "That tag no longer exists.",
     "noneSelected": "Select at least one tag first."
   },
+  "feeds": {
+    "title": "Feeds",
+    "newTitle": "New feed",
+    "editTitle": "Edit feed",
+    "new": "New feed",
+    "searchPlaceholder": "Search feeds",
+    "enabledTrue": "Enabled",
+    "enabledFalse": "Disabled",
+    "columns": {
+      "logo": "Logo",
+      "name": "Name",
+      "aggregator": "Aggregator",
+      "tags": "Tags",
+      "articles": "Articles",
+      "enabled": "Enabled"
+    },
+    "form": {
+      "aggregator": "Aggregator",
+      "aggregatorPlaceholder": "Select aggregator",
+      "name": "Name",
+      "tags": "Tags",
+      "tagsPlaceholder": "Select tags",
+      "enabled": "Enabled",
+      "enabledDescription": "Turn off to pause fetching new articles.",
+      "options": "Options",
+      "create": "Create feed",
+      "save": "Save feed",
+      "created": "Feed created",
+      "saved": "Feed saved"
+    },
+    "saveFailed": "Could not save feed",
+    "logosEnqueued": "{count, plural, one {# logo enqueued} other {# logos enqueued}}",
+    "bulkUpdateLogo": "Update logo",
+    "bulkDelete": "Delete",
+    "bulkDeleteTitle": "{count, plural, one {Delete this feed?} other {Delete these # feeds?}}",
+    "bulkDeleteDescription": "{count, plural, one {The feed} other {The # feeds}} and all their articles will be permanently removed.",
+    "deleteConfirm": "Delete",
+    "deleted": "{count, plural, one {# feed deleted} other {# feeds deleted}}",
+    "deletedNone": "Nothing was deleted — those feeds no longer exist."
+  },
   "settings": {
     "title": "Settings",
     "general": { "title": "General", "theme": "Theme", "language": "Language" },

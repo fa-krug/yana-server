@@ -5,7 +5,7 @@ import sharp from "sharp";
 import { eq } from "drizzle-orm";
 
 import { mediaRoot } from "../avatar-storage";
-import { db } from "../db/client";
+import { getDb } from "../db/client";
 import { feeds } from "../db/schema";
 
 const WHITE_THRESHOLD = 240;
@@ -246,7 +246,7 @@ export async function storeLogo(feedId: number, bytes: Buffer, sourceUrl: string
   
   const relativePath = `feed_logos/${filename}`;
   
-  await db.update(feeds)
+  await getDb().update(feeds)
     .set({ 
       logo: relativePath, 
       logoSourceUrl: sourceUrl 
