@@ -6,6 +6,7 @@ import { useState, useSyncExternalStore, useTransition } from "react";
 import { toast } from "sonner";
 
 import { updateGeneralSettings } from "@/lib/settings/actions";
+import { attempt } from "@/lib/settings/result";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -110,7 +111,14 @@ export function GeneralSection({ theme, language }: { theme: string; language: s
 
   function save(next: { theme: string; language: string }) {
     start(async () => {
-      const result = await updateGeneralSettings(next);
+      // attempt(), never a bare await. An action can fail *without returning*
+      // -- a dropped connection, the container restarting mid-request -- and an
+      // unhandled rejection inside this transition scope escalates to the (app)
+      // group's error.tsx, replacing the whole page. It also tells a session
+      // that ended from a request that failed: the proxy answers a cookie-less
+      // action POST with a 307 to /login, which arrives here as an unparseable
+      // RSC payload. See @/lib/settings/result.
+      const result = await attempt(() => updateGeneralSettings(next));
       if (result.ok) {
         toast.success(t("saved"));
       } else {

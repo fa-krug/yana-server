@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { updateLibrarySettings } from "@/lib/settings/actions";
+import { attempt } from "@/lib/settings/result";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,10 +27,16 @@ export function LibrarySection({
 
   function save() {
     start(async () => {
-      const result = await updateLibrarySettings({
-        articleRetentionDays: Number(retention),
-        updateIntervalMinutes: Number(updateInterval),
-      });
+      // attempt(), never a bare await: a rejected action inside this transition
+      // scope escalates to the (app) group's error.tsx and takes the two
+      // half-edited fields with it, and a session that ended is otherwise
+      // indistinguishable from a failed request. See @/lib/settings/result.
+      const result = await attempt(() =>
+        updateLibrarySettings({
+          articleRetentionDays: Number(retention),
+          updateIntervalMinutes: Number(updateInterval),
+        }),
+      );
       if (result.ok) {
         toast.success(t("saved"));
       } else {

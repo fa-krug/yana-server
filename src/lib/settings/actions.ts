@@ -4,11 +4,17 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import type { NamespaceKey } from "@/i18n/next-intl";
 import { writeTransaction } from "@/lib/db/client";
 import { userSettings } from "@/lib/db/schema";
 
 import { currentUserId } from "./queries";
+// Both types come from `./result`, which also carries the `attempt()` binding
+// the two client sections call these actions through. They live there rather
+// than here because this module is `"use server"`: every export of it has to be
+// an async function Next can expose as an endpoint, so a type cannot be one.
+// The import is `import type`, so it is erased -- nothing browser-side reaches
+// this module's runtime graph.
+import type { SettingsKey, SettingsResult as Result } from "./result";
 
 const general = z.object({
   theme: z.enum(["light", "dark", "system"]),
@@ -20,19 +26,14 @@ const library = z.object({
   updateIntervalMinutes: z.number().int().min(1).max(1440),
 });
 
-/**
- * `errorKey`, when present, is a key under the `settings` catalog namespace
- * (e.g. "library.retentionRange") -- never zod's own message or a raw driver
- * error. Every user-facing string must come from a message catalog (see
- * CLAUDE.md), so this action reports *what* failed and leaves translating it
- * to the caller; returning zod's English message would render it verbatim
- * into whatever language the UI happens to be showing.
- */
-type SettingsKey = NamespaceKey<"settings">;
-
-type Result = { ok: boolean; errorKey?: SettingsKey };
-
-// Maps a failing field to its catalog key under settings.library. Only the
+// `errorKey`, when present, is a key under the `settings` catalog namespace
+// (e.g. "library.retentionRange") -- never zod's own message or a raw driver
+// error. Every user-facing string must come from a message catalog (see
+// CLAUDE.md), so these actions report *what* failed and leave translating it to
+// the caller; returning zod's English message would render it verbatim into
+// whatever language the UI happens to be showing.
+//
+// This table maps a failing field to its catalog key under settings.library. Only the
 // two range-validated library fields get a specific key -- anything else
 // (including the general section's enums, which safeParse can only fail for
 // a value that isn't one of the hard-coded enum members, never a real user

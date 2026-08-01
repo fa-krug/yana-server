@@ -146,7 +146,8 @@ file.
 │   │   ├── browser-location.ts    # replaceLocation() — the one hard navigation, and its test seam
 │   │   ├── nav.ts                 # NAV_ITEMS + breadcrumbsFor() — single source for both
 │   │   ├── settings/               # queries.ts (getSettings + the re-exported currentUserId),
-│   │   │                           #   actions.ts (server actions)
+│   │   │                           #   actions.ts (server actions), result.ts (the
+│   │   │                           #   settings attempt() binding)
 │   │   └── utils.ts               # cn()
 │   └── test/                      # TEST-ONLY: shared setup for BOTH vitest projects
 │       ├── render.tsx             # jsdom: renderWithProviders() — real catalogs, optional theme
@@ -604,7 +605,10 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     probing there would point the sign-in page at itself.
   - **`attemptIn(namespace, { sessionEnded, requestFailed })`** binds that to
     one catalog and returns the `attempt()` components import — once per
-    feature, in `src/lib/account/result.ts` and `src/lib/users/result.ts`.
+    feature, in `result.ts` beside that feature's `actions.ts`. There are five:
+    `account`, `users`, `integrations`, `ai` and `settings` — the last added
+    late, because `/settings` predates `attempt()` and phase 3 shipped both of
+    its sections calling their actions bare.
     The two keys are spelled out rather than derived because TypeScript cannot
     prove a literal is a member of `NamespaceKey<Namespace>` while `Namespace`
     is still a type parameter, and a cast there is exactly what this convention
