@@ -883,7 +883,11 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   reachable from it reaches the browser bundle. `sharp` and `node:path` live in
   `avatar-storage.ts`, and `src/components/**` importing that module is an
   ESLint `no-restricted-imports` error (`eslint.config.mjs`) rather than a
-  comment — the failure would otherwise be an opaque bundler error.
+  comment — the failure would otherwise be an opaque bundler error. The
+  "imports nothing" half is pinned the same way, by the specifier tripwire in
+  `src/lib/avatar.test.ts`; that ESLint rule does not cover it, because it
+  forbids a **component** importing storage, not this module doing it on their
+  behalf.
   `<UserAvatar>` is deliberately not `"use client"`: it holds no state and
   next-intl's `useTranslations()` works in both contexts, so it adopts whichever
   one renders it. Two Base UI facts it is written around: `AvatarImage` renders
@@ -927,11 +931,17 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     rule below. `src/lib/secrets.ts` **imports nothing**, like `auth/roles.ts`
     and `avatar.ts`, and is pinned by a specifier tripwire rather than a comment.
     **That is the standard for every dependency-free module here**, and the list
-    is now five: those three plus `src/lib/ai/providers.ts` and
-    `src/lib/ai/bounds.ts`, each with the same regex test beside it. A comment
-    saying so is not the rule being kept — `bounds.ts` had only the comment until
-    phase 7's fix wave, while feeding both the browser's `min`/`max` and the
-    server's zod schema.
+    is five: those three plus `src/lib/ai/providers.ts` and
+    `src/lib/ai/bounds.ts`, each with the same regex test beside it — one that
+    catches a static `from`, a dynamic `import()` and a `require()`, after
+    stripping comments. A comment saying so is not the rule being kept:
+    `bounds.ts` had only the comment until phase 7's fix wave, while feeding both
+    the browser's `min`/`max` and the server's zod schema, and `avatar.ts` had
+    only the comment for two phases after that — while **this list already
+    claimed a test was beside it**. Adding the fifth is what made the sentence
+    true. Check the list rather than trusting it:
+    `grep -rl "imports nothing at all" src/` must return one test per module
+    named here.
 - **A probe never rejects, and its `detail` is log-only prose built from
   constants.** `ProbeResult` (`src/lib/integrations/probe.ts`) is the shape both
   live probes report and the three AI providers in phase 7 will report; every
@@ -1102,7 +1112,17 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     credentials go in the API key field; it is one key rather than two because
     `fieldErrorKeys` is keyed `field:code` and both refusals are zod `custom`, so
     splitting them would mean teaching `errorKeyFor()` a third key component for
-    one message.
+    one message. That key now serves **four** refusals — unparseable, wrong
+    scheme, userinfo, and `apiUrl:too_big` — and **deliberately says nothing
+    about length**. Considered and rejected rather than overlooked:
+    `toast.error(t(result.errorKey))` in `src/components/section-kit.tsx` passes
+    no ICU values, so naming the real cap (`MAX_API_URL_LENGTH` in
+    `src/lib/ai/actions.ts`) would mean threading a parameter through the shared
+    reporter — the same restructuring that was ruled out above — while a
+    numberless "and not too long" is a longer toast rather than advice. The
+    string is already the longest in either catalog, it is a toast _title_, and
+    the cases it does name are the ones an operator reaches. Revisit if that
+    reporter ever takes values.
 
 - **`/login` is the whole unauthenticated UI, and five things about it are
   load-bearing.** It lives at `src/app/login/page.tsx`, deliberately outside

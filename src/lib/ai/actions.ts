@@ -256,6 +256,11 @@ const openai = defineIntegration({
    * should have -- which is advice, where "could not save these credentials" is
    * not. It is a separate entry because `.max()` reports before `.refine()` gets
    * to run, so a 3000-character string never reaches the `custom` arm at all.
+   * The message it shares says nothing about length, which was considered and
+   * left as is: the toast takes no ICU values, so `MAX_API_URL_LENGTH` cannot be
+   * named without threading a parameter through the shared reporter, and a
+   * numberless "not too long" is a longer toast rather than advice. See the
+   * SSRF bullet in CLAUDE.md.
    *
    * **`apiKey:too_big` is deliberately left unmapped**, following YouTube's
    * precedent in `@/lib/integrations/actions`: a key can only be too long, and

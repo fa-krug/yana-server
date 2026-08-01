@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -8,6 +11,41 @@ import {
   initialsFor,
   safeAvatarSrc,
 } from "./avatar";
+
+const ROOT = path.resolve(import.meta.dirname, "../..");
+
+/**
+ * `avatar.ts` says it "imports nothing, and must stay that way". That was a
+ * comment; this is the tripwire, the same one `src/lib/secrets.test.ts`,
+ * `src/lib/auth/roles.test.ts`, `src/lib/ai/providers.test.ts` and
+ * `src/lib/ai/bounds.test.ts` carry -- and CLAUDE.md's standard for this rule is
+ * explicitly "pinned … not just asserted in a comment". This module was the one
+ * gap in that list of five: the property held, nothing kept it holding, and
+ * CLAUDE.md claimed a test was here.
+ *
+ * The rule is not tidiness. `<UserAvatar>` is rendered from `"use client"`
+ * components as well as from the server -- the sidebar footer, the users table
+ * -- so anything reachable from here is in the browser bundle, and the
+ * server-only half (`sharp`, `node:fs`, the media root) is a sibling module,
+ * `./avatar-storage`, one specifier away. One import of it here would drag sharp
+ * into the browser as an opaque bundler error naming nothing, and it would route
+ * around the ESLint `no-restricted-imports` rule that guards the same mistake in
+ * `src/components/**`, because that rule is about components importing storage,
+ * not about this module doing it on their behalf.
+ */
+describe("the avatar module's dependency contract", () => {
+  it("imports nothing at all", () => {
+    const source = fs
+      .readFileSync(path.join(ROOT, "src/lib/avatar.ts"), "utf8")
+      .replaceAll(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "");
+    const specifiers = [
+      ...source.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*)["']([^"']+)["']/g),
+      ...source.matchAll(/\brequire\s*\(\s*["']([^"']+)["']\s*\)/g),
+    ].map((match) => match[1]);
+
+    expect(specifiers).toEqual([]);
+  });
+});
 
 describe("initialsFor", () => {
   it("uses both name initials", () => {
