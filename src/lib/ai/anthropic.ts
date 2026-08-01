@@ -96,7 +96,9 @@ export async function testAnthropicKey({
     if (response.status === 429) {
       // **A rate limit here does prove the credential was accepted**, and this
       // provider's declaration says so (`quotaMeansVerified: true` in
-      // `providers.ts`). Anthropic's rate limits are per-organisation and are
+      // `providers.ts`, where this paragraph is deliberately duplicated because
+      // the fact and this branch live in different files -- change both).
+      // Anthropic's rate limits are per-organisation and are
       // resolved *from the key*: an unrecognised key answers 401
       // `authentication_error` and never reaches accounting, and credit
       // exhaustion -- the one 429 that would not heal -- is a 403

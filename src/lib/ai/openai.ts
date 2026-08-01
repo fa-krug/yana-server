@@ -52,11 +52,29 @@ export async function testOpenaiKey({
   // ProbeResult for *every* input, and that has to hold structurally rather
   // than by an argument about which characters an operator can paste into a
   // base URL or an API key. A key containing a newline makes an illegal header
-  // value and `fetch` rejects; a base URL of "not a url" throws in `new URL`.
-  // Both are caught here, neither escapes.
+  // value and `fetch` rejects; that is caught here and never escapes.
   try {
     const base = (apiUrl?.trim() || OPENAI_DEFAULT_API_URL).replace(/\/+$/, "");
-    const endpoint = new URL(`${base}/chat/completions`);
+    const target = `${base}/chat/completions`;
+
+    // **A malformed base URL is answered here, not by the catch below.** Letting
+    // `new URL()` throw would fall through to `transportFailure()` and report
+    // `network` -- "could not reach the OpenAI API" -- for a string that was
+    // never a URL, and log a matching line saying the provider was unreachable.
+    // The operator would then hunt a network fault that does not exist. A
+    // missing scheme (`gateway.example.com/v1`) is far and away the likeliest
+    // way to get here, so this is the common typo rather than an exotic one,
+    // and it deserves the same precise answer as the scheme check below.
+    // `URL.canParse` rather than a nested try/catch: the question being asked is
+    // literally "is this parseable".
+    if (!URL.canParse(target)) {
+      return {
+        ok: false,
+        cause: "unexpected",
+        detail: "The configured API URL is not a URL.",
+      };
+    }
+    const endpoint = new URL(target);
     if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
       return {
         ok: false,
@@ -112,6 +130,12 @@ export async function testOpenaiKey({
       };
     }
     if (response.status === 429) {
+      // Not trusted as a verdict: this provider carries
+      // `quotaMeansVerified: false` in `providers.ts`, because its base URL is
+      // an operator setting and a gateway can shed load at its edge before
+      // reading the Authorization header. That paragraph is deliberately
+      // duplicated there, since the fact and this branch live in different
+      // files -- change both.
       return {
         ok: false,
         cause: "quota",
@@ -121,6 +145,15 @@ export async function testOpenaiKey({
     if (response.status === 401) {
       return { ok: false, cause: "unauthorized", detail: "The API key was rejected." };
     }
+    // **403 stays a verdict, and that was ruled on rather than assumed.** The
+    // objection is real and was raised in review: this is the one provider
+    // whose endpoint is an operator setting, so a proxy can answer 403 without
+    // ever having asked OpenAI -- which is exactly the argument that makes its
+    // 429 untrustworthy (`quotaMeansVerified: false`). The human's ruling was to
+    // keep it: a 403 from a real OpenAI endpoint genuinely is a rejection, a
+    // misrouted proxy 403 is rarer than a plain bad key, and storing the
+    // credential with the integration off makes a typo visible instead of
+    // silently producing empty summaries. Do not re-derive this as a defect.
     if (response.status === 403) {
       return { ok: false, cause: "unauthorized", detail: "Access was refused for this API key." };
     }

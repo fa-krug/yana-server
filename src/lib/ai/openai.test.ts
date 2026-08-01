@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { PROBE_TIMEOUT_MS } from "@/lib/integrations/probe";
+
 import { OPENAI_DEFAULT_API_URL, testOpenaiKey } from "./openai";
 
 afterEach(() => vi.restoreAllMocks());
@@ -122,12 +124,19 @@ describe("testOpenaiKey", () => {
 
   it("posts a 1-token completion to the default endpoint with a bearer token", async () => {
     const fetchMock = stubFetch(completion());
+    // A dropped signal is an unbounded hang in production behind a green
+    // suite, so the shared timeout is asserted rather than assumed -- both that
+    // one was passed and that it came from PROBE_TIMEOUT_MS, which a bare
+    // `instanceof AbortSignal` check would not catch.
+    const timeout = vi.spyOn(AbortSignal, "timeout");
 
     await testOpenaiKey(credentials);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
     expect(url.toString()).toBe(`${OPENAI_DEFAULT_API_URL}/chat/completions`);
+    expect(timeout).toHaveBeenCalledWith(PROBE_TIMEOUT_MS);
+    expect(init.signal).toBeInstanceOf(AbortSignal);
     const headers = init.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer sk-test");
     // `max_completion_tokens`, not `max_tokens`: OpenAI documents the latter as
@@ -170,13 +179,32 @@ describe("testOpenaiKey", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("never rejects for a base URL that is not a URL at all", async () => {
-    // `new URL("not a url/chat/completions")` throws. The build happens inside
-    // the try so this resolves to a classified result rather than escaping.
-    stubFetch(completion());
-    await expect(testOpenaiKey({ ...credentials, apiUrl: "not a url" })).resolves.toMatchObject({
+  /**
+   * **A malformed base URL is `unexpected`, not `network`, and makes no request
+   * and no log line.**
+   *
+   * Letting `new URL()` throw would fall through to the shared catch: the
+   * operator would be told the OpenAI API was unreachable, and a matching
+   * `[integrations] openai probe could not reach the provider` line would agree
+   * with the wrong story while they hunted a network fault that does not exist.
+   * A missing scheme is the likeliest way to get here by a wide margin, so the
+   * assertion is on the *cause*, not merely on `ok: false` -- checking only the
+   * latter is how this got past review the first time.
+   */
+  it.each([
+    ["a missing scheme", "gateway.example.com/v1"],
+    ["a string that is not a URL at all", "not a url"],
+  ])("reports a base URL that is not a URL as unexpected: %s", async (_label, apiUrl) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(await testOpenaiKey({ ...credentials, apiUrl })).toMatchObject({
       ok: false,
+      cause: "unexpected",
     });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(warned).not.toHaveBeenCalled();
   });
 
   it("never rejects for an API key that cannot be a header value", async () => {

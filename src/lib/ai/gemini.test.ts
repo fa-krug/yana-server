@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { PROBE_TIMEOUT_MS } from "@/lib/integrations/probe";
+
 import { testGeminiKey } from "./gemini";
 
 afterEach(() => vi.restoreAllMocks());
@@ -128,10 +130,14 @@ describe("testGeminiKey", () => {
     // why `logUnreachable()` reads only `.code`. Using the header form removes
     // the hazard rather than working around it.
     const fetchMock = stubFetch(new Response(JSON.stringify({ candidates: [] }), { status: 200 }));
+    // A dropped signal is an unbounded hang in production behind a green suite.
+    const timeout = vi.spyOn(AbortSignal, "timeout");
 
     await testGeminiKey(credentials);
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(timeout).toHaveBeenCalledWith(PROBE_TIMEOUT_MS);
+    expect(init.signal).toBeInstanceOf(AbortSignal);
     expect(url).toBe(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
     );

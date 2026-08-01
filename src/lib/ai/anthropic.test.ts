@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { PROBE_TIMEOUT_MS } from "@/lib/integrations/probe";
+
 import { testAnthropicKey } from "./anthropic";
 
 afterEach(() => vi.restoreAllMocks());
@@ -109,12 +111,16 @@ describe("testAnthropicKey", () => {
 
   it("posts a 1-token message to the fixed endpoint with the key in a header", async () => {
     const fetchMock = stubFetch(truncatedMessage());
+    // A dropped signal is an unbounded hang in production behind a green suite.
+    const timeout = vi.spyOn(AbortSignal, "timeout");
 
     await testAnthropicKey(credentials);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("https://api.anthropic.com/v1/messages");
+    expect(timeout).toHaveBeenCalledWith(PROBE_TIMEOUT_MS);
+    expect(init.signal).toBeInstanceOf(AbortSignal);
     const headers = init.headers as Record<string, string>;
     expect(headers["x-api-key"]).toBe("sk-ant-test");
     expect(headers["anthropic-version"]).toBe("2023-06-01");

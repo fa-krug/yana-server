@@ -1,46 +1,28 @@
-import type { ProbeResult } from "@/lib/integrations/probe";
-
-import { testAnthropicKey } from "./anthropic";
-import { testGeminiKey } from "./gemini";
-import { testOpenaiKey } from "./openai";
-
 /**
- * One declaration per AI provider: its models, whether its endpoint is
- * configurable, how a rate limit should be read, and the probe that answers for
- * it.
+ * What each AI provider *is* -- its models, whether its endpoint is
+ * configurable, and how a rate limit from it should be read.
  *
- * **Why a registry rather than three sections.** Phase 6 shipped two credential
- * providers as two near-twin sequences and phase 7's refactor turned that into
- * `defineIntegrationIn()` precisely because five copies is a drift problem
- * rather than a length one. These three are declared the same way: adding a
- * fourth provider is an entry in `AI_PROVIDERS`, not an edit to the form, the
- * action and the client.
+ * **This module imports nothing, and that is the point of it existing
+ * separately from `./probes`.** It is the `src/lib/users/fields.ts` to that
+ * module's `queries.ts`: everything here is rendered by the `/ai` page's client
+ * components -- the provider tabs, the model `<Select>`, whether a base-URL
+ * field appears at all -- so anything reachable from here reaches the browser
+ * bundle. The three live probes are `fetch` calls that only a server action ever
+ * makes, and they are one import away in `./probes`, keyed by the same
+ * `AiProviderKey`. Splitting them was a human ruling; keep the halves apart.
  *
- * **This module holds no secrets and reaches no database.** It is the
- * declaration; `src/lib/ai/{openai,anthropic,gemini}.ts` hold the live probes
- * and the reasoning behind each one's two answers, and the actions/queries that
- * consume it are the tasks after this one.
+ * **Why a registry rather than three hand-written sections.** Phase 6 shipped
+ * two credential providers as two near-twin sequences and phase 7's refactor
+ * turned that into `defineIntegrationIn()` precisely because five copies is a
+ * drift problem rather than a length one. These three are declared the same
+ * way: adding a fourth provider is an entry in `AI_PROVIDERS` plus an entry in
+ * `AI_PROBES`, not an edit to the form, the action and the client.
  */
 
 export type AiProviderKey = "openai" | "anthropic" | "gemini";
 
 /** One entry in a provider's model select. `label` is a brand name, never translated. */
 export type AiModel = { value: string; label: string };
-
-/**
- * What a probe is handed.
- *
- * `apiUrl` is optional because only one provider has a column for it
- * (`user_settings.openaiApiUrl`); `hasCustomUrl` below is the declared fact and
- * the credential shape follows it. A provider whose `hasCustomUrl` is `false`
- * destructures without `apiUrl` in its own signature, so it is structurally
- * unable to read one it was handed by mistake.
- */
-export type AiCredentials = {
-  apiKey: string;
-  model: string;
-  apiUrl?: string;
-};
 
 export type AiProvider = {
   key: AiProviderKey;
@@ -57,9 +39,18 @@ export type AiProvider = {
    * A **required** field, mirroring `ProviderKeys.quotaMeansVerified` in
    * `@/lib/integrations/define`, so that adding a provider forces the decision
    * rather than inheriting a neighbour's answer by copying a branch. It is
-   * declared here rather than at the descriptor so that the fact and the probe
-   * that produces the `quota` cause are decided in one place; the actions task
-   * passes it straight through.
+   * declared here, in the client-safe half, because it is a *fact about the
+   * provider* rather than part of the request its probe makes -- and because
+   * the actions task reads it from the same entry everything else about the
+   * provider comes from.
+   *
+   * **The reasoning below is duplicated, deliberately, at each probe's 429
+   * branch in `./openai`, `./anthropic` and `./gemini`.** The fact and the code
+   * that produces the `quota` cause now live in different files, and a reader
+   * arriving at either one has to be able to see why the answer is what it is.
+   * Change one and change the other; `providers.test.ts` pins the values, so a
+   * divergence in the *values* fails a test even though a divergence in the
+   * prose cannot.
    *
    * All three answers, and why they are not the same:
    *
@@ -72,8 +63,8 @@ export type AiProvider = {
    *   heal overnight, so treating it as a pass would put an "Active" badge on
    *   an integration that cannot make a single call. (The probe pulls
    *   `insufficient_quota` out into `unauthorized` before this field is ever
-   *   consulted -- see `openai.ts` -- so what reaches `quota` really is only a
-   *   rate limit, and it is still not trusted.)
+   *   consulted, so what reaches `quota` really is only a rate limit, and it is
+   *   still not trusted.)
    * - **Anthropic: `true`.** Rate limits are per-organisation and resolved from
    *   the key; an unrecognised key answers 401 `authentication_error` and never
    *   reaches accounting. Credit exhaustion, the one non-healing case, is a 403
@@ -85,19 +76,22 @@ export type AiProvider = {
    *   `400 API_KEY_INVALID` instead. The endpoint is fixed here too.
    */
   quotaMeansVerified: boolean;
-  probe: (credentials: AiCredentials) => Promise<ProbeResult>;
 };
 
 /**
  * The three providers, in the order the page renders them.
  *
- * **Model lists are cheapest-capable first, and were looked up rather than
- * carried over.** The schema's column defaults (`gpt-4o-mini`,
- * `claude-3-5-sonnet-20240620`, `gemini-1.5-flash`) are stale by two model
- * generations; phase 2 copied them verbatim so that refreshing them would be a
- * visible change here. Each `defaultModel` is the cheapest entry on its list,
- * because the workload is summarising an article. Sources are recorded in the
- * commit message and in the task report.
+ * **Model lists were looked up, not carried over, and they go stale.** Each
+ * entry carries the date and the vendor page it was read from, because the
+ * whole reason phase 2 copied the Django-era ids verbatim was so that
+ * refreshing them would be a visible, deliberate change -- and the next refresh
+ * needs to know where to look without reading a commit message. The schema's
+ * column defaults (`gpt-4o-mini`, `claude-3-5-sonnet-20240620`,
+ * `gemini-1.5-flash`) still carry the stale values and are the actions task's
+ * migration; `providers.test.ts` asserts none of them survived into here.
+ *
+ * **Each list is ordered cheapest-capable first, and each `defaultModel` is its
+ * first entry,** because the workload is summarising one article.
  *
  * **Deliberately three.** The direction record defers provider expansion (the
  * iOS client supports seven) as a separate concern; this is not the place to
@@ -107,6 +101,9 @@ export const AI_PROVIDERS: readonly AiProvider[] = [
   {
     key: "openai",
     label: "OpenAI",
+    // Looked up 2026-08-01 against https://developers.openai.com/api/docs/models
+    // `gpt-5.6` is documented as an alias of `gpt-5.6-sol`; the explicit id is
+    // stored so the select's value and the model actually billed cannot drift.
     models: [
       { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
       { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
@@ -118,11 +115,15 @@ export const AI_PROVIDERS: readonly AiProvider[] = [
     // why `quotaMeansVerified` is false -- both above.
     hasCustomUrl: true,
     quotaMeansVerified: false,
-    probe: ({ apiKey, apiUrl, model }) => testOpenaiKey({ apiKey, apiUrl, model }),
   },
   {
     key: "anthropic",
     label: "Anthropic",
+    // Looked up 2026-08-01 against
+    // https://platform.claude.com/docs/en/about-claude/models/overview
+    // $1/$5, $3/$15 and $5/$25 per MTok respectively. `claude-haiku-4-5` is the
+    // documented alias for the pinned `claude-haiku-4-5-20251001`; the other two
+    // ids are already dateless pinned snapshots.
     models: [
       { value: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
       { value: "claude-sonnet-5", label: "Claude Sonnet 5" },
@@ -131,13 +132,22 @@ export const AI_PROVIDERS: readonly AiProvider[] = [
     defaultModel: "claude-haiku-4-5",
     hasCustomUrl: false,
     quotaMeansVerified: true,
-    // Destructured without `apiUrl`: this provider has no column for one and
-    // cannot read one it is handed.
-    probe: ({ apiKey, model }) => testAnthropicKey({ apiKey, model }),
   },
   {
     key: "gemini",
     label: "Gemini",
+    // Looked up 2026-08-01 against https://ai.google.dev/gemini-api/docs/models
+    // (page last updated 2026-07-30). All three are GA; the preview ids
+    // (`gemini-3.1-pro-preview`, `gemini-3-flash-preview`) are excluded because
+    // a preview can be withdrawn out from under a stored setting.
+    //
+    // **Ordered by tier, and Gemini's version numbers do not track tier** -- so
+    // this list reads 3.5, 3.6, 3.5 and is still cheapest-capable first. The
+    // docs' own words are the ordering: Flash-Lite is "fastest, most
+    // cost-effective", 3.6 Flash "balances speed with intelligence", and 3.5
+    // Flash is the "most intelligent model for sustained frontier performance".
+    // Sorting these by version number would put the most expensive one in the
+    // middle and make the default look arbitrary.
     models: [
       { value: "gemini-3.5-flash-lite", label: "Gemini 3.5 Flash-Lite" },
       { value: "gemini-3.6-flash", label: "Gemini 3.6 Flash" },
@@ -146,7 +156,6 @@ export const AI_PROVIDERS: readonly AiProvider[] = [
     defaultModel: "gemini-3.5-flash-lite",
     hasCustomUrl: false,
     quotaMeansVerified: true,
-    probe: ({ apiKey, model }) => testGeminiKey({ apiKey, model }),
   },
 ];
 

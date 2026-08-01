@@ -88,8 +88,10 @@ export async function testGeminiKey({
     if (response.status === 429) {
       // **A rate limit here does prove the credential was accepted**, and this
       // provider's declaration says so (`quotaMeansVerified: true` in
-      // `providers.ts`) -- for the same stated reason as YouTube's, not by
-      // inheriting it. Quota is accounted against the *project the key resolves
+      // `providers.ts`, where this paragraph is deliberately duplicated because
+      // the fact and this branch live in different files -- change both) -- for
+      // the same stated reason as YouTube's, not by inheriting it.
+      // Quota is accounted against the *project the key resolves
       // to*, so the key is validated first; a key Google does not recognise
       // answers `400 API_KEY_INVALID` and never reaches accounting. The
       // endpoint is fixed, so nothing can shed load in front of that check.
