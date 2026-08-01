@@ -225,6 +225,48 @@
       "removeDescription": "Die gespeicherte Client-ID und das Secret werden gelöscht und Reddit-Feeds werden nicht mehr aktualisiert, bis du sie wieder einträgst."
     }
   },
+  "ai": {
+    "sessionEnded": "Deine Sitzung ist abgelaufen. Melde dich erneut an, um fortzufahren.",
+    "requestFailed": "Der Server hat nicht geantwortet. Prüfe deine Verbindung und versuche es erneut.",
+    "saveFailed": "Diese Einstellungen konnten nicht gespeichert werden.",
+    "removeFailed": "Die Zugangsdaten konnten nicht entfernt werden.",
+    "unreachable": "Yana konnte den Anbieter nicht erreichen, daher konnten diese Zugangsdaten nicht geprüft werden. Versuche es in einem Moment erneut.",
+    "timedOut": "Der Anbieter hat nicht rechtzeitig geantwortet, daher konnten diese Zugangsdaten nicht geprüft werden. Versuche es in einem Moment erneut.",
+    "unexpected": "Der Anbieter hat unerwartet geantwortet, daher konnten diese Zugangsdaten nicht geprüft werden. Die Details stehen im Server-Log.",
+    "unknownProvider": "Diesen KI-Anbieter unterstützt Yana nicht.",
+    "activeNotVerified": "Speichere und prüfe die Zugangsdaten dieses Anbieters, bevor du ihn aktiv schaltest.",
+    "openai": {
+      "required": "Trage zuerst einen API-Schlüssel ein.",
+      "rejected": "OpenAI hat diese Zugangsdaten nicht akzeptiert. Prüfe den API-Schlüssel, ob das Konto noch Guthaben hat und ob es das gewählte Modell nutzen darf.",
+      "rateLimited": "OpenAI begrenzt gerade die Anfragen an diesen Endpunkt, daher konnten diese Zugangsdaten nicht geprüft werden. Versuche es in einem Moment erneut.",
+      "modelUnknown": "Wähle eines der Modelle, die Yana für OpenAI anbietet.",
+      "apiUrlInvalid": "Die Basis-URL muss eine http- oder https-URL sein, zum Beispiel „https://api.openai.com/v1“. Lass sie leer, um OpenAI selbst zu verwenden."
+    },
+    "anthropic": {
+      "required": "Trage zuerst einen API-Schlüssel ein.",
+      "rejected": "Anthropic hat diese Zugangsdaten nicht akzeptiert. Prüfe den API-Schlüssel, ob das Konto noch Guthaben hat und ob es das gewählte Modell nutzen darf.",
+      "quota": "Der Schlüssel ist gültig — Anthropic begrenzt ihn gerade. In Kürze funktioniert er wieder.",
+      "modelUnknown": "Wähle eines der Modelle, die Yana für Anthropic anbietet."
+    },
+    "gemini": {
+      "required": "Trage zuerst einen API-Schlüssel ein.",
+      "rejected": "Google hat diese Zugangsdaten nicht akzeptiert. Prüfe den API-Schlüssel, ob die Gemini-API für sein Projekt aktiviert ist und ob er das gewählte Modell nutzen darf.",
+      "quota": "Der Schlüssel ist gültig — Gemini begrenzt ihn gerade, oder das heutige Kontingent ist aufgebraucht. Sobald es zurückgesetzt wird, funktioniert er wieder.",
+      "modelUnknown": "Wähle eines der Modelle, die Yana für Gemini anbietet."
+    },
+    "advanced": {
+      "temperatureRange": "Die Temperatur muss zwischen 0 und 2 liegen — jeder unterstützte Anbieter lehnt höhere Werte ab.",
+      "maxTokensRange": "Das Token-Limit muss zwischen 1 und 200000 liegen. Null würde jedes Mal eine leere Zusammenfassung erzeugen.",
+      "dailyLimitRange": "Das Tageslimit für Anfragen muss zwischen 1 und 100000 liegen.",
+      "monthlyLimitRange": "Das Monatslimit für Anfragen muss zwischen 1 und 100000 liegen.",
+      "monthlyBelowDaily": "Das Monatslimit für Anfragen muss mindestens so groß sein wie das Tageslimit, sonst könnte das Tageslimit nie erreicht werden.",
+      "maxPromptLengthRange": "Die Prompt-Länge muss zwischen 1 und 100000 Zeichen liegen.",
+      "requestTimeoutRange": "Das Anfrage-Timeout muss zwischen 5 und 600 Sekunden liegen. Unter fünf Sekunden antwortet kein Anbieter rechtzeitig.",
+      "maxRetriesRange": "Die Anzahl der Wiederholungen muss zwischen 0 und 10 liegen.",
+      "retryDelayRange": "Die Wartezeit zwischen Wiederholungen muss zwischen 0 und 60 Sekunden liegen.",
+      "requestDelayRange": "Die Wartezeit zwischen Anfragen muss zwischen 0 und 60 Sekunden liegen."
+    }
+  },
   "error": {
     "title": "Etwas ist schiefgelaufen",
     "description": "Dieser Teil der Seite konnte nicht geladen werden. Die Details stehen im Server-Log.",

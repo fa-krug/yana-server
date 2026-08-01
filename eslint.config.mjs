@@ -98,6 +98,45 @@ const eslintConfig = defineConfig([
                 "for the descriptor shapes; the actions themselves are reached through the " +
                 'feature\'s "use server" actions module.',
             },
+            {
+              /**
+               * **A separate entry with its own message, deliberately not folded
+               * into the group above.**
+               *
+               * The three patterns before this one guard modules whose import
+               * from a component produces an *opaque bundler error* --
+               * `better-sqlite3`, `sharp`, a native addon -- so the rule is
+               * telling you about a build that will fail. These are plain
+               * `fetch` calls: nothing breaks if a component imports one, which
+               * is exactly why the split that task 1 made between
+               * `src/lib/ai/providers.ts` (client-safe, imports nothing) and the
+               * probe modules is structural but unenforced. Filing them with the
+               * others would blur what that group means.
+               *
+               * `probes.ts` is the barrel and the three provider modules are
+               * what it wires; all four are named, because reaching past the
+               * barrel for one constant is the obvious way around a rule that
+               * only guards the barrel. `OPENAI_DEFAULT_API_URL` -- the one
+               * thing a form legitimately wants from this side -- was moved into
+               * `providers.ts` for that reason, so no component needs an
+               * exception.
+               */
+              group: [
+                "**/lib/ai/probes",
+                "**/lib/ai/probe-support",
+                "**/lib/ai/openai",
+                "**/lib/ai/anthropic",
+                "**/lib/ai/gemini",
+              ],
+              allowTypeImports: true,
+              message:
+                "The AI probe modules are server-side outbound fetch calls, not a safety " +
+                "boundary: importing one from a component costs bundle weight and puts three " +
+                "provider clients in the browser for nothing. Everything a form needs -- the " +
+                "model lists, the default model, whether a base URL is configurable, and " +
+                "OPENAI_DEFAULT_API_URL -- is in the client-safe @/lib/ai/providers; the " +
+                "probes are reached through the /ai server actions.",
+            },
           ],
         },
       ],
