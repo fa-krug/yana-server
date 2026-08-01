@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { applyMigrationsAt } from "@/lib/db/test-support";
 
@@ -111,6 +111,24 @@ describe("isAdminRole agrees with the admin() plugin's own role parsing", () => 
   let client: typeof import("@/lib/db/client");
 
   beforeEach(async () => {
+    // **Mandatory, and this file is where its absence was found.**
+    //
+    // `DB_PATH` in `@/lib/db/client` is a module-level const: it reads
+    // `DATABASE_PATH` **once, at module load**, and `getDb()` caches the
+    // connection it opens from it. The static `applyMigrationsAt` import at the
+    // top of this file pulls that module in at *file* load time -- before any
+    // `beforeEach` has run and therefore before `DATABASE_PATH` is set -- so
+    // without a reset here every dynamic import below hands back that same
+    // already-evaluated module, pinned to the default
+    // `<cwd>/data/yana.db`. The temp file this block migrates was then never
+    // opened: `auth` ran against the repository's real, unmigrated database,
+    // and the `getDb()` in `afterEach` *created* `data/yana.db` on every
+    // `npm test`. (It also meant one shared module for all 14 cases here, so
+    // the first `afterEach` closed the connection and the other thirteen ran
+    // against a closed handle.) Every other database-touching test in the node
+    // project already does this; this one did not.
+    vi.resetModules();
+
     dbPath = path.join(
       os.tmpdir(),
       `yana-roles-${process.pid}-${Math.random().toString(36).slice(2)}.db`,
