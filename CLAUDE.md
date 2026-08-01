@@ -50,6 +50,7 @@ file.
 │   │       ├── page.tsx           # dashboard
 │   │       ├── error.tsx          # error boundary for every route in the group
 │   │       ├── account/page.tsx   # /account — profile, password, passkeys
+│   │       ├── integrations/page.tsx # /integrations — YouTube + Reddit credentials
 │   │       ├── settings/page.tsx
 │   │       └── users/             # admin-only. page.tsx (list), new/, [id]/ (edit +
 │   │                              #   delete); each awaits requireAdmin() first
@@ -62,6 +63,9 @@ file.
 │   │   │                           #   data-table, pagination, search-filter-bar,
 │   │   │                           #   bulk-action-bar, confirm-destructive,
 │   │   │                           #   selection.ts, use-list-params.ts
+│   │   ├── integrations/           # youtube-section.tsx, reddit-section.tsx and
+│   │   │                           #   section-parts.tsx (the badge, the
+│   │   │                           #   keep-existing sentinel, one toast reporter)
 │   │   ├── users/                  # the kit, wired to users: users-table.tsx,
 │   │   │                           #   user-form.tsx, delete-user-section.tsx,
 │   │   │                           #   use-user-impact.ts
@@ -101,6 +105,11 @@ file.
 │   │   │                          #   result.ts (the account attempt() binding)
 │   │   ├── crud/                  # params.ts — ListParams, parseListParams(),
 │   │   │                          #   buildListHref(); the URL is the list state
+│   │   ├── secrets.ts             # KEEP_EXISTING/mask/resolveSecret — imports nothing
+│   │   ├── integrations/          # probe.ts (ProbeResult + the timeout), youtube.ts
+│   │   │                          #   and reddit.ts (live probes), queries.ts
+│   │   │                          #   (SERVER-ONLY, masked only), actions.ts (writes),
+│   │   │                          #   result.ts (attempt() binding + SaveResult)
 │   │   ├── users/                 # fields.ts (client-safe constants — imports only
 │   │   │                          #   auth/roles), queries.ts (SERVER-ONLY reads),
 │   │   │                          #   actions.ts (writes), result.ts (attempt() binding)
@@ -371,8 +380,10 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   4's task 2 it left an empty, unmigrated `data/yana.db` behind on every
   `npm run build`. So **every route that can reach the database calls it
   itself, as its first statement**, before any translation or data call. The
-  six that do today: `src/app/layout.tsx`, `src/app/health/route.ts`,
+  seven that do today: `src/app/layout.tsx`, `src/app/health/route.ts`,
   `src/app/(app)/page.tsx`, `src/app/(app)/settings/page.tsx`,
+  `src/app/(app)/integrations/page.tsx` (phase 6 — signed-in but **not**
+  admin-only, so no gate opts it out and the call is the only thing that does),
   `src/app/(app)/account/page.tsx` and `src/app/login/page.tsx`. **That list is
   exhaustive or it is not a checklist** — re-derive it with
   `grep -rl "await connection()" src/app` and expect one extra hit,
