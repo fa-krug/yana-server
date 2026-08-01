@@ -16,6 +16,13 @@ import { parseListParams, type ListParams } from "@/lib/crud/params";
  *
  * `parseListParams` is the same function the server component uses to read
  * `searchParams`, so client and server cannot disagree about what a URL means.
+ * **It takes no per-page defaults and this hook offers none** -- the hook is
+ * called by three kit components the page does not render directly, so any
+ * defaults object would have to be threaded to all of them plus to
+ * `buildListHref()`, and a page that got one of the four wrong would be wrong
+ * silently. `parseListParams`'s own comment carries the two failures that
+ * argument is drawn from, and what to do instead when a list wants a default
+ * sort.
  *
  * A route rendering any of these components must be dynamic. `useSearchParams`
  * makes a statically prerendered page bail out to client rendering; every page

@@ -105,21 +105,54 @@ describe("<UserForm>", () => {
   });
 
   it("reads a comma-list role the way isAdminRole does", async () => {
-    // "user,admin" is an administrator to every Better Auth endpoint. The
-    // control must agree, and saving must not silently demote them -- which is
-    // what a select seeded by string equality would have done.
+    // "user,admin" is an administrator to every Better Auth endpoint, so the
+    // control has to say "Administrator" rather than compare the whole string.
+    renderWithProviders(<UserForm user={ADA} />, { locale: "de" });
+
+    expect(screen.getByLabelText("Rolle").textContent).toContain("Administrator");
+  });
+
+  it("sends a comma-list role back untouched when the select was not used", async () => {
+    // Editing a last name must not rewrite the role column. Collapsing
+    // "user,admin" onto the select's two options and submitting *that* is a
+    // write the operator did not ask for -- silent, and lossy the moment a
+    // phase puts a third part in the list.
     renderWithProviders(<UserForm user={ADA} />);
 
+    fill("Last name", "King");
     submit("Save user");
 
     await waitFor(() => expect(updateUser).toHaveBeenCalled());
     expect(updateUser).toHaveBeenCalledWith("u-ada", {
       email: "ada@example.com",
       firstName: "Ada",
-      lastName: "Lovelace",
-      role: "admin",
+      lastName: "King",
+      role: "user,admin",
     });
     expect(refresh).toHaveBeenCalled();
+  });
+
+  it("replaces the stored role once the operator actually picks one", async () => {
+    // The control for the test above: a form that never sent the select's
+    // value would pass it and be unable to change anybody's role.
+    renderWithProviders(<UserForm user={ADA} />, { locale: "de" });
+
+    fireEvent.click(screen.getByLabelText("Rolle"));
+    // Base UI commits a selection on the pointer *up* inside the item, not on
+    // a bare click -- jsdom dispatches neither for us.
+    const standard = await screen.findByRole("option", { name: "Standard" });
+    fireEvent.pointerDown(standard);
+    fireEvent.pointerUp(standard);
+    fireEvent.click(standard);
+    submit("Benutzer speichern");
+
+    await waitFor(() => expect(updateUser).toHaveBeenCalled());
+    expect(updateUser).toHaveBeenCalledWith("u-ada", {
+      email: "ada@example.com",
+      firstName: "Ada",
+      lastName: "Lovelace",
+      role: "user",
+    });
   });
 
   it("reports the action's catalog key, never a driver message", async () => {

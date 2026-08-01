@@ -72,11 +72,9 @@ export function SearchFilterBar({
   }
 
   function filter(key: string, value: string) {
-    // Spread, because `changes.filters` *replaces* the whole record rather
-    // than merging per key -- without this, changing one filter drops the rest.
-    router.replace(
-      buildListHref(pathname, params, { filters: { ...params.filters, [key]: value } }),
-    );
+    // One key, not the whole record: `buildListHref` merges `changes.filters`
+    // per key, so the other filters stand and `""` clears this one.
+    router.replace(buildListHref(pathname, params, { filters: { [key]: value } }));
   }
 
   return (

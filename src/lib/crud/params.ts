@@ -15,12 +15,36 @@ function first(value: string | string[] | undefined): string {
   return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 }
 
+/**
+ * What a URL's query string means, as list state.
+ *
+ * **There is one set of defaults, and it is this module's.** A
+ * `defaults: Partial<ListParams>` parameter used to sit here; it was never
+ * plumbed anywhere and is deleted rather than finished, because it is only half
+ * of a two-half contract and the missing half fails silently:
+ *
+ * - the *server* page reads the URL through this function, while every kit
+ *   component reads it through `useListParams()`, which has no way to be handed
+ *   the same object -- so with a page default of `sort: "publishedAt"` the
+ *   header renders `aria-sort="none"` over a list that is sorted, and its link
+ *   offers an ascending sort as if the column were untouched;
+ * - and `buildListHref()` below decides *which values to omit* from the URL
+ *   against this same constant. A page default of `pageSize: 50` makes the
+ *   builder emit `?pageSize=50` and omit `?pageSize=25`, so the user's choice
+ *   of 25 produces a URL that parses back as 50 -- the two halves disagree in
+ *   opposite directions, and nothing raises a type error.
+ *
+ * **A phase that wants a default sort puts it in the URL, not in a parameter.**
+ * Link to `/articles?sort=publishedAt&dir=desc` from the navigation: the
+ * default is then something the server, the hook and the href builder all read
+ * from the same place, which is the property a second defaults object cannot
+ * have. Widening the contract instead means threading one object through this
+ * function, `useListParams()`, all three kit components *and* `buildListHref()`
+ * -- five call sites with nothing checking they agree.
+ */
 export function parseListParams(
   searchParams: Record<string, string | string[] | undefined>,
-  defaults: Partial<ListParams> = {},
 ): ListParams {
-  const base = { ...DEFAULTS, ...defaults };
-
   const page = Number.parseInt(first(searchParams.page), 10);
   const pageSize = Number.parseInt(first(searchParams.pageSize), 10);
 
@@ -33,13 +57,15 @@ export function parseListParams(
   }
 
   return {
-    q: first(searchParams.q) || base.q,
+    q: first(searchParams.q) || DEFAULTS.q,
     // A crafted pageSize must not be able to request the whole table.
-    page: Number.isFinite(page) && page > 0 ? page : base.page,
+    page: Number.isFinite(page) && page > 0 ? page : DEFAULTS.page,
     pageSize:
-      Number.isFinite(pageSize) && pageSize > 0 ? Math.min(pageSize, MAX_PAGE_SIZE) : base.pageSize,
-    sort: first(searchParams.sort) || base.sort,
-    dir: first(searchParams.dir) === "desc" ? "desc" : base.dir,
+      Number.isFinite(pageSize) && pageSize > 0
+        ? Math.min(pageSize, MAX_PAGE_SIZE)
+        : DEFAULTS.pageSize,
+    sort: first(searchParams.sort) || DEFAULTS.sort,
+    dir: first(searchParams.dir) === "desc" ? "desc" : DEFAULTS.dir,
     filters,
   };
 }
@@ -54,14 +80,32 @@ function filtersChanged(a: Record<string, string>, b: Record<string, string>): b
   return false;
 }
 
+/**
+ * The URL that applies `changes` on top of the state `current` describes.
+ *
+ * **`changes.filters` merges per key** -- `{ filters: { role: "admin" } }` sets
+ * the role filter and leaves every other one standing. It replaced the whole
+ * record until phase 5's review: the only caller
+ * (`src/components/crud/search-filter-bar.tsx`) already had to spread
+ * `current.filters` back in by hand, which is a workaround for a trap rather
+ * than a use of an API, and three phases inherit this function. **A filter is
+ * cleared by setting it to `""`**, which is also what the filter selects
+ * submit for their "all" option: an empty value is omitted from the query
+ * string below, so the URL carries no key at all rather than `?role=`.
+ */
 export function buildListHref(
   pathname: string,
   current: ListParams,
   changes: Partial<ListParams>,
 ): string {
   // A key missing from `changes` falls through to `current` via the spread;
-  // no explicit fallback is needed for any individual field.
-  const merged: ListParams = { ...current, ...changes };
+  // no explicit fallback is needed for any individual field. `filters` is the
+  // exception and is merged a level deeper, per the note above.
+  const merged: ListParams = {
+    ...current,
+    ...changes,
+    filters: { ...current.filters, ...changes.filters },
+  };
 
   // Merge-and-reset: q, pageSize and filters all change *what* the list
   // shows, so the page the caller was on may no longer exist -- reset to

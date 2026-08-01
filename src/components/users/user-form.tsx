@@ -57,19 +57,33 @@ export function UserForm({ user }: { user?: EditableUser }) {
   const [firstName, setFirstName] = useState(user?.firstName ?? "");
   const [lastName, setLastName] = useState(user?.lastName ?? "");
   /**
-   * **The select offers two roles, and a stored comma list collapses onto them
-   * through `isAdminRole()`** -- the same predicate the sidebar, the badge and
-   * Better Auth's own `hasPermission()` use, so the control cannot claim
-   * something the application disagrees with. The consequence is visible before
-   * it is saved: a user whose column reads `"user,admin"` shows
-   * "Administrator", and saving rewrites the column to plain `"admin"`. That is
-   * not lossy in any way this application can observe -- `ROLE_VALUES` in
-   * `@/lib/users/actions` accepts nothing but `admin` and `user` either, so
-   * there is no third role for the list to have carried.
+   * **The select offers two roles; the column may hold more than two values,
+   * and an untouched select must not rewrite it.**
+   *
+   * `users.role` is a comma-separated *list* -- `"user,admin"` is an
+   * administrator to every Better Auth endpoint -- so the control is seeded
+   * through `isAdminRole()`, the same predicate the sidebar, the badge and the
+   * library's own `hasPermission()` use. What it cannot do is *submit* the
+   * collapsed value: saving a last name on a user whose column reads
+   * `"user,viewer"` would then write back plain `"user"`, a write the operator
+   * never asked for and cannot see happen. So `null` means "the operator has
+   * not touched this" and the stored string is sent back untouched; only an
+   * actual selection replaces it.
+   *
+   * Unobservable today -- nothing writes a list, `/admin/set-role` is in
+   * `disabledPaths` and `ADMIN_ROLES` has one entry -- which is exactly why it
+   * had to be fixed while it was still free. The consequence to know about:
+   * a stored value `ROLE_VALUES` in `@/lib/users/actions` does not recognise
+   * now comes back as a visible `roleInvalid` rather than being silently
+   * rewritten. A refusal the operator can act on is the better half of that
+   * trade; silent data loss is the half this repository does not ship.
    */
-  const [role, setRole] = useState(
-    user ? (isAdminRole(user.role) ? ADMIN_ROLE : STANDARD_ROLE) : STANDARD_ROLE,
-  );
+  const storedRole = user?.role ?? STANDARD_ROLE;
+  const [chosenRole, setChosenRole] = useState<string | null>(null);
+  /** What the control shows: one of its two options, always. */
+  const roleOption = isAdminRole(chosenRole ?? storedRole) ? ADMIN_ROLE : STANDARD_ROLE;
+  /** What a save writes: the operator's choice, or the column as it stands. */
+  const role = chosenRole ?? storedRole;
   const [password, setPassword] = useState("");
   const [pending, start] = useTransition();
 
@@ -178,13 +192,13 @@ export function UserForm({ user }: { user?: EditableUser }) {
         <Label htmlFor="user-role">{t("form.role")}</Label>
         <Select
           items={roleItems}
-          value={role}
+          value={roleOption}
           disabled={pending}
           onValueChange={(value) => {
             // Base UI reports `null` for a clearable selection, which this one
             // never is -- the guard satisfies the wider type.
             if (value === null) return;
-            setRole(value);
+            setChosenRole(value);
           }}
         >
           <SelectTrigger id="user-role" className="w-full sm:w-64">

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildListHref, parseListParams } from "./params";
+import { buildListHref, parseListParams, type ListParams } from "./params";
 
 describe("parseListParams", () => {
   it("applies defaults for an empty query", () => {
@@ -33,6 +33,15 @@ describe("parseListParams", () => {
 
   it("takes the first value of a repeated param", () => {
     expect(parseListParams({ q: ["a", "b"] }).q).toBe("a");
+  });
+
+  it("takes its defaults from the module and nothing else", () => {
+    // The `defaults: Partial<ListParams>` parameter this function used to
+    // accept is deliberately gone (see the doc comment): a second set of
+    // defaults reaches this half of the contract but not `buildListHref`'s
+    // omission rule, so the two disagree silently. Pinned by arity, because a
+    // reinstated parameter is exactly the change this test is here to notice.
+    expect(parseListParams.length).toBe(1);
   });
 });
 
@@ -75,6 +84,43 @@ describe("buildListHref", () => {
   it("does not reset the page when an explicit page change is the only change", () => {
     const current = { ...defaults, page: 2 };
     expect(buildListHref("/users", current, { page: 5 })).toBe("/users?page=5");
+  });
+
+  it("merges changes.filters per key rather than replacing the record", () => {
+    // The call site used to spread `current.filters` back in by hand. Three
+    // phases inherit this function; a caller that forgot the spread silently
+    // dropped every filter it did not mention.
+    const current = { ...defaults, filters: { role: "admin", status: "active" } };
+    expect(buildListHref("/users", current, { filters: { role: "standard" } })).toBe(
+      "/users?role=standard&status=active",
+    );
+  });
+
+  it("clears one filter with an empty value and leaves the rest standing", () => {
+    // How the "all roles" option works: an empty value is omitted from the
+    // query string, so the URL carries no `role` at all rather than `?role=`.
+    const current = { ...defaults, page: 4, filters: { role: "admin", status: "active" } };
+    expect(buildListHref("/users", current, { filters: { role: "" } })).toBe(
+      "/users?status=active",
+    );
+  });
+
+  it("round-trips: what it writes, parseListParams reads back", () => {
+    // The invariant a per-page `defaults` object would break. This function
+    // decides which values to *omit* against the same constants
+    // `parseListParams` fills in, so the two must be inverses over every field.
+    const current: ListParams = {
+      q: "ada",
+      page: 3,
+      pageSize: 50,
+      sort: "name",
+      dir: "desc",
+      filters: { role: "admin" },
+    };
+    const href = buildListHref("/users", current, {});
+    const query = Object.fromEntries(new URLSearchParams(href.split("?")[1] ?? ""));
+
+    expect(parseListParams(query)).toEqual(current);
   });
 
   it("lets the reset win when both a filter and a page are supplied together", () => {

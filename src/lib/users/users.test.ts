@@ -759,6 +759,40 @@ describe("the users queries and actions", () => {
       expect(one<{ count: number }>("SELECT COUNT(*) AS count FROM users").count).toBe(2);
     });
 
+    it("counts an admin whose ban has already expired as the last one", async () => {
+      /**
+       * The other arm of `isUsableAdmin()` in `./queries`, and **the arm that
+       * fails open**. Better Auth lifts an expired ban on the next sign-in
+       * rather than refusing it (`session.create.before` in
+       * `plugins/admin/admin.mjs`), so this account can still administer the
+       * instance. Read as unusable instead, `countUsableAdmins([])` returns 0
+       * for an instance that has one, the guard's first condition is false and
+       * the delete **proceeds** -- taking with it the last account that can
+       * sign in, on a server with no self-registration, no mail transport and
+       * no CLI to recover with.
+       *
+       * The JS twin in `@/lib/auth/bootstrap` is covered by its own
+       * "leaves an admin whose ban has already expired alone"; the two are
+       * required to agree, and until this test only one of them was pinned.
+       *
+       * The column is written by hand because the ban columns have no UI: they
+       * exist because the plugin declares them. `ban_expires` is a
+       * `{ mode: "timestamp" }` integer, so seconds.
+       */
+      const other = await onlyOtherAdminId();
+      execute(
+        "UPDATE users SET banned = 1, ban_reason = 'over', ban_expires = ? WHERE id = ?",
+        Math.floor((Date.now() - 60_000) / 1000),
+        other,
+      );
+
+      const result = await actions.deleteUsers([other]);
+
+      expect(result).toMatchObject({ ok: false, errorKey: "lastAdmin", deleted: 0 });
+      expect(usersMessage(result.errorKey)).toBeTypeOf("string");
+      expect(one<{ count: number }>("SELECT COUNT(*) AS count FROM users").count).toBe(2);
+    });
+
     it("allows deleting an admin while another usable one remains", async () => {
       // The control for the refusal above: without it, a guard that refused
       // every admin deletion would pass and the feature would be broken.
