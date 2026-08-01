@@ -1,11 +1,46 @@
 """Default views for health checks and proxies."""
 
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
+from django.conf import settings
 from django.db import connection
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.http import require_http_methods
+
+# YouTube requires the embedding page to identify itself via the HTTP Referer
+# header; embeds served without one fail with "Error 153 - Video player
+# configuration error". Django's SecurityMiddleware defaults SECURE_REFERRER_POLICY
+# to "same-origin", which strips the Referer on the cross-origin request to
+# youtube-nocookie.com, so the proxy pages must send their own policy.
+EMBED_REFERRER_POLICY = "strict-origin-when-cross-origin"
+
+
+def _embed_response(html, status=200):
+    """Build an embed page response with a YouTube-compatible referrer policy."""
+    response = HttpResponse(html, content_type="text/html", status=status)
+    # Set explicitly so it wins over SecurityMiddleware, which only fills in
+    # SECURE_REFERRER_POLICY when the response does not already carry one.
+    response["Referrer-Policy"] = EMBED_REFERRER_POLICY
+    return response
+
+
+def _page_origin(request):
+    """
+    Return the origin of this page as the browser sees it.
+
+    Prefers the scheme from BASE_URL when the request targets that host, because
+    a reverse proxy that terminates TLS without setting X-Forwarded-Proto makes
+    ``request.scheme`` report "http" for a page the browser loaded over HTTPS.
+    A mismatching origin is rejected by the YouTube player.
+    """
+    host = request.get_host()
+    base = urlparse(settings.BASE_URL)
+
+    if base.scheme and base.netloc == host:
+        return f"{base.scheme}://{base.netloc}"
+
+    return f"{request.scheme}://{host}"
 
 
 @xframe_options_exempt
@@ -26,6 +61,7 @@ def youtube_proxy_view(request):
         rel (optional): Show related videos (0 or 1, default: 0)
         modestbranding (optional): Minimal YouTube branding (0 or 1, default: 1)
         playsinline (optional): Play inline on mobile (0 or 1, default: 1)
+        enablejsapi (optional): Enable the IFrame Player API (0 or 1, default: 0)
 
     Returns:
         HttpResponse: HTML page with YouTube iframe embed
@@ -45,6 +81,7 @@ def youtube_proxy_view(request):
     rel = request.GET.get("rel", "0")
     modestbranding = request.GET.get("modestbranding", "1")
     playsinline = request.GET.get("playsinline", "1")
+    enablejsapi = request.GET.get("enablejsapi", "0")
 
     # Build YouTube embed URL with parameters
     embed_params = {
@@ -55,9 +92,15 @@ def youtube_proxy_view(request):
         "rel": rel,
         "modestbranding": modestbranding,
         "playsinline": playsinline,
-        "enablejsapi": "1",
-        "origin": f"{request.scheme}://{request.get_host()}",
     }
+
+    # The IFrame Player API is off by default: this page does not drive the
+    # player from JavaScript, and enabling it makes YouTube validate the
+    # "origin" parameter against the embedding page, which fails the whole
+    # embed with error 153 whenever the two do not match exactly.
+    if enablejsapi == "1":
+        embed_params["enablejsapi"] = "1"
+        embed_params["origin"] = _page_origin(request)
 
     # If loop is enabled, add playlist parameter (required by YouTube)
     if loop == "1":
@@ -67,7 +110,7 @@ def youtube_proxy_view(request):
 
     html = _generate_embed_html(embed_url)
 
-    return HttpResponse(html, content_type="text/html")
+    return _embed_response(html)
 
 
 def _error_response(message):
@@ -95,7 +138,7 @@ def _error_response(message):
     </div>
 </body>
 </html>"""
-    return HttpResponse(html, content_type="text/html", status=400)
+    return _embed_response(html, status=400)
 
 
 def _generate_embed_html(embed_url):
@@ -187,7 +230,7 @@ def dailymotion_proxy_view(request):
 
     html = _generate_dailymotion_embed_html(embed_url)
 
-    return HttpResponse(html, content_type="text/html")
+    return _embed_response(html)
 
 
 def _generate_dailymotion_embed_html(embed_url):

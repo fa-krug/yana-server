@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 
 
 class TestDefaultViews(TestCase):
@@ -51,3 +51,64 @@ class TestDefaultViews(TestCase):
         self.assertIn("loop=1", content)
         # Playlist param is added when loop is 1
         self.assertIn("playlist=test", content)
+
+    def test_youtube_proxy_sends_referrer_policy_header(self):
+        """YouTube rejects embeds with error 153 when no Referer reaches it."""
+        response = self.client.get("/api/youtube-proxy?v=dQw4w9WgXcQ")
+        self.assertEqual(response["Referrer-Policy"], "strict-origin-when-cross-origin")
+
+    def test_dailymotion_proxy_sends_referrer_policy_header(self):
+        """The Dailymotion embed page uses the same referrer policy."""
+        response = self.client.get("/api/dailymotion-proxy?v=x8abcde")
+        self.assertEqual(response["Referrer-Policy"], "strict-origin-when-cross-origin")
+
+    def test_error_page_sends_referrer_policy_header(self):
+        """The error page is served through the same response helper."""
+        response = self.client.get("/api/youtube-proxy")
+        self.assertEqual(response["Referrer-Policy"], "strict-origin-when-cross-origin")
+
+    def test_youtube_proxy_omits_jsapi_by_default(self):
+        """Without the IFrame API there is no origin for YouTube to reject."""
+        response = self.client.get("/api/youtube-proxy?v=dQw4w9WgXcQ")
+        content = response.content.decode()
+        self.assertNotIn("enablejsapi", content)
+        self.assertNotIn("origin=", content)
+
+    @override_settings(
+        BASE_URL="https://yana.example.com", ALLOWED_HOSTS=["yana.example.com", "testserver"]
+    )
+    def test_youtube_proxy_jsapi_opt_in_adds_origin(self):
+        """enablejsapi=1 re-enables the API together with a matching origin."""
+        response = self.client.get(
+            "/api/youtube-proxy?v=dQw4w9WgXcQ&enablejsapi=1",
+            headers={"host": "yana.example.com"},
+        )
+        content = response.content.decode()
+        self.assertIn("enablejsapi=1", content)
+        self.assertIn("origin=https%3A%2F%2Fyana.example.com", content)
+
+    @override_settings(
+        BASE_URL="https://yana.example.com", ALLOWED_HOSTS=["yana.example.com", "testserver"]
+    )
+    def test_youtube_proxy_origin_uses_base_url_scheme(self):
+        """A proxy that drops X-Forwarded-Proto must not downgrade the origin."""
+        response = self.client.get(
+            "/api/youtube-proxy?v=dQw4w9WgXcQ&enablejsapi=1",
+            headers={"host": "yana.example.com"},
+            secure=False,
+        )
+        content = response.content.decode()
+        self.assertIn("origin=https%3A%2F%2Fyana.example.com", content)
+        self.assertNotIn("origin=http%3A%2F%2Fyana.example.com", content)
+
+    @override_settings(
+        BASE_URL="https://yana.example.com", ALLOWED_HOSTS=["yana.example.com", "testserver"]
+    )
+    def test_youtube_proxy_origin_falls_back_to_request_host(self):
+        """Requests to another host still get their own origin, not BASE_URL's."""
+        response = self.client.get(
+            "/api/youtube-proxy?v=dQw4w9WgXcQ&enablejsapi=1",
+            headers={"host": "testserver"},
+        )
+        content = response.content.decode()
+        self.assertIn("origin=http%3A%2F%2Ftestserver", content)
