@@ -413,6 +413,39 @@ describe("the AI actions", () => {
       expect(requests).toEqual([]);
     });
 
+    it("gives an over-long base URL the same advice, not the generic failure", async () => {
+      // `.max()` reports before `.refine()` runs, so this never reaches the
+      // `custom` arm -- `too_big` needs its own entry in `fieldErrorKeys` or the
+      // answer is a bare `{ ok: false }` and a toast reading "could not save
+      // these credentials", about a field the operator is looking straight at.
+      stubFetch(openaiOk);
+
+      const result = await actions.saveProvider("openai", {
+        apiKey: OPENAI_KEY,
+        model: OPENAI_MODEL,
+        apiUrl: `https://gateway.example.com/${"v".repeat(2100)}`,
+      });
+
+      expect(result).toEqual({ ok: false, errorKey: "openai.apiUrlInvalid" });
+      expect(requests).toEqual([]);
+    });
+
+    it("falls back to the generic failure for an over-long key, deliberately", async () => {
+      // `apiKey:too_big` is left unmapped, following YouTube's precedent: a key
+      // can only be too long, and "the key is too long" is not advice worth a
+      // catalog key of its own. Pinned so the omission reads as a decision.
+      stubFetch(openaiOk);
+
+      const result = await actions.saveProvider("openai", {
+        apiKey: "sk-proj-".padEnd(600, "x"),
+        model: OPENAI_MODEL,
+        apiUrl: "",
+      });
+
+      expect(result).toEqual({ ok: false });
+      expect(requests).toEqual([]);
+    });
+
     it("stores OpenAI's own endpoint when the base URL is left empty", async () => {
       // `apiUrl` is not a secret, so an empty field means empty -- and an empty
       // column would leave every later reader to remember its own fallback.
@@ -641,24 +674,40 @@ describe("the AI actions", () => {
   /**
    * **The ordering hazard: a provider can be active and *then* stop working.**
    *
-   * Nothing in the plan says what happens to `active_ai_provider` then, and the
-   * answer chosen here is that it is cleared by whichever write switched the
-   * flag off. Left dangling, the row would say "OpenAI is active" and "OpenAI is
-   * not verified" at once, and phase 12's summariser would quietly do nothing
-   * while the page still showed a provider selected -- the exact silent failure
-   * the probe-derived flag exists to prevent. `getAiStatus()` derives the same
-   * answer on the read side, so a row that goes dangling by any other route is
-   * still never *reported* as active; these tests cover the write side.
+   * The plan does not say what happens to `active_ai_provider` then. The ruling
+   * is that **nothing does**: the column records what the operator chose, and
+   * `activeProvider()` in `./queries` decides what is *reported* active by
+   * checking the flag. So a provider that stops working keeps its selection and
+   * simply stops being reported -- and starts being reported again the moment a
+   * save makes it work, with no second decision to make.
+   *
+   * A clear-on-disable was written first and removed. It bought nothing the
+   * derivation did not already give, and it cost real state: OpenAI's
+   * `insufficient_quota` is classified `unauthorized` on purpose (see
+   * `./openai`), so an unpaid bill on the active provider would have permanently
+   * erased a selection the operator never changed -- and paying it would not
+   * have brought the selection back.
+   *
+   * Each case below asserts **both halves**: the column still holds the
+   * preference, *and* `getAiStatus()` does not report it as active. Asserting
+   * only the column would pass just as happily if the derivation were broken,
+   * which is the whole contract now.
    */
   describe("an active provider that stops working", () => {
-    it("is cleared when its credentials are removed", async () => {
+    /** What `/ai` and phase 12 would see for the row as it now stands. */
+    async function reportedActive(): Promise<string> {
+      return (await (await import("./queries")).getAiStatus()).active;
+    }
+
+    it("keeps the operator's choice when its credentials are removed", async () => {
       seed({ openaiApiKey: OPENAI_KEY, openaiEnabled: true, activeAiProvider: "openai" });
 
       expect(await actions.removeProvider("openai")).toEqual({ ok: true });
-      expect(row()).toMatchObject({ openai_enabled: 0, active_ai_provider: "" });
+      expect(row()).toMatchObject({ openai_enabled: 0, active_ai_provider: "openai" });
+      expect(await reportedActive()).toBe("");
     });
 
-    it("is cleared when a re-save is refused by the provider", async () => {
+    it("keeps the operator's choice when a re-save is refused by the provider", async () => {
       seed({ openaiApiKey: OPENAI_KEY, openaiEnabled: true, activeAiProvider: "openai" });
       stubFetch(openaiRejected);
 
@@ -669,12 +718,53 @@ describe("the AI actions", () => {
       });
 
       expect(result).toEqual({ ok: false, errorKey: "openai.rejected" });
-      expect(row()).toMatchObject({ openai_enabled: 0, active_ai_provider: "" });
+      expect(row()).toMatchObject({ openai_enabled: 0, active_ai_provider: "openai" });
+      expect(await reportedActive()).toBe("");
     });
 
-    it("survives a probe that was never answered, because nothing was written", async () => {
-      // The other half: an unreachable provider is not a verdict, so a working
-      // integration keeps working and the operator's choice is left alone.
+    /**
+     * **The case that decided the ruling.**
+     *
+     * An unpaid OpenAI bill answers `429 insufficient_quota`, which `./openai`
+     * classifies as `unauthorized` deliberately -- routing it to `quota` would
+     * send it to the arm that writes nothing, and an operator with an unpaid
+     * bill could then never save a key that is perfectly valid. So it reaches
+     * `judge()`'s `bad` arm and switches the flag off. Had the selection been
+     * cleared there, paying the bill would restore the flag but not the choice.
+     */
+    it("comes back by itself once the provider works again", async () => {
+      seed({ openaiApiKey: OPENAI_KEY, openaiEnabled: true, activeAiProvider: "openai" });
+      stubFetch(
+        () =>
+          new Response(JSON.stringify({ error: { type: "insufficient_quota" } }), { status: 429 }),
+      );
+
+      expect(
+        await actions.saveProvider("openai", {
+          apiKey: OPENAI_KEY,
+          model: OPENAI_MODEL,
+          apiUrl: "",
+        }),
+      ).toEqual({ ok: false, errorKey: "openai.rejected" });
+      expect(await reportedActive()).toBe("");
+
+      // The bill is paid and the same key is saved again. Nothing re-selects the
+      // provider, and nothing has to.
+      stubFetch(openaiOk);
+      expect(
+        await actions.saveProvider("openai", {
+          apiKey: OPENAI_KEY,
+          model: OPENAI_MODEL,
+          apiUrl: "",
+        }),
+      ).toEqual({ ok: true });
+      expect(await reportedActive()).toBe("openai");
+    });
+
+    it("stays reported when the probe was never answered, because nothing was written", async () => {
+      // An unreachable provider is not a verdict, so the flag is untouched and
+      // the provider is still active -- neither the column nor the derivation
+      // moves.
       seed({ openaiApiKey: OPENAI_KEY, openaiEnabled: true, activeAiProvider: "openai" });
       stubFetch(networkFailure);
 
@@ -685,11 +775,12 @@ describe("the AI actions", () => {
       });
 
       expect(row()).toMatchObject({ openai_enabled: 1, active_ai_provider: "openai" });
+      expect(await reportedActive()).toBe("openai");
     });
 
     it("leaves a different provider's choice alone", async () => {
-      // The clear is scoped to the provider that was just written; disabling
-      // OpenAI must not switch off an Anthropic selection.
+      // Disabling OpenAI must not disturb an Anthropic selection -- neither the
+      // stored preference nor what is reported.
       seed({
         anthropicEnabled: true,
         activeAiProvider: "anthropic",
@@ -699,19 +790,7 @@ describe("the AI actions", () => {
 
       expect(await actions.removeProvider("openai")).toEqual({ ok: true });
       expect(row()).toMatchObject({ openai_enabled: 0, active_ai_provider: "anthropic" });
-    });
-
-    it("is repaired on the next save even if the row went dangling some other way", async () => {
-      // The clear runs after every save and every removal rather than only where
-      // it is expected to fire, so a row edited by hand -- or by a later phase
-      // that flips a flag without going through these actions -- heals.
-      seed({ activeAiProvider: "gemini", geminiEnabled: false, geminiApiKey: GEMINI_KEY });
-      stubFetch(geminiOk);
-
-      await actions.saveProvider("gemini", { apiKey: KEEP_EXISTING, model: GEMINI_MODEL });
-
-      // The save re-enabled it, so the choice is legitimate again and stands.
-      expect(row()).toMatchObject({ gemini_enabled: 1, active_ai_provider: "gemini" });
+      expect(await reportedActive()).toBe("anthropic");
     });
   });
 
@@ -753,18 +832,44 @@ describe("the AI actions", () => {
       });
     });
 
+    /**
+     * **Both ends of every bound, not just the memorable one.**
+     *
+     * The first version tested four lower ends and no upper ends at all, which
+     * left half the ceilings unexercised and `advanced.monthlyLimitRange` a
+     * shipped catalog key that no test ever reached -- reachable in code, so a
+     * key that had been deleted or misspelled would have gone out with a raw
+     * dotted path in the toast.
+     */
     it.each([
       ["a temperature above 2", "temperature", 2.5, "advanced.temperatureRange"],
       ["a negative temperature", "temperature", -0.1, "advanced.temperatureRange"],
       ["maxTokens of zero", "maxTokens", 0, "advanced.maxTokensRange"],
+      ["maxTokens past the ceiling", "maxTokens", 200_001, "advanced.maxTokensRange"],
       ["a fractional maxTokens", "maxTokens", 10.5, "advanced.maxTokensRange"],
       ["a daily limit of zero", "dailyLimit", 0, "advanced.dailyLimitRange"],
+      ["a daily limit past the ceiling", "dailyLimit", 100_001, "advanced.dailyLimitRange"],
+      // The monthly limit had neither end covered, so its own range key was
+      // unreachable from any test. The cross-field rule cannot pre-empt these:
+      // `.superRefine()` only runs once the object itself parses, so a
+      // `too_small` on this field is reported before the comparison happens.
+      ["a monthly limit of zero", "monthlyLimit", 0, "advanced.monthlyLimitRange"],
+      ["a monthly limit past the ceiling", "monthlyLimit", 100_001, "advanced.monthlyLimitRange"],
       ["a prompt length of zero", "maxPromptLength", 0, "advanced.maxPromptLengthRange"],
+      [
+        "a prompt length past the ceiling",
+        "maxPromptLength",
+        100_001,
+        "advanced.maxPromptLengthRange",
+      ],
       ["a two-second timeout", "requestTimeout", 2, "advanced.requestTimeoutRange"],
+      ["a timeout past ten minutes", "requestTimeout", 601, "advanced.requestTimeoutRange"],
       ["an eleventh retry", "maxRetries", 11, "advanced.maxRetriesRange"],
       ["a negative retry count", "maxRetries", -1, "advanced.maxRetriesRange"],
       ["a two-minute retry delay", "retryDelay", 120, "advanced.retryDelayRange"],
+      ["a negative retry delay", "retryDelay", -1, "advanced.retryDelayRange"],
       ["a two-minute request delay", "requestDelay", 120, "advanced.requestDelayRange"],
+      ["a negative request delay", "requestDelay", -1, "advanced.requestDelayRange"],
       ["a temperature that is not a number", "temperature", "warm", undefined],
     ])("rejects %s", async (_label, field, value, errorKey) => {
       const result = await withField(field as string, value);
@@ -838,6 +943,59 @@ describe("the AI actions", () => {
       } finally {
         connection.close();
       }
+    });
+  });
+
+  /**
+   * **A signed-in caller with no `user_settings` row.**
+   *
+   * A provisioning bug, and the same state `getSettings()` throws for and must
+   * not self-heal. Reachable: `createUserWithPassword()` deliberately does not
+   * create a settings row -- the admin bootstrap and phase 5's user creation do
+   * that themselves -- so an account provisioned by some future path that
+   * forgets lands here. Both arms below would otherwise report success over a
+   * write that touched nothing, which a reload silently reverts.
+   *
+   * The credential paths need no case of their own: `verify()` in
+   * `@/lib/integrations/define` refuses a missing row before it probes, and
+   * `src/lib/integrations/actions.test.ts` covers it there.
+   */
+  describe("a caller whose settings row was never provisioned", () => {
+    beforeEach(async () => {
+      const { auth, createUserWithPassword } = await import("@/lib/auth/server");
+      await createUserWithPassword({
+        email: "unprovisioned@example.com",
+        password: "correct horse battery staple",
+      });
+      requestHeaders.current = new Headers({
+        cookie: await signInCookie(auth, {
+          email: "unprovisioned@example.com",
+          password: "correct horse battery staple",
+        }),
+      });
+      // Expected here, and only here: `console.error` is left live for the rest
+      // of the file precisely so a write that starts failing is noticed.
+      vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    it("refuses to report a saved setting that touched no row", async () => {
+      const result = await actions.saveAdvanced(VALID_ADVANCED);
+
+      expect(result).toEqual({ ok: false, errorKey: "saveFailed" });
+      expect(failureMessage(result)).toBeTypeOf("string");
+      expect(console.error).toHaveBeenCalledWith(
+        expect.stringContaining("no user_settings row for user"),
+      );
+    });
+
+    it("refuses to select a provider when there is no row to select it in", async () => {
+      const result = await actions.setActiveProvider("");
+
+      expect(result).toEqual({ ok: false, errorKey: "saveFailed" });
+      expect(failureMessage(result)).toBeTypeOf("string");
+      expect(console.error).toHaveBeenCalledWith(
+        expect.stringContaining("no user_settings row for user"),
+      );
     });
   });
 });

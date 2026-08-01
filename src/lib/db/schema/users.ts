@@ -98,14 +98,20 @@ export const userSettings = sqliteTable(
     /**
      * --- AI provider selection: empty disables AI entirely ---
      *
-     * **A value here is a preference, not a permission.** It is only acted on
-     * when the named provider's `*Enabled` flag -- which is probe-derived, never
-     * request-derived -- is also true. `setActiveProvider()` refuses to write a
-     * provider that has not passed a probe, and the two paths that can switch a
-     * flag off (a save whose probe came back `unauthorized`, and a removal) clear
-     * this column when it names the provider they just disabled; `getAiStatus()`
-     * reports it as unset if it ever disagrees anyway. See
-     * `src/lib/ai/actions.ts`.
+     * **A value here is a preference, not a permission**, and the two are kept
+     * apart on purpose. `setActiveProvider()` refuses to *write* a provider whose
+     * probe-derived `*Enabled` flag is false, but nothing erases what is already
+     * written when a flag later goes false -- a rejected re-probe, a removed key.
+     * Which provider is *actually* active is derived instead, by
+     * `activeProvider()` in `src/lib/ai/queries.ts`, which answers "none"
+     * whenever the named provider's flag disagrees.
+     *
+     * Clearing the column on those paths was written and then removed. It bought
+     * nothing the derivation did not already give, and it cost real state:
+     * OpenAI's `insufficient_quota` is classified `unauthorized` deliberately
+     * (see `src/lib/ai/openai.ts`), so an unpaid bill on the active provider
+     * would have permanently erased a selection the operator never changed --
+     * and paying it would not bring the selection back. Left alone, it does.
      */
     activeAiProvider: text("active_ai_provider").notNull().default(""),
 

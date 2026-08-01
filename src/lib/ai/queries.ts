@@ -74,15 +74,20 @@ export type AiStatus = {
   /**
    * The provider AI actually runs on, or `""` for none.
    *
-   * **Derived, not read straight out of the column.** `active_ai_provider` is a
-   * preference; a provider is only active if its probe-derived `*Enabled` flag
-   * agrees. `./actions` already clears the column on the two paths that can
-   * switch a flag off, so this normally reports the stored value unchanged -- but
-   * those are two writes rather than one, and the column is also reachable by a
-   * hand-edited database, a future phase that flips a flag without going through
-   * these actions, or an import. Deriving makes the dangling state unobservable
-   * instead of merely unlikely, which is the same argument `safeAvatarSrc()`
-   * rests on: check the value you are about to *use*.
+   * **Derived, not read straight out of the column, and this is the *only*
+   * place that decision is made.** `active_ai_provider` is a preference; a
+   * provider is only active if its probe-derived `*Enabled` flag agrees. Nothing
+   * on the write side erases the preference when a flag goes false -- see
+   * `setActiveProvider()` in `./actions` for why not, in short: OpenAI's unpaid
+   * bill classifies as `unauthorized`, so clearing would permanently drop a
+   * selection the operator never changed, and paying the bill would not bring it
+   * back. Deriving here brings it back by itself.
+   *
+   * That also covers every route a write-side clear could not reach anyway: a
+   * hand-edited database, an import, a later phase flipping a flag without going
+   * through these actions, and a key the registry has since dropped. Same
+   * argument `safeAvatarSrc()` rests on -- check the value you are about to
+   * *use*, rather than trusting that every writer remembered.
    *
    * Getting this wrong is the silent failure the whole page exists to prevent --
    * a badge reading "Active" over a provider that cannot answer, and summaries

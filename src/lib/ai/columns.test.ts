@@ -58,4 +58,16 @@ describe("resolveModel", () => {
   it("falls back for an empty stored value", () => {
     expect(openai && resolveModel(openai, "")).toBe(openai?.defaultModel);
   });
+
+  it("falls back for another provider's model id", () => {
+    // Not a hypothetical shape: the three model columns are all plain text, so
+    // a row copied between accounts, an import, or a form posting the wrong
+    // provider's selection all land here. It is the same branch as a retired id,
+    // and it is spelled out because "still offered *by this provider*" is the
+    // part of the rule that is easy to read past.
+    const gemini = providerByKey("gemini");
+    expect(openai && gemini && resolveModel(openai, gemini.defaultModel)).toBe(
+      openai?.defaultModel,
+    );
+  });
 });

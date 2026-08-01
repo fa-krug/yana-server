@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
@@ -40,9 +40,11 @@ import type { AiKey, AiResult, AiSaveResult } from "./result";
  *    purpose, at each probe's 429 branch. A literal in this file would be a
  *    fourth copy able to drift from all three, which is the precise failure the
  *    field was made required to prevent.
- * 2. **`active_ai_provider` may never name a provider that is switched off.**
- *    It is a preference, and the flag is the permission; see
- *    {@link setActiveProvider} and {@link clearActiveIfDisabled} below.
+ * 2. **`active_ai_provider` is a preference; the `*Enabled` flag is the
+ *    permission.** Nothing here erases the preference when a flag goes false --
+ *    which provider is *actually* active is derived on the read side by
+ *    `activeProvider()` in `./queries`. See {@link setActiveProvider}, where the
+ *    reasoning is written out.
  */
 
 /** Revalidated after every write here, and never after a Test. */
@@ -222,10 +224,24 @@ const openai = defineIntegration({
   },
   flagColumn: AI_COLUMNS.openai.enabled,
   requiredKey: PROVIDER_KEYS.openai.required,
-  // Keyed on `field:code`; a `.refine()` failure is zod's `custom`.
+  /**
+   * Keyed on `field:code`; a `.refine()` failure is zod's `custom`.
+   *
+   * **`too_big` shares the URL's key with `custom`** rather than falling through
+   * to the page's generic failure: both mean "that is not a base URL this will
+   * accept", and the key's message names the field and shows the shape one
+   * should have -- which is advice, where "could not save these credentials" is
+   * not. It is a separate entry because `.max()` reports before `.refine()` gets
+   * to run, so a 3000-character string never reaches the `custom` arm at all.
+   *
+   * **`apiKey:too_big` is deliberately left unmapped**, following YouTube's
+   * precedent in `@/lib/integrations/actions`: a key can only be too long, and
+   * "the key is too long" is not advice worth a catalog key of its own.
+   */
   fieldErrorKeys: {
     "model:custom": PROVIDER_KEYS.openai.modelUnknown,
     "apiUrl:custom": "openai.apiUrlInvalid",
+    "apiUrl:too_big": "openai.apiUrlInvalid",
   },
   probe: AI_PROBES.openai,
   keys: {
@@ -294,70 +310,26 @@ function logMissingRow(userId: string): void {
 }
 
 /**
- * **Never let `active_ai_provider` name a provider that is switched off.**
- *
- * A provider can be made active and *then* stop working: a re-probe comes back
- * `unauthorized` and `judge()` writes the flag false, or the operator removes
- * the credentials outright. Left alone, the row would say "OpenAI is the active
- * provider" while also saying "OpenAI is not verified" -- and phase 12's
- * summariser would either run against a rejected key or, more likely, do nothing
- * at all while the page still showed a provider selected. That silent nothing is
- * the failure this page exists to make visible, so the state is not allowed to
- * exist.
- *
- * Called after **every** save and every removal, unconditionally: the `WHERE`
- * clause is the whole condition, so it is a no-op unless the row really does
- * name a provider whose flag is false. That also makes it self-healing for a row
- * that arrived dangling by some other route.
- *
- * **It is a second transaction, not part of the flag write, and that is a
- * deliberate limit.** The flag is written inside `@/lib/integrations/define`,
- * which knows nothing about an active provider and should not -- expressing this
- * atomically would mean a new field on the descriptor, which is a change to a
- * module `/integrations` shares (raised in this task's report rather than made).
- * What makes the gap harmless is that the read path derives too: `activeProvider()`
- * in `./queries` reports "none" for a row whose flag disagrees, so the
- * intermediate state is never *observable* even though it is briefly writable.
- * A failure here is logged and swallowed for the same reason -- the derivation
- * already covers it, and turning a successful credential save into a reported
- * failure would be the worse answer.
- */
-function clearActiveIfDisabled(userId: string, key: AiProviderKey): void {
-  try {
-    writeTransaction((tx) =>
-      tx
-        .update(userSettings)
-        .set({ activeAiProvider: "" })
-        .where(
-          and(
-            eq(userSettings.userId, userId),
-            eq(userSettings.activeAiProvider, key),
-            eq(userSettings[AI_COLUMNS[key].enabled], false),
-          ),
-        )
-        .run(),
-    );
-  } catch (error) {
-    console.error(`${LOG_PREFIX} could not clear the active provider`, error);
-  }
-}
-
-/**
  * Save one provider's credentials: probe first, then write what the verdict
  * allows.
  *
- * The whole sequence is `@/lib/integrations/define`'s; the only thing added here
- * is the active-provider repair, which runs after the write for the reason
- * above. It is safe after a `revalidatePath()` -- that marks the path dirty, and
- * the re-render happens after this action returns.
+ * The whole sequence is `@/lib/integrations/define`'s. The only thing this adds
+ * is refusing a provider key Yana does not support before any of it runs.
+ *
+ * **It deliberately does not touch `active_ai_provider`, even when the probe's
+ * verdict switches this provider off.** See {@link setActiveProvider}: the
+ * column is a preference and the read path derives what is *actually* active
+ * from it, so a save that disables a provider does not need to erase the
+ * operator's choice -- and erasing it would be worse. OpenAI's
+ * `insufficient_quota` is classified `unauthorized` on purpose (see `./openai`),
+ * so an unpaid bill on the active provider would wipe the selection permanently:
+ * the operator pays, re-saves, the flag comes back true, and they still have to
+ * re-pick a provider they never deselected. Leaving the preference alone means
+ * the selection returns by itself.
  */
 export async function saveProvider(key: string, input: unknown): Promise<AiSaveResult> {
   const found = lookup(key);
-  if (!found) return { ok: false, errorKey: "unknownProvider" };
-
-  const result = await found.actions.save(input);
-  clearActiveIfDisabled(await currentUserId(), found.provider.key);
-  return result;
+  return found ? found.actions.save(input) : { ok: false, errorKey: "unknownProvider" };
 }
 
 /**
@@ -388,14 +360,15 @@ export async function testProvider(key: string, input: unknown): Promise<AiSaveR
  * an unconfigured one. Only the API key is wiped -- the model and the base URL
  * are not credentials, and throwing away a carefully-typed gateway URL on the
  * way to re-entering a key would be a small cruelty.
+ *
+ * **`active_ai_provider` is left alone here too**, for the same reason
+ * `saveProvider` leaves it alone: it is a preference, the read path derives what
+ * is actually active, and an operator who removes a key to rotate it should not
+ * have to re-pick the provider afterwards.
  */
 export async function removeProvider(key: string): Promise<AiResult> {
   const found = lookup(key);
-  if (!found) return { ok: false, errorKey: "unknownProvider" };
-
-  const result = await found.actions.remove();
-  clearActiveIfDisabled(await currentUserId(), found.provider.key);
-  return result;
+  return found ? found.actions.remove() : { ok: false, errorKey: "unknownProvider" };
 }
 
 /**
@@ -417,6 +390,30 @@ export async function removeProvider(key: string): Promise<AiResult> {
  *
  * `""` needs no check: switching AI off is always allowed, and it is the state a
  * fresh row starts in.
+ *
+ * ## What happens when an active provider *stops* working
+ *
+ * A provider can be made active and then have its credentials refused by a
+ * re-probe, or removed outright. **The column is left holding its name, and
+ * that is deliberate.** It records what the operator chose; `activeProvider()`
+ * in `./queries` is what decides which provider is *reported* active, and it
+ * answers `""` whenever the named provider's flag disagrees -- so a page never
+ * shows a selection that cannot work, and phase 12's summariser asking the same
+ * question gets the same answer.
+ *
+ * Clearing the column instead was written first and then removed, because the
+ * derivation is strictly more forgiving and the cost of clearing is real.
+ * OpenAI's `insufficient_quota` is classified `unauthorized` on purpose (see
+ * `./openai`: routing it to `quota` would send it to the arm that writes
+ * nothing, so an operator with an unpaid bill could never save a perfectly valid
+ * key). That drives `judge()` into `bad`, which switches the flag off -- so an
+ * unpaid bill on the active provider would have *permanently* erased the
+ * selection. Pay the bill, re-save, the flag comes back true, and with the
+ * derivation the provider is active again on its own; with a clear, the operator
+ * has to re-pick something they never deselected, with nothing to tell them why.
+ *
+ * The other half of the argument is that clearing bought nothing: the state it
+ * removed was already unobservable, because the read path derives either way.
  */
 export async function setActiveProvider(key: string): Promise<AiResult> {
   const userId = await currentUserId();
