@@ -74,6 +74,9 @@ afterEach(() => {
   // The feature-detection tests below add it; jsdom does not have it natively,
   // and leaving one behind would decide what the next test renders.
   Reflect.deleteProperty(window, "PublicKeyCredential");
+  // The no-probe test replaces `fetch`; this hands src/test/setup.ts's own stub
+  // back to every other file and test.
+  vi.unstubAllGlobals();
 });
 
 describe("LoginForm", () => {
@@ -160,6 +163,18 @@ describe("LoginForm", () => {
     // rejection escaped the handler, busy was never cleared, and the form sat
     // on "Signing in" forever with no message -- recoverable only by reloading.
     signInEmail.mockRejectedValue(new TypeError("fetch failed"));
+    // **This page must not ask whether the session ended, and that is now an
+    // argument rather than an absence.** `attemptCall()` (`@/lib/attempt`)
+    // probes `/api/auth/get-session` after a rejection everywhere else, and
+    // this form passes `sessionProbe: "skip"` -- two words that can be deleted
+    // without any other test noticing, because `src/test/setup.ts` answers the
+    // probe with a live session. In production the probe answers `null` here,
+    // which is the *normal* state on /login: the form would hard-navigate to
+    // `/login?next=%2Flogin`, reloading itself, discarding the typed password
+    // and swallowing the message below. So the assertion is that nothing was
+    // asked at all.
+    const probe = vi.fn(() => Promise.resolve(new Response("null", { status: 200 })));
+    vi.stubGlobal("fetch", probe);
     renderForm("/settings");
 
     revealPassword();
@@ -172,6 +187,8 @@ describe("LoginForm", () => {
     expect(screen.getByRole("button", { name: de.auth.signIn }).hasAttribute("disabled")).toBe(
       false,
     );
+    // Nothing was asked -- and so nothing navigated.
+    expect(probe).not.toHaveBeenCalled();
     expect(navigatedTo()).toEqual([]);
     // The platform's "TypeError: fetch failed" is not a translated string and
     // must not be what the user reads.
