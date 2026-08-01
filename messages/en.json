@@ -97,6 +97,22 @@
       "lastOneNeedsPassword": "This is your only way to sign in. Set a password before removing it."
     }
   },
+  "users": {
+    "saveFailed": "Could not save this user",
+    "deleteFailed": "Could not delete the selected users",
+    "requestFailed": "The server did not answer. Check your connection and try again.",
+    "sessionEnded": "Your session ended. Sign in again to continue.",
+    "emailInvalid": "That is not a valid email address.",
+    "emailTaken": "Another account already uses that email address.",
+    "nameTooLong": "A name may be at most 150 characters.",
+    "passwordTooShort": "A password must be at least {min} characters.",
+    "roleInvalid": "Choose either Administrator or Standard.",
+    "notFound": "That user no longer exists.",
+    "noneSelected": "Select at least one user first.",
+    "deleteSelf": "You cannot delete your own account. Ask another administrator to do it.",
+    "demoteSelf": "You cannot remove your own administrator role — you would lose access to this page.",
+    "lastAdmin": "This is the last administrator who can still sign in. Promote somebody else first."
+  },
   "settings": {
     "title": "Settings",
     "general": { "title": "General", "theme": "Theme", "language": "Language" },

@@ -97,6 +97,22 @@
       "lastOneNeedsPassword": "Das ist deine einzige Anmeldemöglichkeit. Setze zuerst ein Passwort."
     }
   },
+  "users": {
+    "saveFailed": "Dieser Benutzer konnte nicht gespeichert werden",
+    "deleteFailed": "Die ausgewählten Benutzer konnten nicht gelöscht werden",
+    "requestFailed": "Der Server hat nicht geantwortet. Prüfe deine Verbindung und versuche es erneut.",
+    "sessionEnded": "Deine Sitzung ist abgelaufen. Melde dich erneut an.",
+    "emailInvalid": "Das ist keine gültige E-Mail-Adresse.",
+    "emailTaken": "Ein anderes Konto verwendet diese E-Mail-Adresse bereits.",
+    "nameTooLong": "Ein Name darf höchstens 150 Zeichen lang sein.",
+    "passwordTooShort": "Ein Passwort muss mindestens {min} Zeichen lang sein.",
+    "roleInvalid": "Wähle entweder Administrator oder Standard.",
+    "notFound": "Diesen Benutzer gibt es nicht mehr.",
+    "noneSelected": "Wähle zuerst mindestens einen Benutzer aus.",
+    "deleteSelf": "Du kannst dein eigenes Konto nicht löschen. Bitte eine andere Administratorin oder einen anderen Administrator darum.",
+    "demoteSelf": "Du kannst dir deine Administratorrolle nicht selbst entziehen — du würdest den Zugriff auf diese Seite verlieren.",
+    "lastAdmin": "Das ist das letzte Administratorkonto, das sich noch anmelden kann. Ernenne zuerst jemand anderen."
+  },
   "settings": {
     "title": "Einstellungen",
     "general": { "title": "Allgemein", "theme": "Design", "language": "Sprache" },
