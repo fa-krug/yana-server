@@ -14,12 +14,17 @@
  *
  * A saved secret is never sent to the client, so the form cannot round-trip
  * the real value -- it renders a masked placeholder instead, and submits this
- * sentinel when the user leaves that field untouched. No provider's API key or
- * client secret begins with a space, and any value a user actually pastes is
- * trimmed of surrounding whitespace before it is ever compared, so a real
- * credential can never collide with it.
+ * sentinel when the user leaves that field untouched. Contains a NUL byte,
+ * which no legitimate API key or client secret does.
+ *
+ * The NUL survives only because this sentinel never becomes an HTML input
+ * value: a secret field renders empty with the mask shown as its placeholder,
+ * and an empty submission already resolves to keep-existing, so this constant
+ * only ever crosses the wire as an RSC-serialized argument, which preserves a
+ * NUL byte intact -- an `<input value=...>` would strip or mangle it. Binding
+ * this constant to an input's value would break it.
  */
-export const KEEP_EXISTING = " keep";
+export const KEEP_EXISTING = "\0keep";
 
 export function mask(value: string): string {
   if (!value) return "";
