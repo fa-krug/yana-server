@@ -1235,6 +1235,35 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     component; `@testing-library/react` + plain DOM queries and vitest's own
     `expect` (no `jest-dom`).
 
+  **`testTimeout` is 20s at the root, and that is not a claim that the tests are
+  slow.** They assert in milliseconds; what does not fit in Vitest's 5s default
+  is the one-time _cold_ work in front of the assertion. Two kinds. Fifteen node
+  tests call `vi.resetModules()` and then `await import(...)`, which
+  re-transforms the graph through Vite and re-loads `better-sqlite3`'s native
+  binding — aggregate import time across the 64 files is **34–44s**, so a single
+  cold import is seconds (`src/instrumentation.test.ts > register > logs and
+exits when startup fails` pays one _inside the test body_). And Better Auth's
+  scrypt is expensive on purpose, so `users.test.ts`'s `listUsers` cases spend
+  their budget seeding a dozen accounts before they assert. Both are wall-clock
+  budgets against CPU-bound work, so the failure is **load-dependent, not
+  branch-dependent**: green on an idle laptop, intermittent on CI, where
+  `ubuntu-latest` is a 2-core shared runner. Reproducing it needs load — running
+  the suite under 48 busy loops on 8 cores failed 8 tests, all
+  `Test timed out in 5000ms`, and an idle run proves nothing. It is at the
+  **root** so both projects inherit it through `extends: true`, deliberately not
+  node-only: 4 of those 8 were `dom` tests, because building a jsdom environment
+  and rendering React is its own cold cost. **`hookTimeout` is raised with it,
+  to 30s, and finding out why is the cautionary part**: most node tests do
+  strictly _more_ cold work in `beforeEach` (reset, a real `applyMigrationsAt()`,
+  four to six cold imports) than in the body, so the hooks were always the larger
+  exposure — Vitest's 2x-larger 10s default merely hid it behind the tests that
+  were failing first. Raising `testTimeout` alone surfaced it immediately: the
+  next run under identical load failed `settings.test.ts` with
+  `Hook timed out in 10000ms`. Fix one and re-measure, because the second
+  failure only becomes reachable once the first stops firing. **Never paper over
+  any of this with `retry`**, which would hide a real regression along with the
+  flake.
+
   Shared wrappers live in **`src/test/`**, and it serves **both** projects —
   `next-headers.ts` is used by four `.test.ts` files in the node one. Extend
   them rather than copy-pasting:
