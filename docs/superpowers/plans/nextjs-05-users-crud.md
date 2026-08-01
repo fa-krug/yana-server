@@ -8,6 +8,47 @@
 
 **Tech Stack:** Next.js App Router, shadcn table + checkbox + alert-dialog, Zod, Drizzle.
 
+---
+
+> ## ⚠ This plan is a historical record. Phase 5 has shipped; read `CLAUDE.md`.
+>
+> Five human rulings landed during execution and two more parts of the plan turned out to be
+> wrong on contact. The **task bodies below were never rewritten** — rewriting them would make the
+> record of what was planned indistinguishable from what happened. What shipped is in `CLAUDE.md`
+> and in the direction record's "Carried forward from phase 5's review".
+>
+> 1. **Actions return a catalog `errorKey`, never `error: string`, by human ruling.** The plan
+>    specifies `{ ok, error? }` with English prose in it; an English validator message rendered into
+>    a German UI is exactly what `CLAUDE.md`'s convention exists to prevent. Keys are typed at their
+>    source (`NamespaceKey<"users">`) so a key neither catalog defines fails `npm run typecheck`.
+> 2. **"Admin" is `isAdminRole()`, never `role === "admin"`, by human ruling.** `users.role` is a
+>    comma-separated **list** — `"user,admin"` is an administrator to every Better Auth endpoint.
+>    Global Constraints below says `role === "admin"` and Task 3 goes further, specifying "a
+>    `users.role` equality when `filters.role` is set … this is now a direct equality". **That is
+>    the defect the ruling forbids**, and the implementation correctly ignored it: the list filter
+>    is `instr(',' || role || ',', ',admin,')`, which reproduces `isAdminRole()`'s semantics
+>    byte-exactly in SQL, and `users.test.ts` asserts the two agree over every shape the column can
+>    hold.
+> 3. **`buildListHref` is three-argument merge-and-reset**, `(pathname, current, changes)`, rather
+>    than the plan's shape.
+> 4. **The `<Select>` `items` gap is closed by making the prop required in the type**, so omitting
+>    it is a `npm run typecheck` failure rather than a trigger that prints the raw value.
+> 5. **`attempt()` was unified into one namespace-parameterized helper**, `attemptIn()` in
+>    `src/lib/attempt.ts`, with one binding per feature in `<feature>/result.ts`.
+>
+> Two further passages a later reader should not trust:
+>
+> - **Task 4 Step 3's "its `run` calls `userImpact` first" is unimplementable** against the kit this
+>   same plan specifies: `description` is a **string prop** rendered before the dialog opens, and
+>   `run` **is** the dialog's `onConfirm` — so anything it fetched would arrive after the operator
+>   had already read the copy. What shipped fetches the counts when the *selection* changes and
+>   re-renders them into the open dialog, with an honest "counts not yet known" description until
+>   they land.
+> - **The Self-Review's "Type consistency" paragraph is wrong on two counts.** `{ ok, error? }` never
+>   matched phase 3's convention, and it says `error: string` — see ruling 1.
+
+---
+
 ## Global Constraints
 
 - **Every route in this phase is admin-only**, enforced by `requireAdmin()` from phase 4 — which 404s rather than 403s.

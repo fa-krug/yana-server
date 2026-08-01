@@ -376,12 +376,67 @@ Carried over from the previous direction record and still out of scope:
 | Deleting iOS `Yana/Aggregators/` | After phase 13 ships and the server is proven authoritative |
 | **Per-user** time zone | **Only this half is still open.** Phase 4 settled the process-level default: `src/i18n/request.ts` configures next-intl with `process.env.TZ \|\| "UTC"`, documented in `.env.example`. It had to, and not as scope creep — the account page's passkey list is the first rendered date, and with no configured zone next-intl falls back to the *environment's*: the container's on the server, the visitor's own in the browser, which is a hydration mismatch plus an ENVIRONMENT_FALLBACK warning on every render. Phases 5–10 inherit a working deployment-wide default and one question: whether a `user_settings.time_zone` column is worth it. Do not re-litigate the default |
 
+## Carried forward from phase 5's review
+
+Phase 5 shipped `/users` **and the reusable CRUD kit under it**. Phases 8, 9 and 10 (tags, feeds,
+articles) build their lists on that kit, so its contracts are inherited rather than merely
+available — this section is what a phase-6 agent reads before adding a list page.
+
+- **The kit's contracts, in the order they are easiest to get wrong.**
+  - **Select-all is page-scoped.** `toggleAll()` in `src/components/crud/selection.ts` never reaches
+    beyond the ids on the current page, and ids selected on other pages survive it untouched.
+    Selecting rows nobody has looked at is how a bulk delete removes more than the operator meant
+    to. A partial page counts as "select all", matching every other table an operator has used.
+  - **`run` and `onConfirm` resolve a `boolean`; success is not merely the absence of a throw.**
+    `<ConfirmDestructive>` closes only on `true`, so a refusal leaves the dialog standing over the
+    list it refers to, with the toast beside it. An action that returned `{ ok: false }` and threw
+    nothing would otherwise close the dialog and look like it worked. `run` **is** that `onConfirm`
+    for a destructive bulk action, which is why the two signatures have to agree.
+  - **`buildListHref(pathname, current, changes)` is three arguments, merge-and-reset** (human
+    ruling C). `q`, `pageSize` and `filters` change _what_ the list shows, so any of them actually
+    changing value resets to page one — an explicit `changes.page` in the same call loses, because
+    it was computed against the old result set. `sort`/`dir` deliberately do **not** reset:
+    re-ordering the same rows does not invalidate the page. `changes.filters` **merges per key**
+    (the whole-record replacement, and the hand-written spread that worked around it, went in the
+    phase's fix wave); clear one filter with `""`.
+  - **There are no per-page defaults, and the parameter that promised them is gone.** A second
+    defaults object reaches `parseListParams` but neither `useListParams()` — which three kit
+    components call, and the page does not render directly — nor `buildListHref`'s *omission* rule,
+    which decides that `pageSize: 25` is the value left out of the URL. A list that wants a default
+    sort puts it in the URL the navigation links to (`/articles?sort=publishedAt&dir=desc`), where
+    the server, the hook and the href builder all read it from one place.
+- **A feature's client-safe constants live in a dependency-free `fields.ts`; its `queries.ts` is
+  server-only.** `src/lib/users/fields.ts` imports only `@/lib/auth/roles`; `queries.ts` reaches
+  `getDb()`. This is the `@/lib/avatar` ↔ `@/lib/avatar-storage` split, and phase 5 hit it live —
+  one constant imported out of `queries.ts` dragged `better-sqlite3` into the browser bundle, as an
+  opaque bundler error rather than the stated rule. **Now lint-enforced**: `eslint.config.mjs`
+  restricts `**/lib/*/queries` from `src/components/**`, so every phase's `queries.ts` is covered
+  without the rule being extended. `allowTypeImports` is on — an `import type` for a row projection
+  is erased before bundling and is the preferred form.
+- **`attemptIn(namespace, keys)`, one binding per feature in `<feature>/result.ts`** (human ruling
+  E). Never `await` a server action bare from a client component. See the phase-4 entry below for
+  the unification this closed.
+- **A page authorizes and awaits its record in the page body, never inside a `<Suspense>` —
+  `src/app/(app)/users/[id]/page.tsx` is the precedent, and it is the one a later phase will get
+  wrong.** `notFound()` (and `redirect()`, and `forbidden()`) can only produce a status while the
+  response is still open; inside a boundary, after the shell has flushed, it truncates a 200
+  instead. So a detail route has no data region at all: it awaits one indexed primary-key lookup at
+  the top and lets `src/app/(app)/loading.tsx` be the fallback. The `<Suspense>` a *list* page keeps
+  is for rows whose absence is an empty table rather than a 404, and its `requireAdmin()` still sits
+  above the boundary. That same top-of-page `await` is also what opts the route out of
+  prerendering, so it needs no `connection()` call.
+- **`users.role` is a comma-separated list, and a form must not collapse one on the way past.**
+  `<UserForm>` seeds its two-option select through `isAdminRole()` but submits the **stored** string
+  unless the operator actually picks a role — otherwise saving a last name rewrites the column, a
+  write nobody asked for. Any later form editing a list-valued column inherits this.
+
 ## Carried forward from phase 4's review
 
 Decisions phase 4's whole-branch review surfaced that belong to a **later** phase.
 
-- **Phase 5 owns the `<Select>` `items` gap.** Already listed under phase 3's known gaps; phase 5 is
-  the first phase to add new selects, so it is the phase that closes it.
+- ~~**Phase 5 owns the `<Select>` `items` gap.** Already listed under phase 3's known gaps; phase 5 is
+  the first phase to add new selects, so it is the phase that closes it.~~ **Closed.** See that entry
+  under phase 3's known gaps for what shipped.
 - **A social or OAuth provider widens the bootstrap's "can this account sign in" test.**
   `completeDefaultAdmin()` in `src/lib/auth/bootstrap.ts` knows exactly two things: an
   `accounts` row with `providerId = "credential"`, and the `passkeys` table. An admin at
@@ -390,8 +445,14 @@ Decisions phase 4's whole-branch review surfaced that belong to a **later** phas
 - **`attempt()` is the pattern every later form copies.** `src/lib/account/result.ts`: never `await`
   a server action bare from a client component; `unstable_rethrow` first; then recognise the
   signed-out response rather than reporting it as a network failure. Phase 5's user CRUD is the
-  first place this gets copied, and a third caller is the point at which it and
-  `login-form.tsx`'s namesake should be unified.
+  first place this gets copied, and ~~a third caller is the point at which it and
+  `login-form.tsx`'s namesake should be unified.~~ **Closed** (human ruling E): the third caller
+  arrived and the three were unified into one implementation, `src/lib/attempt.ts`.
+  `attemptIn(namespace, keys)` returns a binding whose `errorKey` stays checked against
+  that one catalog namespace instead of widening to `string`, and it preserves the caller's own
+  result type, so `attempt(() => createUser(…))` still resolves something carrying `id`. **One
+  binding per feature, in `<feature>/result.ts`** — a `"use server"` module can export nothing but
+  async functions, which is why the type and the binding cannot live beside the actions.
 - **Identity changing without re-rendering the root layout is a standing hazard, not a sign-in
   quirk.** Sign-in and sign-out are both full document navigations for it. An account switcher or
   impersonation done in place would reproduce the mixed-locale render.
@@ -521,8 +582,8 @@ because phase 3's workspace is deleted, not because they are open questions for 
 Deliberately not fixed in phase 3 — small enough to defer, but each should be a known gap rather than
 a later surprise:
 
-- **`<Select>` still renders raw enum values unless the call site passes `items`.** The two selects on
-  `/settings` were fixed by passing `items` (which feeds trigger and popup from one list, so they
+- ~~**`<Select>` still renders raw enum values unless the call site passes `items`.** The two selects
+  on `/settings` were fixed by passing `items` (which feeds trigger and popup from one list, so they
   cannot drift), but `src/components/ui/select.tsx` leaves the trap reachable: a new `<Select>` with
   no `items` silently shows `light`/`de` instead of a label. Base UI cannot resolve labels itself —
   `SelectValue`'s `children` callback is typed `(value: any)`, which would break the compiler-checked
@@ -530,7 +591,14 @@ a later surprise:
   legitimate way to self-check. Guarded today only by a doc comment there and one disciplined call
   site. **Phase 5 is the first phase to add new selects: close this then**, with a stricter app-level
   props type requiring `items`, or an ESLint rule flagging a `<Select>` without it. A comment is not a
-  guard once there are nine phases of call sites.
+  guard once there are nine phases of call sites.~~ **Closed.** Phase 5 took the first of the two
+  options (human ruling D): `src/components/ui/select.tsx` re-declares Base UI's root props with
+  `Required<Pick<…, "items">>`, so a `<Select>` without them fails `npm run typecheck` rather than
+  shipping a trigger that prints `dark` or `user,admin`. The type was chosen over a lint rule because
+  it also states the requirement where a caller reads it. It makes you pass _something_, not the
+  right thing: build the one list and render the `<SelectItem>`s from it, and assert against the
+  trigger's `[data-slot="select-value"]` — the popup is never consulted for the collapsed label, so
+  a test that only opens it proves nothing.
 - `src/test/next-navigation.ts`'s `pathname` module state defaults to `"/"`, and nothing forces a test
   to call `setPathname()` before rendering — a future test that forgets would quietly assert against
   the wrong route. Make the default `undefined` and throw.

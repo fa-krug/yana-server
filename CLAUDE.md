@@ -50,12 +50,21 @@ file.
 │   │       ├── page.tsx           # dashboard
 │   │       ├── error.tsx          # error boundary for every route in the group
 │   │       ├── account/page.tsx   # /account — profile, password, passkeys
-│   │       └── settings/page.tsx
+│   │       ├── settings/page.tsx
+│   │       └── users/             # admin-only. page.tsx (list), new/, [id]/ (edit +
+│   │                              #   delete); each awaits requireAdmin() first
 │   ├── components/
 │   │   ├── ui/                    # shadcn components (Base UI + Tailwind v4)
 │   │   ├── auth/                   # login-form.tsx (passkey first), sign-out-button.tsx
 │   │   ├── account/                # profile-, password-, passkey-section.tsx
 │   │   ├── settings/               # general-, library-, about-section.tsx
+│   │   ├── crud/                   # the reusable list kit phases 8–10 consume:
+│   │   │                           #   data-table, pagination, search-filter-bar,
+│   │   │                           #   bulk-action-bar, confirm-destructive,
+│   │   │                           #   selection.ts, use-list-params.ts
+│   │   ├── users/                  # the kit, wired to users: users-table.tsx,
+│   │   │                           #   user-form.tsx, delete-user-section.tsx,
+│   │   │                           #   use-user-impact.ts
 │   │   ├── user-avatar.tsx         # image, else initials on a colour from the id
 │   │   ├── app-sidebar.tsx         # navigation, from src/lib/nav.ts
 │   │   ├── route-breadcrumbs.tsx   # segment-derived breadcrumbs
@@ -90,6 +99,11 @@ file.
 │   │   │   └── *.test.ts          # client, schema, relations, schema/enums
 │   │   ├── account/               # queries.ts (getAccountOverview), actions.ts (writes),
 │   │   │                          #   result.ts (the account attempt() binding)
+│   │   ├── crud/                  # params.ts — ListParams, parseListParams(),
+│   │   │                          #   buildListHref(); the URL is the list state
+│   │   ├── users/                 # fields.ts (client-safe constants — imports only
+│   │   │                          #   auth/roles), queries.ts (SERVER-ONLY reads),
+│   │   │                          #   actions.ts (writes), result.ts (attempt() binding)
 │   │   ├── attempt.ts             # attemptCall() + attemptIn() — the one guard in front of
 │   │   │                          #   every server action called from the browser
 │   │   ├── avatar.ts              # initialsFor/colourFor/displayNameFor/avatarUrlFor/
@@ -388,12 +402,20 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   `src/components/route-breadcrumbs.tsx` for the working form. Phases 5–13 will
   paste many shadcn snippets from documentation and tutorials that still assume
   Radix — expect this every time. One Base UI trap the phase-3 review caught
-  late: **a `<Select>` needs an `items` prop** (a record, or a
-  `{ value, label }[]`) or its collapsed trigger prints the raw value —
-  `<Select.Value>` resolves labels from `items` alone and never reads
-  `<Select.ItemText>`, so translated popup items prove nothing about the
-  trigger. Build the list once and render the `<SelectItem>`s from it, as
-  `src/components/settings/general-section.tsx` does.
+  late is no longer a thing to remember: **`items` is a _required_ prop on this
+  repository's `<Select>`** (`src/components/ui/select.tsx` re-declares Base
+  UI's root type with `Required<Pick<…, "items">>`), so omitting it is a
+  `npm run typecheck` failure rather than a wrong trigger discovered in a
+  browser. The reason it is required has to outlive the guard, because the
+  guard only makes you pass _something_: `<Select.Value>` resolves its label
+  from `items` alone and never reads `<Select.ItemText>`, so the collapsed
+  trigger prints the raw value — `dark`, `user,admin` — while the popup shows
+  perfectly translated options, and a test that only opens the popup proves
+  nothing about the trigger. Build the list once and render the
+  `<SelectItem>`s from it, as `src/components/settings/general-section.tsx`
+  and `src/components/users/user-form.tsx` do; assert against the trigger's
+  `[data-slot="select-value"]` text, which is what
+  `general-section.test.tsx` and `search-filter-bar.test.tsx` do.
 - **Every user-facing string comes from `messages/en.json` + `messages/de.json`**,
   which must define identical, non-empty key sets. That parity is what
   `src/i18n/messages.test.ts` enforces, and it is **all** it enforces: no test
@@ -439,6 +461,20 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     (app) layout as "a cookie read plus at most one indexed query" — it is a
     cookie read **and** one indexed query, unconditionally. A fourth exception
     needs the same argument made explicitly, not an appeal to this list.
+
+  **Whatever decides the response _status_ is awaited in the page body, never
+  inside a `<Suspense>`.** `notFound()`, `redirect()` and `forbidden()` can only
+  produce their status while the response is still open; inside a boundary,
+  after the shell has flushed, they truncate a 200 instead. So a detail route
+  awaits its row at the top and has no data region at all —
+  `src/app/(app)/users/[id]/page.tsx` is the precedent, and phases 9–11 each add
+  one. Two things fall out of it. The `<Suspense>` a list page keeps is for rows
+  whose _absence_ is an empty table rather than a 404
+  (`src/app/(app)/users/page.tsx`), and its gate still sits above the boundary.
+  And that same top-of-page `await` is what opts the route out of prerendering,
+  so it needs no `connection()` call — see the `connection()` bullet, which
+  lists it.
+
 - **Identity comes from the session: `currentUser()`, `requireUser()`,
   `requireAdmin()` and `currentUserId()` in `src/lib/auth/session.ts`.**
   `currentUserId()` keeps the signature phase 3 gave it and is re-exported from
@@ -994,17 +1030,26 @@ are `docs/superpowers/plans/nextjs-*.md`, executed in order. Phase 1 (scaffold),
 phase 2 (schema, migration `0000` and the bootstrap user — that seeder is gone,
 retired by phase 4's admin bootstrap), phase 3 (app shell —
 i18n/theme, sidebar/breadcrumbs, streaming skeletons, the settings page and
-`/health`), **phase 4 (auth — Better Auth with passkeys, `role` as the
+`/health`), phase 4 (auth — Better Auth with passkeys, `role` as the
 authorization model, the startup admin bootstrap, `src/proxy.ts`, `/login`,
-`/account` and avatars)** and the folder swap (phase 14, reworked to keep
-`old/`) are done; phases 5–13 — CRUD, aggregators, jobs and client API — are
-not. The direction record's last sections carry the decisions phases 2's, 3's
-and 4's reviews left to those phases.
+`/account` and avatars), **phase 5 (the admin-only users tab at `/users`, and
+the reusable CRUD kit under it — `src/lib/crud/params.ts` plus
+`src/components/crud/`, which phases 8, 9 and 10 consume for tags, feeds and
+articles)** and the folder swap (phase 14, reworked to keep `old/`) are done;
+phases 6–13 — the remaining CRUD, the aggregators, jobs and the client API —
+are not. The direction record's last sections carry the decisions phases 2's,
+3's, 4's and 5's reviews left to those phases; **"Carried forward from phase 5"
+is the one a phase-6 agent has to read**, because the kit's contracts are what
+it is about to build on.
 
-**`docs/superpowers/plans/nextjs-04-auth.md` is amended, not authoritative.**
-It was written before three human rulings and one framework rename, and its
-task bodies still show `users.isAdmin` and `src/middleware.ts`. Its header now
-says so; read this file for what phase 4 actually shipped.
+**Two plans are amended, not authoritative.**
+`docs/superpowers/plans/nextjs-04-auth.md` was written before three human
+rulings and one framework rename, and its task bodies still show
+`users.isAdmin` and `src/middleware.ts`.
+`docs/superpowers/plans/nextjs-05-users-crud.md` was written before five, and
+still specifies `error?: string` results, a `role === "admin"` filter and a
+confirmation dialog whose `run` fetches its own copy. Both headers now say so;
+read this file for what those phases actually shipped.
 
 Plans written before the swap use `yana-next/`-prefixed paths. Those are
 repository-root paths now.
