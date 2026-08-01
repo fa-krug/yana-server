@@ -155,6 +155,46 @@
     "demoteSelf": "Du kannst dir deine Administratorrolle nicht selbst entziehen — du würdest den Zugriff auf diese Seite verlieren.",
     "lastAdmin": "Das ist das letzte Administratorkonto, das sich noch anmelden kann. Ernenne zuerst jemand anderen."
   },
+  "tags": {
+    "title": "Tags",
+    "newTitle": "Neuer Tag",
+    "editTitle": "Tag bearbeiten",
+    "new": "Neuer Tag",
+    "searchPlaceholder": "Nach Tags suchen",
+    "columns": {
+      "name": "Name",
+      "created": "Erstellt",
+      "feeds": "Feeds"
+    },
+    "form": {
+      "name": "Name",
+      "create": "Tag anlegen",
+      "save": "Tag speichern",
+      "cancel": "Abbrechen",
+      "created": "Tag angelegt",
+      "saved": "Tag gespeichert"
+    },
+    "deleteAction": "Tag löschen",
+    "deleteConfirm": "Löschen",
+    "deleteTitle": "{name} löschen?",
+    "deleteDescription": "{name} wird aus {feeds, plural, one {# Feed} other {# Feeds}} entfernt. Die Feeds selbst bleiben erhalten.",
+    "deleteDescriptionPending": "{name} wird aus seinen Feeds entfernt. Die Feeds selbst bleiben erhalten.",
+    "deleteDescriptionZero": "{name} wird von keinem Feed verwendet.",
+    "bulkDelete": "Löschen",
+    "bulkDeleteTitle": "{count, plural, one {Diesen Tag löschen?} other {Diese # Tags löschen?}}",
+    "bulkDeleteDescription": "{count, plural, one {Der Tag} other {Die # Tags}} wird aus {feeds, plural, one {# Feed} other {# Feeds}} entfernt. Die Feeds selbst bleiben erhalten.",
+    "bulkDeleteDescriptionPending": "{count, plural, one {Der Tag} other {Die # Tags}} wird aus seinen Feeds entfernt. Die Feeds selbst bleiben erhalten.",
+    "bulkDeleteDescriptionZero": "Keiner der ausgewählten Tags wird von einem Feed verwendet.",
+    "deleted": "{count, plural, one {# Tag gelöscht} other {# Tags gelöscht}}",
+    "deletedNone": "Es wurde nichts gelöscht — diese Tags gibt es nicht mehr.",
+    "saveFailed": "Dieser Tag konnte nicht gespeichert werden",
+    "deleteFailed": "Die ausgewählten Tags konnten nicht gelöscht werden",
+    "requestFailed": "Der Server hat nicht geantwortet. Prüfe deine Verbindung und versuche es erneut.",
+    "sessionEnded": "Deine Sitzung ist abgelaufen. Melde dich erneut an.",
+    "nameTaken": "Ein Tag mit diesem Namen existiert bereits.",
+    "notFound": "Diesen Tag gibt es nicht mehr.",
+    "noneSelected": "Wähle zuerst mindestens einen Tag aus."
+  },
   "settings": {
     "title": "Einstellungen",
     "general": { "title": "Allgemein", "theme": "Design", "language": "Sprache" },
@@ -344,5 +384,5 @@
     "previous": "Vorherige Seite",
     "next": "Nächste Seite"
   },
-  "common": { "save": "Speichern", "cancel": "Abbrechen", "loading": "Wird geladen", "new": "Neu" }
+  "common": { "save": "Speichern", "saving": "Wird gespeichert", "cancel": "Abbrechen", "loading": "Wird geladen", "new": "Neu" }
 }

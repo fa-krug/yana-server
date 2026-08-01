@@ -155,6 +155,46 @@
     "demoteSelf": "You cannot remove your own administrator role — you would lose access to this page.",
     "lastAdmin": "This is the last administrator who can still sign in. Promote somebody else first."
   },
+  "tags": {
+    "title": "Tags",
+    "newTitle": "New tag",
+    "editTitle": "Edit tag",
+    "new": "New tag",
+    "searchPlaceholder": "Search tags",
+    "columns": {
+      "name": "Name",
+      "created": "Created",
+      "feeds": "Feeds"
+    },
+    "form": {
+      "name": "Name",
+      "create": "Create tag",
+      "save": "Save tag",
+      "cancel": "Cancel",
+      "created": "Tag created",
+      "saved": "Tag saved"
+    },
+    "deleteAction": "Delete tag",
+    "deleteConfirm": "Delete",
+    "deleteTitle": "Delete {name}?",
+    "deleteDescription": "{name} will be removed from {feeds, plural, one {# feed} other {# feeds}}. The feeds themselves are kept.",
+    "deleteDescriptionPending": "{name} will be removed from its feeds. The feeds themselves are kept.",
+    "deleteDescriptionZero": "{name} is not used by any feed.",
+    "bulkDelete": "Delete",
+    "bulkDeleteTitle": "{count, plural, one {Delete this tag?} other {Delete these # tags?}}",
+    "bulkDeleteDescription": "{count, plural, one {The tag} other {The # tags}} will be removed from {feeds, plural, one {# feed} other {# feeds}}. The feeds themselves are kept.",
+    "bulkDeleteDescriptionPending": "{count, plural, one {The tag} other {The # tags}} will be removed from their feeds. The feeds themselves are kept.",
+    "bulkDeleteDescriptionZero": "None of the selected tags are used by any feed.",
+    "deleted": "{count, plural, one {# tag deleted} other {# tags deleted}}",
+    "deletedNone": "Nothing was deleted — those tags no longer exist.",
+    "saveFailed": "Could not save this tag",
+    "deleteFailed": "Could not delete the selected tags",
+    "requestFailed": "The server did not answer. Check your connection and try again.",
+    "sessionEnded": "Your session ended. Sign in again to continue.",
+    "nameTaken": "You already have a tag with this name.",
+    "notFound": "That tag no longer exists.",
+    "noneSelected": "Select at least one tag first."
+  },
   "settings": {
     "title": "Settings",
     "general": { "title": "General", "theme": "Theme", "language": "Language" },
@@ -344,5 +384,5 @@
     "previous": "Previous page",
     "next": "Next page"
   },
-  "common": { "save": "Save", "cancel": "Cancel", "loading": "Loading", "new": "New" }
+  "common": { "save": "Save", "saving": "Saving", "cancel": "Cancel", "loading": "Loading", "new": "New" }
 }
