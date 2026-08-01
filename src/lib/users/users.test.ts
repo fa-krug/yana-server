@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ADMIN_ROLE, isAdminRole } from "@/lib/auth/roles";
 import { signInCookie } from "@/lib/auth/test-support";
 import type { ListParams } from "@/lib/crud/params";
+
+import { STANDARD_ROLE } from "./fields";
 import { applyMigrationsAt } from "@/lib/db/test-support";
 
 import en from "../../../messages/en.json";
@@ -246,6 +248,22 @@ describe("the users queries and actions", () => {
     });
   }
 
+  describe("./fields", () => {
+    it("imports nothing a client component cannot have", () => {
+      // These constants build the role select's `items` and the password
+      // field's minLength, both in a client component. They used to sit in
+      // `./queries`, which reaches getDb() -- so importing one pulled
+      // better-sqlite3 into the browser bundle, and the failure was an opaque
+      // bundler error rather than the stated rule. Asserted the way
+      // `src/instrumentation.test.ts` asserts its own import list, because
+      // `eslint.config.mjs` restricts `**/avatar-storage` and nothing else.
+      const source = fs.readFileSync(path.join(import.meta.dirname, "fields.ts"), "utf8");
+      const specifiers = [...source.matchAll(/from "([^"]+)"/g)].map((match) => match[1]);
+
+      expect(specifiers).toEqual(["@/lib/auth/roles"]);
+    });
+  });
+
   describe("listUsers", () => {
     it("pages in SQL and reports the unpaged total", async () => {
       await currentAdminId();
@@ -472,7 +490,7 @@ describe("the users queries and actions", () => {
         password: "a brand new password",
         firstName: "Katherine",
         lastName: "Johnson",
-        role: queries.STANDARD_ROLE,
+        role: STANDARD_ROLE,
       });
 
       expect(result.ok).toBe(true);
@@ -520,7 +538,7 @@ describe("the users queries and actions", () => {
         password: "a brand new password",
         firstName: "",
         lastName: "",
-        role: queries.STANDARD_ROLE,
+        role: STANDARD_ROLE,
       });
 
       expect(result).toMatchObject({ ok: false, errorKey: "emailTaken" });
@@ -535,7 +553,7 @@ describe("the users queries and actions", () => {
         password: "a brand new password",
         firstName: "",
         lastName: "",
-        role: queries.STANDARD_ROLE,
+        role: STANDARD_ROLE,
       };
 
       const badEmail = await actions.createUser({ ...base, email: "not-an-address" });
@@ -604,7 +622,7 @@ describe("the users queries and actions", () => {
         email: ADMIN.email,
         firstName: "Ada",
         lastName: "",
-        role: queries.STANDARD_ROLE,
+        role: STANDARD_ROLE,
       });
 
       expect(result).toEqual({ ok: false, errorKey: "demoteSelf" });
@@ -612,6 +630,46 @@ describe("the users queries and actions", () => {
       expect(
         isAdminRole(one<{ role: string }>("SELECT role FROM users WHERE id = ?", admin).role),
       ).toBe(true);
+    });
+
+    it("refuses to demote the last admin who can still sign in", async () => {
+      // The demotion twin of deleteUsers' refusal, and the same lockout:
+      // clearing this role leaves an instance with no administrator at all.
+      // Reachable in the same narrow state -- the acting admin is banned here,
+      // so they do not count themselves.
+      const other = await onlyOtherAdminId();
+
+      const result = await actions.updateUser(other, {
+        email: "other-admin@example.com",
+        firstName: "",
+        lastName: "",
+        role: STANDARD_ROLE,
+      });
+
+      expect(result).toEqual({ ok: false, errorKey: "lastAdmin" });
+      expect(usersMessage(result.errorKey)).toBeTypeOf("string");
+      expect(
+        isAdminRole(one<{ role: string }>("SELECT role FROM users WHERE id = ?", other).role),
+      ).toBe(true);
+    });
+
+    it("allows demoting an admin while another usable one remains", async () => {
+      // The control: without it, a guard that refused every demotion would pass
+      // the test above and the feature would be broken.
+      await currentAdminId();
+      const other = await seedUser({ email: "other-admin@example.com", role: "user,admin" });
+
+      const result = await actions.updateUser(other, {
+        email: "other-admin@example.com",
+        firstName: "",
+        lastName: "",
+        role: STANDARD_ROLE,
+      });
+
+      expect(result).toEqual({ ok: true });
+      expect(
+        isAdminRole(one<{ role: string }>("SELECT role FROM users WHERE id = ?", other).role),
+      ).toBe(false);
     });
 
     it("rejects an email already taken by another user", async () => {
@@ -622,7 +680,7 @@ describe("the users queries and actions", () => {
         email: ADMIN.email,
         firstName: "Grace",
         lastName: "Hopper",
-        role: queries.STANDARD_ROLE,
+        role: STANDARD_ROLE,
       });
 
       expect(result).toEqual({ ok: false, errorKey: "emailTaken" });
@@ -639,7 +697,7 @@ describe("the users queries and actions", () => {
         email: "nobody@example.com",
         firstName: "",
         lastName: "",
-        role: queries.STANDARD_ROLE,
+        role: STANDARD_ROLE,
       });
 
       expect(result).toEqual({ ok: false, errorKey: "notFound" });

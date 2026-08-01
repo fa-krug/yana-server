@@ -14,11 +14,13 @@ import {
 } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 
-import { ADMIN_ROLE, ADMIN_ROLES } from "@/lib/auth/roles";
+import { ADMIN_ROLES } from "@/lib/auth/roles";
 import { requireAdmin } from "@/lib/auth/session";
 import type { ListParams } from "@/lib/crud/params";
 import { getDb } from "@/lib/db/client";
 import { articles, feeds, tags, type User, users } from "@/lib/db/schema";
+
+import { ROLE_FILTER_ADMIN, ROLE_FILTER_STANDARD } from "./fields";
 
 /**
  * Reads for the admin-only users tab. Writes are in `./actions`.
@@ -29,33 +31,14 @@ import { articles, feeds, tags, type User, users } from "@/lib/db/schema";
  * without it -- the same defence-in-depth `/account`'s queries get from
  * `currentUserRow()`. `requireAdmin()` answers 404 rather than 403, so a
  * non-admin never learns the route exists.
- */
-
-/**
- * The role a user has when they are not an administrator.
  *
- * Mirrors `admin({ defaultRole: "user" })` in `@/lib/auth/server`, the SQL
- * default on `users.role`, and `createUserWithPassword()`'s own `?? "user"`.
- * It is not in `@/lib/auth/roles` because nothing *authorizes* on it: only
- * `isAdminRole()` decides anything, and this is just the value written when the
- * answer is "no". Pinned by `users.test.ts`, which asserts a user created
- * without a role comes back non-admin.
+ * **Nothing a client component needs is exported from here.** The role values
+ * and the password bounds live in `./fields`, which imports only
+ * `@/lib/auth/roles`: this module reaches `getDb()`, so a single constant
+ * exported from it would pull `better-sqlite3` into the browser bundle the
+ * moment the role select's `items` list imported one. Same split, same reason,
+ * as `@/lib/avatar` and `@/lib/avatar-storage`.
  */
-export const STANDARD_ROLE = "user";
-
-/**
- * The role filter's two URL values. `""` (or an unrecognised value) means no
- * filter at all -- Task 2's kit clears a filter by setting it to `""`.
- *
- * `admin` is spelled from `ADMIN_ROLE` so the URL token and the role cannot
- * drift apart. `standard` deliberately is **not** `STANDARD_ROLE`: it selects
- * the *absence of administrative authority*, not one particular role string, so
- * a hypothetical `"editor"` or `"user,viewer"` is standard too. The two halves
- * partition the table exactly -- `users.test.ts` asserts that against
- * `isAdminRole()` itself rather than against a restatement of the rule.
- */
-export const ROLE_FILTER_ADMIN = ADMIN_ROLE;
-export const ROLE_FILTER_STANDARD = "standard";
 
 /**
  * The columns the list renders, and no more.

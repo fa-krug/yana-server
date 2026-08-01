@@ -13,7 +13,8 @@ import { avatarFilePath } from "@/lib/avatar-storage";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { users, userSettings } from "@/lib/db/schema";
 
-import { countUsableAdmins, countUserImpact, STANDARD_ROLE } from "./queries";
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, STANDARD_ROLE } from "./fields";
+import { countUsableAdmins, countUserImpact } from "./queries";
 import type { CreateUserResult, DeleteUsersResult, UsersKey, UsersResult } from "./result";
 
 /**
@@ -54,16 +55,6 @@ import type { CreateUserResult, DeleteUsersResult, UsersKey, UsersResult } from 
  * would be choosing a password they then have to convey out of band. A user
  * with no way in is repaired by deleting and recreating the account.
  */
-
-/**
- * Better Auth's own bounds, restated so a rejection is a translated sentence
- * rather than an English `PASSWORD_TOO_SHORT`. Same pair, same reason and the
- * same 8 as `@/lib/account/actions`; `users.test.ts` proves the account this
- * creates can actually sign in, which is what would fail if the library's
- * minimum moved above this one.
- */
-const MIN_PASSWORD_LENGTH = 8;
-const MAX_PASSWORD_LENGTH = 128;
 
 /**
  * The role values a form may submit: every administrative role the plugin is
