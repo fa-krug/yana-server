@@ -100,10 +100,10 @@ export async function testRedditCredentials({
      * because that body is where an echoed credential would be.
      */
     if (response.ok) {
-      const body = (await response.json().catch(() => null)) as {
+      const tokenResponse = (await response.json().catch(() => null)) as {
         access_token?: unknown;
       } | null;
-      if (typeof body?.access_token === "string" && body.access_token !== "") {
+      if (typeof tokenResponse?.access_token === "string" && tokenResponse.access_token !== "") {
         return { ok: true, detail: "Credentials accepted." };
       }
       return {

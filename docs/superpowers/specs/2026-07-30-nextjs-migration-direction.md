@@ -452,7 +452,7 @@ should build them *first*, before the third provider, not after the fifth.
 
 - **`src/components/integrations/section-parts.tsx` is hard-wired to the `integrations` catalog
   namespace.** `useReportOutcome()` and `StatusBadge` both call `useTranslations("integrations")`, so
-  an `ai` namespace makes all 74 lines uncopyable — and the copy that gets made instead is the toast
+  an `ai` namespace makes all 107 lines uncopyable — and the copy that gets made instead is the toast
   reporter, which is the one piece where a mistake means "the wrong outcome, with no message". Fix
   shape: **`reportOutcomeIn(namespace)`**, mirroring `attemptIn()` in `src/lib/attempt.ts` exactly —
   a factory per feature, keys spelled out at the binding site so `NamespaceKey<Namespace>` stays

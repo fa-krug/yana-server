@@ -1144,8 +1144,8 @@ rulings and one framework rename, and its task bodies still show
 `docs/superpowers/plans/nextjs-05-users-crud.md` was written before five, and
 still specifies `error?: string` results, a `role === "admin"` filter and a
 confirmation dialog whose `run` fetches its own copy.
-`docs/superpowers/plans/nextjs-06-integrations.md` was written before eleven
-controller rulings and two human ones, and still has a save returning
+`docs/superpowers/plans/nextjs-06-integrations.md` was written before nine
+controller rulings and two human rulings, and still has a save returning
 `{ ok: false, error: probe.detail }` — English provider prose into a toast,
 the exact mistake the first of those rulings exists to prevent — `ProbeResult`
 defined inside `youtube.ts`, no path back to "not configured", and
