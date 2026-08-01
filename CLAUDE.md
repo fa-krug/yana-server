@@ -88,7 +88,10 @@ file.
 │   │   │   │                      #   articles.ts, jobs.ts — one module per table group
 │   │   │   ├── test-support.ts    # TEST-ONLY: migrate()-based fixture databases
 │   │   │   └── *.test.ts          # client, schema, relations, schema/enums
-│   │   ├── account/               # queries.ts (getAccountOverview), actions.ts (writes)
+│   │   ├── account/               # queries.ts (getAccountOverview), actions.ts (writes),
+│   │   │                          #   result.ts (the account attempt() binding)
+│   │   ├── attempt.ts             # attemptCall() + attemptIn() — the one guard in front of
+│   │   │                          #   every server action called from the browser
 │   │   ├── avatar.ts              # initialsFor/colourFor/displayNameFor/avatarUrlFor/
 │   │   │                          #   safeAvatarSrc + AVATAR_MAX_* — imports nothing
 │   │   ├── avatar-storage.ts      # SERVER-ONLY: processAvatar() (sharp), avatarFilePath(), mediaRoot()
@@ -479,12 +482,33 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   dropped connection, the container restarting mid-request — and an unhandled
   rejection inside a `useTransition` scope escalates to the nearest error
   boundary, which on `/account` replaces the whole page (and the half-typed
-  form) with "Something went wrong". Every call goes through `attempt()` in
-  `src/lib/account/result.ts`. Same failure and the same remedy as `attempt()`
-  in `src/components/auth/login-form.tsx`, which exists because
-  `@better-fetch/fetch` leaves its own `fetch` unwrapped — this is the second
-  time the class has been fixed, so treat a bare `await someAction(...)` in a
-  client component as a defect on sight.
+  form) with "Something went wrong". Every call goes through `attempt()`, so
+  treat a bare `await someAction(...)` in a client component as a defect on
+  sight.
+
+  **There is one implementation, in `src/lib/attempt.ts`, and it is
+  namespace-parameterized.** Phase 5 unified what had become two copies with one
+  name (`src/lib/account/result.ts` and `src/components/auth/login-form.tsx`,
+  whose namesake exists because `@better-fetch/fetch` leaves its own `fetch`
+  unwrapped) before phase 5's own three call sites made it five. Two layers:
+  - **`attemptCall(call, { label, sessionProbe })`** knows no catalog. It runs
+    the call, catches, and returns `{ status: "returned", result }` or
+    `{ status: "rejected", sessionEnded }`. The CRUD kit's two backstops
+    (`confirm-destructive.tsx`, `bulk-action-bar.tsx`) call it directly, because
+    a generic component has no namespace to report a key in — and
+    `login-form.tsx` calls it with **`sessionProbe: "skip"`**, the only place
+    that does: `/login` is where a caller with no session is supposed to be, so
+    probing there would point the sign-in page at itself.
+  - **`attemptIn(namespace, { sessionEnded, requestFailed })`** binds that to
+    one catalog and returns the `attempt()` components import — once per
+    feature, in `src/lib/account/result.ts` and `src/lib/users/result.ts`.
+    The two keys are spelled out rather than derived because TypeScript cannot
+    prove a literal is a member of `NamespaceKey<Namespace>` while `Namespace`
+    is still a type parameter, and a cast there is exactly what this convention
+    exists to avoid. `errorKey` therefore stays checked **per catalog**, and the
+    failure arm's `ok` is the literal `false` so `if (result.ok)` narrows back
+    to the action's own type — an action reporting an `id` or a `deleted` count
+    does not lose it by being wrapped.
 
   Three things happen in that catch and the **order matters**:
   - **`unstable_rethrow(error)` first.** Next's action reducer rejects the

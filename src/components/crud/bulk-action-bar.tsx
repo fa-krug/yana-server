@@ -1,11 +1,11 @@
 "use client";
 
-import { unstable_rethrow } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useTransition } from "react";
 
 import { ConfirmDestructive, type ConfirmCopy } from "@/components/crud/confirm-destructive";
 import { Button } from "@/components/ui/button";
+import { attemptCall } from "@/lib/attempt";
 
 /**
  * One action offered for the current selection.
@@ -15,10 +15,10 @@ import { Button } from "@/components/ui/button";
  * **`run` resolves `true` on success**, matching `<ConfirmDestructive>`'s
  * `onConfirm` because a destructive action's `run` *is* that `onConfirm`. The
  * two must agree or the dialog closes on failure: `attempt()`
- * (`@/lib/account/result`) never rejects -- it resolves `{ ok: false }` -- so
- * "did not throw" is not evidence that anything worked. `return result.ok` is
- * the whole of a caller's obligation; phase 5's task 4 makes that result shape
- * the shared convention for this kit's callers.
+ * (`@/lib/attempt`) never rejects -- it resolves `{ ok: false }` -- so "did not
+ * throw" is not evidence that anything worked. `return result.ok` is the whole
+ * of a caller's obligation, and that result shape is the shared convention
+ * across every namespace here.
  *
  * **A destructive action must carry its confirmation copy**, which is why this
  * is a union rather than a flat `destructive?: boolean`. The brief's rule is
@@ -62,17 +62,20 @@ export function BulkActionBar({
   const [pending, start] = useTransition();
 
   function run(action: BulkAction) {
-    // Same shape as ConfirmDestructive's: a transition scope, unstable_rethrow
-    // first, and nothing swallowed silently. The resolved boolean is ignored
-    // here on purpose -- there is no dialog to keep open, and reporting the
-    // failure was the caller's job either way.
+    // Same backstop as <ConfirmDestructive>'s, and now literally the same code:
+    // a transition scope around `attemptCall()` (`@/lib/attempt`), which
+    // re-throws Next's control flow first, swallows nothing silently, and --
+    // the one thing a console line cannot do for a caller who forgot
+    // `attempt()` -- sends a browser whose session has ended to /login.
+    //
+    // The outcome is ignored here on purpose: there is no dialog to keep open,
+    // and reporting the failure was the caller's job either way. `run` is
+    // wrapped rather than passed by reference so it is still invoked as a
+    // method of its action.
     start(async () => {
-      try {
-        await action.run();
-      } catch (error) {
-        unstable_rethrow(error);
-        console.error("A bulk action rejected instead of reporting", error);
-      }
+      await attemptCall(() => action.run(), {
+        label: "A bulk action rejected instead of reporting",
+      });
     });
   }
 

@@ -1,6 +1,5 @@
 "use client";
 
-import { unstable_rethrow } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useState, useTransition, type ReactElement } from "react";
 
@@ -15,6 +14,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { attemptCall } from "@/lib/attempt";
 
 export type ConfirmCopy = {
   /** All three are already translated: only the caller knows what is at stake. */
@@ -33,18 +33,20 @@ export type ConfirmCopy = {
  *
  * **Success is a returned `boolean`, not the absence of a throw**, and that is
  * the whole reason this signature is not `Promise<void>`. Every server action
- * called from a client component here goes through `attempt()`
- * (`@/lib/account/result`), and `attempt()` **never rejects**: it catches,
- * re-throws only Next's control flow, and *resolves* `{ ok: false, errorKey }`.
- * A conforming caller therefore resolves on failure, so a void contract would
- * close the dialog on exactly the path it exists to keep open. Phase 5's task 4
- * generalises `attempt()` into one namespace-parameterized helper this kit's
- * callers share, so an `{ ok }`-shaped result is the settled convention here,
- * not a guess -- returning `result.ok` is all a caller has to do.
+ * called from a client component here goes through its feature's `attempt()`
+ * (`@/lib/attempt`), and `attempt()` **never rejects**: it catches, re-throws
+ * only Next's control flow, and *resolves* `{ ok: false, errorKey }`. A
+ * conforming caller therefore resolves on failure, so a void contract would
+ * close the dialog on exactly the path it exists to keep open. An
+ * `{ ok }`-shaped result is the settled convention across every namespace here,
+ * so `return result.ok` is all a caller has to do.
  *
  * A **thrown** error still counts as failure and still leaves the dialog open.
  * That is the backstop for a caller who forgot `attempt()`: forgetting it
- * should cost an unreported error in the console, never the dialog.
+ * should cost an unreported error in the console, never the dialog. It goes
+ * through the same core that `attempt()` does, so the one failure a console
+ * line cannot help with -- the session having ended -- still sends the browser
+ * to `/login` rather than leaving a dialog standing over a signed-out page.
  *
  * The confirm and cancel buttons are both disabled while the promise is in
  * flight, so a second press cannot start a second delete.
@@ -76,20 +78,20 @@ export function ConfirmDestructive({
     // CLAUDE.md gives: a rejection inside a transition scope escalates to the
     // nearest error boundary rather than becoming a stray unhandled rejection.
     start(async () => {
-      try {
-        // Only `true` closes it. A caller that resolves `false` has already
-        // reported the failure and wants the dialog kept.
-        if (await onConfirm()) setOpen(false);
-      } catch (error) {
-        // unstable_rethrow first, always: a `redirect()` or `notFound()` from
-        // inside a server action arrives here as a rejection, and swallowing
-        // it would cancel a navigation that was working.
-        unstable_rethrow(error);
-        // Anything else is the backstop path: a caller that skipped
-        // `attempt()` and let a real rejection through. Stay open, and log --
-        // nobody else will have reported this one.
-        console.error("A confirmed action rejected instead of reporting", error);
-      }
+      // `attemptCall()` is the same core `attempt()` is built on (`@/lib/attempt`),
+      // used here without a namespace: it re-throws Next's control flow before
+      // anything else, logs the rejection nobody else will report, and asks
+      // whether the session ended. This kit has no catalog of its own, and it
+      // does not need one -- the branch that matters here navigates rather than
+      // translating.
+      const attempted = await attemptCall(onConfirm, {
+        label: "A confirmed action rejected instead of reporting",
+      });
+      // Only `true` closes it. A caller that resolves `false` has already
+      // reported the failure and wants the dialog kept, and so does a
+      // rejection: that is the backstop path, for a caller that skipped
+      // `attempt()`.
+      if (attempted.status === "returned" && attempted.result) setOpen(false);
     });
   }
 

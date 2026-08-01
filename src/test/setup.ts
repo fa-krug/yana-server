@@ -55,7 +55,8 @@ if (typeof window.localStorage?.setItem !== "function") {
 /**
  * **No jsdom test may reach the network, and one of them now tries to.**
  *
- * `attempt()` (`src/lib/account/result.ts`) answers "did the session end?" by
+ * `attemptCall()` (`src/lib/attempt.ts`, which every feature's `attempt()` and
+ * the CRUD kit's backstops are built on) answers "did the session end?" by
  * probing `/api/auth/get-session` before it reports a failed action, so every
  * component test that exercises a rejecting action reaches a real `fetch` --
  * which in Node resolves the relative URL against jsdom's origin and spends a

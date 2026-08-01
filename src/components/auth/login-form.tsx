@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { attemptCall } from "@/lib/attempt";
 import { signIn } from "@/lib/auth/client";
 import { replaceLocation } from "@/lib/browser-location";
 import {
@@ -74,24 +75,37 @@ export function LoginForm({ next }: { next: string }) {
    * forever with no message and no way back except a reload. On a self-hosted
    * box "I just restarted it" is the ordinary case, not the exotic one.
    *
-   * The thrown reason is deliberately dropped rather than shown: it is a
-   * `TypeError: fetch failed` from the platform, which is neither translated
-   * nor useful. It goes to the console, where a browser has already logged the
-   * failed request anyway.
+   * Catching it is `attemptCall()`'s job (`@/lib/attempt`) -- the same core
+   * every server-action call site in this repository goes through, which is why
+   * the thrown reason is dropped rather than shown here too: a
+   * `TypeError: fetch failed` from the platform is neither translated nor
+   * useful, and the core has already logged it.
+   *
+   * **`sessionProbe: "skip"` is the one thing this call site does differently,
+   * and the only place in the application that does.** Everywhere else a
+   * rejection is followed by "did the session end?", and a `null` answer sends
+   * the browser to `/login`. That is where this form already is: a caller with
+   * no session is *supposed* to be here, so asking would point the sign-in page
+   * at itself. Written as an argument rather than left as an absence, so the
+   * next person can see it was decided.
+   *
+   * What is *not* different: the core re-throws Next's control-flow errors
+   * before anything else. No `signIn.*` call can produce one -- it is an HTTP
+   * request, not a server action -- so that branch is inert here, and inert is
+   * the right default for a `catch` in this codebase.
    */
   async function attempt(
     call: () => Promise<{ error?: SignInError | null } | undefined | null>,
   ): Promise<{ ok: true } | { ok: false; error: SignInError | null }> {
-    try {
-      const result = await call();
-      // Optional-chained, and the same shape in both handlers: the two clients
-      // are typed differently enough that one of them used `result?.error` and
-      // the other `result.error`, which is two contracts for one call shape.
-      return result?.error ? { ok: false, error: result.error } : { ok: true };
-    } catch (error) {
-      console.error("Sign-in request failed before it reached the server", error);
-      return { ok: false, error: NETWORK_FAILURE };
-    }
+    const attempted = await attemptCall(call, {
+      label: "Sign-in request failed before it reached the server",
+      sessionProbe: "skip",
+    });
+    if (attempted.status === "rejected") return { ok: false, error: NETWORK_FAILURE };
+    // Optional-chained, and the same shape in both handlers: the two clients
+    // are typed differently enough that one of them used `result?.error` and
+    // the other `result.error`, which is two contracts for one call shape.
+    return attempted.result?.error ? { ok: false, error: attempted.result.error } : { ok: true };
   }
 
   async function withPasskey() {
