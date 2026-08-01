@@ -72,6 +72,13 @@ export function getDb(): BetterSQLite3Database<typeof schema> {
 
   const connection = new Database(DB_PATH);
   applyPragmas(connection);
+  // No `logger` option, and not by accident: `drizzle(connection, { schema,
+  // logger: true })` prints every statement with its bound parameters, and since
+  // phase 6 those parameters include API keys and client secrets on their way
+  // into `user_settings` (`src/lib/integrations/actions.ts`). Turning it on to
+  // debug a query would copy live credentials into the container log, where the
+  // rest of this codebase works hard to keep them from going. Log the statement
+  // you are debugging, not the connection.
   cached = drizzle(connection, { schema });
   return cached;
 }

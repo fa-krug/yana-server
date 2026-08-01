@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 
 import { ConfirmDestructive } from "@/components/crud/confirm-destructive";
 import {
+  secretPlaceholder,
   StatusBadge,
   submittedSecret,
   useReportOutcome,
@@ -109,29 +110,36 @@ export function RedditSection({
       </CardHeader>
       <CardContent>
         <form onSubmit={save} className="space-y-4">
-          <div className="grid gap-2">
-            <Label htmlFor="reddit-client-id">{t("reddit.clientId")}</Label>
-            <Input
-              id="reddit-client-id"
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder={clientIdMasked || undefined}
-              value={clientId}
-              onChange={(event) => setClientId(event.target.value)}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="reddit-client-secret">{t("reddit.clientSecret")}</Label>
-            <Input
-              id="reddit-client-secret"
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder={clientSecretMasked || undefined}
-              value={clientSecret}
-              onChange={(event) => setClientSecret(event.target.value)}
-            />
+          {/* The two secrets and the one hint that belongs to both of them. It
+              used to sit inside the client-secret group, where it read as a rule
+              about that field alone -- and "leave a field empty to keep the
+              stored value" is precisely the thing an operator has to know about
+              the *pair*, since either may be left alone independently. */}
+          <div className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="reddit-client-id">{t("reddit.clientId")}</Label>
+              <Input
+                id="reddit-client-id"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder={secretPlaceholder(clientIdMasked)}
+                value={clientId}
+                onChange={(event) => setClientId(event.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="reddit-client-secret">{t("reddit.clientSecret")}</Label>
+              <Input
+                id="reddit-client-secret"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder={secretPlaceholder(clientSecretMasked)}
+                value={clientSecret}
+                onChange={(event) => setClientSecret(event.target.value)}
+              />
+            </div>
             <p className="text-sm text-muted-foreground">
               {configured ? t("keepHint") : t("notConfigured")}
             </p>

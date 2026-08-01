@@ -54,11 +54,31 @@ import { testYoutubeKey } from "./youtube";
 const MAX_SECRET_LENGTH = 512;
 const MAX_USER_AGENT_LENGTH = 200;
 
-const youtubeInput = z.object({ apiKey: z.string().max(MAX_SECRET_LENGTH) });
+/**
+ * A secret, as submitted.
+ *
+ * **`.trim()` is load-bearing, not tidiness.** A key is acquired by copying it
+ * out of the Google Cloud console or a password manager, and both hand out a
+ * trailing newline routinely. Untrimmed, `key=AIza…%0A` comes back 403, which
+ * classifies as `unauthorized` -- and an `unauthorized` save **stores what was
+ * submitted** and switches the integration off (see `judge()` below and the
+ * human ruling behind it). So one invisible character used to destroy a working
+ * key that this UI can never show again, while telling the operator to go and
+ * check a key that was correct all along.
+ *
+ * It is safe on the sentinel: `KEEP_EXISTING` starts with a NUL byte, which is
+ * not JS whitespace, so `KEEP_EXISTING.trim() === KEEP_EXISTING` and an
+ * untouched field still resolves to the stored value. `secrets.test.ts` asserts
+ * that rather than leaving it to this comment -- and it has to be true *before*
+ * `resolveSecret()` sees the value, which is why the trim lives in the schema.
+ */
+const secretField = z.string().trim().max(MAX_SECRET_LENGTH);
+
+const youtubeInput = z.object({ apiKey: secretField });
 
 const redditInput = z.object({
-  clientId: z.string().max(MAX_SECRET_LENGTH),
-  clientSecret: z.string().max(MAX_SECRET_LENGTH),
+  clientId: secretField,
+  clientSecret: secretField,
   /**
    * Required, and checked here rather than left to the probe. Reddit throttles a
    * blank or generic User-Agent hard, so `testRedditCredentials()` refuses an
@@ -66,36 +86,101 @@ const redditInput = z.object({
    * `cause: "unauthorized"`, which maps to "Reddit rejected those credentials"
    * and would send an operator hunting through a client id that was fine.
    * `.trim()` runs before `.min(1)`, so " " is empty.
+   *
+   * **The character class is what keeps a bad value from being reported as a
+   * network failure.** This string becomes an HTTP header, and `.trim()` only
+   * strips the *ends* -- so `"Yana\nX: 1"` passed zod, and then Node's own
+   * header validation threw inside `fetch()`, which the probe's catch classifies
+   * as `network`: "Yana could not reach the provider", about a request that was
+   * never made. Node rejects any code point above U+00FF for the same reason, so
+   * an emoji did it too. Printable ASCII is refused *with a message that says
+   * so*; Latin-1 obs-text would technically be legal in a header, and is left
+   * out because a User-Agent is an identifier this server sends to a third party
+   * and "printable ASCII, one line" is a rule an operator can be told in one
+   * sentence.
    */
-  userAgent: z.string().trim().min(1).max(MAX_USER_AGENT_LENGTH),
+  userAgent: z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_USER_AGENT_LENGTH)
+    .regex(/^[\x20-\x7E]+$/u),
 });
 
-/** Which field failed, as a catalog key; anything unlisted falls through. */
+/**
+ * Which submitted field failed and how, as a catalog key; anything unlisted
+ * falls through to the generic failure.
+ *
+ * Keyed on `field:code` rather than on the field alone, because one field now
+ * fails two ways that want different advice: an empty User-Agent is
+ * `too_small` ("a user agent is required") and one with a newline in it is
+ * `invalid_format` ("printable ASCII only"). Telling an operator who pasted a
+ * two-line string that the field is empty is worse than the generic message.
+ * A blank field reports both issues, `too_small` first, so it still lands on
+ * the required key.
+ */
 const REDDIT_FIELD_ERROR_KEYS: Record<string, IntegrationsKey> = {
-  userAgent: "reddit.userAgentRequired",
+  "userAgent:too_small": "reddit.userAgentRequired",
+  "userAgent:invalid_format": "reddit.userAgentInvalid",
 };
 
 function errorKeyFor(
   issues: z.core.$ZodIssue[],
   table: Record<string, IntegrationsKey>,
 ): IntegrationsKey | undefined {
-  const field = issues[0]?.path[0];
-  return typeof field === "string" ? table[field] : undefined;
+  const issue = issues[0];
+  const field = issue?.path[0];
+  return typeof field === "string" ? table[`${field}:${issue.code}`] : undefined;
 }
 
 /**
- * The two keys that differ per provider. Everything else a probe can report
- * means the same thing whoever answered it.
+ * What differs per provider: two catalog keys, and one fact about the provider
+ * itself. Everything else a probe can report means the same thing whoever
+ * answered it.
  */
 type ProviderKeys = {
   /** The provider refused the credential. */
   rejected: IntegrationsKey;
-  /** The credential is good; only the provider's budget for it is spent. */
+  /** The provider answered "too many requests", whichever arm that lands in. */
   quota: IntegrationsKey;
+  /**
+   * **Does a rate-limit answer prove the credential was accepted?**
+   *
+   * This is a per-provider fact and it is named here so that adding a provider
+   * forces someone to decide it, rather than inheriting YouTube's answer by
+   * copying a branch. The two providers already disagree:
+   *
+   * - **YouTube: `true`.** Google validates the API key *before* it accounts for
+   *   quota, so a 403 carrying `quotaExceeded`/`dailyLimitExceeded` (or
+   *   `RESOURCE_EXHAUSTED`) is only reachable *with* a key it accepted. The
+   *   credential is verified and only today's budget is gone, so refusing the
+   *   save would send an operator back to re-enter a key that was fine.
+   * - **Reddit: `false`.** A 429 from `/api/v1/access_token` is IP/edge-level
+   *   load shedding, returned *without* looking at the Basic auth header -- and
+   *   datacentre ranges, which is where a self-hosted aggregator lives, get
+   *   throttled routinely. Treating it as a pass meant a first-ever save of
+   *   *wrong* credentials from a throttled host stored them, set
+   *   `reddit_enabled = 1`, and said "the credentials are valid". They may not
+   *   be. That breaks the rule the flag exists for (rule 4 above): phase 9 would
+   *   then offer Reddit feeds that come back empty, with a badge saying Active.
+   *
+   * `false` sends the answer to the `unknown` arm, which is exactly right: an
+   * answer that was produced without checking the credential is not a verdict
+   * about it, so nothing is written and the operator is told to try again.
+   */
+  quotaMeansVerified: boolean;
 };
 
-const YOUTUBE_KEYS: ProviderKeys = { rejected: "youtube.rejected", quota: "youtube.quota" };
-const REDDIT_KEYS: ProviderKeys = { rejected: "reddit.rejected", quota: "reddit.rateLimited" };
+const YOUTUBE_KEYS: ProviderKeys = {
+  rejected: "youtube.rejected",
+  quota: "youtube.quota",
+  quotaMeansVerified: true,
+};
+const REDDIT_KEYS: ProviderKeys = {
+  rejected: "reddit.rejected",
+  quota: "reddit.rateLimited",
+  quotaMeansVerified: false,
+};
 
 /** The causes that mean "the question was not answered", not "the answer is no". */
 const UNVERIFIABLE: Record<"network" | "timeout" | "unexpected", IntegrationsKey> = {
@@ -110,14 +195,17 @@ const UNVERIFIABLE: Record<"network" | "timeout" | "unexpected", IntegrationsKey
  * Three outcomes rather than two, and the third one is the interesting one:
  *
  * - **`good`** -- the credential works. Store it, switch the integration on. A
- *   quota answer lands here with a `noticeKey`: the key is valid and only
- *   today's budget is gone, so refusing the save would be wrong (see
- *   `SaveResult` in `./result`).
+ *   quota answer lands here with a `noticeKey` **when the provider validates the
+ *   credential before accounting for quota** (`quotaMeansVerified` above): the
+ *   key is valid and only today's budget is gone, so refusing the save would be
+ *   wrong (see `SaveResult` in `./result`). Where it does not -- Reddit -- the
+ *   same `cause` lands in `unknown` instead.
  * - **`bad`** -- the provider refused it. **Store it anyway**, and switch the
  *   integration off, so the badge agrees with the toast and a typo is visible
  *   rather than silently producing empty feeds.
- * - **`unknown`** -- a network failure, a timeout, or a status no probe
- *   recognises. **Nothing is written at all.** With no answer there is nothing
+ * - **`unknown`** -- a network failure, a timeout, a status no probe recognises,
+ *   or a rate limit from a provider that sheds load before it authenticates.
+ *   **Nothing is written at all.** With no answer there is nothing
  *   to derive the flag from, and both alternatives are worse: a momentary outage
  *   would either disable a working integration, or leave `*Enabled = true` --
  *   earned by a *different* credential -- vouching for one that has never been
@@ -150,7 +238,9 @@ function judge(probe: ProbeResult, keys: ProviderKeys): Judgement {
   if (probe.ok) return { outcome: "good" };
   switch (probe.cause) {
     case "quota":
-      return { outcome: "good", noticeKey: keys.quota };
+      return keys.quotaMeansVerified
+        ? { outcome: "good", noticeKey: keys.quota }
+        : { outcome: "unknown", errorKey: keys.quota };
     case "unauthorized":
       return { outcome: "bad", errorKey: keys.rejected };
     default:

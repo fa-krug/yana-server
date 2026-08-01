@@ -1,4 +1,4 @@
-import { PROBE_TIMEOUT_MS, type ProbeResult } from "./probe";
+import { logUnreachable, PROBE_TIMEOUT_MS, type ProbeResult } from "./probe";
 
 export interface RedditCredentials {
   clientId: string;
@@ -82,15 +82,47 @@ export async function testRedditCredentials({
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
 
-    if (response.ok) return { ok: true, detail: "Credentials accepted." };
+    /**
+     * **A 200 is not enough here: the token has to be in it.**
+     *
+     * An OAuth token endpoint has real answers that are `200` and yet prove
+     * nothing about the credential -- `{"error":"unsupported_grant_type"}` if
+     * the form body is ever changed, and Reddit's edge serving an HTML
+     * interstitial to a flagged or datacentre IP. Trusting the status would
+     * switch the integration on for a credential Reddit never looked at, which
+     * is exactly what the `*Enabled` flag is supposed to rule out; phase 9
+     * would then offer Reddit feeds that come back empty.
+     *
+     * The YouTube probe deliberately does **not** do this -- see the note
+     * there: `channels?forHandle=…` has an empty-but-valid 200.
+     *
+     * The detail stays a constant. Nothing from the body is interpolated,
+     * because that body is where an echoed credential would be.
+     */
+    if (response.ok) {
+      const body = (await response.json().catch(() => null)) as {
+        access_token?: unknown;
+      } | null;
+      if (typeof body?.access_token === "string" && body.access_token !== "") {
+        return { ok: true, detail: "Credentials accepted." };
+      }
+      return {
+        ok: false,
+        cause: "unexpected",
+        detail: "A 200 answer carried no access token.",
+      };
+    }
     if (response.status === 401) {
       return { ok: false, cause: "unauthorized", detail: "The client credentials were rejected." };
     }
     if (response.status === 429) {
+      // Not a verdict on the credential: Reddit sheds load at the edge, before
+      // the Basic auth header is validated. `./actions` treats it as an
+      // unanswered probe for that reason -- see `quotaMeansVerified` there.
       return {
         ok: false,
         cause: "quota",
-        detail: "Rate limited. The credentials themselves are valid.",
+        detail: "Rate limited before the credentials could be checked.",
       };
     }
     return { ok: false, cause: "unexpected", detail: `Unexpected status ${response.status}.` };
@@ -98,6 +130,7 @@ export async function testRedditCredentials({
     if (error instanceof Error && error.name === "TimeoutError") {
       return { ok: false, cause: "timeout", detail: "The request timed out." };
     }
+    logUnreachable("reddit", error);
     return { ok: false, cause: "network", detail: "Could not reach the Reddit API." };
   }
 }

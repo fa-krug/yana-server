@@ -117,18 +117,22 @@ describe("<RedditSection>", () => {
     );
   });
 
-  it("reports Reddit's rate limit as a warning, since the credentials are good", async () => {
-    saveReddit.mockResolvedValue({ ok: true, noticeKey: "reddit.rateLimited" });
+  it("reports Reddit's rate limit as a failure, because it verifies nothing", async () => {
+    // Not a warning-over-success, unlike YouTube's spent quota: Reddit's 429 is
+    // returned before the credentials are checked, so the save wrote nothing and
+    // the operator has to try again. See `quotaMeansVerified` in the actions.
+    saveReddit.mockResolvedValue({ ok: false, errorKey: "reddit.rateLimited" });
     renderWithProviders(<RedditSection {...CONFIGURED} />, { locale: "de" });
 
     submit();
 
     await waitFor(() =>
-      expect(toastWarning).toHaveBeenCalledWith(
+      expect(toastError).toHaveBeenCalledWith(
         expect.stringContaining("Reddit begrenzt gerade die Anfragen"),
       ),
     );
     expect(toastSuccess).not.toHaveBeenCalled();
+    expect(toastWarning).not.toHaveBeenCalled();
   });
 
   it("tests without saving", async () => {

@@ -131,6 +131,27 @@ describe("<YoutubeSection>", () => {
     expect(toastSuccess).toHaveBeenCalledWith("Diese Zugangsdaten funktionieren.");
   });
 
+  /**
+   * The fallback message names the action that failed.
+   *
+   * A `{ ok: false }` with no key of its own is reachable from every action here
+   * (a malformed body, a missing settings row, a write that matched no row), and a
+   * single fallback answered all of them with "Could not save these credentials."
+   * -- told to an operator who pressed **Test**, about a call that never writes.
+   */
+  it.each([
+    ["Testen", "Diese Zugangsdaten konnten nicht getestet werden."],
+    ["Speichern und prüfen", "Diese Zugangsdaten konnten nicht gespeichert werden."],
+  ])("blames the right action when %s fails with no key", async (button, message) => {
+    saveYoutube.mockResolvedValue({ ok: false });
+    testYoutube.mockResolvedValue({ ok: false });
+    renderWithProviders(<YoutubeSection enabled={false} apiKeyMasked={MASK} />, { locale: "de" });
+
+    fireEvent.click(screen.getByRole("button", { name: button }));
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith(message));
+  });
+
   it("offers no remove button until something is stored", () => {
     renderWithProviders(<YoutubeSection enabled={false} apiKeyMasked="" />, { locale: "de" });
 

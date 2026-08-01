@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 
 import { ConfirmDestructive } from "@/components/crud/confirm-destructive";
 import {
+  secretPlaceholder,
   StatusBadge,
   submittedSecret,
   useReportOutcome,
@@ -109,7 +110,7 @@ export function YoutubeSection({
               type="password"
               autoComplete="off"
               spellCheck={false}
-              placeholder={configured ? apiKeyMasked : undefined}
+              placeholder={secretPlaceholder(apiKeyMasked)}
               value={apiKey}
               onChange={(event) => setApiKey(event.target.value)}
             />

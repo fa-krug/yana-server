@@ -37,8 +37,19 @@ export type IntegrationsResult = ActionResult<"integrations">;
  * `src/lib/users/result.ts`): the failure arm's `ok` is the literal `false`, so
  * `if (result.ok)` still narrows back to this type and `noticeKey` survives
  * being wrapped in `attempt()`.
+ *
+ * **A union of the two arms, not an intersection, and that is the point.** As
+ * `IntegrationsResult & { noticeKey?: … }` this type let both keys sit on either
+ * arm: `{ ok: false, noticeKey }` and `{ ok: true, errorKey }` typechecked, and
+ * `useReportOutcome()` reads `errorKey` only when `ok` is false and `noticeKey`
+ * only when it is true -- so either mistake compiled and then silently reported
+ * the *wrong outcome with no message at all*, which is the failure mode a typed
+ * key is supposed to make impossible. Written as a union, each is a compile
+ * error at the `return`. `IntegrationsResult` still describes it (both arms
+ * satisfy `ActionResult<"integrations">`), so `attempt()` wraps it unchanged.
  */
-export type SaveResult = IntegrationsResult & { noticeKey?: IntegrationsKey };
+export type SaveResult =
+  { ok: true; noticeKey?: IntegrationsKey } | { ok: false; errorKey?: IntegrationsKey };
 
 /**
  * Call an integrations action and turn a rejection into an ordinary failed

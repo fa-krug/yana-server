@@ -12,6 +12,8 @@ import { KEEP_EXISTING } from "@/lib/secrets";
 
 import en from "../../../messages/en.json";
 
+import type { SaveResult } from "./result";
+
 /**
  * Real-database tests for the integrations actions, in the style of
  * `src/lib/settings/settings.test.ts` and `src/lib/account/account.test.ts`: a
@@ -138,8 +140,14 @@ describe("the integrations actions", () => {
     // Silenced, not removed: `logProbe()` writes every probe failure here on
     // purpose (it is the only place a `detail` is allowed to go), and one test
     // below asserts on it.
+    //
+    // `console.error` is deliberately **not** silenced here. It used to be, for
+    // the whole file, which meant a `persist()` that started failing or a
+    // `logMissingRow()` that stopped firing would have produced no signal at all
+    // -- the two things this module logs as errors are exactly the two nobody
+    // would notice. A test that expects one silences it itself, as
+    // `youtube-section.test.tsx` does.
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.spyOn(console, "error").mockImplementation(() => {});
 
     dbPath = path.join(
       os.tmpdir(),
@@ -207,6 +215,24 @@ describe("the integrations actions", () => {
       );
   }
 
+  /**
+   * The English message a *failed* result points at.
+   *
+   * Reads the key off the result rather than taking it as a literal, so the
+   * assertion covers whatever the action actually emitted -- and returns
+   * `undefined` for a successful one, which makes a `toBeTypeOf("string")` also
+   * prove that the action failed. `SaveResult` is a discriminated union, so the
+   * narrowing is the type system's, not this helper's opinion.
+   */
+  function failureMessage(result: SaveResult): unknown {
+    return result.ok ? undefined : integrationsMessage(result.errorKey);
+  }
+
+  /** {@link failureMessage}'s twin for the succeeded-with-a-caveat arm. */
+  function noticeMessage(result: SaveResult): unknown {
+    return result.ok ? integrationsMessage(result.noticeKey) : undefined;
+  }
+
   describe("saveYoutube", () => {
     it("stores the key and switches the integration on when the probe passes", async () => {
       stubFetch(youtubeOk);
@@ -224,6 +250,11 @@ describe("the integrations actions", () => {
       // browser, so an unchanged field cannot round-trip it -- it submits the
       // sentinel instead, and the stored value has to come back out of the
       // database. Asserted against the row, not the UI.
+      //
+      // It is also the end-to-end proof that the sentinel survives the schema's
+      // `.trim()`: a NUL byte is not JS whitespace, so an untouched field still
+      // means keep-existing rather than "wipe it" (`secrets.test.ts` pins the
+      // property itself).
       stubFetch(youtubeOk);
       seed({ youtubeApiKey: YOUTUBE_KEY, youtubeEnabled: true });
 
@@ -246,13 +277,38 @@ describe("the integrations actions", () => {
       expect(row()).toMatchObject({ youtube_api_key: YOUTUBE_KEY });
     });
 
+    /**
+     * **The paste artifact that used to destroy a working key.**
+     *
+     * A key copied out of the Google Cloud console arrives with a trailing
+     * newline. Untrimmed it went out as `key=AIza…%0A`, came back 403, classified
+     * `unauthorized` -- and an `unauthorized` save *stores what was submitted*
+     * (the human ruling behind `judge()`), so the mangled value replaced the good
+     * one in a column this UI can never read back, over a toast telling the
+     * operator to go and check a key that was correct.
+     *
+     * The two halves are asserted together on purpose: the probe has to receive
+     * the trimmed key *and* the row has to end up holding it. Trimming after the
+     * probe would fix the toast and still store rubbish.
+     */
+    it("trims the submitted key before probing and before storing it", async () => {
+      stubFetch(youtubeOk);
+      seed({ youtubeApiKey: YOUTUBE_KEY, youtubeEnabled: true });
+
+      const result = await actions.saveYoutube({ apiKey: `  ${YOUTUBE_KEY}\n` });
+
+      expect(result).toEqual({ ok: true });
+      expect(youtubeKeyOf(requests[0])).toBe(YOUTUBE_KEY);
+      expect(row()).toMatchObject({ youtube_api_key: YOUTUBE_KEY, youtube_enabled: 1 });
+    });
+
     it("leaves the integration off and reports a catalog key when the key is rejected", async () => {
       stubFetch(youtubeRejected);
 
       const result = await actions.saveYoutube({ apiKey: "not-a-key" });
 
       expect(result).toEqual({ ok: false, errorKey: "youtube.rejected" });
-      expect(integrationsMessage(result.errorKey)).toBeTypeOf("string");
+      expect(failureMessage(result)).toBeTypeOf("string");
       // Stored, but off: the badge then disagrees with nothing, and an
       // enabled-but-broken integration cannot happen.
       expect(row()).toMatchObject({ youtube_api_key: "not-a-key", youtube_enabled: 0 });
@@ -267,7 +323,7 @@ describe("the integrations actions", () => {
       const result = await actions.saveYoutube({ apiKey: YOUTUBE_KEY });
 
       expect(result).toEqual({ ok: true, noticeKey: "youtube.quota" });
-      expect(integrationsMessage(result.noticeKey)).toBeTypeOf("string");
+      expect(noticeMessage(result)).toBeTypeOf("string");
       expect(row()).toMatchObject({ youtube_api_key: YOUTUBE_KEY, youtube_enabled: 1 });
     });
 
@@ -282,7 +338,7 @@ describe("the integrations actions", () => {
       const result = await actions.saveYoutube({ apiKey: "a-different-key" });
 
       expect(result).toEqual({ ok: false, errorKey: "unreachable" });
-      expect(integrationsMessage(result.errorKey)).toBeTypeOf("string");
+      expect(failureMessage(result)).toBeTypeOf("string");
       expect(row()).toMatchObject({ youtube_api_key: YOUTUBE_KEY, youtube_enabled: 1 });
     });
 
@@ -303,7 +359,7 @@ describe("the integrations actions", () => {
       const result = await actions.saveYoutube({ apiKey: KEEP_EXISTING });
 
       expect(result).toEqual({ ok: false, errorKey: "youtube.required" });
-      expect(integrationsMessage(result.errorKey)).toBeTypeOf("string");
+      expect(failureMessage(result)).toBeTypeOf("string");
       // Probing "" would come back "rejected" and blame a key nobody entered.
       expect(requests).toEqual([]);
     });
@@ -377,7 +433,7 @@ describe("the integrations actions", () => {
       });
 
       expect(result).toEqual({ ok: false, errorKey: "reddit.userAgentRequired" });
-      expect(integrationsMessage(result.errorKey)).toBeTypeOf("string");
+      expect(failureMessage(result)).toBeTypeOf("string");
       expect(requests).toEqual([]);
       expect(row()).toMatchObject({ reddit_client_id: "", reddit_enabled: 0 });
     });
@@ -405,11 +461,27 @@ describe("the integrations actions", () => {
       });
 
       expect(result).toEqual({ ok: false, errorKey: "reddit.rejected" });
-      expect(integrationsMessage(result.errorKey)).toBeTypeOf("string");
+      expect(failureMessage(result)).toBeTypeOf("string");
       expect(row()).toMatchObject({ reddit_enabled: 0 });
     });
 
-    it("counts Reddit's rate limit as working, with its own notice", async () => {
+    /**
+     * **Reddit's 429 is not a pass, and this is the assertion that says so.**
+     *
+     * It used to be: the row was written and `reddit_enabled` set to 1 on the
+     * strength of a rate-limit answer, with a toast reading "the credentials are
+     * valid". They need not be -- a 429 from `/api/v1/access_token` is IP-level
+     * load shedding returned *before* the Basic auth header is looked at, and a
+     * self-hosted server on a datacentre range collects them routinely. So a
+     * first-ever save of *wrong* credentials from a throttled host enabled them,
+     * which is the one thing the probe-derived flag exists to prevent.
+     *
+     * YouTube's quota answer stays a pass (the test above) because Google
+     * validates the key before it accounts for quota. The difference is named
+     * once, as `quotaMeansVerified` on each provider's keys, so phase 7 has to
+     * answer it per AI provider instead of inheriting YouTube's answer.
+     */
+    it("treats Reddit's rate limit as no answer at all, and writes nothing", async () => {
       stubFetch(redditRateLimited);
 
       const result = await actions.saveReddit({
@@ -418,9 +490,71 @@ describe("the integrations actions", () => {
         userAgent: "Yana/1.0",
       });
 
-      expect(result).toEqual({ ok: true, noticeKey: "reddit.rateLimited" });
-      expect(integrationsMessage(result.noticeKey)).toBeTypeOf("string");
-      expect(row()).toMatchObject({ reddit_enabled: 1 });
+      expect(result).toEqual({ ok: false, errorKey: "reddit.rateLimited" });
+      expect(failureMessage(result)).toBeTypeOf("string");
+      expect(row()).toMatchObject({
+        reddit_client_id: "",
+        reddit_client_secret: "",
+        reddit_enabled: 0,
+      });
+    });
+
+    it("does not disable a working Reddit integration over a rate limit either", async () => {
+      // The other half of "nothing is written": an integration that was on stays
+      // on, because a 429 is no more a verdict against the stored credential than
+      // it is for the submitted one.
+      seed({ redditClientId: REDDIT_ID, redditClientSecret: REDDIT_SECRET, redditEnabled: true });
+      stubFetch(redditRateLimited);
+
+      expect(
+        await actions.saveReddit({
+          clientId: "a-different-id",
+          clientSecret: "a-different-secret",
+          userAgent: "Yana/1.0",
+        }),
+      ).toEqual({ ok: false, errorKey: "reddit.rateLimited" });
+      expect(row()).toMatchObject({
+        reddit_client_id: REDDIT_ID,
+        reddit_client_secret: REDDIT_SECRET,
+        reddit_enabled: 1,
+      });
+    });
+
+    it("refuses a user agent that is not a single printable ASCII line", async () => {
+      // `.trim()` strips the ends only, so this passed zod and then threw inside
+      // fetch's own header validation -- reported as "could not reach the
+      // provider", about a request that was never made.
+      stubFetch(redditOk);
+
+      const result = await actions.saveReddit({
+        clientId: REDDIT_ID,
+        clientSecret: REDDIT_SECRET,
+        userAgent: "Yana/1.0\nX-Injected: 1",
+      });
+
+      expect(result).toEqual({ ok: false, errorKey: "reddit.userAgentInvalid" });
+      expect(failureMessage(result)).toBeTypeOf("string");
+      expect(requests).toEqual([]);
+    });
+
+    it("trims both secrets before probing and before storing them", async () => {
+      // Copying a client id or secret out of a browser or a password manager
+      // brings a trailing newline with it, and an untrimmed one is a *destroyed*
+      // credential: Reddit rejects it, and a rejection stores what was submitted.
+      stubFetch(redditOk);
+
+      const result = await actions.saveReddit({
+        clientId: `  ${REDDIT_ID}\n`,
+        clientSecret: `${REDDIT_SECRET}\r\n`,
+        userAgent: "Yana/1.0",
+      });
+
+      expect(result).toEqual({ ok: true });
+      expect(basicAuthOf(requests[0])).toBe(`${REDDIT_ID}:${REDDIT_SECRET}`);
+      expect(row()).toMatchObject({
+        reddit_client_id: REDDIT_ID,
+        reddit_client_secret: REDDIT_SECRET,
+      });
     });
   });
 

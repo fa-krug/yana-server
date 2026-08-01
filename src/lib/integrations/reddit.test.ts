@@ -20,6 +20,10 @@ describe("testRedditCredentials", () => {
     expect(result).toMatchObject({ ok: false, cause: "unauthorized" });
   });
 
+  // `quota` is the probe's word for "too many requests", not a claim that the
+  // credential was accepted -- Reddit sheds load at the edge before it looks at
+  // the Basic auth header. `actions.ts` is where that matters: Reddit's keys carry
+  // `quotaMeansVerified: false`, so this answer writes nothing.
   it("classifies a 429 as quota", async () => {
     vi.stubGlobal(
       "fetch",
@@ -115,7 +119,7 @@ describe("testRedditCredentials", () => {
     expect(serialized).not.toContain(credentials.clientId);
   });
 
-  it("reports success on 200", async () => {
+  it("reports success on a 200 that carries a token", async () => {
     vi.stubGlobal(
       "fetch",
       vi
@@ -128,6 +132,47 @@ describe("testRedditCredentials", () => {
     expect(result.ok).toBe(true);
   });
 
+  /**
+   * **A 200 alone must not pass.**
+   *
+   * Both shapes below are real answers from a token endpoint that prove nothing
+   * about the credential, and either one used to switch the integration on: a
+   * JSON error with a 200 status, and Reddit's edge serving an interstitial to a
+   * flagged or datacentre IP. The unverified credential then produced empty feeds
+   * behind an "Active" badge -- exactly what deriving the flag from a probe is
+   * supposed to rule out.
+   *
+   * The YouTube probe deliberately does the opposite (see its own test): its call
+   * has an empty-but-valid 200.
+   */
+  it.each([
+    ["a JSON error with a 200 status", JSON.stringify({ error: "unsupported_grant_type" })],
+    ["an HTML block page", "<html><body>whoa there, pardner!</body></html>"],
+  ])("refuses a 200 that carries no access token: %s", async (_label, body) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { status: 200 })));
+
+    const result = await testRedditCredentials(credentials);
+
+    expect(result).toMatchObject({ ok: false, cause: "unexpected" });
+    // And the detail is still a constant: nothing from that body is interpolated,
+    // which is where an echoed credential would come from.
+    expect(JSON.stringify(result)).not.toContain("unsupported_grant_type");
+    expect(JSON.stringify(result)).not.toContain("pardner");
+  });
+
+  it("refuses a 200 whose access_token is empty or not a string", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(new Response(JSON.stringify({ access_token: "" }), { status: 200 })),
+    );
+    expect(await testRedditCredentials(credentials)).toMatchObject({
+      ok: false,
+      cause: "unexpected",
+    });
+  });
+
   it("classifies a timeout as timeout", async () => {
     vi.stubGlobal(
       "fetch",
@@ -137,9 +182,18 @@ describe("testRedditCredentials", () => {
     expect(result).toMatchObject({ ok: false, cause: "timeout" });
   });
 
-  it("classifies any other rejection as network", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("fetch failed")));
+  it("classifies any other rejection as network, logging the platform's code", async () => {
+    const failure = new TypeError("fetch failed");
+    failure.cause = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:3128"), {
+      code: "ECONNREFUSED",
+    });
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(failure));
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+
     const result = await testRedditCredentials(credentials);
+
     expect(result).toMatchObject({ ok: false, cause: "network" });
+    expect(warned).toHaveBeenCalledWith(expect.stringContaining("ECONNREFUSED"));
+    expect(JSON.stringify(result)).not.toContain("ECONNREFUSED");
   });
 });
