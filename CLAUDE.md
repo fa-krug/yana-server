@@ -51,6 +51,8 @@ file.
 │   │       ├── error.tsx          # error boundary for every route in the group
 │   │       ├── account/page.tsx   # /account — profile, password, passkeys
 │   │       ├── integrations/page.tsx # /integrations — YouTube + Reddit credentials
+│   │       ├── ai/page.tsx        # /ai — the active AI provider, its credentials,
+│   │       │                      #   and the nine global tuning values
 │   │       ├── settings/page.tsx
 │   │       └── users/             # admin-only. page.tsx (list), new/, [id]/ (edit +
 │   │                              #   delete); each awaits requireAdmin() first
@@ -66,6 +68,11 @@ file.
 │   │   ├── integrations/           # youtube-section.tsx, reddit-section.tsx and
 │   │   │                           #   section-parts.tsx — the `integrations`
 │   │   │                           #   binding of ../section-kit.tsx
+│   │   ├── ai/                     # provider-section.tsx (the picker + one
+│   │   │                           #   provider's credentials), advanced-section.tsx
+│   │   │                           #   (the nine numbers, saved as one unit) and
+│   │   │                           #   section-parts.tsx — the `ai` binding of
+│   │   │                           #   ../section-kit.tsx
 │   │   ├── users/                  # the kit, wired to users: users-table.tsx,
 │   │   │                           #   user-form.tsx, delete-user-section.tsx,
 │   │   │                           #   use-user-impact.ts
@@ -116,6 +123,13 @@ file.
 │   │   │                          #   descriptor: one declaration -> save/test/remove),
 │   │   │                          #   actions.ts (the two declarations + the exports),
 │   │   │                          #   result.ts (attempt() binding + SaveResult)
+│   │   ├── ai/                    # providers.ts (client-safe registry — imports
+│   │   │                          #   nothing), columns.ts (provider -> columns),
+│   │   │                          #   probes.ts + openai/anthropic/gemini.ts (live
+│   │   │                          #   probes, SERVER-ONLY by lint rule), queries.ts
+│   │   │                          #   (SERVER-ONLY, masked only), actions.ts (three
+│   │   │                          #   defineIntegration() declarations, the active
+│   │   │                          #   provider, the nine tuning values), result.ts
 │   │   ├── users/                 # fields.ts (client-safe constants — imports only
 │   │   │                          #   auth/roles), queries.ts (SERVER-ONLY reads),
 │   │   │                          #   actions.ts (writes), result.ts (attempt() binding)
@@ -388,10 +402,11 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   4's task 2 it left an empty, unmigrated `data/yana.db` behind on every
   `npm run build`. So **every route that can reach the database calls it
   itself, as its first statement**, before any translation or data call. The
-  seven that do today: `src/app/layout.tsx`, `src/app/health/route.ts`,
+  eight that do today: `src/app/layout.tsx`, `src/app/health/route.ts`,
   `src/app/(app)/page.tsx`, `src/app/(app)/settings/page.tsx`,
   `src/app/(app)/integrations/page.tsx` (phase 6 — signed-in but **not**
   admin-only, so no gate opts it out and the call is the only thing that does),
+  `src/app/(app)/ai/page.tsx` (phase 7, for that same reason),
   `src/app/(app)/account/page.tsx` and `src/app/login/page.tsx`. **That list is
   exhaustive or it is not a checklist** — re-derive it with
   `grep -rl "await connection()" src/app` and expect one extra hit,
@@ -435,6 +450,25 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   and `src/components/users/user-form.tsx` do; assert against the trigger's
   `[data-slot="select-value"]` text, which is what
   `general-section.test.tsx` and `search-filter-bar.test.tsx` do.
+  **An option whose value is `""` is legal and is used twice** — the
+  filter-clearing entry in `src/components/crud/search-filter-bar.tsx` and
+  "None (disabled)" in `src/components/ai/provider-section.tsx`, where it is the
+  value `active_ai_provider` stores to switch the AI features off. It needs one
+  piece of care, because Base UI's `hasSelectedValue` is
+  `stringifyAsValue(value) !== ""` and therefore reads `""` as _nothing
+  selected_: `<Select.Value>` prefers its own `placeholder` prop over resolving a
+  label whenever nothing is selected, so **passing `placeholder` to a
+  `<SelectValue>` whose list contains a `""` entry silently replaces that
+  entry's label with it**. Neither call site passes one. (The trigger does get
+  `data-placeholder` in that state, so the label renders muted — cosmetic, and
+  arguably right for "none".)
+  **Driving one from a jsdom test takes a `pointerDown` before the `click`.**
+  Base UI's item refuses a click it did not see a pointer press begin on
+  (`allowMouseSelectionRef` in `select/item/SelectItem`), because opening with
+  `alignItemWithTrigger` can place an item under the cursor. `fireEvent.click`
+  alone opens the popup, highlights nothing and commits nothing — which reads as
+  a component that ignored the choice. See `choose()` in
+  `src/components/ai/provider-section.test.tsx`.
 - **Every user-facing string comes from `messages/en.json` + `messages/de.json`**,
   which must define identical, non-empty key sets. That parity is what
   `src/i18n/messages.test.ts` enforces, and it is **all** it enforces: no test
@@ -1195,9 +1229,12 @@ the reusable CRUD kit under it — `src/lib/crud/params.ts` plus
 `src/components/crud/`, which phases 8, 9 and 10 consume for tags, feeds and
 articles), **phase 6 (the integrations tab at `/integrations` — the per-user
 credential store, `src/lib/secrets.ts`, and the live YouTube and Reddit probes
-whose verdict derives the `*Enabled` flags; phase 7 adds three AI providers to
-the same page)** and the folder swap (phase 14, reworked to keep `old/`) are
-done; phases 7–13 — AI options, the remaining CRUD, the aggregators, jobs and
+whose verdict derives the `*Enabled` flags), **phase 7 (the AI tab at `/ai` —
+`src/lib/ai/` and `src/components/ai/`: a client-safe provider registry, three
+live probes reusing phase 6's `defineIntegration()` descriptor, the
+`active_ai_provider` preference and the nine global tuning values)** and the
+folder swap (phase 14, reworked to keep `old/`) are
+done; phases 8–13 — the remaining CRUD, the aggregators, jobs and
 the client API — are not. The direction record's last sections carry the
 decisions phases 2's, 3's, 4's, 5's and 6's reviews left to those phases;
 **"Carried forward from phase 6's review" is the one a phase-7 agent has to
@@ -1206,9 +1243,11 @@ read**, because the two generalisations it records — namespace-parameterising
 third, fourth and fifth provider earn. **Both are now built**, ahead of the third
 provider as that section demands: the UI half is
 `src/components/section-kit.tsx` and the actions half is
-`src/lib/integrations/define.ts` (see the two bullets above them). What remains
-of that section for phase 7 is its third item — deciding each AI provider's two
-probe answers rather than copying them. Phase 8 still starts from "Carried
+`src/lib/integrations/define.ts` (see the two bullets above them), and phase 7
+consumed both. Its third item — deciding each AI provider's two probe answers
+rather than copying a neighbour's — is `quotaMeansVerified` in
+`src/lib/ai/providers.ts`, where the three answers differ and each carries its
+reason. Phase 8 still starts from "Carried
 forward from phase 5's review", where the CRUD kit's contracts are.
 
 **Three plans are amended, not authoritative.**

@@ -203,9 +203,7 @@ describe("getAiStatus", () => {
     /**
      * **A dangling preference is reported as no provider at all.**
      *
-     * The write side clears this column whenever it switches a flag off, but
-     * that is a second statement rather than part of the flag write -- and the
-     * column is also reachable by a hand-edited database or a later phase that
+     * The column is reachable by a hand-edited database or a later phase that
      * flips a flag without going through these actions. Deriving on read makes
      * the state unobservable rather than merely unlikely, which is the same
      * argument `safeAvatarSrc()` rests on: check the value you are about to use.
