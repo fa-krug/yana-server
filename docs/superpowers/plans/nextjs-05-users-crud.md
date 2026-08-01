@@ -8,12 +8,53 @@
 
 **Tech Stack:** Next.js App Router, shadcn table + checkbox + alert-dialog, Zod, Drizzle.
 
+---
+
+> ## ⚠ This plan is a historical record. Phase 5 has shipped; read `CLAUDE.md`.
+>
+> Five human rulings landed during execution and two more parts of the plan turned out to be
+> wrong on contact. The **task bodies below were never rewritten** — rewriting them would make the
+> record of what was planned indistinguishable from what happened. What shipped is in `CLAUDE.md`
+> and in the direction record's "Carried forward from phase 5's review".
+>
+> 1. **Actions return a catalog `errorKey`, never `error: string`, by human ruling.** The plan
+>    specifies `{ ok, error? }` with English prose in it; an English validator message rendered into
+>    a German UI is exactly what `CLAUDE.md`'s convention exists to prevent. Keys are typed at their
+>    source (`NamespaceKey<"users">`) so a key neither catalog defines fails `npm run typecheck`.
+> 2. **"Admin" is `isAdminRole()`, never `role === "admin"`, by human ruling.** `users.role` is a
+>    comma-separated **list** — `"user,admin"` is an administrator to every Better Auth endpoint.
+>    Global Constraints below says `role === "admin"` and Task 3 goes further, specifying "a
+>    `users.role` equality when `filters.role` is set … this is now a direct equality". **That is
+>    the defect the ruling forbids**, and the implementation correctly ignored it: the list filter
+>    is `instr(',' || role || ',', ',admin,')`, which reproduces `isAdminRole()`'s semantics
+>    byte-exactly in SQL, and `users.test.ts` asserts the two agree over every shape the column can
+>    hold.
+> 3. **`buildListHref` is three-argument merge-and-reset**, `(pathname, current, changes)`, rather
+>    than the plan's shape.
+> 4. **The `<Select>` `items` gap is closed by making the prop required in the type**, so omitting
+>    it is a `npm run typecheck` failure rather than a trigger that prints the raw value.
+> 5. **`attempt()` was unified into one namespace-parameterized helper**, `attemptIn()` in
+>    `src/lib/attempt.ts`, with one binding per feature in `<feature>/result.ts`.
+>
+> Two further passages a later reader should not trust:
+>
+> - **Task 4 Step 3's "its `run` calls `userImpact` first" is unimplementable** against the kit this
+>   same plan specifies: `description` is a **string prop** rendered before the dialog opens, and
+>   `run` **is** the dialog's `onConfirm` — so anything it fetched would arrive after the operator
+>   had already read the copy. What shipped fetches the counts when the *selection* changes and
+>   re-renders them into the open dialog, with an honest "counts not yet known" description until
+>   they land.
+> - **The Self-Review's "Type consistency" paragraph is wrong on two counts.** `{ ok, error? }` never
+>   matched phase 3's convention, and it says `error: string` — see ruling 1.
+
+---
+
 ## Global Constraints
 
 - **Every route in this phase is admin-only**, enforced by `requireAdmin()` from phase 4 — which 404s rather than 403s.
 - Search and filter state lives in **URL search params**. A component-state filter is a defect: it breaks linkability and back-navigation.
 - **Destructive actions always confirm**, naming what will be affected and how many.
-- An admin **cannot delete their own account** and cannot remove their own admin flag — both would be a self-lockout. Also refuse to delete the last remaining admin.
+- An admin **cannot delete their own account** and cannot demote themselves out of `role: "admin"` — both would be a self-lockout. Also refuse to delete the last remaining admin. (Phase 4 made `users.role` the authorization model and dropped `is_admin`; "admin" means `role === "admin"` everywhere below.)
 - Deleting a user cascades to their feeds, tags, articles and settings. The confirmation must state this, with counts.
 - The CRUD kit is generic. Any user-specific logic inside `src/components/crud/` is misplaced.
 - List queries are paginated — never `SELECT *` unbounded. Default page size 25.
@@ -291,8 +332,8 @@ describe("deleteUsers", () => {
 });
 
 describe("updateUser", () => {
-  it("refuses to clear the acting admin's own admin flag", async () => {
-    const result = await updateUser(await currentAdminId(), { isAdmin: false });
+  it("refuses to demote the acting admin out of the admin role", async () => {
+    const result = await updateUser(await currentAdminId(), { role: "user" });
     expect(result.ok).toBe(false);
   });
 
@@ -307,9 +348,9 @@ Write the three helpers (`currentAdminId`, `onlyOtherAdminId`, `someNonAdminId`)
 
 - [ ] **Step 2: Implement**
 
-`listUsers` builds a Drizzle query with `like` on email/firstName/lastName for `q`, an `isAdmin` equality when `filters.role` is set, `limit`/`offset` from paging, and a separate `count()` for `total`. Both queries run in the same read — do not paginate in JavaScript.
+`listUsers` builds a Drizzle query with `like` on email/firstName/lastName for `q`, a `users.role` equality when `filters.role` is set, `limit`/`offset` from paging, and a separate `count()` for `total`. Both queries run in the same read — do not paginate in JavaScript. (The filter was already *named* `role`; phase 4 made the column agree, so this is now a direct equality rather than a boolean translation.)
 
-`createUser` goes through `auth.api.signUpEmail` so hashing matches, then applies `isAdmin` and seeds a `userSettings` row.
+`createUser` goes through **`createUserWithPassword()` from `@/lib/auth/server`**, not `auth.api.signUpEmail` — phase 4 set `disableSignUp: true`, so that endpoint refuses everyone. The seam hashes with Better Auth's own scrypt and takes `role` directly, so there is no second write to apply it. Then seed a `userSettings` row.
 
 `deleteUsers` refuses in this order, before deleting anything: acting user in the set → last admin in the set → otherwise delete. The FK cascades from phase 2 handle feeds/tags/articles/settings, which is why `foreign_keys=ON` is load-bearing here.
 

@@ -54,7 +54,7 @@ describe("migrations", () => {
     ]) {
       expect(names).toContain(expected);
     }
-    // migrate() -- the same call docker-entrypoint.sh makes -- records what it
+    // migrate() -- the same call the server makes at startup -- records what it
     // applied here. Asserted so the extra table is documented rather than a
     // surprise for whoever next reads this list.
     expect(names).toContain("__drizzle_migrations");

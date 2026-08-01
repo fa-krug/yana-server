@@ -6,7 +6,33 @@ import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { cn } from "@/lib/utils";
 import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react";
 
-const Select = SelectPrimitive.Root;
+/**
+ * The app's `<Select>` -- Base UI's root with `items` made **mandatory**.
+ *
+ * Base UI resolves the collapsed trigger's label from `items` and from nothing
+ * else (see the comment on `SelectValue` below). Left optional, a `<Select>`
+ * without it renders the raw value -- `admin`, `de` -- on the trigger while the
+ * open popup looks perfectly translated, so the defect survives every test that
+ * only opens the popup. Requiring the prop here turns that from a visual defect
+ * found by looking at the page into a `npm run typecheck` failure, which is
+ * what phase 3's known-gaps list asked phase 5 to do before nine phases of call
+ * sites existed.
+ *
+ * The primitive's generics are preserved rather than collapsed to `string`, so
+ * `value`/`onValueChange` still infer exactly as they did and `multiple` still
+ * switches the value to an array.
+ */
+type SelectProps<Value, Multiple extends boolean | undefined> = Omit<
+  SelectPrimitive.Root.Props<Value, Multiple>,
+  "items"
+> &
+  Required<Pick<SelectPrimitive.Root.Props<Value, Multiple>, "items">>;
+
+function Select<Value, Multiple extends boolean | undefined = false>(
+  props: SelectProps<Value, Multiple>,
+) {
+  return <SelectPrimitive.Root {...props} />;
+}
 
 function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   return (
@@ -27,12 +53,17 @@ function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
  * is absent -- see resolveSelectedLabel() in
  * @base-ui/react/internals/resolveValueLabel. `<Select.ItemText>` inside the
  * popup is never consulted, so translated popup items are no evidence that the
- * trigger is translated. This wrapper deliberately does not paper over that:
- * only the call site knows the labels. **Pass `items` to `<Select>`** -- a
- * record or a `{ value, label }[]` -- and render the popup's `<SelectItem>`s
- * from the same list, as src/components/settings/general-section.tsx does.
- * A `children` function here is the per-instance alternative, but it receives
- * `value: any`, which drops the typing the catalog keys depend on.
+ * trigger is translated.
+ *
+ * Only the call site knows the labels, so this wrapper cannot supply them --
+ * but it no longer has to be trusted to remember: the `<Select>` above makes
+ * `items` a **required** prop, so omitting it fails `npm run typecheck`. Pass a
+ * record or a `{ value, label }[]` and render the popup's `<SelectItem>`s from
+ * the same list, as src/components/settings/general-section.tsx and
+ * src/components/crud/search-filter-bar.tsx do -- one list feeding both is what
+ * keeps the trigger and the popup from drifting apart. A `children` function
+ * here is the per-instance alternative, but it receives `value: any`, which
+ * drops the typing the catalog keys depend on.
  */
 function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
   return (

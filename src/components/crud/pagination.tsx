@@ -1,0 +1,104 @@
+"use client";
+
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import Link from "next/link";
+import { useTranslations } from "next-intl";
+import type * as React from "react";
+
+import { useListParams } from "@/components/crud/use-list-params";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { buildListHref } from "@/lib/crud/params";
+
+/**
+ * Previous/next paging, plus the range the operator is looking at.
+ *
+ * The range is not decoration: after a search or a filter the total is the
+ * only thing that says whether the result set is 3 rows or 3000, and the
+ * two links alone cannot show that.
+ *
+ * Both links go through `buildListHref`, so paging carries the current search,
+ * filters and sort along -- a pagination link that dropped the query would
+ * page through a different list than the one on screen.
+ */
+export function Pagination({
+  page,
+  pageSize,
+  total,
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+}) {
+  const t = useTranslations("crud");
+  const { pathname, params } = useListParams();
+
+  // Nothing to page through, and the table already says the list is empty.
+  if (total === 0) return null;
+
+  const lastPage = Math.max(1, Math.ceil(total / pageSize));
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, total);
+
+  return (
+    <nav aria-label={t("pagination")} className="flex items-center justify-between gap-2">
+      <p className="text-sm text-muted-foreground">{t("range", { from, to, total })}</p>
+      <div className="flex items-center gap-2">
+        <PageLink
+          href={buildListHref(pathname, params, { page: page - 1 })}
+          disabled={page <= 1}
+          label={t("previous")}
+        >
+          <ChevronLeft aria-hidden="true" />
+        </PageLink>
+        <PageLink
+          href={buildListHref(pathname, params, { page: page + 1 })}
+          disabled={page >= lastPage}
+          label={t("next")}
+        >
+          <ChevronRight aria-hidden="true" />
+        </PageLink>
+      </div>
+    </nav>
+  );
+}
+
+/**
+ * One paging control.
+ *
+ * A disabled one is a real `<button disabled>` rather than a styled `<a>`: an
+ * anchor has no disabled state, and `aria-disabled` alone leaves it focusable
+ * and clickable -- which on page one would navigate to `?page=0`.
+ */
+function PageLink({
+  href,
+  disabled,
+  label,
+  children,
+}: {
+  href: string;
+  disabled: boolean;
+  label: string;
+  children: React.ReactNode;
+}) {
+  if (disabled) {
+    return (
+      <Button type="button" variant="outline" size="icon-sm" aria-label={label} disabled>
+        {children}
+      </Button>
+    );
+  }
+
+  return (
+    // buttonVariants on a <Link> rather than `<Button render={<Link/>}>`: the
+    // Base UI button primitive expects to render a native <button> and would
+    // need `nativeButton={false}` to be told otherwise. The class is the whole
+    // contract here.
+    <Link
+      href={href}
+      aria-label={label}
+      className={buttonVariants({ variant: "outline", size: "icon-sm" })}
+    >
+      {children}
+    </Link>
+  );
+}

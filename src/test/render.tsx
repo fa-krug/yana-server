@@ -34,11 +34,20 @@ type Options = {
  * needs it, not here.
  */
 export function renderWithProviders(ui: ReactNode, { locale = "en", theme }: Options = {}) {
-  const tree = (
-    <NextIntlClientProvider locale={locale} messages={CATALOGS[locale]}>
-      {ui}
-    </NextIntlClientProvider>
-  );
+  const tree =
+    (
+      /**
+       * `timeZone` is pinned, and it is not incidental. next-intl otherwise
+       * formats dates in the *environment's* zone, so a date assertion here
+       * would pass or fail depending on the developer's laptop and on CI's
+       * `TZ`. UTC matches what `src/i18n/request.ts` configures when the
+       * container sets none, so a test and a default deployment format the same
+       * instant the same way.
+       */
+      <NextIntlClientProvider locale={locale} messages={CATALOGS[locale]} timeZone="UTC">
+        {ui}
+      </NextIntlClientProvider>
+    );
   return render(
     theme === undefined ? tree : <ThemeProvider defaultTheme={theme}>{tree}</ThemeProvider>,
   );

@@ -8,6 +8,27 @@
       "when": 1785491540312,
       "tag": "0000_loud_hemingway",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1785506637897,
+      "tag": "0001_whole_sage",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785508900662,
+      "tag": "0002_puzzling_nightcrawler",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1785595018087,
+      "tag": "0003_ai_model_defaults",
+      "breakpoints": true
     }
   ]
 }

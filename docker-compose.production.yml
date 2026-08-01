@@ -18,6 +18,20 @@ services:
       - NODE_ENV=production
       - DATABASE_PATH=/app/data/yana.db
       - HOSTNAME=0.0.0.0
+      # `:?` so the stack refuses to come up rather than starting a container
+      # that throws on its first authenticated request: Better Auth treats its
+      # built-in development secret as a hard error when NODE_ENV=production,
+      # because that shared default would let anyone forge a session cookie.
+      # Generate with `openssl rand -base64 32`; rotating it logs everyone out.
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:?set a random 32+ byte secret}
+      # WebAuthn is origin-bound. PASSKEY_RP_ID is the bare registrable domain
+      # (no scheme, no port); PUBLIC_URL is the full origin, no trailing slash.
+      # A mismatch with the host the browser shows makes the browser refuse the
+      # credential with an error that names nothing, and changing PASSKEY_RP_ID
+      # later invalidates every passkey already registered.
+      - PASSKEY_RP_ID=${YANA_DOMAIN:-yana.fa-krug.de}
+      - PUBLIC_URL=https://${YANA_DOMAIN:-yana.fa-krug.de}
+      - BETTER_AUTH_URL=https://${YANA_DOMAIN:-yana.fa-krug.de}
     volumes:
       # Named volumes: they inherit the image's uid 1001 ownership, so SQLite can
       # create its -wal/-shm siblings without a host-side chown. No
@@ -43,6 +57,21 @@ services:
         reservations:
           cpus: "0.5"
           memory: 512M
+    # TODO(phase 15): confirm `web` actually terminates TLS before this file is
+    # deployed. Auth makes the answer load-bearing in three ways, none of which
+    # existed when the Django stack used the same label:
+    #   1. Session cookies are `secure` under NODE_ENV=production, so over plain
+    #      HTTP the browser never sends them back and login silently fails --
+    #      no error, just a login page that loops.
+    #   2. WebAuthn requires a secure context, so passkeys cannot be registered
+    #      or used at all over HTTP.
+    #   3. PUBLIC_URL/BETTER_AUTH_URL above say `https://`; if the browser is on
+    #      `http://` the origin check fails and WebAuthn refuses.
+    # If `web` is the plain-HTTP entrypoint, point this at the TLS one (commonly
+    # `websecure`) and add a certresolver. Not changed blind: the live stack
+    # file is in Portainer and `old/docker-compose.production.yml` -- the only
+    # precedent in this repo -- says `web` too while serving `https://`, so the
+    # entrypoint names in that traefik install cannot be inferred from here.
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.yana.rule=Host(`${YANA_DOMAIN:-yana.fa-krug.de}`)"

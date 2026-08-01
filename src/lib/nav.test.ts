@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { breadcrumbsFor } from "./nav";
+import { NAV_ITEMS, breadcrumbsFor } from "./nav";
 
 describe("breadcrumbsFor", () => {
   it("returns just the root for the dashboard", () => {
@@ -47,6 +47,21 @@ describe("breadcrumbsFor", () => {
   it("does not treat a dot in a record id as a catalog key", () => {
     const crumbs = breadcrumbsFor("/feeds/some.slug.v2");
     expect(crumbs[2]).toEqual({ href: "/feeds/some.slug.v2", label: "some.slug.v2" });
+  });
+
+  it("translates /account, which has a label but no sidebar entry", () => {
+    // The footer's profile link is not in NAV_ITEMS -- it would print twice --
+    // so without UNLISTED_ROUTES this falls through to the record-id branch
+    // and the breadcrumb reads the raw segment "account" in every language.
+    const crumbs = breadcrumbsFor("/account");
+    expect(crumbs).toHaveLength(2);
+    expect(crumbs[1]).toEqual({ href: "/account", labelKey: "nav.account" });
+  });
+
+  it("keeps /account out of the navigation list itself", () => {
+    // The other half: a label for it must not put a second entry in the
+    // sidebar's own menu.
+    expect(NAV_ITEMS.some((item) => item.href === "/account")).toBe(false);
   });
 
   it("ignores trailing slashes", () => {

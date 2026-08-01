@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { getTranslations } from "next-intl/server";
 import { Suspense } from "react";
 
@@ -45,7 +46,15 @@ async function LibrarySummary() {
   );
 }
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  /**
+   * Opt this route out of prerendering, before anything can reach SQLite --
+   * `LibrarySummary` below does, through `getSettings()`. `connection()` in the
+   * root layout does not cover a page: they are sibling render scopes, and this
+   * one starts before the layout's interrupt lands. See the `connection()`
+   * bullet in CLAUDE.md.
+   */
+  await connection();
   return (
     <div className="space-y-4">
       {/* Renders immediately -- not inside Suspense. */}

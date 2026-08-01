@@ -52,6 +52,28 @@ if (typeof window.localStorage?.setItem !== "function") {
   Object.defineProperty(window, "localStorage", { writable: true, value: storage });
 }
 
+/**
+ * **No jsdom test may reach the network, and one of them now tries to.**
+ *
+ * `attemptCall()` (`src/lib/attempt.ts`, which every feature's `attempt()` and
+ * the CRUD kit's backstops are built on) answers "did the session end?" by
+ * probing `/api/auth/get-session` before it reports a failed action, so every
+ * component test that exercises a rejecting action reaches a real `fetch` --
+ * which in Node resolves the relative URL against jsdom's origin and spends a
+ * connection refusal on it. Measured: one such test went from instant to over a
+ * second and then failed its `waitFor`.
+ *
+ * The default is "the session is fine", which makes the ordinary failure path
+ * the ordinary answer. A test that is *about* the probe overrides this with its
+ * own `vi.stubGlobal("fetch", …)`, as `src/lib/account/result.test.tsx` does.
+ * Whether the probe is consulted at all is that file's business; this only
+ * keeps every other file off the wire.
+ */
+globalThis.fetch = (() =>
+  Promise.resolve(
+    new Response(JSON.stringify({ user: { id: "test-session" } }), { status: 200 }),
+  )) as typeof fetch;
+
 // Testing-library auto-cleans only when `afterEach` is a global, and this repo
 // runs vitest without `globals: true`. Without this, every render stays in
 // document.body and the next test's querySelectorAll sees both trees -- which

@@ -50,6 +50,26 @@ describe("relations", () => {
     db.insert(schema.articleInlineRuns)
       .values({ id: 1, blockId: 2, position: 0, text: "hello", bold: true })
       .run();
+    // Better Auth's satellite rows, inserted the way its adapter does: string
+    // ids it generated itself, not autoincrement.
+    db.insert(schema.sessions)
+      .values({ id: "s1", token: "tok1", userId: "u1", expiresAt: new Date(1) })
+      .run();
+    db.insert(schema.accounts)
+      .values({ id: "a1", accountId: "u1", providerId: "credential", userId: "u1" })
+      .run();
+    db.insert(schema.passkeys)
+      .values({
+        id: "p1",
+        name: "Laptop",
+        publicKey: "pk",
+        userId: "u1",
+        credentialID: "cred1",
+        counter: 0,
+        deviceType: "singleDevice",
+        backedUp: false,
+      })
+      .run();
   });
 
   afterEach(() => {
@@ -65,6 +85,27 @@ describe("relations", () => {
     expect(user?.settings?.userId).toBe("u1");
     expect(user?.feeds.map((feed) => feed.name)).toEqual(["Feed"]);
     expect(user?.tags.map((tag) => tag.name)).toEqual(["News"]);
+  });
+
+  it("traverses users -> sessions, accounts, passkeys", async () => {
+    const user = await db.query.users.findFirst({
+      where: (u, { eq }) => eq(u.id, "u1"),
+      with: { sessions: true, accounts: true, passkeys: true },
+    });
+
+    expect(user?.sessions.map((session) => session.token)).toEqual(["tok1"]);
+    expect(user?.accounts.map((account) => account.providerId)).toEqual(["credential"]);
+    expect(user?.passkeys.map((key) => key.credentialID)).toEqual(["cred1"]);
+  });
+
+  it("traverses sessions, accounts and passkeys -> user", async () => {
+    const session = await db.query.sessions.findFirst({ with: { user: true } });
+    const account = await db.query.accounts.findFirst({ with: { user: true } });
+    const key = await db.query.passkeys.findFirst({ with: { user: true } });
+
+    expect(session?.user.email).toBe("u1@example.com");
+    expect(account?.user.email).toBe("u1@example.com");
+    expect(key?.user.email).toBe("u1@example.com");
   });
 
   it("traverses user_settings -> owner", async () => {

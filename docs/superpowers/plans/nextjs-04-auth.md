@@ -6,11 +6,41 @@
 
 **Architecture:** Better Auth owns sessions, credential storage and WebAuthn. It adds `sessions`, `accounts` and `passkeys` around phase 2's already-compatible `users` table. The phase 3/4 seam closes by rewriting `currentUserId()` to read the session — every consumer written in phase 3 keeps working unchanged. Admin bootstrap runs at startup, not per-request.
 
-**Tech Stack:** Better Auth (+ passkey and admin plugins), Drizzle adapter, Next.js middleware, sharp (avatar processing).
+**Tech Stack:** Better Auth (+ passkey and admin plugins), Drizzle adapter, Next.js **proxy**
+(`src/proxy.ts` — Next 16's rename of `middleware.ts`), sharp (avatar processing).
+
+---
+
+> ## ⚠ This plan is a historical record. Phase 4 has shipped; read `CLAUDE.md`.
+>
+> Four things changed under it during execution, and the **task bodies below were never rewritten**
+> — they still contain `users.isAdmin` code that does not compile and a `src/middleware.ts` that
+> does not exist. The amendments are reflected in the Global Constraints, File Structure and
+> Self-Review sections; the steps are left as written, because rewriting them would make the record
+> of what was planned indistinguishable from what happened.
+>
+> 1. **`role` replaced `isAdmin`, by human ruling.** Enabling Better Auth's `admin()` plugin forces
+>    `role`/`banned`/`banReason`/`banExpires` onto the user model, and a boolean beside it would
+>    have been two sources of truth. `users.is_admin` was dropped in migration `0002`.
+>    `ADMIN_ROLE`/`ADMIN_ROLES`/`isAdminRole()` in `src/lib/auth/roles.ts` are the whole model.
+> 2. **`src/middleware.ts` became `src/proxy.ts`, by framework rename.** Next 16 ships `proxy.md` as
+>    a file convention and has no `middleware.md`. Both the file name and the exported function name
+>    change together; half a rename is a file Next silently never calls.
+> 3. **No self-registration, unconditionally, by human ruling.** `disableSignUp` closes
+>    `/api/auth/sign-up/email`, and every `/admin/*` endpoint is in `disabledPaths`.
+> 4. **Migrations moved into the application's startup path** and `docker-entrypoint.sh` was
+>    deleted, by human direction.
+
+---
 
 ## Global Constraints
 
-- **No roles, no groups, no permissions.** `users.isAdmin` is the entire authorization model.
+- ~~**No roles, no groups, no permissions.** `users.isAdmin` is the entire authorization model.~~
+  **Amended (human ruling).** `users.role` is the authorization model — a string, not a boolean, and
+  no `users.isAdmin` column exists. Still no groups and no permission table: `"admin"` is the only
+  role anything reads, and it is written once, in `src/lib/auth/roles.ts`, which is also what the
+  `admin()` plugin's `adminRoles` is configured with. Note that Better Auth treats the column as a
+  **comma-separated list**, so `isAdminRole()` splits it.
 - Sessions are **cookie-based**, `httpOnly`, `sameSite=lax`, `secure` in production. No JWT in local storage.
 - The bootstrap admin is `admin@admin.com` / `admin`, created **only when no admin exists**. It must never resurrect after deletion, and never overwrite an existing user.
 - The login form shows **passkey first**, with a button revealing the password field. Passwords remain fully functional — passkey is preferred, not required.
@@ -31,13 +61,18 @@
 | `src/app/api/auth/[...all]/route.ts` | Better Auth handler mount |
 | `src/lib/auth/bootstrap.ts` | `ensureAdminExists()` |
 | `src/lib/auth/session.ts` | `requireUser()`, `requireAdmin()`, `currentUserId()` |
-| `src/middleware.ts` | Redirects unauthenticated requests to `/login` |
+| ~~`src/middleware.ts`~~ `src/proxy.ts` | Redirects unauthenticated requests to `/login`. Renamed by Next 16; the export is `proxy`, not `middleware` |
 | `src/app/login/page.tsx` | Passkey-first login |
 | `src/app/(app)/account/page.tsx` | Account management |
 | `src/components/account/*.tsx` | Profile, password, passkey sections |
 | `src/components/user-avatar.tsx` | Image or generated initials |
-| `src/lib/avatar.ts` | `initialsFor()`, `colourFor()`, `processAvatar()` |
-| `src/instrumentation.ts` | Runs `ensureAdminExists()` once at startup |
+| `src/lib/auth/roles.ts` | `ADMIN_ROLE(S)` + `isAdminRole()` — added during execution; imports nothing |
+| `src/lib/startup.ts` | `runStartupTasks()`: migrate, then ensure an admin exists |
+| `src/lib/avatar.ts` | `initialsFor()`, `colourFor()` — dependency-free, so it reaches the browser |
+| `src/lib/avatar-storage.ts` | SERVER-ONLY: `processAvatar()` (sharp). Split out of `avatar.ts` during execution |
+| `src/lib/account/result.ts` | `attempt()` — the one way a client component calls a server action |
+| `src/components/auth/sign-out-button.tsx` | Sign out, in the sidebar footer |
+| `src/instrumentation.ts` | `register()` — awaits `runStartupTasks()`. **Migrations run here too**, which retired `docker-entrypoint.sh` |
 
 ---
 
@@ -653,7 +688,9 @@ Fallback colour derives from the user id, so it is identical on every device."
 
 `src/lib/account/actions.ts` — `updateProfile`, `changePassword`, `uploadAvatar`. Each validates with Zod, scopes to `requireUser()`, and returns `{ ok, error? }`, matching phase 3's action convention.
 
-`uploadAvatar` accepts `FormData`, enforces a **2 MB** limit before reading the buffer, passes it through `processAvatar`, writes to `media/avatars/<userId>.webp`, and stores that path on `users.image`. Reject by declared size first, then by actual byte length after reading — a client-supplied `size` is not trustworthy.
+`uploadAvatar` accepts `FormData`, enforces a **2 MB** limit before reading the buffer, passes it through `processAvatar`, writes the result to the file `avatarFilePath(userId)` returns, and stores **`avatarUrlFor(userId)`** on `users.image` — the URL `/media/avatars/<userId>`, *not* the filesystem path. Both helpers are in task 5's `src/lib/avatar-storage.ts` / `src/lib/avatar.ts`; see the media-route section of `CLAUDE.md` for the full contract, including that `safeAvatarSrc()` renders the column only when it equals that exact value, and that removing an avatar must `unlink` the file as well as null the column. Reject by declared size first, then by actual byte length after reading — a client-supplied `size` is not trustworthy. The 2 MB cap bounds bytes, not pixels; `processAvatar` owns the pixel and time limits and must not be bypassed.
+
+Writing the *filesystem* path into `users.image` is the silent failure to avoid: a relative `media/avatars/<id>.webp` resolves against `/account` to `/account/media/avatars/…`, 404s, and `<AvatarImage>` simply never mounts — initials show forever and nothing throws.
 
 `changePassword` calls `auth.api.changePassword` with `revokeOtherSessions: true`, so a password change ends sessions on other devices.
 
@@ -699,7 +736,7 @@ otherwise the account becomes permanently unreachable."
 | Requirement | Task |
 |---|---|
 | Cookie session auth | 1 |
-| Users, no groups/permissions, admin flag only | 1 (`isAdmin`), 3 (`requireAdmin`) |
+| Users, no groups/permissions, ~~admin flag~~ **single admin role** only | 1 (`users.role` + `isAdminRole()`), 3 (`requireAdmin`) |
 | Auto-create admin when none exists | 2 |
 | Profile icon in sidebar | 6 Step 3 |
 | Account page: email, password, first/last name, image | 6 |
@@ -713,3 +750,11 @@ otherwise the account becomes permanently unreachable."
 **Type consistency.** `currentUserId(): Promise<string>` is unchanged from phase 3. `requireUser`/`requireAdmin` both return `Promise<User>` using phase 2's inferred type. `UserAvatar`'s prop shape matches the `users` columns exactly (`id`, `firstName`, `lastName`, `email`, `image`), and `image` is `string | null` as the schema declares. `initialsFor` takes a subset of that shape, so a `User` satisfies it structurally.
 
 **One risk.** Task 1 Step 2 generates the auth schema with the Better Auth CLI, whose output may not match phase 2's `users` table if the plugin set demands extra columns. Step 5 checks for exactly that by reading the migration. If `users` is altered, correct phase 2's definition rather than accepting a destructive migration here — a greenfield project should never need one.
+
+**What the risk actually was.** The CLI was not used (the pre-flight ruling forbade letting it
+regenerate `users`), and the mapping resolved to `usePlural: true` and nothing else. `users` *was*
+altered, deliberately: migration `0002` added the four `admin()` plugin columns and dropped
+`is_admin`, which is the human ruling above rather than a destructive accident. The risk this plan
+did not see is the one that nearly shipped: `role` is a comma-separated list to Better Auth, and
+reading it as a single string made the application and the library disagree about who is an
+administrator — a disagreement that could brick the next restart. See `CLAUDE.md`.

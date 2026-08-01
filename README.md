@@ -10,9 +10,12 @@ better-sqlite3).** One language, one toolchain, one process — the job worker
 runs in-process, so there is no Redis and no separate worker container.
 
 > **Status: mid-migration.** Yana was a Django application; it is being rewritten
-> in TypeScript. What is in place today is the scaffold, the tuned SQLite client
-> and the container build. The schema, UI, auth, aggregators, scheduler and
-> client API are being ported phase by phase. The retired Django implementation
+> in TypeScript. In place today: the scaffold, the tuned SQLite client, the
+> container build, the full schema, the application shell (navigation, themes,
+> EN/DE, settings) and **authentication** — passkey-first sign-in, an
+> administrator created on first start, an account page and per-user avatars.
+> The feeds, articles and tags UI, the aggregators, the scheduler and the
+> client API are still being ported phase by phase. The retired Django implementation
 > is kept in [`old/`](old/) as a read-only behavior reference, and the frozen
 > golden corpus in [`parity/`](parity/) is what proves each ported aggregator
 > matches it. See
@@ -56,13 +59,55 @@ npm run dev
 ```
 
 Then open <http://localhost:3000>. The SQLite file is created at `./data/yana.db`
-on first connection; override with `DATABASE_PATH`.
+on first start and migrated automatically; override the path with
+`DATABASE_PATH`. There is no separate migration step to remember — the server
+applies every pending migration before it serves its first request, in every
+way it runs.
+
+> **Switching branches upgrades your local database.** Starting the dev server on
+> a branch with newer migrations applies them to `./data/yana.db` there and then,
+> and switching back does not undo it — you are left with a file ahead of the
+> schema that branch expects. Copy `./data/` before trying a branch you care about
+> being able to leave, or point `DATABASE_PATH` at a throwaway file per branch.
+
+The first start also creates an administrator, **`admin@admin.com` / `admin`**,
+and says so in the log. Sign in and change the password: until you do, anyone
+who can reach the server is an administrator.
+
+The check on every later start is "does **any** admin exist", not "does this
+address exist", so:
+
+- **Rename it** (change the email) and it never comes back — that is how you make
+  the account yours.
+- **Delete it** and, if it was the only admin, the next start creates it again
+  with the same published password — an instance with no administrator is not a
+  state this app can be left in. Promote another user to admin first, then delete.
+- **Demote or ban it** while it is the only admin, and the next start puts the
+  role back and says so in the log. The address is still taken, so a new account
+  cannot be created at it — and refusing to boot instead would leave an instance
+  with no way in at all. Its password is not touched. Again: promote somebody
+  else first, and this never fires.
 
 ## Configuration
 
 Copy [`.env.example`](.env.example) to `.env`. Every variable it documents is one
-the code actually reads — today that is `DATABASE_PATH` plus the `PORT` /
-`HOSTNAME` / `NEXT_TELEMETRY_DISABLED` that Next's own server reads.
+this deployment actually reads; the file explains each in place.
+
+**Set `BETTER_AUTH_SECRET` before you deploy anything.** It signs session
+cookies. Without it Better Auth falls back to a well-known development secret —
+which anyone can use to forge a session — and under `NODE_ENV=production` it
+refuses to initialise at all: the container starts, `/health` passes, and every
+`/api/auth/*` request fails, so nobody can sign in and nothing obvious says why.
+
+```bash
+openssl rand -base64 32
+```
+
+Changing it later signs everyone out. The rest are optional:
+`DATABASE_PATH` and `MEDIA_PATH` for where data lives, `PASSKEY_RP_ID` and
+`PUBLIC_URL` for WebAuthn behind a real hostname (a mismatch there is the most
+common passkey misconfiguration), `TZ` for how dates are formatted, and the
+`PORT` / `HOSTNAME` / `NEXT_TELEMETRY_DISABLED` that Next's own server reads.
 
 ## Data on disk
 
@@ -99,7 +144,13 @@ Database schema changes go through Drizzle:
 npx drizzle-kit generate   # write a migration into drizzle/ from src/lib/db/schema.ts
 ```
 
-Migrations are applied by `docker-entrypoint.sh` at container start.
+Applying them is not a separate step: the server runs every pending migration at
+startup (`src/instrumentation.ts` → `src/lib/startup.ts`), which covers
+`npm run dev`, `npm start` and the container alike.
+
+**Back up `data/` before upgrading.** That startup step applies schema changes to
+a live SQLite file unattended, and nothing here takes a backup for you. Copying
+the directory while the server is stopped is enough.
 
 [`CLAUDE.md`](CLAUDE.md) has the full contributor and AI-assistant guide:
 conventions, the database access rules, how `old/` and `parity/` are used, and

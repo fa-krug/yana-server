@@ -13,6 +13,66 @@
 
 **Tech Stack:** Next.js server actions, Zod, shadcn form primitives, phase 6's `src/lib/secrets.ts`.
 
+---
+
+> ## ⚠ This plan is a historical record. Phase 7 has shipped; read `CLAUDE.md`.
+>
+> Two refactor tasks (R1, R2) were run ahead of the three below, and several controller and human
+> rulings landed during execution. The **task bodies were never rewritten** — rewriting them would
+> make the record of what was planned indistinguishable from what happened. What shipped is in
+> `CLAUDE.md`'s Conventions and in the direction record's "Carried forward from phase 6's review",
+> where all three of that section's items are now closed. Read literally, several passages below
+> will produce defects the rulings exist to prevent.
+>
+> 1. **Actions return a catalog `errorKey`, never an English string.** The plan's
+>    `{ ok: boolean; error?: string }` interface, and the `expect(result.error).toMatch(/monthly/i)`
+>    assertion that reads it, are superseded (human rulings B and C: `CLAUDE.md` governs). A zod or
+>    provider message rendered into a German toast is precisely what that convention exists to
+>    prevent. Everything in `src/lib/ai/actions.ts` answers `AiResult`/`AiSaveResult` — keys under
+>    the **`ai`** catalog namespace, bound in `src/lib/ai/result.ts` through
+>    `attemptIn("ai", { sessionEnded, requestFailed })`, the fourth binding of its kind after
+>    `account`, `users` and `integrations`. A `ProbeResult.detail` is worse than a validator string
+>    and never crosses the wire at all: it is prose built for a server log, and a provider's error
+>    body can echo back the key just submitted. The map from a probe's `cause` to a catalog key is
+>    server-side.
+> 2. **Task 2's test bodies are not runnable as written.** They call `saveAdvanced({...})` with no
+>    temp database and no request scope — which reaches `currentUserId()` → `requireUser()` and
+>    *throws* rather than returning `{ ok: false }` — and each bound is probed with a partial object,
+>    so the assertion fails on the eight missing fields and would stay green whatever the bound did.
+>    What shipped is `src/lib/ai/actions.test.ts` in this repository's real-database style: a
+>    migrated temp SQLite file per test, the caller signed in for real through `signInCookie()`, and
+>    every bound submitted as a **complete valid payload with exactly one field out of range**, so
+>    each assertion is about the bound it names.
+> 3. **`ProbeResult` is imported from `src/lib/integrations/probe.ts`**, not from
+>    `src/lib/integrations/youtube.ts` as the Self-Review section says. Phase 6 moved it there
+>    precisely because three more providers would report the same shape; the plan's line is stale.
+> 4. **Only OpenAI has a base URL.** The plan's `getAiStatus` gives every provider an `apiUrl` as
+>    though each had one; the schema has a single `openai_api_url` column. The registry's
+>    `hasCustomUrl` is the declared fact — `true` for OpenAI alone — and both the credential shape
+>    and the projection follow it, so `AiProviderStatus.apiUrl` is `""` for the two providers whose
+>    endpoint is fixed. It is deliberately *not* masked: a base URL is an operator setting rather
+>    than a credential, and masking the one field most often needing correction would make it
+>    unreadable.
+> 5. **The registry is client-safe and carries no `probe`.** The plan puts `probe` on `AiProvider`
+>    beside `label`/`models`, which would drag all three probe modules into the browser bundle
+>    through task 3's model `<Select>`. Human ruling G split them: `src/lib/ai/providers.ts` imports
+>    **nothing** — pinned by a specifier tripwire in `providers.test.ts`, the same guard
+>    `src/lib/secrets.ts` carries — and the three live `fetch` probes are one import away in
+>    `src/lib/ai/probes.ts`, a `Record<AiProviderKey, AiProbe>` so that widening the key union
+>    without adding a probe is a typecheck failure rather than an `undefined` found by pressing
+>    Test. The precedent is `src/lib/users/fields.ts` against its `queries.ts`.
+> 6. **`clearActiveIfDisabled` was removed** (human ruling I), after being written during task 2 and
+>    never having been in this plan. `active_ai_provider` is a **preference** and nothing on the
+>    write side erases it when a provider's flag goes false; which provider is *actually* active is
+>    derived on the read side by `activeProvider()`, which `getAiStatus()` calls and which answers
+>    `""` whenever the named provider's probe-derived flag disagrees. Clearing bought nothing the
+>    derivation does not already give — the state it removed was unobservable — and it cost real
+>    damage: OpenAI's `insufficient_quota` is classified `unauthorized` on purpose, so an unpaid bill
+>    on the active provider permanently wiped a selection the operator never changed, and paying the
+>    bill would not bring it back. The derivation brings it back by itself.
+
+---
+
 ## Global Constraints
 
 - Three providers only: **OpenAI, Anthropic, Gemini**. The direction record defers provider expansion (iOS has seven) as a separate concern — do not widen it here.

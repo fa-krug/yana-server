@@ -6,20 +6,39 @@ import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { signInCookie } from "@/lib/auth/test-support";
 import { applyMigrationsAt } from "@/lib/db/test-support";
 import en from "../../../messages/en.json";
 
 // Real-database test, no driver mocks -- see CLAUDE.md's testing convention
-// and src/lib/db/bootstrap.test.ts, which this follows. Each test points
-// DATABASE_PATH at its own temp file, migrates it the way docker-entrypoint.sh
-// does (applyMigrationsAt -> migrate()), then exercises the actions/queries
+// and src/lib/auth/bootstrap.test.ts, which this follows. Each test points
+// DATABASE_PATH at its own temp file, migrates it through the same
+// applyMigrations() the server runs at startup, then exercises the actions/queries
 // through the real getDb()/writeTransaction() singleton.
+//
+// The user these queries scope to is created by the real admin bootstrap in
+// beforeEach, exactly as instrumentation.ts does it at server start -- not by a
+// hand-inserted fixture row -- and then *signed in* through the real
+// /sign-in/email endpoint, because currentUserId() is a session read now. A
+// fixture that diverged from what the bootstrap actually writes, or a
+// hand-built session row, would let these tests pass over a state no running
+// instance is ever in.
 //
 // next/cache's revalidatePath() is the one thing stubbed: it requires a Next
 // request scope that does not exist under Vitest and throws if called for
 // real, and it has no database behavior of its own to verify. Everything
 // touching SQLite runs unmocked.
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+
+// The other half of that request scope: next/headers, which is where the
+// session read gets its cookies. A hoisted box rather than a shared stub
+// module, because vi.resetModules() in beforeEach would re-instantiate a stub
+// imported inside the factory. See src/lib/auth/session.test.ts, which uses the
+// same shape and covers the helpers themselves.
+const { requestHeaders } = vi.hoisted(() => ({ requestHeaders: { current: new Headers() } }));
+vi.mock("next/headers", async () =>
+  (await import("@/test/next-headers")).nextHeadersStub(requestHeaders),
+);
 
 // `next-intl/server` resolves to next-intl's non-RSC build under Vitest, which
 // has no `react-server` export condition to select the real one -- there,
@@ -42,7 +61,7 @@ describe("settings", () => {
 
   // Same escape hatch client.ts itself uses to reach the raw better-sqlite3
   // handle -- needed here to close the module singleton's connection in
-  // afterEach, the way bootstrap.test.ts does.
+  // afterEach, the way src/lib/auth/bootstrap.test.ts does.
   function raw(db: unknown): Database.Database {
     return (db as { $client: Database.Database }).$client;
   }
@@ -55,6 +74,23 @@ describe("settings", () => {
     );
     applyMigrationsAt(dbPath);
     process.env.DATABASE_PATH = dbPath;
+    // Set before the auth module is imported: Better Auth reads it while
+    // building its context.
+    process.env.BETTER_AUTH_SECRET = "test-secret-not-used-outside-this-file-0123456789";
+    const bootstrap = await import("@/lib/auth/bootstrap");
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await bootstrap.ensureAdminExists();
+    } finally {
+      warned.mockRestore();
+    }
+    // Every call below arrives as the bootstrap administrator, signed in for
+    // real. Without a session currentUserId() redirects to /login, which is the
+    // behaviour src/lib/auth/session.test.ts covers.
+    const { auth } = await import("@/lib/auth/server");
+    requestHeaders.current = new Headers({
+      cookie: await signInCookie(auth, { email: "admin@admin.com", password: "admin" }),
+    });
     queries = await import("./queries");
     actions = await import("./actions");
     client = await import("@/lib/db/client");
@@ -67,6 +103,7 @@ describe("settings", () => {
 
   afterEach(() => {
     delete process.env.DATABASE_PATH;
+    delete process.env.BETTER_AUTH_SECRET;
     const connection = raw(client.getDb());
     if (connection.open) connection.close();
     for (const suffix of ["", "-shm", "-wal"]) {
@@ -214,35 +251,98 @@ describe("settings", () => {
   });
 
   describe("currentUserId", () => {
-    it("memoizes the bootstrap seed per process: a deleted settings row stays deleted", async () => {
+    it("does not open the database while the module is being imported", async () => {
+      // The sibling assertion in src/lib/auth/server.test.ts covers the auth
+      // module; this one covers *this* module, which is what the root layout
+      // actually imports (and which reaches the auth module in turn, through
+      // the session seam). `next build` walks every route's module graph, and
+      // `data/` does not exist until the server's own startup migrates it, so
+      // an eager getDb() anywhere along that chain would create a database on
+      // the build machine.
+      vi.resetModules();
+      const missing = path.join(os.tmpdir(), `yana-queries-never-${Date.now()}`, "nested.db");
+      process.env.DATABASE_PATH = missing;
+
+      try {
+        await import("./queries");
+        expect(fs.existsSync(path.dirname(missing))).toBe(false);
+      } finally {
+        // `finally`, so a failed assertion cannot leak the bogus path into
+        // afterEach, where getDb() would then open a second database.
+        process.env.DATABASE_PATH = dbPath;
+      }
+    });
+
+    it("is the same function the session module exports", async () => {
+      // A re-export, not a second implementation: this module is where phase 3
+      // put the seam and where every phase-3 consumer still imports it from, so
+      // the identity check is what keeps a copy from growing back here.
+      const session = await import("@/lib/auth/session");
+
+      expect(queries.currentUserId).toBe(session.currentUserId);
+    });
+
+    it("resolves the signed-in user", async () => {
       const userId = await queries.currentUserId();
 
-      // Delete the row the first call's seed created, through
-      // writeTransaction() per the project's write convention -- never a bare
-      // db.delete() outside one.
+      const owner = client
+        .getDb()
+        .select()
+        .from(schema.users)
+        .where(eq(schema.users.id, userId))
+        .get();
+
+      // Not just "some id": the seam has to land on the account that can
+      // actually sign in, since every settings row is scoped to it.
+      expect(owner).toMatchObject({ email: "admin@admin.com", role: "admin" });
+    });
+
+    it("surfaces a deleted settings row loudly rather than re-seeding it", async () => {
+      const userId = await queries.currentUserId();
+
+      // Through writeTransaction() per the project's write convention, never a
+      // bare db.delete() outside one.
       client.writeTransaction((tx) => {
         tx.delete(schema.userSettings).where(eq(schema.userSettings.userId, userId)).run();
       });
 
-      await queries.currentUserId();
-
-      // If the bootstrap seed had re-run, ensureBootstrapUser()'s
-      // existing-row check would have found none and recreated it. It
-      // doesn't: the seed already ran once for this process and is memoized,
-      // so the second call is a no-op. This also documents the real tradeoff
-      // of that memoization -- the seed is not self-healing within a
-      // process's lifetime.
+      // The session still resolves -- the account is untouched -- but the read
+      // path has no insert-if-absent fallback, on purpose: a missing settings
+      // row is a bug in whatever provisioned the account, and papering over it
+      // here would hide it forever. Only the root layout's locale and theme
+      // reads degrade instead of throwing (covered below).
+      await expect(queries.currentUserId()).resolves.toBe(userId);
       await expect(queries.getSettings()).rejects.toThrow(/no user_settings row/);
     });
   });
 
   // Lives here rather than in src/i18n/messages.test.ts (a pure catalog test
   // with no database) because it needs this file's real-database harness and
-  // the same "delete the row the memoized seed created" setup as the case
-  // above. getRequestConfig() is the identity function at runtime, so the
-  // module's default export can be called directly with the params Next would
-  // pass -- no Next request scope required.
+  // the same "delete the settings row" setup as the case above.
+  // getRequestConfig() is the identity function at runtime, so the module's
+  // default export can be called directly with the params Next would pass -- no
+  // Next request scope required.
   describe("locale resolution", () => {
+    it('falls back to "en" quietly when there is no session at all', async () => {
+      // The login page renders the root layout, and the root layout resolves
+      // the locale through getSettings() -> currentUserId(), which redirects
+      // when signed out. If that redirect escaped here, /login would redirect
+      // to /login forever; if it were merely logged, every unauthenticated page
+      // view would print a stack. Neither, and the UI is English.
+      requestHeaders.current = new Headers();
+      const requestConfig = (await import("@/i18n/request")).default;
+
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const config = await requestConfig({ requestLocale: Promise.resolve(undefined) });
+        expect(config.locale).toBe("en");
+        expect(config.messages).toBeTruthy();
+        expect(logged).not.toHaveBeenCalled();
+      } finally {
+        logged.mockRestore();
+      }
+    });
+
     it('falls back to "en" when the settings row is missing instead of throwing', async () => {
       const requestConfig = (await import("@/i18n/request")).default;
 

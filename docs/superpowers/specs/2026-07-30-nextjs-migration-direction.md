@@ -5,13 +5,14 @@
 **Scope:** Why we are moving to Next.js, the target architecture, the schema, the aggregator parity
 contract, and the phase route. Individual phases are planned in `docs/superpowers/plans/nextjs-*.md`.
 
-**Progress (2026-07-31):** Phase 0 (goldens), phase 1 (scaffold), phase 2
-(schema) and phase 3 (app shell) are done, and **phase 14's folder swap has
-been executed early** — the Next.js app is the repository root and the Django
-tree now sits in `old/`. Phases 4–13 and 15 are open. Two decisions below were
-changed by that early swap: Python is **not** deleted (`old/` is kept as
-read-only reference until nothing needs to read it), and CI no longer
-publishes or deploys. See `docs/superpowers/plans/nextjs-14-folder-swap.md`.
+**Progress (2026-08-01):** Phase 0 (goldens), phase 1 (scaffold), phase 2
+(schema), phase 3 (app shell) and **phase 4 (authentication)** are done, and
+**phase 14's folder swap has been executed early** — the Next.js app is the
+repository root and the Django tree now sits in `old/`. Phases 5–13 and 15 are
+open. Two decisions below were changed by that early swap: Python is **not**
+deleted (`old/` is kept as read-only reference until nothing needs to read it),
+and CI no longer publishes or deploys. See
+`docs/superpowers/plans/nextjs-14-folder-swap.md`.
 
 ## Background
 
@@ -76,7 +77,7 @@ paths; read those as repository-root paths.
 | UI | shadcn/ui + Tailwind, mobile-first | — |
 | Toasts | `sonner` | shadcn's own recommendation |
 | i18n | `next-intl` | EN/DE; App Router native |
-| Auth | **Better Auth** | Decided by passkeys: first-class WebAuthn, Drizzle adapter, cookie sessions, and an admin plugin matching the "admin boolean, no roles or groups" requirement. Auth.js passkey support is still experimental |
+| Auth | **Better Auth** | Decided by passkeys: first-class WebAuthn, Drizzle adapter, cookie sessions. Auth.js passkey support is still experimental. **Corrected in phase 4:** this row originally credited "an admin plugin matching the 'admin boolean, no roles or groups' requirement". At 1.6.25 the `admin()` plugin is role-based (`role`/`banned`/`banReason`/`banExpires`), so no such match exists — the requirement was changed rather than the library. See the phase 4 note below |
 | Lint / format | **ESLint + Prettier** | The `create-next-app` default and the beaten path. Biome was considered and rejected on ecosystem familiarity — its `next`/`drizzle`/`types` domains do cover this project, so the swap stays available later as a config-only change |
 | Type check | `tsc --noEmit` | The `mypy` analogue |
 | Tests | Vitest | Golden-fixture assertions dominate the suite |
@@ -88,9 +89,16 @@ paths; read those as repository-root paths.
 Deliberately not ported: `django-autocomplete-light`, `django-import-export`, `djangoql` (admin-only,
 and admin is what we are replacing) and `supervisord` (single process now).
 
-CI keeps its current job graph exactly — lint, format check, type check, test, then AMD64 and ARM64
-image builds, a multi-arch manifest, and the Portainer redeploy. Only the commands inside the test
-job change.
+**Amended.** CI was to keep the Django pipeline's job graph exactly, changing only the commands
+inside the test job. It does not: the multi-arch manifest and the Portainer redeploy are **gone**
+(the early folder swap removed them — production still runs the last Django image, and publishing
+`:latest` from here would swap a working aggregator for an unfinished port), and the image jobs
+build both architectures with `push: false` so the Dockerfile keeps getting exercised. Phase 4 added
+one job step the Django pipeline had no equivalent of: a **dev-boot smoke** that starts `next dev`
+and fetches `/health`, `/login` and `/`. Nothing else in CI ever runs the application, and phase 4
+produced two bundler-class regressions that only a running server catches. Restoring publish and
+deploy is phase 15's business; see `.github/workflows/ci.yml`, whose header carries the current
+rule.
 
 ## Schema
 
@@ -366,6 +374,280 @@ Carried over from the previous direction record and still out of scope:
 | AI provider expansion | iOS supports 7 providers, the server 3. Cleanly separable from this migration |
 | AI options shape | Server uses flat `ai_*` keys, iOS nests under `ai`. Harmonize when phase 13 pins the options contract |
 | Deleting iOS `Yana/Aggregators/` | After phase 13 ships and the server is proven authoritative |
+| **Per-user** time zone | **Only this half is still open.** Phase 4 settled the process-level default: `src/i18n/request.ts` configures next-intl with `process.env.TZ \|\| "UTC"`, documented in `.env.example`. It had to, and not as scope creep — the account page's passkey list is the first rendered date, and with no configured zone next-intl falls back to the *environment's*: the container's on the server, the visitor's own in the browser, which is a hydration mismatch plus an ENVIRONMENT_FALLBACK warning on every render. Phases 5–10 inherit a working deployment-wide default and one question: whether a `user_settings.time_zone` column is worth it. Do not re-litigate the default |
+
+## Carried forward from phase 5's review
+
+Phase 5 shipped `/users` **and the reusable CRUD kit under it**. Phases 8, 9 and 10 (tags, feeds,
+articles) build their lists on that kit, so its contracts are inherited rather than merely
+available — this section is what the next agent adding a **list page** reads first. That is phase 8:
+phase 6 (integrations) added forms rather than a list and consumed only `<ConfirmDestructive>`, and
+phase 7 extends the same page.
+
+- **The kit's contracts, in the order they are easiest to get wrong.**
+  - **Select-all is page-scoped.** `toggleAll()` in `src/components/crud/selection.ts` never reaches
+    beyond the ids on the current page, and ids selected on other pages survive it untouched.
+    Selecting rows nobody has looked at is how a bulk delete removes more than the operator meant
+    to. A partial page counts as "select all", matching every other table an operator has used.
+  - **`run` and `onConfirm` resolve a `boolean`; success is not merely the absence of a throw.**
+    `<ConfirmDestructive>` closes only on `true`, so a refusal leaves the dialog standing over the
+    list it refers to, with the toast beside it. An action that returned `{ ok: false }` and threw
+    nothing would otherwise close the dialog and look like it worked. `run` **is** that `onConfirm`
+    for a destructive bulk action, which is why the two signatures have to agree.
+  - **`buildListHref(pathname, current, changes)` is three arguments, merge-and-reset** (human
+    ruling C). `q`, `pageSize` and `filters` change _what_ the list shows, so any of them actually
+    changing value resets to page one — an explicit `changes.page` in the same call loses, because
+    it was computed against the old result set. `sort`/`dir` deliberately do **not** reset:
+    re-ordering the same rows does not invalidate the page. `changes.filters` **merges per key**
+    (the whole-record replacement, and the hand-written spread that worked around it, went in the
+    phase's fix wave); clear one filter with `""`.
+  - **There are no per-page defaults, and the parameter that promised them is gone.** A second
+    defaults object reaches `parseListParams` but neither `useListParams()` — which three kit
+    components call, and the page does not render directly — nor `buildListHref`'s *omission* rule,
+    which decides that `pageSize: 25` is the value left out of the URL. **Do not put a default sort
+    in a `NAV_ITEMS` href** (`/articles?sort=publishedAt&dir=desc`) to work around that — `src/lib/nav.ts`'s
+    `LABELS` map is keyed on the exact href string and `breadcrumbsFor()` looks up hrefs it rebuilds
+    from the pathname alone, so a query-bearing href misses that lookup and the breadcrumb prints
+    the raw segment instead of its label; `src/components/app-sidebar.tsx` matches the active item
+    with `pathname.startsWith(item.href)`, which a query string never satisfies either, so the item
+    never highlights. The honest state: a feature's own `queries.ts` already falls back to a default
+    ordering when `sort` is empty (`SORTABLE[params.sort] ?? users.createdAt` in
+    `src/lib/users/queries.ts`), so a bare visit is sorted sensibly with nothing to configure — the
+    open cost is that `<DataTable>`'s header computes `aria-sort` from the client-parsed `sort`
+    alone, so it reads `"none"` on the column actually driving the order. Closing that for real
+    needs one defaults object read by `parseListParams`, `useListParams()`, all three kit components
+    *and* `buildListHref()`, so the parse/emit round trip stays inverse — no phase has built that yet.
+- **A feature's client-safe constants live in a dependency-free `fields.ts`; its `queries.ts` is
+  server-only.** `src/lib/users/fields.ts` imports only `@/lib/auth/roles`; `queries.ts` reaches
+  `getDb()`. This is the `@/lib/avatar` ↔ `@/lib/avatar-storage` split, and phase 5 hit it live —
+  one constant imported out of `queries.ts` dragged `better-sqlite3` into the browser bundle, as an
+  opaque bundler error rather than the stated rule. **Now lint-enforced**: `eslint.config.mjs`
+  restricts `**/lib/*/queries` from `src/components/**`, so every phase's `queries.ts` is covered
+  without the rule being extended. `allowTypeImports` is on — an `import type` for a row projection
+  is erased before bundling and is the preferred form.
+- **`attemptIn(namespace, keys)`, one binding per feature in `<feature>/result.ts`** (human ruling
+  E). Never `await` a server action bare from a client component. See the phase-4 entry below for
+  the unification this closed.
+- **A page authorizes and awaits its record in the page body, never inside a `<Suspense>` —
+  `src/app/(app)/users/[id]/page.tsx` is the precedent, and it is the one a later phase will get
+  wrong.** `notFound()` (and `redirect()`, and `forbidden()`) can only produce a status while the
+  response is still open; inside a boundary, after the shell has flushed, it truncates a 200
+  instead. So a detail route has no data region at all: it awaits one indexed primary-key lookup at
+  the top and lets `src/app/(app)/loading.tsx` be the fallback. The `<Suspense>` a *list* page keeps
+  is for rows whose absence is an empty table rather than a 404, and its `requireAdmin()` still sits
+  above the boundary. That same top-of-page `await` is also what opts the route out of
+  prerendering, so it needs no `connection()` call.
+- **`users.role` is a comma-separated list, and a form must not collapse one on the way past.**
+  `<UserForm>` seeds its two-option select through `isAdminRole()` but submits the **stored** string
+  unless the operator actually picks a role — otherwise saving a last name rewrites the column, a
+  write nobody asked for. Any later form editing a list-valued column inherits this.
+
+## Carried forward from phase 6's review
+
+Phase 6 shipped `/integrations` with two providers. **Phase 7 adds three AI providers to the same
+page**, which is what turns both items below from "a shape one could factor out" into work worth
+doing — they are recorded here rather than built because at two call sites each generalisation would
+have been guessed from one example, and both were reviewed as correct to defer. ~~A phase-7 agent
+should build them *first*, before the third provider, not after the fifth.~~ **That is what
+happened**: phase 7 ran two refactor tasks, R1 and R2, ahead of its own three, so both
+generalisations were extracted from phase 6's two providers and already in place before the first AI
+provider was written against them. Nothing below is outstanding; each bullet is struck and answered
+in turn.
+
+- ~~**`src/components/integrations/section-parts.tsx` is hard-wired to the `integrations` catalog
+  namespace.** `useReportOutcome()` and `StatusBadge` both call `useTranslations("integrations")`, so
+  an `ai` namespace makes all 107 lines uncopyable — and the copy that gets made instead is the toast
+  reporter, which is the one piece where a mistake means "the wrong outcome, with no message". Fix
+  shape: **`reportOutcomeIn(namespace)`**, mirroring `attemptIn()` in `src/lib/attempt.ts` exactly —
+  a factory per feature, keys spelled out at the binding site so `NamespaceKey<Namespace>` stays
+  compiler-checked (TypeScript cannot prove a literal is a member of that type while `Namespace` is
+  still a parameter, which is why `attemptIn` takes its two keys as arguments). The three
+  success/fallback keys (`saved`/`tested`/`removed` and their failures) are the ones to
+  parameterise.~~ **Closed** (task R1). It shipped as **`src/components/section-kit.tsx`** —
+  at the root of `src/components`, not inside either feature folder, because a kit that lives in one
+  of the features it serves reads as that feature's private code and the second consumer copies it
+  instead of importing it, which is the exact failure this entry predicted. It exports
+  `reportOutcomeIn()` and `statusBadgeIn()`, the two factories, plus `submittedSecret()` and
+  `secretPlaceholder()`, the two one-line spellings of the keep-existing protocol that the two cards
+  had written two ways each. The **literal `reportOutcomeIn(namespace)` above does not compile**, and
+  that is the one respect in which what shipped differs: `useTranslations(namespace)` with a still-
+  generic `Namespace` yields a `t` whose key type TypeScript cannot reduce to
+  `NamespaceKey<Namespace>`, and closing that gap inside the factory needs a cast — precisely what
+  this convention exists to avoid. So each factory takes a `use`-prefixed **translator** and its keys
+  instead, and is parameterised over the key type; the binding site, where the namespace is a
+  literal, is still where the keys are checked against the real catalogs, which is the property that
+  mattered. `NoInfer` on each `keys` argument is load-bearing there — without it the key type is
+  inferred from the literals passed in and `attempt()`'s own `sessionEnded` stops being assignable.
+  The reporter's six keys are three successes **and three per-action failures**, not one fallback,
+  because a single one told an operator who pressed Test that a save had failed.
+- ~~**`storedCredentials()` hard-codes three columns, and `verifyYoutube`/`verifyReddit` are 90% the
+  same sequence** (parse → load the row → resolve each secret → guard the empty case → probe → log →
+  judge). Five providers means `actions.ts` at roughly 700 lines of near-twins, and the risk moves
+  *between* providers, where no test looks: one provider's resolve rules or empty-credential guard
+  drifting from the next's is invisible in a review of either function. Fix shape: a
+  **`defineIntegration({ schema, secretColumns, flagColumn, probe, keys, requiredKey })`** descriptor
+  that produces the save, test and remove actions for a provider from one declaration — the divergence
+  then lives in data, where a table of five is readable at a glance.~~ **Closed** (task R2), as
+  **`src/lib/integrations/define.ts`**, and it is two layers rather than one for the reason
+  `attemptIn()` is: **`defineIntegrationIn(binding)`** fixes the four things that belong to a *page*
+  — its `path`, its `logPrefix`, the three `unverifiable` causes and `removeFailed` — and returns the
+  **`defineIntegration(descriptor)`** this entry asked for, whose `provider`, `schema`, `fields`,
+  `flagColumn`, `requiredKey`, optional `fieldErrorKeys`, `probe` and `keys` produce a provider's
+  `save`, `test` and `remove`. The `logPrefix` is part of the binding and not a constant precisely
+  because it now serves two pages: a hard-coded `[integrations]` would have the `ai` binding logging
+  `[integrations] openai probe failed`, a wrong answer to the only question a log prefix is asked.
+  `secretColumns` became **`fields`**, a record of `{ column, secret }`, because Reddit's `userAgent`
+  and OpenAI's `model` and `apiUrl` are submitted in full, never resolved against the row, and
+  deliberately survive a Remove; `TextColumn` and `FlagColumn` are derived from the schema rather than
+  listed, so a renamed column fails `npm run typecheck` at the declaration naming it. **Five providers
+  consume it today** — YouTube and Reddit in `src/lib/integrations/actions.ts`, OpenAI, Anthropic and
+  Gemini in `src/lib/ai/actions.ts`. Both properties this entry demanded survived: Save and Test still
+  share one `verify()` (the sharing is now structural rather than maintained by hand, and
+  `src/lib/integrations/actions.test.ts` still pins it directly by running both entry points on one
+  submission and comparing the requests they made), and `quotaMeansVerified` is a **required** field
+  on the descriptor's `keys`, so a new provider cannot inherit YouTube's answer by omission.
+- ~~**The AI providers' probes each need their own two answers decided, not copied.** Whether a rate
+  limit proves the credential was accepted, and whether a 200 body has to be inspected, are facts
+  about a provider's API — see the `quotaMeansVerified` and success-arm notes in `CLAUDE.md`. OpenAI,
+  Anthropic and Gemini answer 429 for *both* "your key is fine, slow down" and, in some tiers,
+  quota/credit exhaustion, so this is not a formality.~~ **Closed**, and the three answers are
+  genuinely three. `quotaMeansVerified` lives on each entry in **`src/lib/ai/providers.ts`** —
+  **openai `false`**, **anthropic `true`**, **gemini `true`** — with the full argument beside the
+  field and its own half restated at each probe's 429 branch, because the fact and the code that
+  produces the `quota` cause now sit in different files. OpenAI is `false` for two independent
+  reasons: it is the one provider whose base URL is an operator setting, so what answers may be a
+  gateway shedding load at its edge before it reads the `Authorization` header (Reddit's situation
+  exactly); and OpenAI puts `insufficient_quota` on the same 429 as `rate_limit_exceeded`, which
+  unlike a daily budget does not heal overnight. `src/lib/ai/openai.ts` therefore **splits that 429**,
+  pulling `insufficient_quota` out into **`unauthorized`** rather than `quota` — the arm that *stores*
+  the credential with the integration off, so an operator whose only fault is an unpaid bill can still
+  save a perfectly valid key, where `quota` on a `false` provider would write nothing at all.
+  Anthropic is `true` because its rate limits are per-organisation and resolved from the key (an
+  unrecognised one answers 401 and never reaches accounting) and credit exhaustion arrives as a 403
+  `billing_error`, also classified `unauthorized`; Gemini is `true` for YouTube's stated reason rather
+  than by inheritance — quota is charged to the project the key resolves to, and a key Google does not
+  recognise answers `400 API_KEY_INVALID`, which `src/lib/ai/gemini.ts` reads out of the
+  `google.rpc.ErrorInfo` detail ahead of the generic status arms. The success-arm half split two-one:
+  **OpenAI and Anthropic inspect the 200 body** — OpenAI because a configurable endpoint may be a
+  proxy or a captive portal and `/chat/completions` has no legitimate empty success (it checks the
+  `choices` *array*, never `choices[0].message.content`, which is legitimately `""` when a reasoning
+  model spends its one token thinking), Anthropic because a TLS-inspecting middlebox can serve a 200
+  block page for any host (it checks the envelope's `type: "message"`, not `content`, which is
+  legitimately `[]` at `max_tokens: 1`) — while **Gemini judges the status alone**, like YouTube,
+  because `generateContent` has two legitimate empty-but-valid 200s and requiring a field would
+  reject a working key on both. `src/lib/ai/providers.test.ts` pins the three `quotaMeansVerified`
+  values, so a divergence in the values fails a test even though a divergence in the duplicated prose
+  cannot.
+
+One decision from that same review is **open**, deferred on purpose rather than overlooked:
+
+- **`src/lib/integrations/define.ts` now serves two pages, and its path claims an ownership it no
+  longer has.** `/integrations` and `/ai` both build their providers from it, so a reader arriving at
+  `src/lib/ai/actions.ts` follows an import into an `integrations` folder for a factory that is not
+  about integrations in particular — the same misreading `section-kit.tsx` was moved to the root of
+  `src/components` to avoid. **Whether to move it to a neutral home is deferred to phases 9–11**,
+  where the remaining CRUD either produces a third consumer or does not. That is the fact worth
+  waiting for: with two consumers a move is a rename for its own sake, churning every import and the
+  file's own cross-references to buy a tidier path, while a third would settle both the question and
+  what the neutral home should be called. Recorded here so it is triaged as a deliberate deferral
+  rather than re-derived as a defect by a later review. One constraint on the move when it comes: the
+  lint guard is **shape-based** — `**/lib/*/define` in `eslint.config.mjs` — so any
+  `src/lib/<name>/define.ts` keeps it, while a neutral home one level up (`src/lib/define.ts`) would
+  silently drop it and would have to add its own group.
+
+## Carried forward from phase 7's review
+
+Phase 7 shipped `/ai` — a client-safe provider registry, three live probes, the `active_ai_provider`
+preference and the nine global tuning values — on phase 6's two generalisations, which it built
+first, as that section demanded. Two things it did not close are recorded here. The first is a
+**release gate rather than a merge gate**: the branch is complete and reviewed, and the feature still
+must not reach a user until someone has run it against a real provider.
+
+- **No live provider call has ever been made — not once, by anything, at any point in phase 7.**
+  Every probe test stubs `fetch`, so what is proven is that each *arm* of each probe classifies a
+  synthetic answer correctly. Nothing proves that OpenAI, Anthropic or Gemini accepts the request a
+  probe actually sends: `max_completion_tokens: 1` on `/chat/completions`, the `anthropic-version`
+  header with `max_tokens: 1`, `generationConfig.maxOutputTokens: 1` on `generateContent`. **The
+  failure mode is not degradation.** A provider answering `400` to a shape it dislikes is a status no
+  probe recognises, so it is `cause: "unexpected"`, which is `judge()`'s **`unknown`** arm — write
+  nothing at all. The credential is never stored, the `*_enabled` flag is never set, and the badge
+  still reads Not configured however many times the operator presses Save: the provider is
+  **unconfigurable, with no path around it from the UI**. Ranked by risk:
+  - **OpenAI's `max_completion_tokens: 1`** is the likeliest refusal — a reasoning model enforcing a
+    minimum completion budget would `400` on it — and this is also the one provider whose endpoint
+    may be a gateway rather than OpenAI itself. Its second-order risk is the 200-body check, which
+    requires a non-empty `choices` array: correct for `/chat/completions`, not obviously correct for
+    a gateway that wraps or streams the answer differently.
+  - **Anthropic's `max_tokens: 1` with the `type: "message"` envelope check.** The parameter is
+    documented as accepted at any value and the envelope discriminant is on every real answer, but
+    both were read out of documentation rather than out of a response.
+  - **Gemini** is lowest: `generateContent` is documented to answer `200` with
+    `finishReason: "MAX_TOKENS"`, and the probe judges the status alone.
+
+  **What the manual pass must cover, per provider** — five checks, not one, because three of them
+  exercise arms a working key never reaches:
+
+  1. A **real key** → success toast and Verified badge. This is the only thing that proves the
+     request shape, and it is the whole reason the pass exists.
+  2. A **deliberately wrong key** → the refusal message, a Not verified badge, and the key confirmed
+     **stored** — the store-on-rejection contract, which is what makes a typo visible rather than
+     silently producing empty summaries.
+  3. A **stale model id** forced into the row → `unexpected`, and nothing written.
+  4. **OpenAI only**: a real OpenAI-compatible gateway, plus `http://127.0.0.1:1` for the network arm
+     and `gateway.example.com/v1` for the malformed-URL arm.
+  5. **One redirecting gateway.** `redirect: "error"` is new (phase 7's fix wave), so a proxy
+     answering `http → https`, or normalising a trailing slash, with a `301`/`302` now reports as
+     unreachable. "No real API endpoint redirects a POST" is true of API endpoints proper and not
+     obviously true of a corporate proxy in front of one — so this is a way a **legitimate**
+     configuration can newly fail, and it is the one item here that is about the hardening rather
+     than about the provider.
+
+- **Phase 12 owns making `redirect: "error"` structural rather than remembered.** `CLAUDE.md`'s SSRF
+  bullet carries the ruling and already says phase 12's summariser needs the same flag; what belongs
+  here is why a note is not enough on its own. The flag is set **per call**, on the single `fetch` in
+  `src/lib/ai/openai.ts`, and the summariser is a *new* `fetch` to the same operator-supplied
+  `openaiApiUrl` from a different module — so the hardening survives only if that agent remembers it,
+  and **nothing fails if they do not**: the summariser works perfectly, following redirects.
+  Suggested shape: one **`fetchOpenaiCompatible(endpoint, init)`** that sets `redirect: "error"` and
+  the probe timeout, called by both the probe and the summariser. That is the same argument phase 7's
+  own fix wave used to move `transportFailure()` into `src/lib/integrations/probe.ts` — one
+  implementation rather than a convention that N call sites should agree — and it is worth building
+  at the second call site here for the reason it was worth building at the third there.
+
+The third thing phase 7's review left open — **where `define.ts` should live**, now that `/ai` is its
+second consumer — is recorded at the end of phase 6's section above rather than repeated here. It is
+phase 6's question; phase 7 only sharpened it by supplying the second consumer, and phases 9–11 are
+still where it gets answered.
+
+## Carried forward from phase 4's review
+
+Decisions phase 4's whole-branch review surfaced that belong to a **later** phase.
+
+- ~~**Phase 5 owns the `<Select>` `items` gap.** Already listed under phase 3's known gaps; phase 5 is
+  the first phase to add new selects, so it is the phase that closes it.~~ **Closed.** See that entry
+  under phase 3's known gaps for what shipped.
+- **A social or OAuth provider widens the bootstrap's "can this account sign in" test.**
+  `completeDefaultAdmin()` in `src/lib/auth/bootstrap.ts` knows exactly two things: an
+  `accounts` row with `providerId = "credential"`, and the `passkeys` table. An admin at
+  `admin@admin.com` whose only login is OAuth reads as "no way to sign in", and the published
+  default password gets minted back for them.
+- **`attempt()` is the pattern every later form copies.** `src/lib/account/result.ts`: never `await`
+  a server action bare from a client component; `unstable_rethrow` first; then recognise the
+  signed-out response rather than reporting it as a network failure. Phase 5's user CRUD is the
+  first place this gets copied, and ~~a third caller is the point at which it and
+  `login-form.tsx`'s namesake should be unified.~~ **Closed** (human ruling E): the third caller
+  arrived and the three were unified into one implementation, `src/lib/attempt.ts`.
+  `attemptIn(namespace, keys)` returns a binding whose `errorKey` stays checked against
+  that one catalog namespace instead of widening to `string`, and it preserves the caller's own
+  result type, so `attempt(() => createUser(…))` still resolves something carrying `id`. **One
+  binding per feature, in `<feature>/result.ts`** — a `"use server"` module can export nothing but
+  async functions, which is why the type and the binding cannot live beside the actions.
+- **Identity changing without re-rendering the root layout is a standing hazard, not a sign-in
+  quirk.** Sign-in and sign-out are both full document navigations for it. An account switcher or
+  impersonation done in place would reproduce the mixed-locale render.
+- **`requireAdmin()` must be called at the top of a page or layout, never inside a Suspense
+  boundary**, or its `notFound()` arrives after the first byte and truncates the stream instead of
+  producing a 404. Nothing, lint included, flags its currently-unused export — do not "clean it up".
 
 ## Repository note
 
@@ -378,13 +660,67 @@ case-insensitive redirect resolves `Yana` → `yana`, which has already caused o
 Decisions phase 2's whole-phase review surfaced that belong to a **later** phase. Recorded here
 because phase 2's workspace is deleted, not because they are open questions for phase 2.
 
-- **Phase 4 (auth).** The table is `users` with `snake_case` columns, so Better Auth needs an
-  explicit model/field mapping (or the Drizzle adapter's `usePlural`). The column set is already
-  right; only the naming needs config. Separately, `ensureBootstrapUser()` hard-codes
-  `email: "admin@admin.com"` and `users.email` is uniquely indexed, so if phase 4 creates a real
-  admin at that address while the bootstrap row is gone, the seeder throws
-  `SQLITE_CONSTRAINT_UNIQUE`. Phase 4 either scopes the existence check to the email too or retires
-  the seeder.
+- **Phase 4 (auth) — settled, with one decision reversed.** The mapping question resolved to
+  `usePlural: true` and nothing else: the Drizzle adapter indexes the **table object**, so it
+  matches JS property names, and phase 2's camelCase-property/snake_case-column shape already lined
+  up. No per-field mapping was needed.
+
+  The reversal: **`role` replaced `isAdmin` as the authorization model, and `users.is_admin` was
+  dropped** (migration `0002`). Enabling `admin()` — which the tech table above assumed was
+  boolean-shaped — forces `role`, `banned`, `banReason` and `banExpires` onto the user model, and
+  running a boolean beside the plugin's `role` would have been two sources of truth for the same
+  authorization question, one written by `setRole` and one by our own UI. A string also scales past
+  two tiers where a boolean needs a migration. Still no groups and no permission table: `"admin"` is
+  the only role anything reads, and the plugin's endpoints go unused because phase 5 hand-rolls user
+  CRUD and declines impersonation.
+
+  Also settled in phase 4: **there is no self-registration.** `disableSignUp` closes
+  `/api/auth/sign-up/email`, because an open sign-up on a self-hosted server hands an account to
+  anyone who can reach the host. Accounts come from the startup bootstrap and from admin creation in
+  phase 5, both through `createUserWithPassword()` in `src/lib/auth/server.ts`.
+
+  And **every `/admin/*` endpoint the plugin mounts is closed** (`disabledPaths`). None of phases
+  4–13 calls one — phase 5 hand-rolls user CRUD and declines impersonation — and left open they were
+  three live hazards, not dead weight: `/admin/set-role` took an unvalidated role array,
+  `/admin/create-user` wrote no `user_settings` row (so `getSettings()` threw for that user forever),
+  and `/admin/update-user` passes `ctx.body.data` straight to `internalAdapter.updateUser`, which is
+  an arbitrary-column write. **Phase 5 must not reopen one to save writing a query.**
+
+  Two structural facts phase 4 introduced that this record did not name, and that phases 5–13 build
+  directly on:
+
+  - **`src/proxy.ts` is where route protection lives** — Next 16's rename of `middleware.ts`, and
+    not cosmetic: a Proxy defaults to the **Node.js** runtime, and the exported function is `proxy`,
+    not `middleware`. Half a rename is a file Next silently never calls, which leaves every route
+    unguarded with nothing failing. It checks cookie *presence* only and may not reach the database
+    (pinned by `src/proxy.test.ts`); the real gate is `requireUser()`/`requireAdmin()` in the layout
+    or the server action. **Every new public path is one line in `PUBLIC_PREFIXES` and a decision
+    about the whole unauthenticated surface**, and every extension added to its matcher is a path
+    shape that can never be guarded again.
+  - **Migrations run in the application's startup path**, not from an entrypoint script.
+    `register()` in `src/instrumentation.ts` awaits `runStartupTasks()`, which migrates and then
+    ensures an admin exists — one path for `next dev`, `npm start` and the container alike, so a
+    fresh checkout is not running against an empty database. `docker-entrypoint.sh` is deleted. Two
+    consequences with teeth: **a startup failure exits the process**, so anything a later phase adds
+    to `runStartupTasks()` (phase 12's job worker, above all) must not throw for a recoverable
+    reason; and `src/instrumentation.ts` **imports exactly one module**, because webpack compiles
+    the hook for the edge runtime too and `next.config.ts` cuts that single specifier out with an
+    `IgnorePlugin`. Add startup steps inside `runStartupTasks()`, never a second import in the hook.
+
+  **Closed.** `ensureBootstrapUser()` hard-coded `email: "admin@admin.com"` against a unique index,
+  so it and any phase-4 admin at that address would collide. Phase 4 **retired the seeder** —
+  `src/lib/db/bootstrap.ts` is gone, replaced by `ensureAdminExists()` in
+  `src/lib/auth/bootstrap.ts`, which creates a real credentialed account through
+  `createUserWithPassword()` and runs from the startup hook rather than per request.
+
+  The collision itself turned out to be sharper than this note guessed, and phase 4's whole-branch
+  review found it live: the existence check is keyed on the *role*, not the address, so anything
+  that leaves `admin@admin.com` holding a non-admin role — a demotion, a ban, or the comma list
+  `/admin/set-role` would write — made the bootstrap try to create an account that already existed,
+  and the `SQLITE_CONSTRAINT_UNIQUE` propagated out of `register()` into `process.exit(1)`.
+  Permanently: there is no self-registration and no CLI to recover with. The rule that came out of
+  it, and that every later phase touching `users` inherits: **a startup repair repairs; it does not
+  rethrow.** See CLAUDE.md's "The default admin" bullet.
 - **The image-reaper phase.** `old/core/aggregators/services/image_store.py` scans both `image_ref`
   and `embed_thumbnail_ref`, but only `image_ref` is indexed here (faithful to Django). Greenfield is
   the moment to index `embed_thumbnail_ref` and make the second pass an index scan. Also, dropping
@@ -410,22 +746,33 @@ because phase 3's workspace is deleted, not because they are open questions for 
 - **Phase 4 (auth) must create a `user_settings` row in the same transaction that creates a user.**
   `getSettings()` (`src/lib/settings/queries.ts`) throws when the row is absent, by design — there is
   no insert-if-absent fallback there (see the file's own comment on why). Only the root layout's two
-  reads degrade instead of throwing (locale → `en`, theme → `system`); the dashboard and `/settings`
-  still surface the real error through the error boundary. Without a settings row, a newly signed-up
-  user would fail both.
-- **`timeZone` is not set in `src/i18n/request.ts`**, so next-intl defaults to the container's zone
-  (UTC in the Docker image). Phases 5–10 render article timestamps and must decide whether to add a
-  `timeZone` column to `user_settings` or read the browser's
-  (`Intl.DateTimeFormat().resolvedOptions().timeZone`, captured once at settings-save time). The
-  migration is cheap now, before any article-facing UI assumes UTC; it is not cheap later.
+  reads degrade instead of throwing (locale → the browser's `Accept-Language`, theme → `system`); the
+  dashboard and `/settings` still surface the real error through the error boundary. Without a
+  settings row, a newly signed-up user would fail both.
+- **Amended in phase 4 (task 4), by human ruling: a request with no stored preference negotiates its
+  locale from `Accept-Language`.** Phase 3 decided the locale comes from `user_settings.language`
+  and from nothing else, and for a *signed-in* user that still holds exactly — a browser header must
+  never override a choice made in the application. But /login renders without a session, so there is
+  no row to read, and the phase-3 rule made the first screen a German visitor ever sees English,
+  with no control on it to change that. `negotiateLocale()` (`src/i18n/locale.ts`) picks between
+  `en` and `de` on the fallback path in `src/i18n/request.ts` only. `<html lang>` follows it, since
+  the root layout reads the same `getLocale()`.
+- ~~**`timeZone` is not set in `src/i18n/request.ts`**~~ **Closed by phase 4**, and this paragraph
+  contradicted the "Deferred" table above it, which already records the decision as settled. It
+  **is** set — `process.env.TZ || "UTC"` — because the account page's passkey list is the first
+  rendered date and an unset zone means next-intl falls back to the *environment's*: the container's
+  on the server, the visitor's own in the browser, which is a hydration mismatch plus an
+  ENVIRONMENT_FALLBACK warning on every render. Only the **per-user** half is still open, and only
+  as a question phases 5–10 may answer with a `user_settings.time_zone` column. Do not re-litigate
+  the deployment-wide default.
 
 ### Known gaps
 
 Deliberately not fixed in phase 3 — small enough to defer, but each should be a known gap rather than
 a later surprise:
 
-- **`<Select>` still renders raw enum values unless the call site passes `items`.** The two selects on
-  `/settings` were fixed by passing `items` (which feeds trigger and popup from one list, so they
+- ~~**`<Select>` still renders raw enum values unless the call site passes `items`.** The two selects
+  on `/settings` were fixed by passing `items` (which feeds trigger and popup from one list, so they
   cannot drift), but `src/components/ui/select.tsx` leaves the trap reachable: a new `<Select>` with
   no `items` silently shows `light`/`de` instead of a label. Base UI cannot resolve labels itself —
   `SelectValue`'s `children` callback is typed `(value: any)`, which would break the compiler-checked
@@ -433,7 +780,14 @@ a later surprise:
   legitimate way to self-check. Guarded today only by a doc comment there and one disciplined call
   site. **Phase 5 is the first phase to add new selects: close this then**, with a stricter app-level
   props type requiring `items`, or an ESLint rule flagging a `<Select>` without it. A comment is not a
-  guard once there are nine phases of call sites.
+  guard once there are nine phases of call sites.~~ **Closed.** Phase 5 took the first of the two
+  options (human ruling D): `src/components/ui/select.tsx` re-declares Base UI's root props with
+  `Required<Pick<…, "items">>`, so a `<Select>` without them fails `npm run typecheck` rather than
+  shipping a trigger that prints `dark` or `user,admin`. The type was chosen over a lint rule because
+  it also states the requirement where a caller reads it. It makes you pass _something_, not the
+  right thing: build the one list and render the `<SelectItem>`s from it, and assert against the
+  trigger's `[data-slot="select-value"]` — the popup is never consulted for the collapsed label, so
+  a test that only opens it proves nothing.
 - `src/test/next-navigation.ts`'s `pathname` module state defaults to `"/"`, and nothing forces a test
   to call `setPathname()` before rendering — a future test that forgets would quietly assert against
   the wrong route. Make the default `undefined` and throw.
@@ -450,7 +804,8 @@ a later surprise:
   `{minutes}` fails silently.
 - `GeneralSection` applies the theme locally before the server write is confirmed and never rolls back
   on failure — the pattern every later CRUD form will copy.
-- Dead catalog keys: `nav.account`, `common.cancel`, `common.loading`.
+- Dead catalog keys: `common.cancel`, `common.loading`. (`nav.account` was on this list and is
+  live — phase 4's sidebar footer and `UNLISTED_ROUTES` in `src/lib/nav.ts` both read it.)
 - Changing the language also rewrites the theme column to the local `localStorage` value.
 - `global-error.tsx` is English-only (no provider, and the locale lives in SQLite, not a cookie), and
   carries no font variables or `<title>`.

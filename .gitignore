@@ -1,3 +1,12 @@
+# Anchoring: a directory pattern with no leading slash matches a directory of
+# that name at ANY depth, not just at the repository root. That is almost never
+# what these entries mean, and it bites silently -- an unanchored `media/` once
+# swallowed the whole of `src/app/media/avatars/[userId]/`, so `git status`
+# simply never showed the route handler that serves the volume. Everything here
+# that names a root-level artifact carries a leading `/`. The exceptions are
+# deliberate: `node_modules/` genuinely nests, and the Python caches below have
+# to keep matching inside `old/`.
+
 # OS-specific files
 .DS_Store
 .DS_Store?
@@ -9,8 +18,8 @@ Thumbs.db
 *~
 
 # IDE and Editor files
-.idea/
-.vscode/
+/.idea/
+/.vscode/
 *.swp
 *.swo
 *.swn
@@ -39,9 +48,9 @@ lerna-debug.log*
 .yarn-integrity
 
 # Next.js
-.next/
-out/
-build/
+/.next/
+/out/
+/build/
 .vercel
 
 # TypeScript
@@ -50,11 +59,11 @@ next-env.d.ts
 *.js.map
 
 # Testing
-coverage/
-.nyc_output/
-.vitest/
-test-results/
-playwright-report/
+/coverage/
+/.nyc_output/
+/.vitest/
+/test-results/
+/playwright-report/
 playwright/.cache/
 
 # Python -- only reachable under old/, the retired Django tree kept for
@@ -64,15 +73,15 @@ __pycache__/
 *$py.class
 *.so
 .Python
-develop-eggs/
-dist/
-downloads/
-eggs/
+/develop-eggs/
+/dist/
+/downloads/
+/eggs/
 .eggs/
-parts/
-sdist/
-var/
-wheels/
+/parts/
+/sdist/
+/var/
+/wheels/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -119,11 +128,20 @@ test.db-wal
 *.pem
 
 # Logs
-logs/
+/logs/
 
 # Media (hosted article images and feed logos)
-media/
-staticfiles/
+#
+# Anchored with a leading slash: the volume is `/media` at the repository root
+# and nothing else. Unanchored, this pattern matches a directory named `media`
+# at *any* depth -- which silently swallowed the whole of
+# `src/app/media/avatars/[userId]/` (the route handler that serves the volume)
+# when it was added. Keep the slash.
+/media/
+# The retired Django tree's own volume, named explicitly now that the pattern
+# above no longer matches it at depth.
+/old/media/
+/staticfiles/
 
 # Build artifacts
 *.class
@@ -135,8 +153,8 @@ staticfiles/
 *.rar
 
 # Temporary files
-tmp/
-temp/
+/tmp/
+/temp/
 *.tmp
 *.temp
 
@@ -144,7 +162,7 @@ temp/
 *.pid
 *.seed
 *.pid.lock
-.cache/
+/.cache/
 
 # Git worktrees
-.worktrees/
+/.worktrees/

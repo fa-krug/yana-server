@@ -2,9 +2,23 @@ import { sql } from "drizzle-orm";
 import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
- * Shaped to Better Auth's expectations (phase 4) so that phase only adds the
- * satellite tables -- sessions, accounts, passkeys -- rather than migrating this
- * one. `isAdmin` is the entire authorization model: no roles, no groups.
+ * Shaped to Better Auth's expectations. Phase 2 got the core columns right;
+ * phase 4 added the four the `admin()` plugin declares (see below) and dropped
+ * the `isAdmin` boolean phase 2 had guessed at.
+ *
+ * **`role` is the authorization model.** It replaced `isAdmin` when phase 4
+ * enabled Better Auth's `admin()` plugin, whose schema is role-based: keeping a
+ * boolean alongside it would have meant two sources of truth for "may this
+ * person delete users", one written by the plugin's `setRole` and one by our own
+ * UI, with nothing keeping them agreed. A string also scales past two tiers,
+ * where a boolean needs a migration plus a rewrite of every check. Still no
+ * groups and no permission table: the only role this app reads is `"admin"`.
+ *
+ * `role`, `banned`, `banReason` and `banExpires` are the plugin's declared field
+ * set, copied from `better-auth/dist/plugins/admin/schema.mjs` rather than from
+ * memory -- the adapter throws on any field it declares that the table lacks.
+ * `banned`/`banReason`/`banExpires` have no UI in any planned phase; they exist
+ * because the plugin writes them.
  */
 export const users = sqliteTable(
   "users",
@@ -17,7 +31,19 @@ export const users = sqliteTable(
     emailVerified: integer("email_verified", { mode: "boolean" }).notNull().default(false),
     /** Uploaded avatar path. Null means render initials on a generated colour. */
     image: text("image"),
-    isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),
+    /**
+     * `"admin"` or `"user"`. Better Auth declares this optional, so its model
+     * would tolerate NULL; the column does not, because a nullable role makes
+     * every check in phases 5-13 ask whether NULL means `"user"`. Nothing in
+     * Better Auth writes NULL here -- `setRole` and the plugin's `createUser`
+     * both write a string, and plain sign-up omits the field, which is what the
+     * SQL default is for.
+     */
+    role: text("role").notNull().default("user"),
+    banned: integer("banned", { mode: "boolean" }).notNull().default(false),
+    /** Nullable: the plugin's `unbanUser` writes NULL to both ban columns. */
+    banReason: text("ban_reason"),
+    banExpires: integer("ban_expires", { mode: "timestamp" }),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
@@ -69,21 +95,62 @@ export const userSettings = sqliteTable(
     youtubeEnabled: integer("youtube_enabled", { mode: "boolean" }).notNull().default(false),
     youtubeApiKey: text("youtube_api_key").notNull().default(""),
 
-    // --- AI provider selection: empty disables AI entirely ---
+    /**
+     * --- AI provider selection: empty disables AI entirely ---
+     *
+     * **A value here is a preference, not a permission**, and the two are kept
+     * apart on purpose. `setActiveProvider()` refuses to *write* a provider whose
+     * probe-derived `*Enabled` flag is false, but nothing erases what is already
+     * written when a flag later goes false -- a rejected re-probe, a removed key.
+     * Which provider is *actually* active is derived instead, by
+     * `activeProvider()` in `src/lib/ai/queries.ts`, which answers "none"
+     * whenever the named provider's flag disagrees.
+     *
+     * Clearing the column on those paths was written and then removed. It bought
+     * nothing the derivation did not already give, and it cost real state:
+     * OpenAI's `insufficient_quota` is classified `unauthorized` deliberately
+     * (see `src/lib/ai/openai.ts`), so an unpaid bill on the active provider
+     * would have permanently erased a selection the operator never changed --
+     * and paying it would not bring the selection back. Left alone, it does.
+     */
     activeAiProvider: text("active_ai_provider").notNull().default(""),
 
+    /**
+     * **The four defaults below are hand-maintained duplicates of
+     * `src/lib/ai/providers.ts`**, and `src/lib/ai/defaults.test.ts` is what
+     * keeps them honest: it migrates a real database, inserts a bare row, and
+     * compares what SQLite filled in against `OPENAI_DEFAULT_API_URL` and each
+     * provider's `defaultModel`.
+     *
+     * They are literals rather than imports of the registry on purpose. A
+     * derived DDL default would change silently whenever a model list is
+     * refreshed, and the migration that has to accompany it would be discovered
+     * by a container that boots against an out-of-date table rather than by CI.
+     * Written out, refreshing the registry fails that test until the migration
+     * exists -- which is the same "duplicate plus tripwire" arrangement the
+     * `better-sqlite3` override and `bodySizeLimit` already use.
+     *
+     * Phase 2 copied the Django-era ids (`gpt-4o-mini`,
+     * `claude-3-5-sonnet-20240620`, `gemini-1.5-flash`) verbatim so that
+     * refreshing them would be a visible, deliberate change. Migration `0003` is
+     * that change. It matters beyond tidiness: a stored model absent from its
+     * provider's list makes Base UI's `<Select.Value>` print the raw id, because
+     * it resolves its label from `items` alone (CLAUDE.md). `getAiStatus()` falls
+     * back to `defaultModel` for exactly that reason -- this default is what
+     * keeps the fallback from being needed on every new account.
+     */
     openaiEnabled: integer("openai_enabled", { mode: "boolean" }).notNull().default(false),
     openaiApiUrl: text("openai_api_url").notNull().default("https://api.openai.com/v1"),
     openaiApiKey: text("openai_api_key").notNull().default(""),
-    openaiModel: text("openai_model").notNull().default("gpt-4o-mini"),
+    openaiModel: text("openai_model").notNull().default("gpt-5.6-luna"),
 
     anthropicEnabled: integer("anthropic_enabled", { mode: "boolean" }).notNull().default(false),
     anthropicApiKey: text("anthropic_api_key").notNull().default(""),
-    anthropicModel: text("anthropic_model").notNull().default("claude-3-5-sonnet-20240620"),
+    anthropicModel: text("anthropic_model").notNull().default("claude-haiku-4-5"),
 
     geminiEnabled: integer("gemini_enabled", { mode: "boolean" }).notNull().default(false),
     geminiApiKey: text("gemini_api_key").notNull().default(""),
-    geminiModel: text("gemini_model").notNull().default("gemini-1.5-flash"),
+    geminiModel: text("gemini_model").notNull().default("gemini-3.5-flash-lite"),
 
     // --- Global AI tuning (phase 7's advanced section) ---
     aiTemperature: real("ai_temperature").notNull().default(0.3),
