@@ -402,9 +402,19 @@ available — this section is what a phase-6 agent reads before adding a list pa
   - **There are no per-page defaults, and the parameter that promised them is gone.** A second
     defaults object reaches `parseListParams` but neither `useListParams()` — which three kit
     components call, and the page does not render directly — nor `buildListHref`'s *omission* rule,
-    which decides that `pageSize: 25` is the value left out of the URL. A list that wants a default
-    sort puts it in the URL the navigation links to (`/articles?sort=publishedAt&dir=desc`), where
-    the server, the hook and the href builder all read it from one place.
+    which decides that `pageSize: 25` is the value left out of the URL. **Do not put a default sort
+    in a `NAV_ITEMS` href** (`/articles?sort=publishedAt&dir=desc`) to work around that — `src/lib/nav.ts`'s
+    `LABELS` map is keyed on the exact href string and `breadcrumbsFor()` looks up hrefs it rebuilds
+    from the pathname alone, so a query-bearing href misses that lookup and the breadcrumb prints
+    the raw segment instead of its label; `src/components/app-sidebar.tsx` matches the active item
+    with `pathname.startsWith(item.href)`, which a query string never satisfies either, so the item
+    never highlights. The honest state: a feature's own `queries.ts` already falls back to a default
+    ordering when `sort` is empty (`SORTABLE[params.sort] ?? users.createdAt` in
+    `src/lib/users/queries.ts`), so a bare visit is sorted sensibly with nothing to configure — the
+    open cost is that `<DataTable>`'s header computes `aria-sort` from the client-parsed `sort`
+    alone, so it reads `"none"` on the column actually driving the order. Closing that for real
+    needs one defaults object read by `parseListParams`, `useListParams()`, all three kit components
+    *and* `buildListHref()`, so the parse/emit round trip stays inverse — no phase has built that yet.
 - **A feature's client-safe constants live in a dependency-free `fields.ts`; its `queries.ts` is
   server-only.** `src/lib/users/fields.ts` imports only `@/lib/auth/roles`; `queries.ts` reaches
   `getDb()`. This is the `@/lib/avatar` ↔ `@/lib/avatar-storage` split, and phase 5 hit it live —

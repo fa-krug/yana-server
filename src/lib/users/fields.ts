@@ -10,8 +10,13 @@ import { ADMIN_ROLE } from "@/lib/auth/roles";
  * a client component, and every one of these constants used to live beside
  * `getDb()` and `requireAdmin()` -- so importing one dragged `better-sqlite3`
  * into the browser bundle. The failure is an opaque bundler error rather than
- * the stated rule, because the `no-restricted-imports` group in
- * `eslint.config.mjs` names the avatar-storage module and nothing else.
+ * the stated rule, which is why the `no-restricted-imports` group in
+ * `eslint.config.mjs` now covers this shape too, not just avatar-storage: a
+ * second pattern (added by this phase's fix wave) matches any feature's
+ * `queries` module one directory under `lib`, restricted the same way from
+ * `src/components/**`, with `allowTypeImports` on for both patterns -- a value
+ * import from either is a lint error, an `import type` for a row projection is
+ * not.
  *
  * `@/lib/auth/roles` is the one dependency allowed here, and it is the same
  * exception CLAUDE.md already grants it: it imports nothing, and it is the

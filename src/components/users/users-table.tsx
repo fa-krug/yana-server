@@ -24,11 +24,18 @@ import { attempt } from "@/lib/users/result";
  * `UserListRow` is already the right projection, and the list page passes one
  * straight in -- structural typing checks the two against each other, so a
  * column disappearing from the query is a `npm run typecheck` failure at the
- * page. What is avoided is the *import*: `queries.ts` reaches `getDb()`, and
- * this is a client module. A `import type` would be erased, but the rule the
- * repository states is flat ("`fields.ts` is the only users module a client
- * component may import"), and a type import is one careless edit away from a
- * value import that drags `better-sqlite3` into the browser bundle.
+ * page.
+ *
+ * This predates the fix wave that added a `queries`-module pattern to
+ * `eslint.config.mjs`'s restricted-imports group with `allowTypeImports` on.
+ * `import type { UserListRow } from "@/lib/users/queries"` is now both legal
+ * -- a type import is erased before bundling, so it cannot drag
+ * `better-sqlite3` into the browser -- and the form that `eslint.config.mjs`'s
+ * own comment names as preferred, calling a structural re-declaration like
+ * this one "the fallback, not the model to copy" for a phase writing a new
+ * list table. Left structural here rather than converted: nothing about this
+ * table depends on which form is used, and a column disappearing from the
+ * query still fails `npm run typecheck` at this file either way.
  */
 export type UserRow = {
   id: string;

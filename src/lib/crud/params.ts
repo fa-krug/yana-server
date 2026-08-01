@@ -34,13 +34,28 @@ function first(value: string | string[] | undefined): string {
  *   of 25 produces a URL that parses back as 50 -- the two halves disagree in
  *   opposite directions, and nothing raises a type error.
  *
- * **A phase that wants a default sort puts it in the URL, not in a parameter.**
- * Link to `/articles?sort=publishedAt&dir=desc` from the navigation: the
- * default is then something the server, the hook and the href builder all read
- * from the same place, which is the property a second defaults object cannot
- * have. Widening the contract instead means threading one object through this
- * function, `useListParams()`, all three kit components *and* `buildListHref()`
- * -- five call sites with nothing checking they agree.
+ * **Do not put a default sort in a `NAV_ITEMS` href** (`/articles?sort=publishedAt&dir=desc`
+ * from the navigation) -- it looks like the natural fix and breaks two things instead.
+ * `src/lib/nav.ts`'s `LABELS` map is keyed on the exact href string, and `breadcrumbsFor()`
+ * looks up hrefs it rebuilds from the pathname alone, so a query-bearing href never matches
+ * and the breadcrumb prints the raw segment ("articles") instead of its translated label.
+ * `src/components/app-sidebar.tsx` matches the active item with
+ * `pathname.startsWith(item.href)`, which a query string never satisfies either, so the
+ * item never highlights.
+ *
+ * **The honest state: a feature's own `queries.ts` already owns the default ordering**, and
+ * that already covers the common case for free. `listUsers()` in `src/lib/users/queries.ts`
+ * falls back to `users.createdAt` whenever `params.sort` is empty
+ * (`SORTABLE[params.sort] ?? users.createdAt`), so a bare `/users` visit is sorted sensibly
+ * with nothing configured here or in the URL. What that leaves open: `<DataTable>` computes
+ * `aria-sort` from `params.sort` alone (`src/components/crud/data-table.tsx`), which is `""`
+ * on that same bare visit, so the header reports `"none"` on the column that is actually
+ * driving the order -- the client and the server each picked a default independently, and
+ * nothing makes the two agree. No phase has closed that gap. Closing it for real needs one
+ * defaults object read by this function, `useListParams()`, all three kit components *and*
+ * `buildListHref()` -- the same five call sites the deleted parameter would have needed, with
+ * the same requirement that all five read the same value or `buildListHref()`'s parse/emit
+ * round trip stops being inverse.
  */
 export function parseListParams(
   searchParams: Record<string, string | string[] | undefined>,

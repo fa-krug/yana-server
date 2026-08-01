@@ -21,8 +21,11 @@ import { parseListParams, type ListParams } from "@/lib/crud/params";
  * defaults object would have to be threaded to all of them plus to
  * `buildListHref()`, and a page that got one of the four wrong would be wrong
  * silently. `parseListParams`'s own comment carries the two failures that
- * argument is drawn from, and what to do instead when a list wants a default
- * sort.
+ * argument is drawn from, what already happens for free (a feature's
+ * `queries.ts` falls back to its own default ordering when `sort` is empty),
+ * and the one gap that leaves open (the sortable header's `aria-sort` reads
+ * `"none"` on the column actually driving that order) for a future phase to
+ * close.
  *
  * A route rendering any of these components must be dynamic. `useSearchParams`
  * makes a statically prerendered page bail out to client rendering; every page
