@@ -30,7 +30,16 @@ describe("block schema encoding / decoding", () => {
     expect(decoded).toEqual([
       {
         kind: "paragraph",
-        runs: [{ text: "Hello", bold: false, italic: false, code: false, strikethrough: false, link: "" }],
+        runs: [
+          {
+            text: "Hello",
+            bold: false,
+            italic: false,
+            code: false,
+            strikethrough: false,
+            link: "",
+          },
+        ],
       },
       { kind: "divider" },
     ]);

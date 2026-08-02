@@ -70,7 +70,12 @@ export function isYoutubeUrl(url: string): boolean {
 }
 
 /** Class markers that identify a YouTube embed container. */
-const YOUTUBE_CLASS_MARKERS = ["youtube-embed", "wp-block-embed-youtube", "is-provider-youtube", "embed-youtube"];
+const YOUTUBE_CLASS_MARKERS = [
+  "youtube-embed",
+  "wp-block-embed-youtube",
+  "is-provider-youtube",
+  "embed-youtube",
+];
 
 /** Data attributes that carry embed markup with video IDs. */
 const EMBED_ATTRS = ["data-sanitized-data-embed-content", "data-embed", "data-sanitized-embed"];

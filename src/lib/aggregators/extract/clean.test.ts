@@ -58,7 +58,9 @@ describe("HTML cleaning utilities", () => {
 
   describe("cleanDataAttributes", () => {
     it("removes non-kept data attributes", () => {
-      const $ = cheerio.load('<img src="a.jpg" data-src="b.jpg" data-tracking="123" data-custom="xyz">');
+      const $ = cheerio.load(
+        '<img src="a.jpg" data-src="b.jpg" data-tracking="123" data-custom="xyz">',
+      );
       cleanDataAttributes($);
       expect($("img").attr("data-src")).toBe("b.jpg");
       expect($("img").attr("data-tracking")).toBeUndefined();
@@ -68,7 +70,9 @@ describe("HTML cleaning utilities", () => {
 
   describe("removeImageByUrl", () => {
     it("removes image by exact URL", () => {
-      const $ = cheerio.load('<div><img src="https://example.com/hero.jpg"><img src="https://example.com/other.jpg"></div>');
+      const $ = cheerio.load(
+        '<div><img src="https://example.com/hero.jpg"><img src="https://example.com/other.jpg"></div>',
+      );
       removeImageByUrl($, "https://example.com/hero.jpg");
       expect($("img").length).toBe(1);
       expect($("img").attr("src")).toBe("https://example.com/other.jpg");
@@ -129,7 +133,9 @@ describe("HTML cleaning utilities", () => {
 
   describe("removeSanitizedAttributes", () => {
     it("removes all data-sanitized-* attributes", () => {
-      const $ = cheerio.load('<div data-sanitized-class="box" data-sanitized-id="hero" title="Header">Text</div>');
+      const $ = cheerio.load(
+        '<div data-sanitized-class="box" data-sanitized-id="hero" title="Header">Text</div>',
+      );
       removeSanitizedAttributes($);
       expect($("div").attr("data-sanitized-class")).toBeUndefined();
       expect($("div").attr("data-sanitized-id")).toBeUndefined();

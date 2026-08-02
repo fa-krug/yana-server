@@ -3,31 +3,31 @@
   "blocks": [
     {
       "type": "paragraph",
-      "runs": [{"text": "Hi", "styles": ["bold"], "link": "https://example.com/a"}]
+      "runs": [{ "text": "Hi", "styles": ["bold"], "link": "https://example.com/a" }]
     },
     {
       "type": "heading",
       "level": 2,
-      "runs": [{"text": "Title", "styles": [], "link": null}]
+      "runs": [{ "text": "Title", "styles": [], "link": null }]
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        [{"type": "paragraph", "runs": [{"text": "one", "styles": [], "link": null}]}],
+        [{ "type": "paragraph", "runs": [{ "text": "one", "styles": [], "link": null }] }],
         []
       ]
     },
     {
       "type": "blockquote",
       "blocks": [
-        {"type": "paragraph", "runs": [{"text": "quoted", "styles": ["italic"], "link": null}]}
+        { "type": "paragraph", "runs": [{ "text": "quoted", "styles": ["italic"], "link": null }] }
       ]
     },
     {
       "type": "image",
       "ref": "yana-img://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "caption": [{"text": "cap", "styles": [], "link": null}]
+      "caption": [{ "text": "cap", "styles": [], "link": null }]
     },
     {
       "type": "embed",
@@ -36,7 +36,7 @@
       "externalURL": "https://www.youtube.com/watch?v=abc123",
       "title": "A video"
     },
-    {"type": "codeBlock", "text": "print('x')", "language": null},
-    {"type": "divider"}
+    { "type": "codeBlock", "text": "print('x')", "language": null },
+    { "type": "divider" }
   ]
 }

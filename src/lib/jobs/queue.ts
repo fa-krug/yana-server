@@ -114,10 +114,7 @@ export function fail(id: number, error: string | Error): void {
 export function progress(id: number, percent: number): void {
   const clamped = Math.min(100, Math.max(0, Math.floor(percent)));
   writeTransaction((db) => {
-    db.update(jobs)
-      .set({ progress: clamped })
-      .where(eq(jobs.id, id))
-      .run();
+    db.update(jobs).set({ progress: clamped }).where(eq(jobs.id, id)).run();
   });
 }
 
@@ -173,11 +170,7 @@ export function listJobs(options: ListJobsOptions = {}): { jobs: Job[]; total: n
       .offset(offset)
       .all();
 
-    const countResult = db
-      .select({ value: count() })
-      .from(jobs)
-      .where(whereClause)
-      .get();
+    const countResult = db.select({ value: count() }).from(jobs).where(whereClause).get();
 
     return {
       jobs: items,

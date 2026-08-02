@@ -25,28 +25,25 @@ export const FEED_TYPE_PRIORITY = [RSS_TYPE, ATOM_TYPE];
  */
 export function unescapeEntities(value: string): string {
   if (!value) return "";
-  return value.replace(
-    /&(?:#(\d+)|#x([0-9a-fA-F]+)|([a-zA-Z0-9]+));/g,
-    (match, dec, hex, name) => {
-      if (dec) return String.fromCharCode(parseInt(dec, 10));
-      if (hex) return String.fromCharCode(parseInt(hex, 16));
-      const entities: Record<string, string> = {
-        amp: "&",
-        lt: "<",
-        gt: ">",
-        quot: '"',
-        apos: "'",
-        nbsp: " ",
-        rsquo: "’",
-        lsquo: "‘",
-        rdquo: "”",
-        ldquo: "“",
-        mdash: "—",
-        ndash: "–",
-      };
-      return entities[name] ?? match;
-    },
-  );
+  return value.replace(/&(?:#(\d+)|#x([0-9a-fA-F]+)|([a-zA-Z0-9]+));/g, (match, dec, hex, name) => {
+    if (dec) return String.fromCharCode(parseInt(dec, 10));
+    if (hex) return String.fromCharCode(parseInt(hex, 16));
+    const entities: Record<string, string> = {
+      amp: "&",
+      lt: "<",
+      gt: ">",
+      quot: '"',
+      apos: "'",
+      nbsp: " ",
+      rsquo: "’",
+      lsquo: "‘",
+      rdquo: "”",
+      ldquo: "“",
+      mdash: "—",
+      ndash: "–",
+    };
+    return entities[name] ?? match;
+  });
 }
 
 /**
@@ -153,8 +150,7 @@ export function parseXmlFeed(xml: string): ParsedFeed {
         }
 
         const summary =
-          $entry.find("content").first().text() ||
-          $entry.find("summary").first().text();
+          $entry.find("content").first().text() || $entry.find("summary").first().text();
         const published =
           $entry.find("published").first().text().trim() ||
           $entry.find("updated").first().text().trim();

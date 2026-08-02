@@ -100,12 +100,7 @@ export async function tick(): Promise<void> {
     const recentRetentionJob = db
       .select({ id: jobs.id })
       .from(jobs)
-      .where(
-        and(
-          eq(jobs.kind, "retention"),
-          gte(jobs.createdAt, oneDayAgo),
-        ),
-      )
+      .where(and(eq(jobs.kind, "retention"), gte(jobs.createdAt, oneDayAgo)))
       .limit(1)
       .get();
 

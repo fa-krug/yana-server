@@ -33,10 +33,7 @@ export abstract class BaseAggregator {
     return !this.getIdentifierChoices().length;
   }
 
-  static getIdentifierChoices(
-    _query?: string,
-    _user?: unknown,
-  ): Array<[string, string]> {
+  static getIdentifierChoices(_query?: string, _user?: unknown): Array<[string, string]> {
     return [];
   }
 
@@ -96,10 +93,7 @@ export abstract class BaseAggregator {
     return this.identifier || "";
   }
 
-  getCurrentRunLimit(
-    clock: () => Date = () => new Date(),
-    collectedToday = 0,
-  ): number {
+  getCurrentRunLimit(clock: () => Date = () => new Date(), collectedToday = 0): number {
     const collected = collectedToday;
     if (collected >= this.dailyLimit) {
       return 0;
@@ -197,10 +191,7 @@ export abstract class BaseAggregator {
     this.feed.options = options;
   }
 
-  async aggregate(
-    clock?: () => Date,
-    collectedToday?: number,
-  ): Promise<RawArticle[]> {
+  async aggregate(clock?: () => Date, collectedToday?: number): Promise<RawArticle[]> {
     this.validate();
     const limit = this.getCurrentRunLimit(clock, collectedToday);
     if (limit === 0) {

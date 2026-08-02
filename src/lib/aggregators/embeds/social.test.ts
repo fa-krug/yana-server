@@ -27,7 +27,9 @@ describe("bluesky", () => {
 
   describe("extractBlueskyPostInfo", () => {
     it("extracts actor and rkey", () => {
-      const result = extractBlueskyPostInfo("https://bsky.app/profile/user.bsky.social/post/abc123");
+      const result = extractBlueskyPostInfo(
+        "https://bsky.app/profile/user.bsky.social/post/abc123",
+      );
       expect(result).toEqual({ actor: "user.bsky.social", rkey: "abc123" });
     });
     it("returns null for non-post URL", () => {
@@ -40,7 +42,9 @@ describe("bluesky", () => {
 
   describe("detectBluesky", () => {
     it("detects element with Bluesky anchor", () => {
-      const $ = cheerio.load('<div><a href="https://bsky.app/profile/user/post/abc">View</a></div>');
+      const $ = cheerio.load(
+        '<div><a href="https://bsky.app/profile/user/post/abc">View</a></div>',
+      );
       expect(detectBluesky($("div").get(0)!, $)).toBe(true);
     });
     it("rejects element without Bluesky", () => {
@@ -57,7 +61,9 @@ describe("bluesky", () => {
         json: async () => ({ did: "did:plc:test123" }),
       });
 
-      const $ = cheerio.load('<div><a href="https://bsky.app/profile/user.bsky.social/post/abc123">View on Bluesky</a></div>');
+      const $ = cheerio.load(
+        '<div><a href="https://bsky.app/profile/user.bsky.social/post/abc123">View on Bluesky</a></div>',
+      );
       const result = await convertBluesky($("div").get(0)!, $, {});
       expect(result).not.toBeNull();
       expect(result!.provider).toBe("tweet");
@@ -128,7 +134,9 @@ describe("twitter", () => {
         }),
       });
 
-      const $ = cheerio.load('<div><a href="https://twitter.com/user/status/123456">Tweet</a></div>');
+      const $ = cheerio.load(
+        '<div><a href="https://twitter.com/user/status/123456">Tweet</a></div>',
+      );
       const result = await convertTwitter($("div").get(0)!, $, {});
       expect(result).not.toBeNull();
       expect(result!.provider).toBe("tweet");

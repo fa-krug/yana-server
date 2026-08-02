@@ -1,7 +1,23 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { ensureAdminExists } from "@/lib/auth/bootstrap";
 import { applyPendingMigrations } from "@/lib/db/migrate";
 import { startScheduler } from "@/lib/jobs/scheduler";
 import { startWorker } from "@/lib/jobs/worker";
+
+/**
+ * Resolves the directory where Yana stores SQLite database files and media.
+ * Precedence: explicit argument > YANA_DATA_DIR env > ~/.yana
+ */
+export function resolveDataDir(explicit?: string): string {
+  const envDir = process.env.YANA_DATA_DIR?.trim();
+  const targetDir = explicit?.trim() || envDir || path.join(os.homedir(), ".yana");
+  const resolvedPath = path.resolve(targetDir);
+  fs.mkdirSync(resolvedPath, { recursive: true });
+  return resolvedPath;
+}
 
 /**
  * Everything that has to happen once, before the first request is served.

@@ -106,7 +106,9 @@ describe("Header Element Extraction", () => {
     it("RedditPostStrategy rejects embed URLs but accepts post URLs", () => {
       const strategy = new RedditPostStrategy();
       expect(strategy.canHandle("https://vxreddit.com/r/typescript/comments/abc123")).toBe(false);
-      expect(strategy.canHandle("https://reddit.com/r/typescript/comments/abc123/title")).toBe(true);
+      expect(strategy.canHandle("https://reddit.com/r/typescript/comments/abc123/title")).toBe(
+        true,
+      );
       expect(strategy.canHandle("https://example.com")).toBe(false);
     });
   });
@@ -190,15 +192,13 @@ describe("Header Element Extraction", () => {
         new ArticleSkipError("Article skipped due to 404", 404),
       );
 
-      await expect(
-        extractor.extractHeaderElement("https://example.com/notfound"),
-      ).rejects.toThrow(ArticleSkipError);
+      await expect(extractor.extractHeaderElement("https://example.com/notfound")).rejects.toThrow(
+        ArticleSkipError,
+      );
     });
 
     it("returns null if all strategies fail or return null", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response("Not found", { status: 404 }),
-      );
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("Not found", { status: 404 }));
 
       const extractor = new HeaderElementExtractor();
       // Disable network calls returning images

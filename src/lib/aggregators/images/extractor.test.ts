@@ -26,7 +26,9 @@ describe("Image Extraction Strategies", () => {
 
   describe("YouTubeThumbnailStrategy", () => {
     it("extracts YouTube video IDs and handles YouTube URLs", () => {
-      expect(extractYoutubeVideoId("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
+      expect(extractYoutubeVideoId("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).toBe(
+        "dQw4w9WgXcQ",
+      );
       expect(extractYoutubeVideoId("https://youtu.be/dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
       expect(extractYoutubeVideoId("https://youtube.com/embed/dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
 
@@ -65,7 +67,10 @@ describe("Image Extraction Strategies", () => {
         .toBuffer();
 
       vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response(new Uint8Array(validPng), { status: 200, headers: { "Content-Type": "image/png" } }),
+        new Response(new Uint8Array(validPng), {
+          status: 200,
+          headers: { "Content-Type": "image/png" },
+        }),
       );
 
       const extractor = new ImageExtractor();
@@ -95,7 +100,10 @@ describe("Image Extraction Strategies", () => {
           new Response(pageHtml, { status: 200, headers: { "Content-Type": "text/html" } }),
         )
         .mockResolvedValueOnce(
-          new Response(new Uint8Array(validJpeg), { status: 200, headers: { "Content-Type": "image/jpeg" } }),
+          new Response(new Uint8Array(validJpeg), {
+            status: 200,
+            headers: { "Content-Type": "image/jpeg" },
+          }),
         );
 
       const result = await extractImages("https://example.com/news/article-1");

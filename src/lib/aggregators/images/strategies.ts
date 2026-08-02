@@ -53,7 +53,7 @@ export function extractTweetId(url: string): string | null {
 export async function fetchTweetData(
   tweetId: string,
   timeoutMs = 10000,
-): Promise<Record<string, any> | null> {
+): Promise<Record<string, unknown> | null> {
   if (!tweetId) return null;
   try {
     const controller = new AbortController();
@@ -64,20 +64,20 @@ export async function fetchTweetData(
     });
     clearTimeout(timer);
     if (!res.ok) return null;
-    return (await res.json()) as Record<string, any>;
+    return (await res.json()) as Record<string, unknown>;
   } catch {
     return null;
   }
 }
 
-export function getFirstTweetImage(data: Record<string, any>): string | null {
+export function getFirstTweetImage(data: Record<string, unknown>): string | null {
   if (!data) return null;
   try {
-    const tweet = data.tweet || {};
-    const media = tweet.media || {};
+    const tweet = (data.tweet as Record<string, unknown>) || {};
+    const media = (tweet.media as Record<string, unknown>) || {};
 
     if (Array.isArray(media.photos)) {
-      for (const photo of media.photos) {
+      for (const photo of media.photos as Record<string, unknown>[]) {
         if (photo && typeof photo.url === "string") {
           return photo.url;
         }
@@ -85,16 +85,16 @@ export function getFirstTweetImage(data: Record<string, any>): string | null {
     }
 
     if (Array.isArray(media.all)) {
-      for (const item of media.all) {
+      for (const item of media.all as Record<string, unknown>[]) {
         if (item && item.type === "photo" && typeof item.url === "string") {
           return item.url;
         }
       }
     }
 
-    const article = tweet.article || {};
-    const coverMedia = article.cover_media || {};
-    const mediaInfo = coverMedia.media_info || {};
+    const article = (tweet.article as Record<string, unknown>) || {};
+    const coverMedia = (article.cover_media as Record<string, unknown>) || {};
+    const mediaInfo = (coverMedia.media_info as Record<string, unknown>) || {};
     if (typeof mediaInfo.original_img_url === "string") {
       return mediaInfo.original_img_url;
     }

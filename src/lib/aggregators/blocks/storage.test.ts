@@ -14,7 +14,9 @@ const TREE: Block[] = [
   {
     kind: "heading",
     level: 3,
-    runs: [{ text: "Head", bold: true, italic: false, code: false, strikethrough: false, link: "" }],
+    runs: [
+      { text: "Head", bold: true, italic: false, code: false, strikethrough: false, link: "" },
+    ],
   },
   {
     kind: "paragraph",
@@ -310,9 +312,7 @@ describe("block storage", () => {
       .filter((r) => r.parentId === null)
       .sort((a, b) => a.position - b.position);
 
-    expect(roots.map((r) => r.position)).toEqual(
-      Array.from({ length: TREE.length }, (_, i) => i),
-    );
+    expect(roots.map((r) => r.position)).toEqual(Array.from({ length: TREE.length }, (_, i) => i));
   });
 
   it("rewriting replaces previous tree completely", async () => {

@@ -21,7 +21,11 @@ const DAILYMOTION_ID_PATTERNS: RegExp[] = [
 ];
 
 /** Class markers for Dailymotion embed containers. */
-const DAILYMOTION_CLASS_MARKERS = ["dailymotion-embed", "wp-block-embed-dailymotion", "is-provider-dailymotion"];
+const DAILYMOTION_CLASS_MARKERS = [
+  "dailymotion-embed",
+  "wp-block-embed-dailymotion",
+  "is-provider-dailymotion",
+];
 
 /** Data attributes that carry embed markup. */
 const EMBED_ATTRS = ["data-sanitized-data-embed-content", "data-embed", "data-sanitized-embed"];

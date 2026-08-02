@@ -8,11 +8,12 @@ function getWrapper(soup: SoupOrSelection) {
     if (typeof soup === "function") {
       return soup(node);
     }
-    return (soup as any).constructor(
-      node,
-      (soup as any)._root,
-      (soup as any)._options
-    ) as cheerio.Cheerio<Element>;
+    const internal = soup as unknown as {
+      constructor: (node: Element, root?: unknown, options?: unknown) => cheerio.Cheerio<Element>;
+      _root?: unknown;
+      _options?: unknown;
+    };
+    return internal.constructor(node, internal._root, internal._options);
   };
 }
 
@@ -96,7 +97,7 @@ export function removeEmptyElements(soup: SoupOrSelection, tags: string[]): void
  */
 export function cleanDataAttributes(
   soup: SoupOrSelection,
-  keep: string[] = ["data-src", "data-srcset"]
+  keep: string[] = ["data-src", "data-srcset"],
 ): void {
   const keepSet = new Set(keep);
   const elems = typeof soup === "function" ? soup("*") : soup.find("*").addBack("*");
@@ -133,10 +134,7 @@ export function removeImageByUrl(soup: SoupOrSelection, imageUrl?: string | null
     if (removed || elem.type !== "tag" || !elem.attribs) return;
 
     const imgSrc =
-      elem.attribs["src"] ||
-      elem.attribs["data-src"] ||
-      elem.attribs["data-lazy-src"] ||
-      "";
+      elem.attribs["src"] || elem.attribs["data-src"] || elem.attribs["data-lazy-src"] || "";
 
     if (!imgSrc || imgSrc.startsWith("data:")) {
       return;

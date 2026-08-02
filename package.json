@@ -1,7 +1,16 @@
 {
-  "name": "yana-next",
+  "name": "@fa-krug/yana",
   "version": "0.1.0",
-  "private": true,
+  "bin": {
+    "yana": "./bin/yana.js"
+  },
+  "files": [
+    "bin",
+    ".next/standalone",
+    ".next/static",
+    "public",
+    "drizzle"
+  ],
   "engines": {
     "node": ">=25.0.0 <26"
   },

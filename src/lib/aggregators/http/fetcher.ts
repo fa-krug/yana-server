@@ -9,7 +9,7 @@ export class NetworkError extends Error {
   constructor(
     message: string,
     public statusCode?: number,
-    public url?: string
+    public url?: string,
   ) {
     super(message);
     this.name = "NetworkError";
@@ -37,7 +37,7 @@ function rejectOversizedDeclaration(response: Response, url: string, maxBytes: n
     if (contentLength > maxBytes) {
       throw new ResponseTooLarge(
         `Response from ${url} is too large: ${contentLength} bytes > ${maxBytes}`,
-        url
+        url,
       );
     }
   }
@@ -68,7 +68,7 @@ async function readCapped(response: Response, url: string, maxBytes: number): Pr
           }
           throw new ResponseTooLarge(
             `Response from ${url} is too large: over ${maxBytes} bytes`,
-            url
+            url,
           );
         }
         chunks.push(value);
@@ -123,7 +123,7 @@ export async function fetchHtml(
     retries?: number;
     maxBytes?: number;
     retryDelayMs?: number;
-  }
+  },
 ): Promise<string> {
   const timeout = options?.timeout ?? 30000;
   const retries = Math.max(1, options?.retries ?? DEFAULT_RETRIES);
@@ -162,7 +162,7 @@ export async function fetchHtml(
         const err = new NetworkError(
           `HTTP ${response.status} ${response.statusText} fetching ${url}`,
           response.status,
-          url
+          url,
         );
 
         if (isDeterministic) {
@@ -212,7 +212,7 @@ export async function fetchHtml(
   throw new NetworkError(
     lastException?.message ?? `Failed to fetch ${url} after ${retries} retries`,
     undefined,
-    url
+    url,
   );
 }
 
@@ -222,7 +222,7 @@ export async function fetchBinary(
     timeout?: number;
     maxBytes?: number;
     isAllowedUrl?: (url: string) => boolean;
-  }
+  },
 ): Promise<Buffer> {
   const timeout = options?.timeout ?? 30000;
   const maxBytes = options?.maxBytes ?? MAX_FETCH_BYTES;
@@ -232,10 +232,7 @@ export async function fetchBinary(
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     if (isAllowedUrl && !isAllowedUrl(target)) {
-      throw new DisallowedRedirect(
-        `Refusing to fetch ${target}: not on allowed site`,
-        target
-      );
+      throw new DisallowedRedirect(`Refusing to fetch ${target}: not on allowed site`, target);
     }
 
     const controller = new AbortController();
@@ -259,7 +256,7 @@ export async function fetchBinary(
         throw new NetworkError(
           `Redirect status ${response.status} without Location header`,
           response.status,
-          target
+          target,
         );
       }
       target = new URL(location, target).toString();
@@ -270,7 +267,7 @@ export async function fetchBinary(
       throw new NetworkError(
         `HTTP ${response.status} ${response.statusText} fetching ${target}`,
         response.status,
-        target
+        target,
       );
     }
 

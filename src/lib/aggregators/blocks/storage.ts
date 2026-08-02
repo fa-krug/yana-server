@@ -14,12 +14,7 @@ import { eq, inArray } from "drizzle-orm";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articleBlocks, articleInlineRuns, type ArticleBlock } from "@/lib/db/schema";
 
-import {
-  EMBED_PROVIDERS,
-  type Block,
-  type EmbedProvider,
-  type InlineRun,
-} from "./types";
+import { EMBED_PROVIDERS, type Block, type EmbedProvider, type InlineRun } from "./types";
 
 export interface ListItemNode {
   kind: "list_item";
@@ -157,8 +152,9 @@ export async function writeBlocks(articleId: number, blocks: Block[]): Promise<n
       link: string;
     }> = [];
 
-    let level: Array<{ node: StorageNode; parentId: number | null; position: number }> =
-      blocks.map((node, position) => ({ node, parentId: null, position }));
+    let level: Array<{ node: StorageNode; parentId: number | null; position: number }> = blocks.map(
+      (node, position) => ({ node, parentId: null, position }),
+    );
 
     while (level.length > 0) {
       const rowsToInsert = level.map(({ node, parentId, position }) =>

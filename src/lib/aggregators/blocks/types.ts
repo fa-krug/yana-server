@@ -94,11 +94,4 @@ export interface Divider {
 }
 
 export type Block =
-  | Paragraph
-  | Heading
-  | ListBlock
-  | Blockquote
-  | ImageBlock
-  | EmbedBlock
-  | CodeBlock
-  | Divider;
+  Paragraph | Heading | ListBlock | Blockquote | ImageBlock | EmbedBlock | CodeBlock | Divider;

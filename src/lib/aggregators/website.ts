@@ -2,11 +2,7 @@ import * as cheerio from "cheerio";
 
 import { RawArticle } from "./base";
 import { ArticleSkipError } from "./errors";
-import {
-  cleanHtml,
-  removeImageByUrl,
-  sanitizeClassNames,
-} from "./extract/clean";
+import { cleanHtml, removeImageByUrl, sanitizeClassNames } from "./extract/clean";
 import {
   DEFAULT_CONTENT_SELECTORS,
   DEFAULT_IGNORE_SELECTORS,
@@ -27,12 +23,7 @@ export const GENERIC_CONTENT_MIN_TEXT_LENGTH = 80;
 
 export function isYoutubeUrl(url: string): boolean {
   if (!url) return false;
-  const youtubeDomains = [
-    "youtube.com",
-    "youtu.be",
-    "m.youtube.com",
-    "youtube-nocookie.com",
-  ];
+  const youtubeDomains = ["youtube.com", "youtu.be", "m.youtube.com", "youtube-nocookie.com"];
   return youtubeDomains.some((domain) => url.includes(domain));
 }
 
@@ -43,9 +34,7 @@ export function proxyYoutubeEmbeds($: cheerio.CheerioAPI): void {
     const href = link.attr("href");
     const videoId = href ? extractYoutubeVideoId(href) : null;
     if (videoId) {
-      $container.replaceWith(
-        `<iframe src="https://www.youtube.com/embed/${videoId}"></iframe>`,
-      );
+      $container.replaceWith(`<iframe src="https://www.youtube.com/embed/${videoId}"></iframe>`);
     } else {
       $container.remove();
     }
@@ -102,9 +91,7 @@ export class FullWebsiteAggregator extends RssAggregator {
         .filter(Boolean);
     }
     if (Array.isArray(value)) {
-      return value
-        .map((item) => String(item).trim())
-        .filter(Boolean);
+      return value.map((item) => String(item).trim()).filter(Boolean);
     }
     return [];
   }
@@ -153,12 +140,7 @@ export class FullWebsiteAggregator extends RssAggregator {
     const cleaned = cleanHtml($.html());
     const headerImageUrl = headerData ? getHeaderImageRef(headerData) : null;
 
-    return formatArticleContent(
-      cleaned,
-      article.name,
-      article.identifier,
-      headerImageUrl,
-    );
+    return formatArticleContent(cleaned, article.name, article.identifier, headerImageUrl);
   }
 
   async enrichArticles(articles: RawArticle[]): Promise<RawArticle[]> {

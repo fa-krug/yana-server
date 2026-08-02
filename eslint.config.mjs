@@ -159,6 +159,11 @@ const eslintConfig = defineConfig([
     "parity/**",
     "data/**",
     "media/**",
+    ".venv/**",
+    ".claude/**",
+    ".worktrees/**",
+    "bin/**",
+    "import-rss.ts",
   ]),
 ]);
 

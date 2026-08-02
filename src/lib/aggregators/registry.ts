@@ -4,7 +4,7 @@ import type { BaseAggregator } from "./base";
 import { RssAggregator } from "./rss";
 import { FullWebsiteAggregator } from "./website";
 
-export type AggregatorClass = new (feed: any) => BaseAggregator;
+export type AggregatorClass = new (feed: unknown) => BaseAggregator;
 
 export const IMPLEMENTED_AGGREGATORS: Partial<Record<string, AggregatorClass>> = {};
 
@@ -313,7 +313,7 @@ export function schemaFor(key: AggregatorKey): z.ZodType {
         });
         break;
       default:
-        type = z.any();
+        type = z.unknown();
     }
 
     shape[option.key] = type.default(option.default);

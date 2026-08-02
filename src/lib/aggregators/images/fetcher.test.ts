@@ -102,9 +102,7 @@ describe("fetcher utilities", () => {
     });
 
     it("returns null for HTTP 404/500 error status", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response(null, { status: 404 }),
-      );
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(null, { status: 404 }));
 
       const result = await fetchImageOutcome("https://example.com/404.png");
       expect(result).toBeNull();

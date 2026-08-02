@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { youtubeIdFrom, thumbnailUrlFor, isYoutubeUrl, detectYoutube, convertYoutube } from "./youtube";
+import {
+  youtubeIdFrom,
+  thumbnailUrlFor,
+  isYoutubeUrl,
+  detectYoutube,
+  convertYoutube,
+} from "./youtube";
 import * as cheerio from "cheerio";
 import { clearEmbedProviders } from "./registry";
 
@@ -53,7 +59,9 @@ describe("thumbnailUrlFor", () => {
   });
 
   it("returns the specified quality", () => {
-    expect(thumbnailUrlFor("abc123", "hqdefault")).toBe("https://img.youtube.com/vi/abc123/hqdefault.jpg");
+    expect(thumbnailUrlFor("abc123", "hqdefault")).toBe(
+      "https://img.youtube.com/vi/abc123/hqdefault.jpg",
+    );
   });
 });
 
@@ -74,7 +82,9 @@ describe("isYoutubeUrl", () => {
 
 describe("detectYoutube", () => {
   it("detects element with youtube-embed class", () => {
-    const $ = cheerio.load('<div class="youtube-embed" data-embed="https://www.youtube.com/embed/abc123"><a href="https://www.youtube.com/watch?v=abc123">Watch</a></div>');
+    const $ = cheerio.load(
+      '<div class="youtube-embed" data-embed="https://www.youtube.com/embed/abc123"><a href="https://www.youtube.com/watch?v=abc123">Watch</a></div>',
+    );
     const el = $("div").get(0)!;
     expect(detectYoutube(el, $)).toBe(true);
   });
@@ -86,7 +96,9 @@ describe("detectYoutube", () => {
   });
 
   it("detects element with YouTube anchor", () => {
-    const $ = cheerio.load('<div><a href="https://www.youtube.com/watch?v=abc1234abcd">Watch</a></div>');
+    const $ = cheerio.load(
+      '<div><a href="https://www.youtube.com/watch?v=abc1234abcd">Watch</a></div>',
+    );
     const el = $("div").get(0)!;
     expect(detectYoutube(el, $)).toBe(true);
   });
@@ -106,7 +118,9 @@ describe("convertYoutube", () => {
   });
 
   it("converts a YouTube embed with canonical URL", async () => {
-    const $ = cheerio.load('<div class="youtube-embed" data-embed="https://www.youtube.com/embed/dQw4w9WgXcQ"><a href="https://www.youtube.com/watch?v=dQw4w9WgXcQ">Watch</a></div>');
+    const $ = cheerio.load(
+      '<div class="youtube-embed" data-embed="https://www.youtube.com/embed/dQw4w9WgXcQ"><a href="https://www.youtube.com/watch?v=dQw4w9WgXcQ">Watch</a></div>',
+    );
     const el = $("div").get(0)!;
     const result = await convertYoutube(el, $, {});
     expect(result).not.toBeNull();
@@ -132,7 +146,9 @@ describe("convertYoutube", () => {
   });
 
   it("extracts ID from iframe src", async () => {
-    const $ = cheerio.load('<div><iframe src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"></iframe></div>');
+    const $ = cheerio.load(
+      '<div><iframe src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"></iframe></div>',
+    );
     const el = $("div").get(0)!;
     const result = await convertYoutube(el, $, {});
     expect(result).not.toBeNull();

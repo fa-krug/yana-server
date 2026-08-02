@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { dailymotionIdFrom, thumbnailUrlFor, detectDailymotion, convertDailymotion } from "./dailymotion";
+import {
+  dailymotionIdFrom,
+  thumbnailUrlFor,
+  detectDailymotion,
+  convertDailymotion,
+} from "./dailymotion";
 import * as cheerio from "cheerio";
 
 vi.mock("../images/store", () => ({
@@ -28,12 +33,16 @@ describe("thumbnailUrlFor", () => {
 
 describe("detectDailymotion", () => {
   it("detects dailymotion-embed class", () => {
-    const $ = cheerio.load('<div class="dailymotion-embed" data-embed="https://www.dailymotion.com/embed/video/x8abc12"></div>');
+    const $ = cheerio.load(
+      '<div class="dailymotion-embed" data-embed="https://www.dailymotion.com/embed/video/x8abc12"></div>',
+    );
     expect(detectDailymotion($("div").get(0)!, $)).toBe(true);
   });
 
   it("detects data-embed with Dailymotion URL", () => {
-    const $ = cheerio.load('<div data-embed="https://www.dailymotion.com/embed/video/x8abc12"></div>');
+    const $ = cheerio.load(
+      '<div data-embed="https://www.dailymotion.com/embed/video/x8abc12"></div>',
+    );
     expect(detectDailymotion($("div").get(0)!, $)).toBe(true);
   });
 
@@ -45,7 +54,9 @@ describe("detectDailymotion", () => {
 
 describe("convertDailymotion", () => {
   it("converts a Dailymotion embed with canonical URL", async () => {
-    const $ = cheerio.load('<div class="dailymotion-embed" data-embed="https://www.dailymotion.com/embed/video/x8abc12"></div>');
+    const $ = cheerio.load(
+      '<div class="dailymotion-embed" data-embed="https://www.dailymotion.com/embed/video/x8abc12"></div>',
+    );
     const result = await convertDailymotion($("div").get(0)!, $, {});
     expect(result).not.toBeNull();
     expect(result!.provider).toBe("dailymotion");

@@ -1,10 +1,5 @@
 import { BaseAggregator, RawArticle } from "./base";
-import {
-  discoverFeedUrl,
-  parseRssFeed,
-  ParsedFeed,
-  unescapeEntities,
-} from "./rss-parser";
+import { discoverFeedUrl, parseRssFeed, ParsedFeed, unescapeEntities } from "./rss-parser";
 
 export class RssAggregator extends BaseAggregator {
   static unescapeEntities = unescapeEntities;

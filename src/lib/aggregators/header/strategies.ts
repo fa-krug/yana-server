@@ -52,8 +52,7 @@ export async function fetchSubredditIcon(
         header_img?: string;
       };
     };
-    const rawUrl =
-      data?.data?.icon_img || data?.data?.community_icon || data?.data?.header_img;
+    const rawUrl = data?.data?.icon_img || data?.data?.community_icon || data?.data?.header_img;
     if (!rawUrl) return null;
     return fixRedditMediaUrl(rawUrl);
   } catch {
@@ -95,10 +94,7 @@ export class RedditPostStrategy implements HeaderElementStrategy {
       const imageResult = await fetchSingleImage(iconUrl);
       if (!imageResult) return null;
 
-      const contentHash = await storeImageBytes(
-        imageResult.imageData,
-        imageResult.contentType,
-      );
+      const contentHash = await storeImageBytes(imageResult.imageData, imageResult.contentType);
       if (!contentHash) return null;
 
       return {
@@ -133,10 +129,7 @@ export class YouTubeStrategy implements HeaderElementStrategy {
 
       if (!imageResult) return null;
 
-      const contentHash = await storeImageBytes(
-        imageResult.imageData,
-        imageResult.contentType,
-      );
+      const contentHash = await storeImageBytes(imageResult.imageData, imageResult.contentType);
       if (!contentHash) return null;
 
       return {
@@ -165,11 +158,9 @@ export class GenericImageStrategy implements HeaderElementStrategy {
 
       if (!imageResult) return null;
 
-      const contentHash = await storeImageBytes(
-        imageResult.imageData,
-        imageResult.contentType,
-        { isHeader: true },
-      );
+      const contentHash = await storeImageBytes(imageResult.imageData, imageResult.contentType, {
+        isHeader: true,
+      });
       if (!contentHash) return null;
 
       return {

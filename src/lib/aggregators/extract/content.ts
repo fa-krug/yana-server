@@ -5,12 +5,7 @@ import type { Element } from "domhandler";
  * Selectors always removed before content selection.
  * Emptying ignore_selectors must never disable sanitization of these elements.
  */
-export const MANDATORY_REMOVE_SELECTORS: string[] = [
-  "script",
-  "style",
-  "noscript",
-  "template",
-];
+export const MANDATORY_REMOVE_SELECTORS: string[] = ["script", "style", "noscript", "template"];
 
 /**
  * Defaults mirrored from the iOS client's shipped AggregatorOptions.swift.
@@ -36,14 +31,16 @@ export const DEFAULT_IGNORE_SELECTORS: string[] = [
 function removeMatching(
   $: cheerio.CheerioAPI,
   rootElement: Element | cheerio.CheerioAPI,
-  selectors: string[]
+  selectors: string[],
 ): void {
   for (const selector of selectors) {
     try {
       if (typeof rootElement === "function") {
         rootElement(selector).remove();
       } else {
-        $(rootElement as Element).find(selector).remove();
+        $(rootElement as Element)
+          .find(selector)
+          .remove();
       }
     } catch {
       // Skip invalid remove selectors
@@ -61,7 +58,7 @@ function removeMatching(
 export function selectContentElements(
   root: cheerio.CheerioAPI | cheerio.Cheerio<Element>,
   contentSelectors: string[],
-  firstMatchOnly = false
+  firstMatchOnly = false,
 ): Element[] {
   const matchedNodes = new Set<Element>();
 
@@ -126,7 +123,7 @@ export function extractMainContentIfPresent(
   html: string,
   contentSelectors: string[],
   removeSelectors: string[] = [],
-  firstMatchOnly = false
+  firstMatchOnly = false,
 ): string | null {
   const $ = cheerio.load(html);
   removeMatching($, $, MANDATORY_REMOVE_SELECTORS);
@@ -156,13 +153,13 @@ export function extractMainContent(
   html: string,
   contentSelectors: string[],
   removeSelectors: string[] = [],
-  firstMatchOnly = false
+  firstMatchOnly = false,
 ): string {
   const extracted = extractMainContentIfPresent(
     html,
     contentSelectors,
     removeSelectors,
-    firstMatchOnly
+    firstMatchOnly,
   );
   if (extracted !== null) {
     return extracted;

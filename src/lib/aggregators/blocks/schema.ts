@@ -148,8 +148,7 @@ export function decodeRuns(items: unknown): InlineRun[] {
     const rawStyles = Array.isArray(raw.styles) ? raw.styles : [];
     const validStyles = new Set<string>(
       rawStyles.filter(
-        (s): s is string =>
-          typeof s === "string" && (STYLE_NAMES as readonly string[]).includes(s),
+        (s): s is string => typeof s === "string" && (STYLE_NAMES as readonly string[]).includes(s),
       ),
     );
     const text = typeof raw.text === "string" ? raw.text : "";
@@ -245,7 +244,9 @@ export function decodeBlocks(items: unknown): Block[] {
 
 export function decodeDocument(payload: unknown): Block[] {
   if (typeof payload !== "object" || payload === null) {
-    throw new UnsupportedFormatVersion(`unsupported content format version: ${JSON.stringify(payload)}`);
+    throw new UnsupportedFormatVersion(
+      `unsupported content format version: ${JSON.stringify(payload)}`,
+    );
   }
   const raw = payload as Record<string, unknown>;
   if (raw.version !== FORMAT_VERSION) {

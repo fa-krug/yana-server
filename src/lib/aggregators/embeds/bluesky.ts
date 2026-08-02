@@ -57,7 +57,10 @@ async function resolveBlueskyDid(actor: string): Promise<string | null> {
 /**
  * Fetch post data from the public Bluesky API.
  */
-async function fetchBlueskyPost(actor: string, rkey: string): Promise<Record<string, unknown> | null> {
+async function fetchBlueskyPost(
+  actor: string,
+  rkey: string,
+): Promise<Record<string, unknown> | null> {
   const did = await resolveBlueskyDid(actor);
   if (!did) return null;
 

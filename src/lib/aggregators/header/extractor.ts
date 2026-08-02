@@ -63,11 +63,9 @@ export class HeaderElementExtractor {
     const imageResult = await fetchSingleImage(overrideUrl);
     if (!imageResult) return null;
 
-    const contentHash = await storeImageBytes(
-      imageResult.imageData,
-      imageResult.contentType,
-      { isHeader: true },
-    );
+    const contentHash = await storeImageBytes(imageResult.imageData, imageResult.contentType, {
+      isHeader: true,
+    });
     if (!contentHash) return null;
 
     return {

@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { FeedLike, RawArticle } from "./base";
-import {
-  FullWebsiteAggregator,
-  RssSummaryFallbackAggregator,
-} from "./website";
+import { FullWebsiteAggregator, RssSummaryFallbackAggregator } from "./website";
 
 describe("FullWebsiteAggregator", () => {
   it("resolves default content and ignore selectors", () => {

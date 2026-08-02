@@ -33,7 +33,7 @@ describe("content extraction", () => {
       `;
       const $ = cheerio.load(html);
       const elements = selectContentElements($, ["main", ".article-content", "article"]);
-      
+
       expect(elements.length).toBe(2);
       expect($(elements[0]).attr("id")).toBe("main");
       expect($(elements[1]).attr("class")).toBe("standalone");

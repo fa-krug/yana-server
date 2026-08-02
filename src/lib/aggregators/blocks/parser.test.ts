@@ -167,7 +167,14 @@ describe("parseBlocks", () => {
     const img = blocks[0] as ImageBlock;
     expect(img.kind).toBe("image");
     expect(img.caption).toEqual([
-      { text: "Photo caption text", bold: false, italic: false, code: false, strikethrough: false, link: "" },
+      {
+        text: "Photo caption text",
+        bold: false,
+        italic: false,
+        code: false,
+        strikethrough: false,
+        link: "",
+      },
     ]);
   });
 
@@ -243,7 +250,7 @@ describe("plainTextOf", () => {
 
     const text = plainTextOf(blocks);
     expect(text).toBe(
-      "Heading Title\n\nParagraph text with bold words.\n\nItem one\n\nItem two\n\nconst code = true;\n\nImage caption"
+      "Heading Title\n\nParagraph text with bold words.\n\nItem one\n\nItem two\n\nconst code = true;\n\nImage caption",
     );
   });
 });

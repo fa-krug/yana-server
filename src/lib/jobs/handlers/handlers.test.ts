@@ -49,48 +49,64 @@ describe("src/lib/jobs/handlers", () => {
           user = db.select().from(schema.users).limit(1).get();
         }
 
-        db.insert(schema.userSettings).values({
-          userId: user!.id,
-          articleRetentionDays: 60,
-        }).run();
+        db.insert(schema.userSettings)
+          .values({
+            userId: user!.id,
+            articleRetentionDays: 60,
+          })
+          .run();
 
-        const feed = db.insert(schema.feeds).values({
-          name: "Test Feed",
-          userId: user!.id,
-        }).returning({ id: schema.feeds.id }).get();
+        const feed = db
+          .insert(schema.feeds)
+          .values({
+            name: "Test Feed",
+            userId: user!.id,
+          })
+          .returning({ id: schema.feeds.id })
+          .get();
 
         feedId = feed.id;
 
         // Insert article A: published 2 years ago (old date), but imported today (new createdAt)
         // Must SURVIVE retention.
-        db.insert(schema.articles).values({
-          name: "Old Publish Date",
-          identifier: "a1",
-          feedId,
-          date: new Date("2024-01-01"),
-          starred: false,
-        }).run();
+        db.insert(schema.articles)
+          .values({
+            name: "Old Publish Date",
+            identifier: "a1",
+            feedId,
+            date: new Date("2024-01-01"),
+            starred: false,
+          })
+          .run();
 
         // Insert article B: old createdAt (> 60 days ago), unstarred -> Must be DELETED
-        const b = db.insert(schema.articles).values({
-          name: "Old Imported Date",
-          identifier: "a2",
-          feedId,
-          date: new Date("2024-01-01"),
-          starred: false,
-        }).returning({ id: schema.articles.id }).get();
+        const b = db
+          .insert(schema.articles)
+          .values({
+            name: "Old Imported Date",
+            identifier: "a2",
+            feedId,
+            date: new Date("2024-01-01"),
+            starred: false,
+          })
+          .returning({ id: schema.articles.id })
+          .get();
 
-        const eightyDaysAgo = Math.floor((Date.now() - 80 * 24 * 3,600_000) / 1000);
+        const eightyDaysAgo = Math.floor((Date.now() - 80 * 24 * 3, 600_000) / 1000);
         db.run(sql`UPDATE articles SET created_at = ${eightyDaysAgo} WHERE id = ${b.id}`);
 
         // Insert article C: old createdAt (> 60 days ago), STARRED -> Must SURVIVE
-        const c = db.insert(schema.articles).values({
-          name: "Old Starred Article",
-          identifier: "a3",
-          feedId,
-          date: new Date("2024-01-01"),
-          starred: true,
-        }).returning({ id: schema.articles.id }).get();
+        const c = db
+          .insert(schema.articles)
+          .values({
+            name: "Old Starred Article",
+            identifier: "a3",
+            feedId,
+            date: new Date("2024-01-01"),
+            starred: true,
+          })
+          .returning({ id: schema.articles.id })
+          .get();
 
         db.run(sql`UPDATE articles SET created_at = ${eightyDaysAgo} WHERE id = ${c.id}`);
       });
@@ -98,7 +114,7 @@ describe("src/lib/jobs/handlers", () => {
       const retentionHandler = handlers.getHandler("retention");
       expect(retentionHandler).toBeDefined();
 
-      const dummyJob: schema.Job = {
+      const dummyJob = {
         id: 1,
         kind: "retention",
         payload: {},

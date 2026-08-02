@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  feedUrlInHtml,
-  parseXmlFeed,
-  unescapeEntities,
-} from "./rss-parser";
+import { feedUrlInHtml, parseXmlFeed, unescapeEntities } from "./rss-parser";
 
 describe("rss-parser", () => {
   describe("unescapeEntities", () => {

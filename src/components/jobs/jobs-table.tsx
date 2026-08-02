@@ -4,16 +4,30 @@ import { useState } from "react";
 import { useTranslations } from "next-intl";
 
 import { DataTable, type Column } from "@/components/crud/data-table";
-import { PaginationBar } from "@/components/crud/pagination-bar";
+import { Pagination } from "@/components/crud/pagination";
 import { Badge } from "@/components/ui/badge";
 import type { Job } from "@/lib/db/schema";
 
 function StatusBadge({ status }: { status: string }) {
   switch (status) {
     case "completed":
-      return <Badge variant="outline" className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-200">{status}</Badge>;
+      return (
+        <Badge
+          variant="outline"
+          className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-200"
+        >
+          {status}
+        </Badge>
+      );
     case "running":
-      return <Badge variant="outline" className="bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200">{status}</Badge>;
+      return (
+        <Badge
+          variant="outline"
+          className="bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200"
+        >
+          {status}
+        </Badge>
+      );
     case "failed":
       return <Badge variant="destructive">{status}</Badge>;
     case "pending":
@@ -50,7 +64,11 @@ export function JobsTable({
     {
       key: "attempts",
       header: t("attempts"),
-      cell: (job) => <span>{job.attempts} / {job.maxAttempts}</span>,
+      cell: (job) => (
+        <span>
+          {job.attempts} / {job.maxAttempts}
+        </span>
+      ),
     },
     {
       key: "progress",
@@ -86,7 +104,7 @@ export function JobsTable({
         selected={selected}
         onSelectedChange={setSelected}
       />
-      <PaginationBar total={total} page={page} pageSize={pageSize} />
+      <Pagination page={page} pageSize={pageSize} total={total} />
     </div>
   );
 }

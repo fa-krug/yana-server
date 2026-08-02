@@ -173,9 +173,7 @@ describe("image store", () => {
     const res1 = await store.storeBodyImageRefFromUrl("https://example.com/html");
     expect(res1).toBe(store.NON_CONTENT_IMAGE);
 
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(null, { status: 500 }),
-    );
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(null, { status: 500 }));
 
     const res2 = await store.storeBodyImageRefFromUrl("https://example.com/500");
     expect(res2).toBeNull();

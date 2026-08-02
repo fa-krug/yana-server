@@ -1,12 +1,6 @@
 import * as cheerio from "cheerio";
 import type { AnyNode, Element, Text } from "domhandler";
-import type {
-  Block,
-  EmbedBlock,
-  ImageBlock,
-  InlineRun,
-  ListBlock,
-} from "./types";
+import type { Block, EmbedBlock, ImageBlock, InlineRun, ListBlock } from "./types";
 
 /**
  * Schemes a stored link is allowed to carry.
@@ -19,13 +13,45 @@ const SCHEME_REGEX = /^([a-zA-Z][a-zA-Z0-9+.-]*):/;
 const IMAGE_REF_SCHEME = "yana-img://";
 
 const INLINE_TAGS = new Set([
-  "a", "b", "strong", "i", "em", "code", "span", "mark", "u", "s", "strike", "del",
-  "sub", "sup", "small", "abbr", "cite", "q", "time", "label", "font", "ins", "var", "kbd",
+  "a",
+  "b",
+  "strong",
+  "i",
+  "em",
+  "code",
+  "span",
+  "mark",
+  "u",
+  "s",
+  "strike",
+  "del",
+  "sub",
+  "sup",
+  "small",
+  "abbr",
+  "cite",
+  "q",
+  "time",
+  "label",
+  "font",
+  "ins",
+  "var",
+  "kbd",
 ]);
 
 const DROPPED_TAGS = new Set([
-  "form", "input", "button", "select", "textarea", "script", "style",
-  "noscript", "iframe", "audio", "svg", "canvas",
+  "form",
+  "input",
+  "button",
+  "select",
+  "textarea",
+  "script",
+  "style",
+  "noscript",
+  "iframe",
+  "audio",
+  "svg",
+  "canvas",
 ]);
 
 const HEADING_TAGS: Record<string, number> = {
@@ -44,13 +70,15 @@ const YOUTUBE_PATTERNS = [
   /(?:youtube\.com\/watch\?(?:.*&)?v=|youtu\.be\/)([A-Za-z0-9_-]{6,})/,
 ];
 
-const DAILYMOTION_PATTERNS = [
-  /dailymotion\.com\/(?:video|embed\/video)\/([A-Za-z0-9]+)/,
-];
+const DAILYMOTION_PATTERNS = [/dailymotion\.com\/(?:video|embed\/video)\/([A-Za-z0-9]+)/];
 
 const TWEET_HOST_SUFFIXES = ["twitter.com", "x.com", "fxtwitter.com"];
 const CLASS_ATTRS = ["data-sanitized-class", "class"];
-const EMBED_MARKUP_ATTRS = ["data-sanitized-data-embed-content", "data-embed", "data-sanitized-embed"];
+const EMBED_MARKUP_ATTRS = [
+  "data-sanitized-data-embed-content",
+  "data-embed",
+  "data-sanitized-embed",
+];
 
 /**
  * True if url is safe to render as a clickable link.
@@ -110,12 +138,7 @@ function trimmed(runs: InlineRun[]): InlineRun[] {
 
 function isNonTextString(node: AnyNode): boolean {
   const t = node.type as string;
-  return (
-    t === "comment" ||
-    t === "directive" ||
-    t === "doctype" ||
-    t === "cdata"
-  );
+  return t === "comment" || t === "directive" || t === "doctype" || t === "cdata";
 }
 
 function getAttr(element: Element, attrName: string): string {
@@ -154,10 +177,7 @@ function selectContainer($: cheerio.CheerioAPI): AnyNode {
 }
 
 function imageBlock(img: Element, baseUrl: string): ImageBlock | null {
-  const src =
-    getAttr(img, "src") ||
-    getAttr(img, "data-src") ||
-    getAttr(img, "data-lazy-src");
+  const src = getAttr(img, "src") || getAttr(img, "data-src") || getAttr(img, "data-lazy-src");
   if (!src) {
     return null;
   }
@@ -222,7 +242,7 @@ function buildListBlock(
   $: cheerio.CheerioAPI,
   element: Element,
   ordered: boolean,
-  baseUrl: string
+  baseUrl: string,
 ): ListBlock | null {
   const items: Block[][] = [];
   const children = element.children || [];
@@ -244,11 +264,7 @@ function buildListBlock(
   };
 }
 
-function figureBlocks(
-  $: cheerio.CheerioAPI,
-  element: Element,
-  baseUrl: string
-): Block[] {
+function figureBlocks($: cheerio.CheerioAPI, element: Element, baseUrl: string): Block[] {
   const children = element.children || [];
   let figcaptionEl: Element | null = null;
   for (const child of children) {
@@ -314,19 +330,11 @@ function dropImageBlocks(blocks: Block[]): Block[] {
   return kept;
 }
 
-function headerBlocks(
-  $: cheerio.CheerioAPI,
-  header: Element,
-  baseUrl: string
-): Block[] {
+function headerBlocks($: cheerio.CheerioAPI, header: Element, baseUrl: string): Block[] {
   return dropImageBlocks(convert($, header, baseUrl));
 }
 
-function tableRowBlocks(
-  $: cheerio.CheerioAPI,
-  tr: Element,
-  baseUrl: string
-): Block[] {
+function tableRowBlocks($: cheerio.CheerioAPI, tr: Element, baseUrl: string): Block[] {
   const cellRuns: InlineRun[][] = [];
   const mediaBlocks: Block[] = [];
   const nestedTables: Element[] = [];
@@ -335,8 +343,7 @@ function tableRowBlocks(
   const cells = children.filter(
     (c) =>
       c.type === "tag" &&
-      ((c as Element).name.toLowerCase() === "td" ||
-        (c as Element).name.toLowerCase() === "th")
+      ((c as Element).name.toLowerCase() === "td" || (c as Element).name.toLowerCase() === "th"),
   ) as Element[];
 
   for (const cell of cells) {
@@ -394,7 +401,7 @@ function classNames(element: Element): string {
 
 function embedMarkup($: cheerio.CheerioAPI, element: Element): string {
   const parts: string[] = [];
-  const candidates = [element, ...$(element).find("*").toArray() as Element[]];
+  const candidates = [element, ...($(element).find("*").toArray() as Element[])];
   for (const cand of candidates) {
     for (const attr of EMBED_MARKUP_ATTRS) {
       const val = getAttr(cand, attr);
@@ -502,7 +509,7 @@ function inlineRuns(
   element: Element,
   baseUrl: string,
   styles: Set<string> = new Set(),
-  link: string = ""
+  link: string = "",
 ): InlineRun[] {
   const runs: InlineRun[] = [];
   const children = element.children || [];
@@ -571,11 +578,7 @@ function inlineRuns(
   return runs;
 }
 
-function convert(
-  $: cheerio.CheerioAPI,
-  container: AnyNode,
-  baseUrl: string
-): Block[] {
+function convert($: cheerio.CheerioAPI, container: AnyNode, baseUrl: string): Block[] {
   const blocks: Block[] = [];
   const inline: InlineRun[] = [];
   const pendingMedia: Block[] = [];

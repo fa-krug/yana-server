@@ -48,7 +48,7 @@ describe("fetchHtml", () => {
 
   function mockStreamResponse(
     bodyBytes: Uint8Array,
-    init?: { status?: number; statusText?: string; headers?: Record<string, string> }
+    init?: { status?: number; statusText?: string; headers?: Record<string, string> },
   ) {
     const status = init?.status ?? 200;
     const statusText = init?.statusText ?? "OK";
@@ -66,9 +66,9 @@ describe("fetchHtml", () => {
 
   it("fetches HTML content successfully on 200 OK", async () => {
     const htmlContent = "<html><body><h1>Hello World</h1></body></html>";
-    const fetchMock = vi.fn().mockResolvedValue(
-      mockStreamResponse(new TextEncoder().encode(htmlContent))
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(mockStreamResponse(new TextEncoder().encode(htmlContent)));
     globalThis.fetch = fetchMock;
 
     const result = await fetchHtml("https://example.com/test");
@@ -85,10 +85,10 @@ describe("fetchHtml", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        mockStreamResponse(new TextEncoder().encode("Server Error"), { status: 500 })
+        mockStreamResponse(new TextEncoder().encode("Server Error"), { status: 500 }),
       )
       .mockResolvedValueOnce(
-        mockStreamResponse(new TextEncoder().encode(htmlContent), { status: 200 })
+        mockStreamResponse(new TextEncoder().encode(htmlContent), { status: 200 }),
       );
     globalThis.fetch = fetchMock;
 
@@ -107,7 +107,7 @@ describe("fetchHtml", () => {
       .fn()
       .mockRejectedValueOnce(new TypeError("Failed to fetch"))
       .mockResolvedValueOnce(
-        mockStreamResponse(new TextEncoder().encode(htmlContent), { status: 200 })
+        mockStreamResponse(new TextEncoder().encode(htmlContent), { status: 200 }),
       );
     globalThis.fetch = fetchMock;
 
@@ -120,13 +120,15 @@ describe("fetchHtml", () => {
   });
 
   it("does not retry deterministic 404 error", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      mockStreamResponse(new TextEncoder().encode("Not Found"), { status: 404 })
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        mockStreamResponse(new TextEncoder().encode("Not Found"), { status: 404 }),
+      );
     globalThis.fetch = fetchMock;
 
     await expect(fetchHtml("https://example.com/404", { retries: 3 })).rejects.toThrow(
-      NetworkError
+      NetworkError,
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -135,12 +137,12 @@ describe("fetchHtml", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       mockStreamResponse(new TextEncoder().encode("Oversized content"), {
         headers: { "content-length": "99999999" },
-      })
+      }),
     );
     globalThis.fetch = fetchMock;
 
     await expect(
-      fetchHtml("https://example.com/large", { retries: 3, maxBytes: 100 })
+      fetchHtml("https://example.com/large", { retries: 3, maxBytes: 100 }),
     ).rejects.toThrow(ResponseTooLarge);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -155,12 +157,12 @@ describe("fetchHtml", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(stream, {
         headers: { "content-length": "200" },
-      })
+      }),
     );
     globalThis.fetch = fetchMock;
 
     await expect(
-      fetchHtml("https://example.com/content-length", { maxBytes: 100 })
+      fetchHtml("https://example.com/content-length", { maxBytes: 100 }),
     ).rejects.toThrow(ResponseTooLarge);
   });
 
@@ -179,9 +181,9 @@ describe("fetchHtml", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(stream));
     globalThis.fetch = fetchMock;
 
-    await expect(
-      fetchHtml("https://example.com/stream-large", { maxBytes: 100 })
-    ).rejects.toThrow(ResponseTooLarge);
+    await expect(fetchHtml("https://example.com/stream-large", { maxBytes: 100 })).rejects.toThrow(
+      ResponseTooLarge,
+    );
   });
 
   it("handles ISO-8859-1 decoding fallback for non-UTF8 bytes", async () => {
@@ -190,7 +192,7 @@ describe("fetchHtml", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       mockStreamResponse(iso8859Bytes, {
         headers: { "content-type": "text/html; charset=iso-8859-1" },
-      })
+      }),
     );
     globalThis.fetch = fetchMock;
 
@@ -209,7 +211,7 @@ describe("fetchBinary", () => {
 
   function mockStreamResponse(
     bodyBytes: Uint8Array,
-    init?: { status?: number; statusText?: string; headers?: Record<string, string> }
+    init?: { status?: number; statusText?: string; headers?: Record<string, string> },
   ) {
     const status = init?.status ?? 200;
     const statusText = init?.statusText ?? "OK";
@@ -241,9 +243,9 @@ describe("fetchBinary", () => {
     const fetchMock = vi.fn();
     globalThis.fetch = fetchMock;
 
-    await expect(
-      fetchBinary("https://blocked.com/favicon.ico", { isAllowedUrl })
-    ).rejects.toThrow(DisallowedRedirect);
+    await expect(fetchBinary("https://blocked.com/favicon.ico", { isAllowedUrl })).rejects.toThrow(
+      DisallowedRedirect,
+    );
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(isAllowedUrl).toHaveBeenCalledWith("https://blocked.com/favicon.ico");
@@ -257,11 +259,9 @@ describe("fetchBinary", () => {
         new Response(null, {
           status: 302,
           headers: { location: "https://example.com/redirect2" },
-        })
+        }),
       )
-      .mockResolvedValueOnce(
-        mockStreamResponse(new Uint8Array([10, 20]), { status: 200 })
-      );
+      .mockResolvedValueOnce(mockStreamResponse(new Uint8Array([10, 20]), { status: 200 }));
     globalThis.fetch = fetchMock;
 
     const result = await fetchBinary("https://example.com/redirect1", { isAllowedUrl });
@@ -277,13 +277,13 @@ describe("fetchBinary", () => {
       new Response(null, {
         status: 301,
         headers: { location: "https://evil.com/malware" },
-      })
+      }),
     );
     globalThis.fetch = fetchMock;
 
-    await expect(
-      fetchBinary("https://example.com/redirect1", { isAllowedUrl })
-    ).rejects.toThrow(DisallowedRedirect);
+    await expect(fetchBinary("https://example.com/redirect1", { isAllowedUrl })).rejects.toThrow(
+      DisallowedRedirect,
+    );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(isAllowedUrl).toHaveBeenCalledWith("https://evil.com/malware");
@@ -294,7 +294,7 @@ describe("fetchBinary", () => {
       new Response(null, {
         status: 302,
         headers: { location: "https://example.com/loop" },
-      })
+      }),
     );
     globalThis.fetch = fetchMock;
 

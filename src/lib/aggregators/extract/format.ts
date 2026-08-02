@@ -90,7 +90,7 @@ export function buildDailymotionFacadeHtml(videoId: string): string {
 export function buildHeaderHtml(
   headerImageUrl?: string | null,
   title = "",
-  headerCaptionHtml?: string | null
+  headerCaptionHtml?: string | null,
 ): string | null {
   if (!headerImageUrl) {
     return null;
@@ -114,7 +114,7 @@ export function buildHeaderHtml(
   const headerParts = [
     '<header style="margin-bottom: 1.5em; text-align: center;">',
     `<img src="${escapeHtml(headerImageUrl)}" alt="${escapeHtml(
-      title
+      title,
     )}" style="max-width: 100%; height: auto; border-radius: 8px;">`,
   ];
   if (headerCaptionHtml) {
@@ -134,7 +134,7 @@ export function formatArticleContent(
   headerImageUrl?: string | null,
   headerCaptionHtml?: string | null,
   commentsContent?: string | null,
-  headerHtml?: string | null
+  headerHtml?: string | null,
 ): string {
   const parts: string[] = [];
 
@@ -150,9 +150,7 @@ export function formatArticleContent(
   parts.push(`<section data-sanitized-class="article-content">${content}</section>`);
 
   if (commentsContent) {
-    parts.push(
-      `<section data-sanitized-class="article-comments">${commentsContent}</section>`
-    );
+    parts.push(`<section data-sanitized-class="article-comments">${commentsContent}</section>`);
   }
 
   return parts.join("\n\n");

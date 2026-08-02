@@ -12,3 +12,6 @@ parity/
 data/
 media/
 .superpowers/
+.venv/
+.claude/
+.worktrees/

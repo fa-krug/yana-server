@@ -11,7 +11,7 @@ describe("content format utilities", () => {
   describe("escapeHtml", () => {
     it("escapes quotes, ampersands, and angle brackets", () => {
       expect(escapeHtml('<script alert="xss">&</script>')).toBe(
-        "&lt;script alert=&quot;xss&quot;&gt;&amp;&lt;/script&gt;"
+        "&lt;script alert=&quot;xss&quot;&gt;&amp;&lt;/script&gt;",
       );
     });
   });
@@ -19,11 +19,11 @@ describe("content format utilities", () => {
   describe("extractYoutubeVideoId", () => {
     it("extracts ID from standard watch and short URLs", () => {
       expect(extractYoutubeVideoId("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).toBe(
-        "dQw4w9WgXcQ"
+        "dQw4w9WgXcQ",
       );
       expect(extractYoutubeVideoId("https://youtu.be/dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
       expect(extractYoutubeVideoId("https://www.youtube.com/embed/dQw4w9WgXcQ")).toBe(
-        "dQw4w9WgXcQ"
+        "dQw4w9WgXcQ",
       );
     });
   });
@@ -54,7 +54,7 @@ describe("content format utilities", () => {
       const header = buildHeaderHtml(
         "https://example.com/img.jpg?a=1&b=2",
         'My "Title"',
-        "<figcaption>Photo credit</figcaption>"
+        "<figcaption>Photo credit</figcaption>",
       );
       expect(header).not.toBeNull();
       expect(header).toContain('src="https://example.com/img.jpg?a=1&amp;b=2"');
@@ -71,15 +71,15 @@ describe("content format utilities", () => {
         "https://example.com/art",
         "https://example.com/header.jpg",
         null,
-        "<p>Comment 1</p>"
+        "<p>Comment 1</p>",
       );
 
       expect(formatted).toContain("<header");
       expect(formatted).toContain(
-        '<section data-sanitized-class="article-content"><p>Hello world</p></section>'
+        '<section data-sanitized-class="article-content"><p>Hello world</p></section>',
       );
       expect(formatted).toContain(
-        '<section data-sanitized-class="article-comments"><p>Comment 1</p></section>'
+        '<section data-sanitized-class="article-comments"><p>Comment 1</p></section>',
       );
     });
 
@@ -92,7 +92,7 @@ describe("content format utilities", () => {
         "https://example.com/img.jpg",
         null,
         null,
-        customHeader
+        customHeader,
       );
 
       expect(formatted).toContain("<header>Custom Header</header>");
