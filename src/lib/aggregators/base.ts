@@ -149,8 +149,8 @@ export abstract class BaseAggregator {
     return articles;
   }
 
-  async finalizeArticles(articles: RawArticle[]): Promise<RawArticle[]> {
-    return this.applyAiProcessing(articles);
+  async finalizeArticles(articles: RawArticle[], userSettings?: any): Promise<RawArticle[]> {
+    return this.applyAiProcessing(articles, userSettings);
   }
 
   protected async applyAiProcessing(articles: RawArticle[], userSettings?: any): Promise<RawArticle[]> {
@@ -207,7 +207,7 @@ export abstract class BaseAggregator {
     this.feed.options = options;
   }
 
-  async aggregate(clock?: () => Date, collectedToday?: number): Promise<RawArticle[]> {
+  async aggregate(clock?: () => Date, collectedToday?: number, userSettings?: any): Promise<RawArticle[]> {
     this.validate();
     const limit = this.getCurrentRunLimit(clock, collectedToday);
     if (limit === 0) {
@@ -217,7 +217,7 @@ export abstract class BaseAggregator {
     let articles = await this.parseToRawArticles(sourceData);
     articles = await this.filterArticles(articles);
     articles = await this.enrichArticles(articles);
-    articles = await this.finalizeArticles(articles);
+    articles = await this.finalizeArticles(articles, userSettings);
     return articles;
   }
 }

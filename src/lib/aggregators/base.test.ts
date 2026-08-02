@@ -71,4 +71,21 @@ describe("BaseAggregator", () => {
     expect(articles).toHaveLength(1);
     expect(articles[0].name).toBe("Recent Article");
   });
+
+  it("passes userSettings through aggregate to finalizeArticles and applyAiProcessing", async () => {
+    const feed: FeedLike = {
+      identifier: "https://example.com/rss",
+      dailyLimit: 20,
+      options: { ai_summarize: true },
+    };
+    const agg = new TestAggregator(feed);
+    let passedSettings: any = null;
+    agg.finalizeArticles = async (articles, userSettings) => {
+      passedSettings = userSettings;
+      return articles;
+    };
+    const mockSettings = { activeAiProvider: "gemini" };
+    await agg.aggregate(undefined, 0, mockSettings);
+    expect(passedSettings).toBe(mockSettings);
+  });
 });
