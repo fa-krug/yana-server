@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { BaseAggregator, type RawArticle } from "@/lib/aggregators/base";
 import { parseBlocks, plainTextOf } from "@/lib/aggregators/blocks/parser";
 import { writeBlocks } from "@/lib/aggregators/blocks/storage";
@@ -106,7 +106,7 @@ async function saveArticles(feed: Feed, articlesData: RawArticle[]): Promise<voi
           .select({ id: articles.id })
           .from(articles)
           .where(
-            eq(articles.feedId, feed.id) && eq(articles.identifier, articleData.identifier),
+            and(eq(articles.feedId, feed.id), eq(articles.identifier, articleData.identifier)),
           )
           .get();
 
