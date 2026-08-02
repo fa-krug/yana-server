@@ -1,12 +1,43 @@
 import { z } from "zod";
 import type { AggregatorKey } from "@/lib/db/schema/enums";
-import type { BaseAggregator } from "./base";
+import type { FeedLike } from "./base";
+import { BaseAggregator } from "./base";
 import { RssAggregator } from "./rss";
 import { FullWebsiteAggregator } from "./website";
 
-export type AggregatorClass = new (feed: unknown) => BaseAggregator;
+export type AggregatorClass = (new (feed: any) => BaseAggregator) & {
+  identifierField?: string;
+  getIdentifierFromRelated?: (relatedObj: unknown) => string;
+  getDefaultIdentifier?: () => string;
+  selectorsToRemove?: string[];
+  contentSelectors?: string[];
+};
 
-export const IMPLEMENTED_AGGREGATORS: Partial<Record<string, AggregatorClass>> = {};
+export const IMPLEMENTED_AGGREGATORS: Record<string, AggregatorClass | undefined> = {
+  feed_content: RssAggregator as unknown as AggregatorClass,
+  rss: RssAggregator as unknown as AggregatorClass,
+  full_website: FullWebsiteAggregator as unknown as AggregatorClass,
+};
+
+export class AggregatorRegistry {
+  static get(aggregatorType: string): AggregatorClass {
+    const cls = IMPLEMENTED_AGGREGATORS[aggregatorType as AggregatorKey];
+    if (!cls) {
+      throw new Error(`Unknown aggregator type: ${aggregatorType}`);
+    }
+    return cls;
+  }
+
+  static getAll(): Partial<Record<AggregatorKey, AggregatorClass>> {
+    return { ...IMPLEMENTED_AGGREGATORS };
+  }
+}
+
+export function getAggregator(feed: FeedLike): BaseAggregator {
+  const aggregatorType = feed.aggregator || "full_website";
+  const AggregatorClass = AggregatorRegistry.get(aggregatorType);
+  return new AggregatorClass(feed);
+}
 
 export type OptionSpec = {
   key: string;

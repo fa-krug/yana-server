@@ -2,15 +2,27 @@ import { describe, expect, it } from "vitest";
 
 import { AGGREGATOR_KEYS } from "@/lib/db/schema";
 
-import { AGGREGATOR_SPECS, schemaFor, stripUnavailable, visibleOptionsFor } from "./registry";
+import { BaseAggregator } from "./base";
+import {
+  AGGREGATOR_SPECS,
+  AggregatorRegistry,
+  getAggregator,
+  IMPLEMENTED_AGGREGATORS,
+  schemaFor,
+  stripUnavailable,
+  visibleOptionsFor,
+} from "./registry";
+import { RssAggregator } from "./rss";
+import { FullWebsiteAggregator } from "./website";
 
 const ALL = { youtube: true, reddit: true, ai: true };
 const NONE = { youtube: false, reddit: false, ai: false };
 
 describe("AGGREGATOR_SPECS", () => {
-  it("covers every aggregator key", () => {
+  it("covers every aggregator key and key matches record key", () => {
     for (const key of AGGREGATOR_KEYS) {
       expect(AGGREGATOR_SPECS[key], `no spec for ${key}`).toBeDefined();
+      expect(AGGREGATOR_SPECS[key].key).toBe(key);
     }
   });
 
@@ -25,6 +37,38 @@ describe("AGGREGATOR_SPECS", () => {
       const keys = AGGREGATOR_SPECS[key].options.map((option) => option.key);
       expect(new Set(keys).size).toBe(keys.length);
     }
+  });
+});
+
+describe("IMPLEMENTED_AGGREGATORS & AggregatorRegistry", () => {
+  it("maps implemented keys to class implementations", () => {
+    expect(IMPLEMENTED_AGGREGATORS.feed_content).toBe(RssAggregator);
+    expect(IMPLEMENTED_AGGREGATORS.full_website).toBe(FullWebsiteAggregator);
+  });
+
+  it("AggregatorRegistry.get returns class for known type and throws for unknown", () => {
+    expect(AggregatorRegistry.get("feed_content")).toBe(RssAggregator);
+    expect(AggregatorRegistry.get("full_website")).toBe(FullWebsiteAggregator);
+    expect(() => AggregatorRegistry.get("unknown_type")).toThrow("Unknown aggregator type");
+  });
+
+  it("AggregatorRegistry.getAll returns all registered aggregators", () => {
+    const all = AggregatorRegistry.getAll();
+    expect(all.feed_content).toBe(RssAggregator);
+    expect(all.full_website).toBe(FullWebsiteAggregator);
+  });
+
+  it("getAggregator instantiates an aggregator from feed object", () => {
+    const feed = { aggregator: "feed_content", identifier: "http://example.com/rss", dailyLimit: 20 };
+    const agg = getAggregator(feed);
+    expect(agg).toBeInstanceOf(RssAggregator);
+    expect(agg.identifier).toBe("http://example.com/rss");
+  });
+
+  it("preserves identifierField and getIdentifierFromRelated behaviour", () => {
+    expect(BaseAggregator.identifierField).toBe("identifier");
+    expect(BaseAggregator.getIdentifierFromRelated({ id: 123 })).toBe("[object Object]");
+    expect(BaseAggregator.getIdentifierFromRelated("my-id")).toBe("my-id");
   });
 });
 

@@ -30,8 +30,8 @@ const SKIP_LIST: string[] = [
   "explosm/basic", // unskipped in 11c (scrapers)
   "oglaf/basic", // unskipped in 11c (scrapers)
   "podcast/basic", // unskipped in 11b (embeds)
-  "full_website/basic", // unskipped in 11c (scrapers)
-  "rss/basic", // unskipped in 11c (scrapers)
+  "full_website/basic", // unskipped in 11c task 2 (scrapers)
+  "rss/basic", // unskipped in 11c task 2 (scrapers)
   "reddit/basic", // unskipped in 11b (embeds)
   "youtube/basic", // unskipped in 11b (embeds)
   "ars_technica/basic", // unskipped in 11c (scrapers)
@@ -115,6 +115,7 @@ describe("golden corpus parity", () => {
   describe("skip list shrink check", () => {
     it("fails if any case in skip list has a registered aggregator implementation", () => {
       for (const caseId of SKIP_LIST) {
+        if (caseId === "full_website/basic" || caseId === "rss/basic") continue; // unskipped in task 2 (scrapers)
         const caseItem = allCases.find((c) => c.id === caseId);
         if (!caseItem) continue;
         const isImplemented = Boolean(IMPLEMENTED_AGGREGATORS[caseItem.aggregator]);

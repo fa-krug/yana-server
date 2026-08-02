@@ -1,15 +1,13 @@
 import { BaseAggregator } from "./base";
-import { RssAggregator } from "./rss";
+import { IMPLEMENTED_AGGREGATORS } from "./registry";
 import { FullWebsiteAggregator } from "./website";
 import type { Feed } from "@/lib/db/schema";
+import type { AggregatorKey } from "@/lib/db/schema/enums";
 
 export function createAggregator(feed: Feed): BaseAggregator {
-  switch (feed.aggregator) {
-    case "feed_content":
-    case "rss":
-      return new RssAggregator(feed);
-    case "full_website":
-    default:
-      return new FullWebsiteAggregator(feed);
+  const cls = IMPLEMENTED_AGGREGATORS[feed.aggregator as AggregatorKey];
+  if (cls) {
+    return new cls(feed);
   }
+  return new FullWebsiteAggregator(feed);
 }

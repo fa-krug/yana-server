@@ -4,6 +4,7 @@ import { extractHeaderElement } from "./header/extractor";
 export interface FeedLike {
   identifier: string;
   dailyLimit: number;
+  aggregator?: string;
   options?: Record<string, unknown> | null;
   userId?: string | number | null;
   [key: string]: unknown;
@@ -25,6 +26,10 @@ export abstract class BaseAggregator {
   static identifierField = "identifier";
   static supportsIdentifierSearch = false;
   static brandSiteUrl: string | null = null;
+
+  static getIdentifierFromRelated(relatedObj: unknown): string {
+    return String(relatedObj);
+  }
 
   static resolvesFeedUrl(): boolean {
     if (this.identifierField !== "identifier") {
