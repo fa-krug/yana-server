@@ -14,7 +14,7 @@ import {
   schemaFor,
   stripUnavailable,
   type Capabilities,
-} from "@/lib/aggregators/registry";
+} from "@/lib/aggregators/specs";
 import { providerByKey } from "@/lib/ai/providers";
 
 // Helper to determine active AI provider

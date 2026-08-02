@@ -9,7 +9,7 @@ import { FeedsTable } from "@/components/feeds/feeds-table";
 import { requireUser } from "@/lib/auth/session";
 import { parseListParams, type ListParams } from "@/lib/crud/params";
 import { listFeeds } from "@/lib/feeds/actions";
-import { AGGREGATOR_SPECS } from "@/lib/aggregators/registry";
+import { AGGREGATOR_SPECS } from "@/lib/aggregators/specs";
 
 async function FeedsData({ params }: { params: ListParams }) {
   const { rows, total } = await listFeeds(params);

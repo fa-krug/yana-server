@@ -72,8 +72,8 @@ export class ExplosmAggregator extends FullWebsiteAggregator {
 
     const $ = cheerio.load(htmlContent);
 
-    let comicImgSrc: string | null = null;
-    let comicImgAlt: string | null = null;
+    let comicImgSrc = "";
+    let comicImgAlt = "";
 
     $("img").each((_, imgEl) => {
       const $img = $(imgEl);

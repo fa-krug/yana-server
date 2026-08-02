@@ -3,15 +3,8 @@ import { describe, expect, it } from "vitest";
 import { AGGREGATOR_KEYS } from "@/lib/db/schema";
 
 import { BaseAggregator } from "./base";
-import {
-  AGGREGATOR_SPECS,
-  AggregatorRegistry,
-  getAggregator,
-  IMPLEMENTED_AGGREGATORS,
-  schemaFor,
-  stripUnavailable,
-  visibleOptionsFor,
-} from "./registry";
+import { AggregatorRegistry, getAggregator, IMPLEMENTED_AGGREGATORS } from "./registry";
+import { AGGREGATOR_SPECS, schemaFor, stripUnavailable, visibleOptionsFor } from "./specs";
 import { RssAggregator } from "./rss";
 import { FullWebsiteAggregator } from "./website";
 
@@ -59,7 +52,11 @@ describe("IMPLEMENTED_AGGREGATORS & AggregatorRegistry", () => {
   });
 
   it("getAggregator instantiates an aggregator from feed object", () => {
-    const feed = { aggregator: "feed_content", identifier: "http://example.com/rss", dailyLimit: 20 };
+    const feed = {
+      aggregator: "feed_content",
+      identifier: "http://example.com/rss",
+      dailyLimit: 20,
+    };
     const agg = getAggregator(feed);
     expect(agg).toBeInstanceOf(RssAggregator);
     expect(agg.identifier).toBe("http://example.com/rss");

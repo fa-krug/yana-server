@@ -21,7 +21,7 @@ export class AIClient {
     url: string,
     headers: Record<string, string>,
     data: any,
-    timeoutSeconds: number
+    timeoutSeconds: number,
   ): Promise<Response | null> {
     const maxRetries = this.settings.aiMaxRetries ?? this.settings.ai_max_retries ?? 3;
     const retryDelay = this.settings.aiRetryDelay ?? this.settings.ai_retry_delay ?? 2;
@@ -54,14 +54,14 @@ export class AIClient {
           if (waitSeconds > 0 && elapsedSeconds + waitSeconds > maxRetryTime) {
             console.warn(
               `Rate limited (429), but retrying would exceed time budget (${Math.round(
-                elapsedSeconds
-              )}s elapsed, ${waitSeconds}s wait, ${maxRetryTime}s max). Giving up.`
+                elapsedSeconds,
+              )}s elapsed, ${waitSeconds}s wait, ${maxRetryTime}s max). Giving up.`,
             );
             return null;
           }
 
           console.warn(
-            `Rate limited (429), retrying in ${waitSeconds}s (attempt ${attempt + 1}/${maxRetries})`
+            `Rate limited (429), retrying in ${waitSeconds}s (attempt ${attempt + 1}/${maxRetries})`,
           );
 
           if (waitSeconds > 0) {
@@ -79,13 +79,13 @@ export class AIClient {
           if (waitSeconds > 0 && elapsedSeconds + waitSeconds > maxRetryTime) {
             console.warn(
               `Rate limited (429), but retrying would exceed time budget (${Math.round(
-                elapsedSeconds
-              )}s elapsed, ${waitSeconds}s wait, ${maxRetryTime}s max). Giving up.`
+                elapsedSeconds,
+              )}s elapsed, ${waitSeconds}s wait, ${maxRetryTime}s max). Giving up.`,
             );
             return null;
           }
           console.warn(
-            `Rate limited (429), retrying in ${waitSeconds}s (attempt ${attempt + 1}/${maxRetries})`
+            `Rate limited (429), retrying in ${waitSeconds}s (attempt ${attempt + 1}/${maxRetries})`,
           );
           if (waitSeconds > 0) {
             await sleep(waitSeconds * 1000);
@@ -104,7 +104,7 @@ export class AIClient {
   public async generateResponse(
     prompt: string,
     jsonMode = false,
-    jsonSchema?: Record<string, unknown>
+    jsonSchema?: Record<string, unknown>,
   ): Promise<string | null> {
     if (!this.provider) {
       console.warn("No AI provider selected.");
@@ -205,7 +205,7 @@ export class AIClient {
   private async callGemini(
     prompt: string,
     jsonMode: boolean,
-    jsonSchema?: Record<string, unknown>
+    jsonSchema?: Record<string, unknown>,
   ): Promise<string | null> {
     const enabled = this.settings.geminiEnabled ?? this.settings.gemini_enabled;
     const apiKey = this.settings.geminiApiKey ?? this.settings.gemini_api_key;
@@ -257,7 +257,7 @@ export class AIClient {
 export async function applyAiOptions(
   article: ArticleInput,
   options?: Record<string, unknown> | null,
-  userSettings?: any
+  userSettings?: any,
 ): Promise<ArticleInput> {
   const opts = options || {};
   const aiEnabled = Boolean(opts.ai_summarize || opts.ai_improve_writing || opts.ai_translate);
@@ -296,7 +296,7 @@ export async function applyAiOptions(
     "You are an AI assistant that processes article content. " +
       "You will receive an article title and content in HTML format. " +
       "You must return the result as a JSON object with keys 'title' and 'content'. " +
-      "Do not include any markdown formatting (like ```json) in the response, just the raw JSON string."
+      "Do not include any markdown formatting (like ```json) in the response, just the raw JSON string.",
   );
 
   if (opts.ai_summarize) {
@@ -308,7 +308,7 @@ export async function applyAiOptions(
       "Rewrite the content to improve clarity, flow, and style. " +
         "IMPORTANT: Preserve the complete HTML structure including all tags. " +
         "Keep all links (<a> tags) exactly as they are - do not modify href attributes or remove any links. " +
-        "Only improve the text content itself."
+        "Only improve the text content itself.",
     );
   }
 
@@ -318,7 +318,7 @@ export async function applyAiOptions(
     promptParts.push(
       `Translate the title and content to ${targetLang}. ` +
         "IMPORTANT: Do NOT translate link labels (the text inside <a> tags). " +
-        "Keep link text in the original language. Only translate regular text content."
+        "Keep link text in the original language. Only translate regular text content.",
     );
   }
 
@@ -327,7 +327,7 @@ export async function applyAiOptions(
       "CRITICAL: Preserve ALL HTML tags and structure in your output. " +
       "This includes: links (<a>), paragraphs (<p>), headings (<h1>-<h6>), lists (<ul>, <ol>, <li>), " +
       "images (<img>), divs, spans, and all other HTML elements. " +
-      "Your output 'content' field must be valid HTML with the exact same structure as the input."
+      "Your output 'content' field must be valid HTML with the exact same structure as the input.",
   );
 
   const inputData = { title: article.name || "", content: cleanHtml };
@@ -375,7 +375,7 @@ export async function applyAiOptions(
       }
     } else {
       console.warn(
-        `AI returned invalid JSON for article '${article.name || ""}': ${result.slice(0, 100)}...`
+        `AI returned invalid JSON for article '${article.name || ""}': ${result.slice(0, 100)}...`,
       );
     }
   } else {

@@ -21,7 +21,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 
 import { createFeed, updateFeed } from "@/lib/feeds/actions";
-import { AGGREGATOR_SPECS, visibleOptionsFor, type Capabilities } from "@/lib/aggregators/registry";
+import { AGGREGATOR_SPECS, visibleOptionsFor, type Capabilities } from "@/lib/aggregators/specs";
 import type { Feed, Tag } from "@/lib/db/schema";
 import { AlertCircle } from "lucide-react";
 

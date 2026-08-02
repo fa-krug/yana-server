@@ -105,9 +105,7 @@ async function saveArticles(feed: Feed, articlesData: RawArticle[]): Promise<voi
         const existing = tx
           .select({ id: articles.id })
           .from(articles)
-          .where(
-            and(eq(articles.feedId, feed.id), eq(articles.identifier, articleData.identifier)),
-          )
+          .where(and(eq(articles.feedId, feed.id), eq(articles.identifier, articleData.identifier)))
           .get();
 
         const pubDate = articleData.date instanceof Date ? articleData.date : new Date();
@@ -196,7 +194,11 @@ async function main(): Promise<void> {
 
   if (isNumeric) {
     const db = getDb();
-    const existing = db.select().from(feeds).where(eq(feeds.id, parseInt(target, 10))).get();
+    const existing = db
+      .select()
+      .from(feeds)
+      .where(eq(feeds.id, parseInt(target, 10)))
+      .get();
     if (!existing) {
       console.log(`✗ Feed with ID ${target} does not exist`);
       process.exit(1);
@@ -340,9 +342,7 @@ async function main(): Promise<void> {
 
     console.log(`  ${(idx + 1).toString().padStart(2)}. ${name}`);
     console.log(`      URL: ${idStr}`);
-    console.log(
-      `      Content: ${rawLen} raw / ${contentLen} processed chars | Date: ${dateStr}`,
-    );
+    console.log(`      Content: ${rawLen} raw / ${contentLen} processed chars | Date: ${dateStr}`);
   });
 
   printSection(`ARTICLE DETAILS (first ${numFirst})`);

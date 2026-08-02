@@ -69,7 +69,12 @@ export class DarkLegacyAggregator extends FullWebsiteAggregator {
       $images.each((_, imgEl) => {
         const $img = $(imgEl);
         let src = ($img.attr("src") || "").trim();
-        if (src && !src.startsWith("http://") && !src.startsWith("https://") && !src.startsWith("data:")) {
+        if (
+          src &&
+          !src.startsWith("http://") &&
+          !src.startsWith("https://") &&
+          !src.startsWith("data:")
+        ) {
           try {
             src = new URL(src, article.identifier).href;
           } catch {

@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { CheckIcon, XIcon } from "lucide-react";
 import { attempt } from "@/lib/tags/result";
 import { deleteFeeds, refreshLogos } from "@/lib/feeds/actions";
-import { AGGREGATOR_SPECS } from "@/lib/aggregators/registry";
+import { AGGREGATOR_SPECS } from "@/lib/aggregators/specs";
 import type { Feed, Tag } from "@/lib/db/schema";
 
 type FeedListRow = Feed & { tags: Tag[]; articleCount: number };

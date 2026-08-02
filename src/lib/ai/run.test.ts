@@ -322,7 +322,11 @@ describe("applyAiOptions & AIClient processing", () => {
     });
 
     it("returns null after max retries exhausted", async () => {
-      const settings = makeSettings({ activeAiProvider: "gemini", aiMaxRetries: 3, aiRetryDelay: 0 });
+      const settings = makeSettings({
+        activeAiProvider: "gemini",
+        aiMaxRetries: 3,
+        aiRetryDelay: 0,
+      });
       const fetchMock = vi.fn();
       globalThis.fetch = fetchMock;
 
@@ -341,7 +345,11 @@ describe("applyAiOptions & AIClient processing", () => {
     });
 
     it("does NOT retry non-429 errors", async () => {
-      const settings = makeSettings({ activeAiProvider: "gemini", aiMaxRetries: 3, aiRetryDelay: 0 });
+      const settings = makeSettings({
+        activeAiProvider: "gemini",
+        aiMaxRetries: 3,
+        aiRetryDelay: 0,
+      });
       const fetchMock = vi.fn();
       globalThis.fetch = fetchMock;
 
@@ -359,7 +367,11 @@ describe("applyAiOptions & AIClient processing", () => {
     });
 
     it("with maxRetries = 0, no retry is attempted", async () => {
-      const settings = makeSettings({ activeAiProvider: "gemini", aiMaxRetries: 0, aiRetryDelay: 0 });
+      const settings = makeSettings({
+        activeAiProvider: "gemini",
+        aiMaxRetries: 0,
+        aiRetryDelay: 0,
+      });
       const fetchMock = vi.fn();
       globalThis.fetch = fetchMock;
 

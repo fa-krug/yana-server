@@ -53,7 +53,7 @@ const eslintConfig = defineConfig([
    * Scoped to `src/components/**` because that is the whole of the client
    * component surface today; a route handler, page or server action importing
    * these is correct and must keep working. Extend the `group` list, not the
-   * message, when a fourth server-only shape appears.
+   * message, when a fifth server-only shape appears.
    */
   {
     files: ["src/components/**"],
@@ -97,6 +97,22 @@ const eslintConfig = defineConfig([
                 "next/cache to build the save/test/remove actions). `import type` is fine " +
                 "for the descriptor shapes; the actions themselves are reached through the " +
                 'feature\'s "use server" actions module.',
+            },
+            {
+              // The fourth shape, and the only one already *observed* as a build
+              // failure rather than reasoned about in advance: `feeds-table.tsx`
+              // imported AGGREGATOR_SPECS from the aggregator registry, whose
+              // classes reach the image store -> @/lib/db/client ->
+              // better-sqlite3, and the dev build died on
+              // `Can't resolve 'fs'` pointing at binding.js rather than at the
+              // component. The option descriptions a form renders live in
+              // `specs.ts` beside it, which imports only zod and a type.
+              group: ["**/aggregators/registry", "**/aggregators/base", "**/aggregators/sites/*"],
+              allowTypeImports: true,
+              message:
+                "The aggregator registry is server-only (its classes reach getDb() and " +
+                "better-sqlite3). Import AGGREGATOR_SPECS, schemaFor(), visibleOptionsFor() " +
+                "and Capabilities from @/lib/aggregators/specs instead.",
             },
             {
               /**

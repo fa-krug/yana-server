@@ -30,7 +30,8 @@ export class OglafAggregator extends FullWebsiteAggregator {
         type: "boolean",
         initial: true,
         label: "Show Alt Text",
-        help_text: "Display the comic's 'title' text (often containing a second joke) below the image.",
+        help_text:
+          "Display the comic's 'title' text (often containing a second joke) below the image.",
         required: false,
       },
     };
