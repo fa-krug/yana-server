@@ -1,0 +1,160 @@
+{
+  "parityVersion": 1,
+  "cases": [
+    {
+      "id": "heise/basic",
+      "aggregator": "heise",
+      "sourceUrl": "https://www.heise.de/news/fixture",
+      "fixture": "html/heise.html",
+      "options": {},
+      "identifier": "https://www.heise.de/rss/news.rdf"
+    },
+    {
+      "id": "tagesschau/basic",
+      "aggregator": "tagesschau",
+      "sourceUrl": "https://www.tagesschau.de/inland/fixture.html",
+      "fixture": "html/tagesschau.html",
+      "options": {},
+      "identifier": "https://www.tagesschau.de/xml/rss2"
+    },
+    {
+      "id": "mein_mmo/basic",
+      "aggregator": "mein_mmo",
+      "sourceUrl": "https://mein-mmo.de/fixture/",
+      "fixture": "html/mein_mmo.html",
+      "options": {},
+      "identifier": "https://mein-mmo.de/feed/"
+    },
+    {
+      "id": "mein_mmo/combined-pages",
+      "aggregator": "mein_mmo",
+      "sourceUrl": "https://mein-mmo.de/fixture/",
+      "fixture": "html/mein_mmo.html",
+      "options": {
+        "combine_pages": true
+      },
+      "identifier": "https://mein-mmo.de/feed/"
+    },
+    {
+      "id": "merkur/basic",
+      "aggregator": "merkur",
+      "sourceUrl": "https://www.merkur.de/fixture.html",
+      "fixture": "html/merkur.html",
+      "options": {},
+      "identifier": "https://www.merkur.de/rssfeed.rdf"
+    },
+    {
+      "id": "mactechnews/basic",
+      "aggregator": "mactechnews",
+      "sourceUrl": "https://www.mactechnews.de/news/article/fixture.html",
+      "fixture": "html/mactechnews.html",
+      "options": {},
+      "identifier": "https://www.mactechnews.de/news/rss.xml"
+    },
+    {
+      "id": "mactechnews/multipage",
+      "aggregator": "mactechnews",
+      "sourceUrl": "https://www.mactechnews.de/news/article/fixture.html",
+      "fixture": "html/mactechnews_multipage.html",
+      "options": {
+        "combine_pages": true
+      },
+      "identifier": "https://www.mactechnews.de/news/rss.xml"
+    },
+    {
+      "id": "caschys_blog/basic",
+      "aggregator": "caschys_blog",
+      "sourceUrl": "https://stadt-bremerhaven.de/fixture/",
+      "fixture": "html/caschys_blog.html",
+      "options": {},
+      "identifier": "https://stadt-bremerhaven.de/feed/"
+    },
+    {
+      "id": "dark_legacy/basic",
+      "aggregator": "dark_legacy",
+      "sourceUrl": "https://www.darklegacycomics.com/fixture",
+      "fixture": "html/dark_legacy.html",
+      "options": {},
+      "identifier": "https://www.darklegacycomics.com/feed.xml"
+    },
+    {
+      "id": "explosm/basic",
+      "aggregator": "explosm",
+      "sourceUrl": "https://explosm.net/comics/fixture",
+      "fixture": "html/explosm.html",
+      "options": {},
+      "identifier": "https://explosm.net/rss.xml"
+    },
+    {
+      "id": "oglaf/basic",
+      "aggregator": "oglaf",
+      "sourceUrl": "https://www.oglaf.com/fixture/",
+      "fixture": "html/oglaf.html",
+      "options": {},
+      "identifier": "https://www.oglaf.com/feeds/rss/"
+    },
+    {
+      "id": "podcast/basic",
+      "aggregator": "podcast",
+      "sourceUrl": "https://example.com/podcast/fixture",
+      "fixture": "html/podcast.html",
+      "options": {
+        "include_download_link": true
+      },
+      "identifier": "https://example.com/podcast/feed.xml"
+    },
+    {
+      "id": "full_website/basic",
+      "aggregator": "full_website",
+      "sourceUrl": "https://example.com/fixture",
+      "fixture": "html/full_website.html",
+      "options": {},
+      "identifier": "https://example.com/feed.xml"
+    },
+    {
+      "id": "rss/basic",
+      "aggregator": "rss",
+      "sourceUrl": "https://example.com/fixture",
+      "fixture": "html/feed_content.html",
+      "options": {},
+      "identifier": "https://example.com/feed.xml"
+    },
+    {
+      "id": "reddit/basic",
+      "aggregator": "reddit",
+      "sourceUrl": "https://oauth.reddit.com/r/fixture/new",
+      "fixture": "api/reddit-api.json",
+      "options": {
+        "include_comments": true,
+        "max_comments": 5
+      },
+      "identifier": "fixture"
+    },
+    {
+      "id": "youtube/basic",
+      "aggregator": "youtube",
+      "sourceUrl": "https://www.googleapis.com/youtube/v3/fixture",
+      "fixture": "api/youtube-api.json",
+      "options": {
+        "include_player": true
+      },
+      "identifier": "UCfixturechannelid00000"
+    },
+    {
+      "id": "ars_technica/basic",
+      "aggregator": "ars_technica",
+      "sourceUrl": "https://arstechnica.com/fixture/",
+      "fixture": "html/ars_technica.html",
+      "options": {},
+      "identifier": "https://arstechnica.com/feed/"
+    },
+    {
+      "id": "the_verge/basic",
+      "aggregator": "the_verge",
+      "sourceUrl": "https://www.theverge.com/fixture",
+      "fixture": "html/the_verge.html",
+      "options": {},
+      "identifier": "https://www.theverge.com/rss/index.xml"
+    }
+  ]
+}
