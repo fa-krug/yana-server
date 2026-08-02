@@ -1,5 +1,12 @@
 import { z } from "zod";
 import type { AggregatorKey } from "@/lib/db/schema/enums";
+import type { BaseAggregator } from "./base";
+import { RssAggregator } from "./rss";
+import { FullWebsiteAggregator } from "./website";
+
+export type AggregatorClass = new (feed: any) => BaseAggregator;
+
+export const IMPLEMENTED_AGGREGATORS: Partial<Record<string, AggregatorClass>> = {};
 
 export type OptionSpec = {
   key: string;

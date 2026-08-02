@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { WireDocument } from "../aggregators/blocks/schema";
+import { plainTextOf } from "../aggregators/blocks/parser";
+import { decodeDocument, WireDocument } from "../aggregators/blocks/schema";
 import { normalizeDocument } from "./normalize";
 
 export interface GoldenCase {
@@ -83,6 +84,32 @@ export function loadCases(casesPath?: string): GoldenCase[] {
   const content = fs.readFileSync(file, "utf-8");
   const parsed = JSON.parse(content);
   return parsed.cases as GoldenCase[];
+}
+
+/**
+ * Loads golden record for a given case ID or GoldenCase object.
+ */
+export function loadGoldenRecord(caseIdOrCase: string | GoldenCase, desiredDir?: string): GoldenRecord {
+  const c =
+    typeof caseIdOrCase === "string"
+      ? loadCases().find((item) => item.id === caseIdOrCase)
+      : caseIdOrCase;
+  if (!c) {
+    throw new Error(`Case not found: ${caseIdOrCase}`);
+  }
+  const desiredFilename = c.aggregator === "rss" ? "feed_content.json" : `${c.aggregator}.json`;
+  const dir = desiredDir || path.resolve(process.cwd(), "parity/fixtures/desired");
+  const goldenPath = path.join(dir, desiredFilename);
+  if (!fs.existsSync(goldenPath)) {
+    throw new Error(`Golden record file not found at ${goldenPath}`);
+  }
+  const content = fs.readFileSync(goldenPath, "utf-8");
+  const record = JSON.parse(content) as GoldenRecord;
+  if (record.article && !record.article.plainText) {
+    const blocks = decodeDocument(record.document);
+    record.article.plainText = plainTextOf(blocks);
+  }
+  return record;
 }
 
 function buildHashToUrlMap(
@@ -169,13 +196,20 @@ function formatDate(d: string | Date | null | undefined): string | null {
 }
 
 /**
- * Asserts parity between golden record and actual extraction result:
+ * Asserts parity between golden record (or caseId) and actual extraction result:
  * 1. Normalized block tree deep-equal.
  * 2. Article metadata (title, identifier, author, date, plainText) exact match.
  * 3. Image manifest (contentType, width, height) exact match and byteSize within ±25%.
  * 4. Image contentHash is NOT compared.
  */
-export function compareToGolden(golden: GoldenRecord, actual: ActualResult): CompareResult {
+export function compareToGolden(
+  goldenOrCaseId: string | GoldenRecord,
+  actual: ActualResult,
+): CompareResult {
+  const golden =
+    typeof goldenOrCaseId === "string"
+      ? loadGoldenRecord(goldenOrCaseId)
+      : goldenOrCaseId;
   // 1. Check article metadata
   const goldenTitle = golden.article.title ?? golden.article.name ?? "";
   const actualTitle = actual.article.title ?? actual.article.name ?? "";
