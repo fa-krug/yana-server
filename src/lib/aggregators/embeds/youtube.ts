@@ -13,6 +13,7 @@ import type { Element } from "domhandler";
 import type { EmbedBlock } from "../blocks/types";
 import { storeImageRefFromUrl } from "../images/store";
 import { registerEmbedProvider, type ExtractionContext } from "./registry";
+export { proxyYoutubeEmbeds } from "../website";
 
 /**
  * YouTube thumbnail quality fallback order.

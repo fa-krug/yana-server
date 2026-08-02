@@ -1,339 +1,416 @@
 {
+  "feed": {
+    "aggregator": "merkur",
+    "identifier": "https://www.merkur.de/rssfeed.rdf"
+  },
   "article": {
-    "author": "Carmen Mörwald",
-    "created_at": "2026-07-31T00:49:04.709870+00:00",
-    "date": "2026-07-30T20:22:49+00:00",
-    "icon": "article_icons/dd1ec974-8c67-48e7-9834-d62afc5aa9bc.jpg",
+    "author": "",
+    "created_at": "2026-08-03T00:00:00.000000+00:00",
+    "date": "2026-08-03T00:00:00+00:00",
+    "icon": null,
     "id": 295,
-    "identifier": "https://www.merkur.de/welt/waldbraende-kreta-und-tuerkei-8000-urlauber-evakuiert-zwei-retter-tot-zr-94422669.html",
-    "name": "Zwei Retter tot, 8000 Urlauber evakuiert: Kreta und Türkei kämpfen gegen Flammen-Inferno",
-    "plainTextLength": 5303,
-    "plainTextPreview": "Waldbrände wüten in Griechenland und in der Türkei. Auf Kreta wurden 8000 Menschen evakuiert, während die türkischen Einsatzkräfte gegen 115 Feuer ankämpfen.\n\nRethymno – Nach Frankreich und Spanien wüten nun auch schwere Waldbrände auf der griechischen Insel Kreta und in der Türkei. Auf Kreta sind mindestens zwei Feuerwehrleute ums Leben gekommen. Rund 8000 Menschen wurden vorübergehend in Sicherh"
+    "identifier": "https://www.merkur.de/politik/ukraine-verhandlungen-in-berlin-wer-fordert-was-im-ringen-um-frieden-zr-94082679.html",
+    "name": "Ukraine-Verhandlungen in Berlin: Wer fordert was im Ringen um Frieden?",
+    "plainTextLength": 5846,
+    "plainTextPreview": "<section data-sanitized-class=\"article-content\"><article>\n<div>\n<p>\n            Die Suche nach einem Friedenskompromiss im Ukraine-Krieg zieht sich\n            weiter hin. Neben Moskau und Kiew wollen Washington, Brüssel und\n            Berlin mitreden – wer fordert was?\n          </p>\n<p>\n         "
   },
   "blockKindCounts": {
-    "heading": 3,
-    "paragraph": 13
+    "paragraph": 11,
+    "heading": 5,
+    "list": 5
   },
   "document": {
     "blocks": [
       {
+        "type": "paragraph",
         "runs": [
           {
-            "link": null,
+            "text": " Die Suche nach einem Friedenskompromiss im Ukraine-Krieg zieht sich weiter hin. Neben Moskau und Kiew wollen Washington, Brüssel und Berlin mitreden – wer fordert was? ",
             "styles": [],
-            "text": "Waldbrände wüten in Griechenland und in der Türkei. Auf Kreta wurden 8000 Menschen evakuiert, während die türkischen Einsatzkräfte gegen 115 Feuer ankämpfen."
+            "link": null
           }
-        ],
-        "type": "paragraph"
+        ]
       },
       {
+        "type": "paragraph",
         "runs": [
           {
-            "link": null,
+            "text": " München – Der ",
             "styles": [],
-            "text": "Rethymno – Nach Frankreich und Spanien wüten nun auch schwere Waldbrände auf der griechischen Insel Kreta und in der Türkei. Auf Kreta sind mindestens zwei Feuerwehrleute ums Leben gekommen. Rund 8000 Menschen wurden vorübergehend in Sicherheit gebracht. Für deutsche Urlauber sind beide Regionen beliebte Sommerreiseziele – die Lage bleibt angespannt."
-          }
-        ],
-        "type": "paragraph"
-      },
-      {
-        "runs": [
-          {
-            "link": null,
-            "styles": [],
-            "text": "Am Mittwochabend (29. Juli) brach südlich der Stadt Rethymno ein Waldbrand aus. Starke Winde fachten die Flammen an. Rund 8000 Menschen wurden evakuiert, darunter Urlauber aus dem Ferienort Agia Galini. Ein Video der Polizei zeigt, wie die Küstenwache Menschen mit Booten in Sicherheit brachte. Am Donnerstag (30. Juli) rettete die Küstenwache weitere rund 50 Menschen aus einem verrauchten Küstenabschnitt nahe Preveli, wie der griechische Rundfunk "
+            "link": null
           },
           {
-            "link": null,
-            "styles": [
-              "italic"
-            ],
-            "text": "ERT"
+            "text": "Krieg in der Ukraine",
+            "styles": [],
+            "link": "https://www.merkur.de/politik/ukraine-konflikt-sti1524391/"
           },
           {
-            "link": null,
+            "text": " steht erneut im Mittelpunkt internationaler Gespräche, die am Sonntag in Berlin beginnen. Mit dem Besuch des ukrainischen Präsidenten Wolodymyr Selenskyj am Montag in der deutschen Hauptstadt erreichen die Verhandlungen einen vorläufigen Höhepunkt. Doch wer fordert eigentlich was bei diesen komplexen Friedensgesprächen? ",
             "styles": [],
-            "text": " berichtete."
+            "link": null
           }
-        ],
-        "type": "paragraph"
+        ]
       },
       {
+        "type": "heading",
         "level": 2,
         "runs": [
           {
-            "link": null,
+            "text": " USA: Druck auf schnelle Lösung und Kompromissbereitschaft ",
             "styles": [],
-            "text": "Waldbrände in Griechenland fordern zwei Todesopfer – Urlauber evakuiert"
+            "link": null
           }
-        ],
-        "type": "heading"
+        ]
       },
       {
+        "type": "paragraph",
         "runs": [
           {
-            "link": null,
+            "text": " Die Vereinigten Staaten, vertreten durch Sondergesandten Steve Witkoff, spielen eine Schlüsselrolle in den Verhandlungen. Präsident Donald Trump macht Druck auf die Ukraine, einem Friedensabkommen zuzustimmen. Die US-Regierung sieht das von westlicher Unterstützung abhängige Land militärisch im Nachteil gegenüber Russland und drängt auf eine schnelle Lösung. Ein von den USA im November vorgelegter Friedensplan bildet die Grundlage der aktuellen Gespräche. Konkrete Forderungen der USA umfassen: ",
             "styles": [],
-            "text": "Nach Angaben der "
-          },
-          {
-            "link": null,
-            "styles": [
-              "italic"
-            ],
-            "text": "Agence France-Presse (AFP) "
-          },
-          {
-            "link": "https://www.merkur.de/welt/waldbraende-auf-kreta-hotels-evakuiert-feuerwehrleute-tot-in-auto-zr-94421221.html",
-            "styles": [],
-            "text": "kamen "
-          },
-          {
-            "link": "https://www.merkur.de/welt/waldbraende-auf-kreta-hotels-evakuiert-feuerwehrleute-tot-in-auto-zr-94421221.html",
-            "styles": [
-              "italic"
-            ],
-            "text": "z"
-          },
-          {
-            "link": "https://www.merkur.de/welt/waldbraende-auf-kreta-hotels-evakuiert-feuerwehrleute-tot-in-auto-zr-94421221.html",
-            "styles": [],
-            "text": "wei Feuerwehrleute in den Flammen auf Kreta ums Leben"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": ". Sie wurden auf einer Bergstraße nahe dem Dorf Krya Vrysi von Flammen eingeschlossen, als sich der Wind drehte. Die "
-          },
-          {
-            "link": null,
-            "styles": [
-              "italic"
-            ],
-            "text": "Deutsche Presse-Agentur (dpa)"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": " berichtet, dass allein am Mittwoch bei den Waldbränden in Griechenland drei Einsatzkräfte ums Leben kamen (Stand: 30. Juli). Vier weitere Feuerwehrleute wurden nach Angaben des Rettungsdienstes vor Ort leicht verletzt."
+            "link": null
           }
-        ],
-        "type": "paragraph"
+        ]
       },
       {
-        "runs": [
-          {
-            "link": null,
-            "styles": [],
-            "text": "Neben einem zweiten Brand nahe Preveli brach am Donnerstagnachmittag nahe dem Dorf Asomatos ein weiterer Brand aus – rund 60 Kilometer vom ersten Brandherd entfernt. Die Behörden riefen vorsorglich zu Evakuierungen auf. Drei Hubschrauber und mehr als 70 Feuerwehrleute wurden entsandt. Zeitweise waren auf Kreta insgesamt 300 Feuerwehrleute im Einsatz."
-          }
-        ],
-        "type": "paragraph"
+        "type": "list",
+        "ordered": false,
+        "items": [
+          [
+            {
+              "type": "paragraph",
+              "runs": [
+                {
+                  "text": "Kompromissbereitschaft der Ukraine",
+                  "styles": [],
+                  "link": null
+                },
+                {
+                  "text": " bezüglich besetzter Gebiete ",
+                  "styles": [],
+                  "link": null
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "type": "paragraph",
+              "runs": [
+                {
+                  "text": " Mögliche Schaffung einer „freien Wirtschaftszone“ in Teilen des Donbass ",
+                  "styles": [],
+                  "link": null
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "type": "paragraph",
+              "runs": [
+                {
+                  "text": " Begrenzung der ukrainischen Streitkräfte auf etwa 800.000 Soldaten ",
+                  "styles": [],
+                  "link": null
+                }
+              ]
+            }
+          ]
+        ]
       },
       {
-        "runs": [
-          {
-            "link": null,
-            "styles": [],
-            "text": "Der nationale Wetterdienst in Athen warnte, der Wind im Süden Kretas könnte den ganzen Tag über „sehr stark“ bleiben. Demnach bildete sich durch die Winde eine Feuerfront von über zwölf Kilometern Länge. Eine Meteorologin sprach im griechischen Rundfunk von einem „unglaublichen Phänomen“ mit orkanartigen Nordwinden in der südlichen Ägäis. Eine Entspannung der Wetterlage ist nach Einschätzung der Wetterexperten vor Ort erst ab Freitagabend (31. Juli) zu erwarten."
-          }
-        ],
-        "type": "paragraph"
-      },
-      {
-        "runs": [
-          {
-            "link": null,
-            "styles": [],
-            "text": "Gleichzeitig brachen auf den Ägäis-Inseln Andros, Kalymnos und Paros kleinere Brände aus. Griechenlands Regierungschef Kyriakos Mitsotakis warnte, dem Land würden „schwierige Tage“ bevorstehen. Der August sei „traditionell ein komplizierter Monat“, sagte er vor der Sitzung des Ministerrats. Die Bürger rief er auf, „größtmögliche Vorsicht“ walten zu lassen."
-          }
-        ],
-        "type": "paragraph"
-      },
-      {
+        "type": "heading",
         "level": 2,
         "runs": [
           {
-            "link": null,
+            "text": " Ukraine: Territoriale Integrität und Sicherheitsgarantien ",
             "styles": [],
-            "text": "Flammen in der Türkei – 115 Brände lodern an der Mittelmeerküste"
+            "link": null
           }
-        ],
-        "type": "heading"
+        ]
       },
       {
+        "type": "paragraph",
         "runs": [
           {
-            "link": null,
+            "text": " Präsident Selenskyj vertritt eine klare Position für sein Land: ",
             "styles": [],
-            "text": "Auch die "
-          },
-          {
-            "link": "https://www.merkur.de/welt/schwere-braende-in-der-tuerkei-krankenhaus-und-ferienorte-evakuiert-zr-94420847.html",
-            "styles": [],
-            "text": "Türkei kämpft gegen eine Welle verheerender Waldbrände"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": "."
-          },
-          {
-            "link": null,
-            "styles": [
-              "italic"
-            ],
-            "text": " "
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": "Am Donnerstag loderten dort insgesamt 115 Feuer, vorwiegend an der Mittelmeerküste. 110 davon seien unter Kontrolle, erklärte Landwirtschaftsminister Ibrahim Yumakli laut "
-          },
-          {
-            "link": null,
-            "styles": [
-              "italic"
-            ],
-            "text": "AFP"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": ". 69 Brände seien „außerhalb von Waldgebieten“ ausgebrochen. Die Forstbehörde in der Türkei teilte mit, die am Mittwoch durch starke Winde ausgelösten Brände würden durch „intensive Einsätze aus der Luft und am Boden“ bekämpft."
+            "link": null
           }
-        ],
-        "type": "paragraph"
+        ]
       },
       {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          [
+            {
+              "type": "paragraph",
+              "runs": [
+                {
+                  "text": " Keine bedingungslosen Gebietsabtretungen ",
+                  "styles": [],
+                  "link": null
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "type": "paragraph",
+              "runs": [
+                {
+                  "text": " Forderung nach Rückzug russischer Truppen aus besetzten Gebieten ",
+                  "styles": [],
+                  "link": null
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "type": "paragraph",
+              "runs": [
+                {
+                  "text": " Starke Sicherheitsgarantien gegen erneute russische Aggression ",
+                  "styles": [],
+                  "link": null
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      {
+        "type": "paragraph",
         "runs": [
           {
-            "link": null,
+            "text": " Selenskyj betont, dass über Gebietsabtretungen nur das ukrainische Volk per Referendum entscheiden könne. Gleichzeitig zeigt er sich offen für Kompromisse, wie die Idee einer entmilitarisierten Wirtschaftszone im Donbass, besteht aber auf Gegenseitigkeit beim Truppenrückzug. ",
             "styles": [],
-            "text": "Besonders betroffen sind die türkischen Urlaubsregionen zwischen Antalya und Alanya sowie Muğla und Fethiye, wo sich haufenweise Ferienanlagen aneinanderreihen. Minister Yumakli erklärte, die vier größten Brände in den Regionen Mugla, Antalya und Kas, Balikesir sowie Canakkale seien „weitgehend unter Kontrolle“. Wie groß die betroffenen Flächen sind, teilte er nicht mit. Die Präfektur von Muğla teilte später mit, dass in Fethiye wieder ein Brand ausgebrochen sei."
+            "link": null
           }
-        ],
-        "type": "paragraph"
+        ]
       },
       {
-        "runs": [
-          {
-            "link": null,
-            "styles": [],
-            "text": "Der Gouverneur der Provinz Balikesir, Ismail Ustaoglu, beschrieb den Einsatz: „Fünf Flugzeuge, sechs Hubschrauber, 850 Einsatzkräfte und Hunderte Fahrzeuge“ seien im Einsatz. In der Provinz wüteten demnach Brände rund um das Olivenanbaugebiet Ayvalik. Das Agrarministerium schickte Warnungen per Textnachricht an Einwohner besonders gefährdeter Gebiete."
-          }
-        ],
-        "type": "paragraph"
-      },
-      {
+        "type": "heading",
         "level": 2,
         "runs": [
           {
-            "link": null,
+            "text": " Russland: Maximale Gebietsgewinne und Einfluss ",
             "styles": [],
-            "text": "Weiter Waldbrände in Spanien und Frankreich – Lage entspannt sich"
+            "link": null
           }
-        ],
-        "type": "heading"
+        ]
       },
       {
+        "type": "paragraph",
         "runs": [
           {
-            "link": null,
+            "text": " Obwohl Russland nicht direkt an den Berliner Gesprächen teilnimmt, sind die Forderungen aus Moskau allgegenwärtig und entsprechen in weiten Teilen den Kriegszielen Putins. ",
             "styles": [],
-            "text": "Spaniens Regierungschef Pedro Sánchez hob den nationalen Notstand nach Erfolgen bei der Brandbekämpfung dagegen wieder auf. Im Waldbrandgebiet nahe Madrid gebe es „kaum noch Flammen“, teilten die Behörden mit. Die meisten Evakuierten durften in ihre Häuser zurückkehren. Die Präfektur von Madrid warnte jedoch vor neuen Bränden "
-          },
-          {
-            "link": "https://www.op-online.de/welt/hitzewelle-und-trockener-wind-treiben-braende-in-suedeuropa-an-zr-94419425.html",
-            "styles": [],
-            "text": "durch die aktuelle Hitzewelle"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": "."
+            "link": null
           }
-        ],
-        "type": "paragraph"
+        ]
       },
       {
-        "runs": [
-          {
-            "link": null,
-            "styles": [],
-            "text": "Ein neu ausgebrochenes Feuer nahe der Grenze zu Portugal vernichtete binnen 24 Stunden 11.000 Hektar Land. Zum Vergleich: Das entspricht mehr als dem gesamten Stadtgebiet von Paris. Der Bürgermeister von Fermoselle beschrieb gegenüber "
-          },
-          {
-            "link": null,
-            "styles": [
-              "italic"
-            ],
-            "text": "AFP"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": " eine „Hölle“ und einen „Flammentunnel“. Mehr als 800 Menschen mussten in Sicherheit gebracht werden. Im "
-          },
-          {
-            "link": "https://www.merkur.de/welt/spanien-urlauber-aktuell-news-evakuiert-karte-waldbraende-frankreich-zr-94414388.html",
-            "styles": [],
-            "text": "Nachbarland Portugal wurden derweil 800 Feuerwehrleute mobilisiert, um einen Brand im Norden des Landes zu bekämpfen"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": "."
-          }
-        ],
-        "type": "paragraph"
+        "type": "list",
+        "ordered": false,
+        "items": [
+          [
+            {
+              "type": "paragraph",
+              "runs": [
+                {
+                  "text": " Volle Anerkennung der annektierten Gebiete (Krim, Donezk, Luhansk, Saporischschja, Cherson) ",
+                  "styles": [],
+                  "link": null
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "type": "paragraph",
+              "runs": [
+                {
+                  "text": " Verhinderung eines NATO-Beitritts der Ukraine ",
+                  "styles": [],
+                  "link": null
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "type": "paragraph",
+              "runs": [
+                {
+                  "text": " Einfluss in einer möglichen entmilitarisierten Zone durch russische Nationalgarde und Polizei ",
+                  "styles": [],
+                  "link": null
+                }
+              ]
+            }
+          ]
+        ]
       },
       {
+        "type": "paragraph",
         "runs": [
           {
-            "link": null,
+            "text": " Kremlchef Wladimir Putin zeigt bisher wenig Bereitschaft zu konkreten Verhandlungen ohne Zugeständnisse Selenskyjs. Eigene Zugeständnisse macht Putin allerdings auch nicht, stattdessen berichten seine Staatsagentur Tass und er selbst immer wieder von Geländegewinnen in der Ukraine. Signifikante Veränderungen am Frontverlauf gab es in den letzten Monaten nicht. ",
             "styles": [],
-            "text": "Im Südwesten Frankreichs entspannt sich die Lage: Der "
-          },
-          {
-            "link": "https://www.merkur.de/welt/frankreich-und-spanien-waldbraende-wueten-in-europa-dramatische-dimensionen-in-zr-94416397.html",
-            "styles": [],
-            "text": "Brand nahe Bordeaux"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": " war am Donnerstagmorgen „weiterhin stabil“. Es besteht die Hoffnung, dass die rund über 200.000 evakuierten Einwohner bald in ihre Häuser zurückkehren können. Doch die Gefahr ist noch lange nicht gebannt: "
-          },
-          {
-            "link": "https://www.merkur.de/welt/zombiefeuer-nach-waldbrand-in-frankreich-gefahr-bleibt-monate-zr-94422620.html",
-            "styles": [],
-            "text": "Unter der Erde lauern sogenannte Zombiefeuer"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": ". (Quellen: AFP, dpa) "
-          },
-          {
-            "link": null,
-            "styles": [
-              "italic"
-            ],
-            "text": "(cln)"
+            "link": null
           }
-        ],
-        "type": "paragraph"
+        ]
+      },
+      {
+        "type": "heading",
+        "level": 2,
+        "runs": [
+          {
+            "text": " Europäische Union: Sicherheit und wirtschaftlicher Druck ",
+            "styles": [],
+            "link": null
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "runs": [
+          {
+            "text": " Die EU-Staaten, insbesondere Deutschland als Gastgeber der Gespräche, verfolgen mehrere Ziele: ",
+            "styles": [],
+            "link": null
+          }
+        ]
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          [
+            {
+              "type": "paragraph",
+              "runs": [
+                {
+                  "text": " Stabilisierung der Sicherheitslage in Osteuropa ",
+                  "styles": [],
+                  "link": null
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "type": "paragraph",
+              "runs": [
+                {
+                  "text": " Nutzung eingefrorener russischer Gelder (210 Milliarden Euro) als Druckmittel ",
+                  "styles": [],
+                  "link": null
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "type": "paragraph",
+              "runs": [
+                {
+                  "text": " Mögliche beschleunigte EU-Aufnahme der Ukraine (diskutiert wird Anfang 2027) ",
+                  "styles": [],
+                  "link": null
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      {
+        "type": "paragraph",
+        "runs": [
+          {
+            "text": " Besonders die Verwendung der eingefrorenen russischen Guthaben für den Wiederaufbau der Ukraine wird kontrovers diskutiert, mit Bedenken aus Belgien aufgrund möglicher Vergeltungsmaßnahmen Russlands. ",
+            "styles": [],
+            "link": null
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "level": 2,
+        "runs": [
+          {
+            "text": " NATO: Zurückhaltung bei direktem Engagement ",
+            "styles": [],
+            "link": null
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "runs": [
+          {
+            "text": " Die ",
+            "styles": [],
+            "link": null
+          },
+          {
+            "text": "NATO",
+            "styles": [],
+            "link": "https://www.merkur.de/politik/nato-org27480/"
+          },
+          {
+            "text": " als Organisation hält sich in den direkten Verhandlungen zurück, spielt aber eine wichtige Rolle im Hintergrund. Die Kernpositionen des Verteidigungsbündnisses umfassen: ",
+            "styles": [],
+            "link": null
+          }
+        ]
+      },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          [
+            {
+              "type": "paragraph",
+              "runs": [
+                {
+                  "text": " Keine unmittelbare NATO-Mitgliedschaft für die Ukraine in Aussicht ",
+                  "styles": [],
+                  "link": null
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "type": "paragraph",
+              "runs": [
+                {
+                  "text": " Diskussion über alternative Sicherheitsgarantien für die Ukraine ",
+                  "styles": [],
+                  "link": null
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      {
+        "type": "paragraph",
+        "runs": [
+          {
+            "text": " All diese Forderungen, Wünsche, Ziele und Garantien in einen real funktionierenden Friedensvorschlag zu vereinen wird eine Mammutaufgabe. Kanzler Friedrich Merz (CDU) steht vor der Herausforderung, als Gastgeber zwischen den verschiedenen Interessen zu vermitteln. (spr/dpa) ",
+            "styles": [],
+            "link": null
+          }
+        ]
       }
     ],
     "version": 1
-  },
-  "feed": {
-    "aggregator": "merkur",
-    "id": 6,
-    "identifier": "",
-    "name": "Merkur",
-    "options": {}
   },
   "images": []
 }

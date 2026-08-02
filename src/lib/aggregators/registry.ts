@@ -10,6 +10,7 @@ import { RssAggregator } from "./rss";
 import { CaschysBlogAggregator } from "./sites/caschys_blog";
 import { DarkLegacyAggregator } from "./sites/dark_legacy";
 import { ExplosmAggregator } from "./sites/explosm";
+import { MerkurAggregator } from "./sites/merkur";
 import { OglafAggregator } from "./sites/oglaf";
 import { FullWebsiteAggregator } from "./website";
 
@@ -29,6 +30,7 @@ export const IMPLEMENTED_AGGREGATORS: Record<string, AggregatorClass | undefined
   dark_legacy: DarkLegacyAggregator as unknown as AggregatorClass,
   explosm: ExplosmAggregator as unknown as AggregatorClass,
   caschys_blog: CaschysBlogAggregator as unknown as AggregatorClass,
+  merkur: MerkurAggregator as unknown as AggregatorClass,
 };
 
 export class AggregatorRegistry {

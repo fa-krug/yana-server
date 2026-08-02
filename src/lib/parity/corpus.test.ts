@@ -22,7 +22,6 @@ const SKIP_LIST: string[] = [
   "tagesschau/basic", // unskipped in 11c (scrapers)
   "mein_mmo/basic", // unskipped in 11c (scrapers)
   "mein_mmo/combined-pages", // unskipped in 11c (scrapers)
-  "merkur/basic", // unskipped in 11c (scrapers)
   "mactechnews/basic", // unskipped in 11c (scrapers)
   "mactechnews/multipage", // unskipped in 11c (scrapers)
   "podcast/basic", // unskipped in 11b (embeds)
