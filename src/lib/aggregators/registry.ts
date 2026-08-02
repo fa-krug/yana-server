@@ -4,6 +4,7 @@ import type { FeedLike } from "./base";
 import { BaseAggregator } from "./base";
 import { RssAggregator } from "./rss";
 import { DarkLegacyAggregator } from "./sites/dark_legacy";
+import { ExplosmAggregator } from "./sites/explosm";
 import { OglafAggregator } from "./sites/oglaf";
 import { FullWebsiteAggregator } from "./website";
 
@@ -21,6 +22,7 @@ export const IMPLEMENTED_AGGREGATORS: Record<string, AggregatorClass | undefined
   full_website: FullWebsiteAggregator as unknown as AggregatorClass,
   oglaf: OglafAggregator as unknown as AggregatorClass,
   dark_legacy: DarkLegacyAggregator as unknown as AggregatorClass,
+  explosm: ExplosmAggregator as unknown as AggregatorClass,
 };
 
 export class AggregatorRegistry {
