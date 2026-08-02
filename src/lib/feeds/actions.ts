@@ -20,8 +20,6 @@ import { providerByKey } from "@/lib/ai/providers";
 // Helper to determine active AI provider
 function activeProvider(settings: Record<string, unknown>): string {
   const provider = providerByKey(settings.activeAiProvider as string);
-  // providerEnabled is basically `settings[AI_COLUMNS[key].enabled]`
-  // In `Capabilities` context, any active AI provider makes `ai: true`
   if (!provider) return "";
   const enabledCol = `${provider.key}Enabled` as keyof typeof settings;
   return settings[enabledCol] ? provider.key : "";
@@ -67,7 +65,6 @@ export async function listFeeds(params: ListParams) {
   const userId = await currentUserId();
   const db = getDb();
 
-  // Apply filters
   const conditions = [eq(feeds.userId, userId)];
   if (params.q) {
     conditions.push(like(feeds.name, `%${params.q}%`));
@@ -79,7 +76,6 @@ export async function listFeeds(params: ListParams) {
     conditions.push(eq(feeds.enabled, params.filters.enabled === "true"));
   }
 
-  // Tag filter requires joining or subquery. Easiest is to keep it simple for now, maybe in `filters.tag`
   if (params.filters.tag) {
     conditions.push(
       inArray(
@@ -339,6 +335,60 @@ export async function refreshLogos(ids: number[]): Promise<{ ok: boolean; enqueu
         .values(
           validFeeds.map((f) => ({
             kind: "feed.logo",
+            payload: { feedId: f.id },
+          })),
+        )
+        .run();
+    }
+
+    return { ok: true, enqueued: validFeeds.length };
+  });
+}
+
+export async function updateFeedsBulk(ids: number[]): Promise<{ ok: boolean; enqueued: number }> {
+  if (ids.length === 0) return { ok: true, enqueued: 0 };
+
+  const userId = await currentUserId();
+
+  return writeTransaction((tx) => {
+    const validFeeds = tx
+      .select({ id: feeds.id })
+      .from(feeds)
+      .where(and(inArray(feeds.id, ids), eq(feeds.userId, userId)))
+      .all();
+
+    if (validFeeds.length > 0) {
+      tx.insert(jobs)
+        .values(
+          validFeeds.map((f) => ({
+            kind: "feed.update",
+            payload: { feedId: f.id },
+          })),
+        )
+        .run();
+    }
+
+    return { ok: true, enqueued: validFeeds.length };
+  });
+}
+
+export async function restoreFeedsBulk(ids: number[]): Promise<{ ok: boolean; enqueued: number }> {
+  if (ids.length === 0) return { ok: true, enqueued: 0 };
+
+  const userId = await currentUserId();
+
+  return writeTransaction((tx) => {
+    const validFeeds = tx
+      .select({ id: feeds.id })
+      .from(feeds)
+      .where(and(inArray(feeds.id, ids), eq(feeds.userId, userId)))
+      .all();
+
+    if (validFeeds.length > 0) {
+      tx.insert(jobs)
+        .values(
+          validFeeds.map((f) => ({
+            kind: "feed.restore",
             payload: { feedId: f.id },
           })),
         )

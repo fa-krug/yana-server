@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import { currentUserId } from "@/lib/auth/session";
 import { getDb, writeTransaction } from "@/lib/db/client";
-import { articles, feeds } from "@/lib/db/schema";
+import { articles, feeds, jobs } from "@/lib/db/schema";
 
 const updateArticleSchema = z.object({
   name: z.string().min(1, "Name is required").optional(),
@@ -38,7 +38,6 @@ export async function updateArticle(
     const { name, feedId, date } = parsed.data;
 
     const db = getDb();
-    // Check if article exists and belongs to user
     const existing = db
       .select({ id: articles.id, feedId: articles.feedId })
       .from(articles)
@@ -50,7 +49,6 @@ export async function updateArticle(
       return { ok: false, error: "Article not found" };
     }
 
-    // If changing feedId, ensure target feed belongs to user
     if (feedId !== undefined && feedId !== existing.feedId) {
       const targetFeed = db
         .select({ id: feeds.id })
@@ -144,5 +142,35 @@ export async function setStarred(
 
     revalidatePath("/articles");
     return { ok: true, updated: result.changes };
+  });
+}
+
+export async function reloadArticles(ids: number[]): Promise<{ ok: boolean; enqueued: number }> {
+  if (ids.length === 0) return { ok: true, enqueued: 0 };
+
+  const userId = await currentUserId();
+  const db = getDb();
+
+  const userFeedIds = db.select({ id: feeds.id }).from(feeds).where(eq(feeds.userId, userId));
+
+  return writeTransaction((tx) => {
+    const validArticles = tx
+      .select({ id: articles.id })
+      .from(articles)
+      .where(and(inArray(articles.id, ids), inArray(articles.feedId, userFeedIds)))
+      .all();
+
+    if (validArticles.length > 0) {
+      tx.insert(jobs)
+        .values(
+          validArticles.map((a) => ({
+            kind: "article.reload",
+            payload: { articleId: a.id },
+          })),
+        )
+        .run();
+    }
+
+    return { ok: true, enqueued: validArticles.length };
   });
 }

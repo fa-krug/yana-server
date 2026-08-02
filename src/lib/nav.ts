@@ -7,6 +7,7 @@ import {
   Settings,
   Tags,
   Users,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 
@@ -37,6 +38,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/users", labelKey: "nav.users", icon: Users, adminOnly: true },
   { href: "/integrations", labelKey: "nav.integrations", icon: Plug, adminOnly: false },
   { href: "/ai", labelKey: "nav.ai", icon: Bot, adminOnly: false },
+  { href: "/jobs", labelKey: "nav.jobs", icon: Workflow, adminOnly: false },
   { href: "/settings", labelKey: "nav.settings", icon: Settings, adminOnly: false },
 ];
 

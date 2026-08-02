@@ -11,7 +11,22 @@
     "settings": "Einstellungen",
     "integrations": "Integrationen",
     "ai": "KI",
+    "jobs": "Aufgaben",
     "account": "Konto"
+  },
+  "jobs": {
+    "title": "Aufgaben",
+    "kind": "Art",
+    "status": "Status",
+    "attempts": "Versuche",
+    "progress": "Fortschritt",
+    "error": "Fehler",
+    "createdAt": "Erstellt am",
+    "runAt": "Ausführen am",
+    "filterStatus": "Status filtern",
+    "filterKind": "Art filtern",
+    "all": "Alle",
+    "noJobs": "Keine Aufgaben gefunden."
   },
   "auth": {
     "signIn": "Anmelden",

@@ -1,5 +1,7 @@
 import { ensureAdminExists } from "@/lib/auth/bootstrap";
 import { applyPendingMigrations } from "@/lib/db/migrate";
+import { startScheduler } from "@/lib/jobs/scheduler";
+import { startWorker } from "@/lib/jobs/worker";
 
 /**
  * Everything that has to happen once, before the first request is served.
@@ -17,12 +19,12 @@ import { applyPendingMigrations } from "@/lib/db/migrate";
  * **Order is load-bearing.** Migrations first: `ensureAdminExists()` queries
  * `users`, which does not exist on a fresh database until they run.
  *
- * Nothing here is caught. A failure means the database is unusable, and that is
- * worth a loud, failed startup rather than a server that boots and answers 500
- * to everything from a further-removed error -- see `src/instrumentation.ts`
- * for what Next does with the throw.
+ * Worker & Scheduler startup: after migrations and admin bootstrap, the worker
+ * loop and scheduler tick start.
  */
 export async function runStartupTasks(): Promise<void> {
   applyPendingMigrations();
   await ensureAdminExists();
+  startWorker();
+  startScheduler();
 }

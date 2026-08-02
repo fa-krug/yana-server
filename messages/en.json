@@ -11,7 +11,22 @@
     "settings": "Settings",
     "integrations": "Integrations",
     "ai": "AI",
+    "jobs": "Jobs",
     "account": "Account"
+  },
+  "jobs": {
+    "title": "Jobs",
+    "kind": "Kind",
+    "status": "Status",
+    "attempts": "Attempts",
+    "progress": "Progress",
+    "error": "Error",
+    "createdAt": "Created At",
+    "runAt": "Run At",
+    "filterStatus": "Filter Status",
+    "filterKind": "Filter Kind",
+    "all": "All",
+    "noJobs": "No jobs found."
   },
   "auth": {
     "signIn": "Sign in",
