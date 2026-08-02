@@ -1,3 +1,4 @@
+import { applyAiOptions } from "../ai/run";
 import type { HeaderElementData } from "./header/context";
 import { extractHeaderElement } from "./header/extractor";
 
@@ -152,7 +153,17 @@ export abstract class BaseAggregator {
     return this.applyAiProcessing(articles);
   }
 
-  protected async applyAiProcessing(articles: RawArticle[]): Promise<RawArticle[]> {
+  protected async applyAiProcessing(articles: RawArticle[], userSettings?: any): Promise<RawArticle[]> {
+    if (!this.feed.options) return articles;
+    for (let i = 0; i < articles.length; i++) {
+      if (i > 0 && userSettings) {
+        const delay = (userSettings.aiRequestDelay ?? userSettings.ai_request_delay ?? 2) * 1000;
+        if (delay > 0) {
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+      await applyAiOptions(articles[i], this.feed.options, userSettings);
+    }
     return articles;
   }
 
