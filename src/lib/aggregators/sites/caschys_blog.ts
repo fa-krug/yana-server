@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import type { Element } from "domhandler";
 import { FeedLike, RawArticle } from "../base";
 import { FullWebsiteAggregator } from "../website";
 
@@ -134,7 +135,9 @@ export class CaschysBlogAggregator extends FullWebsiteAggregator {
 
     // Remove first image if we have a header image (avoid duplication)
     if (article.header_data) {
-      let $container = $("body").length > 0 ? $("body") : $.root();
+      let $container = (
+        $("body").length > 0 ? $("body") : $("html")
+      ) as cheerio.Cheerio<Element>;
       const topLevelTags = $container.children().toArray();
       if (topLevelTags.length === 1) {
         $container = $(topLevelTags[0]);
