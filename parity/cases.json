@@ -55,7 +55,7 @@
       "id": "mactechnews/multipage",
       "aggregator": "mactechnews",
       "sourceUrl": "https://www.mactechnews.de/news/article/fixture.html",
-      "fixture": "html/mactechnews_multipage.html",
+      "fixture": "html/mactechnews.html",
       "options": {
         "combine_pages": true
       },
