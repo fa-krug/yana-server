@@ -7,6 +7,7 @@ import type { AggregatorKey } from "@/lib/db/schema/enums";
 import type { FeedLike } from "./base";
 import { BaseAggregator } from "./base";
 import { RssAggregator } from "./rss";
+import { CaschysBlogAggregator } from "./sites/caschys_blog";
 import { DarkLegacyAggregator } from "./sites/dark_legacy";
 import { ExplosmAggregator } from "./sites/explosm";
 import { OglafAggregator } from "./sites/oglaf";
@@ -27,6 +28,7 @@ export const IMPLEMENTED_AGGREGATORS: Record<string, AggregatorClass | undefined
   oglaf: OglafAggregator as unknown as AggregatorClass,
   dark_legacy: DarkLegacyAggregator as unknown as AggregatorClass,
   explosm: ExplosmAggregator as unknown as AggregatorClass,
+  caschys_blog: CaschysBlogAggregator as unknown as AggregatorClass,
 };
 
 export class AggregatorRegistry {

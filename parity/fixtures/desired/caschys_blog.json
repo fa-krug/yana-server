@@ -6,13 +6,13 @@
     "date": "2026-07-30T13:00:07+00:00",
     "icon": "article_icons/e55bc466-3219-4cfb-a736-65bf162a686a.jpg",
     "id": 222,
-    "identifier": "https://stadt-bremerhaven.de/google-earth-erhaelt-bildgenerierung-mit-nano-banana-2/",
-    "name": "Google Earth erhält Bildgenerierung mit Nano Banana 2",
-    "plainTextLength": 1558
+    "identifier": "https://stadt-bremerhaven.de/google-stadia-controller-voller-steam-support-kurz-vor-ende-der-frist/",
+    "name": "Google Stadia Controller: Voller Steam-Support kurz vor Ende der Frist",
+    "plainTextLength": 1433
   },
   "curation": {
-    "desiredBlockCount": 6,
-    "rawBlockCount": 6,
+    "desiredBlockCount": 3,
+    "rawBlockCount": 3,
     "remoteRefsNeedingLocalization": [],
     "removed": [],
     "warnings": []
@@ -24,34 +24,17 @@
           {
             "link": null,
             "styles": [],
-            "text": "Google bringt KI-gestützte Bildgenerierung direkt in Kartendienst "
+            "text": "Wer noch einen Google Stadia Controller in der Schublade liegen hat, sollte ihn jetzt herauskramen. "
           },
           {
-            "link": "https://earth.google.com/web/@53.59229143,8.58666216,25.17375343a,2840.30076775d,35y,0h,0t,0r/data=CgRCAggBOgMKATBCAggASg0I____________ARAA?utm_campaign=nano_banana",
+            "link": "https://stadt-bremerhaven.de/stadia-controller-endspurt-zur-bluetooth-umstellung/",
             "styles": [],
-            "text": "Google Earth"
+            "text": "Bis zum 31. Dezember 2025"
           },
           {
             "link": null,
             "styles": [],
-            "text": ". Über die Integration des Bildmodells Nano Banana 2 können Nutzer ab sofort beliebige Orte auf der digitalen Weltkarte per Textanweisung optisch umgestalten, historische Szenen rekonstruieren oder Zukunftsvisionen rendern lassen."
-          }
-        ],
-        "type": "paragraph"
-      },
-      {
-        "externalURL": "https://storage.googleapis.com/gweb-uniblog-publish-prod/original_videos/Pompeii_1.mp4#",
-        "provider": "video",
-        "thumbnailRef": null,
-        "title": null,
-        "type": "embed"
-      },
-      {
-        "runs": [
-          {
-            "link": null,
-            "styles": [],
-            "text": "Die Funktion kombiniert die vorhandenen Satelliten-, Luft- und 3D-Aufnahmen von Google Earth mit generativer Bildbearbeitung. Um ein Bild zu erstellen, zoomt man in der Web-Anwendung von Google Earth auf einen gewünschten Ort, klickt auf die Schaltfläche Bild erstellen und beschreibt per Textbefehl die gewünschte Veränderung. So lassen sich beispielsweise antike Ruinen in eine historische Straßenszene verwandeln, unbebaute Grundstücke mit virtuellen Bauprojekten versehen oder fiktive Science-Fiction-Szenarien auf bestehende Landschaften projizieren."
+            "text": " lässt sich das Gamepad noch vom proprietären WLAN-Modus in einen allgemeinen Bluetooth-Controller verwandeln. Danach macht Google die Pforten für das Umschalt-Tool wohl endgültig dicht. Passend dazu zeigt sich, dass Valve die Unterstützung für das Eingabegerät unter Steam und SteamOS massiv verbessert hat."
           }
         ],
         "type": "paragraph"
@@ -61,27 +44,7 @@
           {
             "link": null,
             "styles": [],
-            "text": "Google Earth Pro: Desktop-Klassiker wird für Neu-Downloads eingestellt"
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": " "
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": "Kurzer Hinweis für alle, die für Geodaten oder die schnelle virtuelle Weltreise immer noch auf den guten alten Desktop-Klassiker setzen: Google leitet das langsame Ende..."
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": " "
-          },
-          {
-            "link": null,
-            "styles": [],
-            "text": "Jetzt lesen →"
+            "text": "Der Controller wird nun als vollwertiges Eingabegerät erkannt. Das bedeutet, dass Tasten nicht mehr brachliegen. Die Taste für den Google Assistant lässt sich als M1-Makro-Taste frei belegen, und der Screenshot-Button erfüllt unter SteamOS nun tatsächlich seinen Zweck. Die Stadia-Taste fungiert dabei ähnlich wie der Xbox-Button. Am PC startet man damit den Big-Picture-Modus, am Steam Deck lassen sich in Kombination mit anderen Tasten Kurzbefehle ausführen, etwa für die Lautstärke oder Helligkeit."
           }
         ],
         "type": "paragraph"
@@ -91,17 +54,20 @@
           {
             "link": null,
             "styles": [],
-            "text": "Neben kreativen Umgestaltungen und Architekturentwürfen unterstützt das Werkzeug auch das Erstellen visueller Infografiken zu bekannten Sehenswürdigkeiten. Dabei greift das System im Hintergrund auf Daten von Gemini zurück, um historische Fakten oder Kontextinformationen direkt in die generierte Grafik einzubauen. Die Bildgenerierung mit Nano Banana 2 steht ab sofort weltweit für alle Nutzer von Google Earth im Web zur Verfügung."
+            "text": "Trotz der guten Haptik, dem präzisen Steuerkreuz und den angenehmen Sticks ist das Gerät "
+          },
+          {
+            "link": "https://www.theverge.com/games/829631/save-google-stadia-gamepad-steam-deadline",
+            "styles": [],
+            "text": "laut Verge-Bericht"
+          },
+          {
+            "link": null,
+            "styles": [],
+            "text": " nicht perfekt. Auf Audio über die 3,5-mm-Klinkenbuchse muss man im Bluetooth-Modus verzichten, das war aber seitens Google schon lange bekannt. Auch das Aufwecken des Steam Deck per Bluetooth funktioniert in der Praxis oft nicht zuverlässig, obwohl es eine entsprechende Option im Menü gibt. Zudem schaltet sich der Controller nicht automatisch ab, wenn das Deck in den Ruhezustand geht."
           }
         ],
         "type": "paragraph"
-      },
-      {
-        "externalURL": "https://storage.googleapis.com/gweb-uniblog-publish-prod/original_videos/Mountain_View_1.mp4",
-        "provider": "video",
-        "thumbnailRef": null,
-        "title": null,
-        "type": "embed"
       }
     ],
     "version": 1
