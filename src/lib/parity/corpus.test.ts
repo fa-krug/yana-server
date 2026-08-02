@@ -29,8 +29,6 @@ const SKIP_LIST: string[] = [
   "rss/basic", // unskipped in 11c task 2 (scrapers)
   "reddit/basic", // unskipped in 11b (embeds)
   "youtube/basic", // unskipped in 11b (embeds)
-  "ars_technica/basic", // unskipped in 11c (scrapers)
-  "the_verge/basic", // unskipped in 11c (scrapers)
 ];
 
 describe("golden corpus parity", () => {

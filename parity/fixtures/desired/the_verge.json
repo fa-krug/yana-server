@@ -68,12 +68,12 @@
       },
       {
         "caption": [],
-        "ref": "yana-img://f548d3cc9f568e7f3233b380b7f7eb1157e2965125a2d036b3327d601e458dc5",
+        "ref": "https://platform.theverge.com/wp-content/uploads/sites/2/2026/04/goveelamp2.jpg?quality=90&strip=all&w=2400",
         "type": "image"
       },
       {
         "caption": [],
-        "ref": "yana-img://7e469357db7185500a80e887a323d2844839e15ab96a76546f3089debda3ca87",
+        "ref": "https://platform.theverge.com/wp-content/uploads/sites/2/2026/04/goveelamp2.jpg?quality=90&strip=all&crop=0%2C0%2C100%2C100&w=2400",
         "type": "image"
       },
       {
@@ -164,6 +164,8 @@
   },
   "images": [
     {
+      "key": "{img:0}",
+      "sourceUrl": "https://platform.theverge.com/wp-content/uploads/sites/2/2026/04/goveelamp2.jpg?quality=90&strip=all&w=2400",
       "byteSize": 105430,
       "contentHash": "f548d3cc9f568e7f3233b380b7f7eb1157e2965125a2d036b3327d601e458dc5",
       "contentType": "image/webp",
@@ -172,6 +174,8 @@
       "width": 1154
     },
     {
+      "key": "{img:1}",
+      "sourceUrl": "https://platform.theverge.com/wp-content/uploads/sites/2/2026/04/goveelamp2.jpg?quality=90&strip=all&crop=0%2C0%2C100%2C100&w=2400",
       "byteSize": 138686,
       "contentHash": "7e469357db7185500a80e887a323d2844839e15ab96a76546f3089debda3ca87",
       "contentType": "image/webp",
