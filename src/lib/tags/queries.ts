@@ -1,6 +1,5 @@
 import { and, asc, like, desc, eq, count } from "drizzle-orm";
 
-
 import { requireUser } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { tags, type Tag } from "@/lib/db/schema";
@@ -28,11 +27,7 @@ export async function listTags(params: ListParams): Promise<{
   const column = SORTABLE[params.sort] ?? tags.createdAt;
   const direction = params.dir === "desc" ? desc : asc;
 
-  const total = getDb()
-    .select({ value: count() })
-    .from(tags)
-    .where(where)
-    .get()?.value ?? 0;
+  const total = getDb().select({ value: count() }).from(tags).where(where).get()?.value ?? 0;
 
   const results = getDb()
     .select()
@@ -51,5 +46,11 @@ export async function listTags(params: ListParams): Promise<{
 
 export async function getTag(id: number): Promise<Tag | null> {
   const session = await requireUser();
-  return getDb().select().from(tags).where(and(eq(tags.id, id), eq(tags.userId, session.id))).get() ?? null;
+  return (
+    getDb()
+      .select()
+      .from(tags)
+      .where(and(eq(tags.id, id), eq(tags.userId, session.id)))
+      .get() ?? null
+  );
 }

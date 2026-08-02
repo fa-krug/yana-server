@@ -10,7 +10,14 @@ export default async function NewFeedPage() {
 
   const t = await getTranslations("feeds");
   const capabilities = await capabilitiesFor();
-  const allTags = await listTags({ q: "", page: 1, pageSize: 1000, sort: "name", dir: "asc", filters: {} });
+  const allTags = await listTags({
+    q: "",
+    page: 1,
+    pageSize: 1000,
+    sort: "name",
+    dir: "asc",
+    filters: {},
+  });
 
   return (
     <div className="space-y-4">

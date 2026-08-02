@@ -19,7 +19,7 @@ export function TagForm({ tag }: { tag?: Tag }) {
   const t = useTranslations("tags");
   const c = useTranslations("common");
   const router = useRouter();
-  
+
   const [name, setName] = useState(tag?.name ?? "");
   const [pending, start] = useTransition();
   const usage = useTagUsage(tag ? [tag.id] : []);
@@ -108,12 +108,7 @@ export function TagForm({ tag }: { tag?: Tag }) {
                 ? t("deleteDescription", { name: tag.name, feeds: usage.feeds })
                 : t("deleteDescriptionZero", { name: tag.name })}
           </p>
-          <Button
-            type="button"
-            variant="destructive"
-            disabled={pending}
-            onClick={onDelete}
-          >
+          <Button type="button" variant="destructive" disabled={pending} onClick={onDelete}>
             {t("deleteConfirm")}
           </Button>
         </div>

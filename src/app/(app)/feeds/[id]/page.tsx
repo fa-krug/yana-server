@@ -19,7 +19,14 @@ export default async function EditFeedPage({ params }: { params: Promise<{ id: s
   const t = await getTranslations("feeds");
   const capabilities = await capabilitiesFor();
   // Fetch all tags (assume max 1000 is enough for the form)
-  const allTags = await listTags({ q: "", page: 1, pageSize: 1000, sort: "name", dir: "asc", filters: {} });
+  const allTags = await listTags({
+    q: "",
+    page: 1,
+    pageSize: 1000,
+    sort: "name",
+    dir: "asc",
+    filters: {},
+  });
 
   return (
     <div className="space-y-4">

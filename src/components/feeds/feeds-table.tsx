@@ -41,9 +41,7 @@ export function FeedsTable({
       sortable: false,
       cell: (row) => (
         <Avatar size="sm">
-          {row.logo ? (
-            <AvatarImage src={row.logo} alt={row.name} />
-          ) : null}
+          {row.logo ? <AvatarImage src={row.logo} alt={row.name} /> : null}
           <AvatarFallback>{row.name.substring(0, 2).toUpperCase()}</AvatarFallback>
         </Avatar>
       ),
@@ -85,9 +83,7 @@ export function FeedsTable({
       key: "articleCount",
       header: t("columns.articles"),
       sortable: false,
-      cell: (row) => (
-        <span className="text-muted-foreground">{row.articleCount}</span>
-      ),
+      cell: (row) => <span className="text-muted-foreground">{row.articleCount}</span>,
     },
     {
       key: "enabled",

@@ -424,5 +424,59 @@
     "previous": "Previous page",
     "next": "Next page"
   },
-  "common": { "save": "Save", "saving": "Saving", "cancel": "Cancel", "loading": "Loading", "new": "New" }
+  "common": {
+    "save": "Save",
+    "saving": "Saving",
+    "cancel": "Cancel",
+    "loading": "Loading",
+    "new": "New"
+  },
+  "articles": {
+    "title": "Articles",
+    "editTitle": "Edit article",
+    "searchPlaceholder": "Search articles",
+    "columns": {
+      "title": "Title",
+      "feed": "Feed",
+      "date": "Date",
+      "added": "Added",
+      "read": "Read",
+      "starred": "Starred"
+    },
+    "filters": {
+      "feed": "Feed",
+      "allFeeds": "All feeds",
+      "read": "Read state",
+      "allRead": "All read states",
+      "readOnly": "Read",
+      "unreadOnly": "Unread",
+      "starred": "Starred state",
+      "allStarred": "All starred states",
+      "starredOnly": "Starred",
+      "unstarredOnly": "Unstarred",
+      "tag": "Tag",
+      "allTags": "All tags"
+    },
+    "bulkDelete": "Delete",
+    "bulkDeleteTitle": "{count, plural, one {Delete this article?} other {Delete these # articles?}}",
+    "bulkDeleteDescription": "{count, plural, one {The article} other {The # articles}} will be permanently removed.",
+    "deleteConfirm": "Delete",
+    "deleted": "{count, plural, one {# article deleted} other {# articles deleted}}",
+    "deletedNone": "Nothing was deleted — those articles no longer exist.",
+    "bulkMarkRead": "Mark as read",
+    "bulkMarkUnread": "Mark as unread",
+    "bulkStar": "Star",
+    "bulkUnstar": "Unstar",
+    "updated": "{count, plural, one {# article updated} other {# articles updated}}",
+    "saveFailed": "Could not save article",
+    "general": "General",
+    "content": "Content",
+    "name": "Title",
+    "feed": "Feed",
+    "date": "Date",
+    "createdAt": "Added date",
+    "createdAtNote": "Added date is displayed for information only and cannot be edited.",
+    "save": "Save article",
+    "saved": "Article saved"
+  }
 }

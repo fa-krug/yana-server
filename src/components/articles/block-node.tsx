@@ -38,9 +38,7 @@ export function BlockNode({ node }: { node: BlockNodeType }) {
   switch (node.kind) {
     case "paragraph":
       return (
-        <p className="leading-relaxed">
-          {node.runs?.map((run, idx) => renderInlineRun(run, idx))}
-        </p>
+        <p className="leading-relaxed">{node.runs?.map((run, idx) => renderInlineRun(run, idx))}</p>
       );
 
     case "heading": {
@@ -71,7 +69,9 @@ export function BlockNode({ node }: { node: BlockNodeType }) {
     case "list_item":
       return (
         <li>
-          {node.runs && node.runs.length > 0 && node.runs.map((run, idx) => renderInlineRun(run, idx))}
+          {node.runs &&
+            node.runs.length > 0 &&
+            node.runs.map((run, idx) => renderInlineRun(run, idx))}
           {node.children &&
             node.children.length > 0 &&
             node.children.map((child) => <BlockNode key={child.id} node={child} />)}

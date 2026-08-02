@@ -9,9 +9,7 @@ import { revalidatePath } from "next/cache";
 import { tagSchema } from "./fields";
 import type { CreateTagResult, DeleteTagsResult, TagsResult } from "./result";
 
-export async function createTag(
-  input: unknown,
-): Promise<CreateTagResult> {
+export async function createTag(input: unknown): Promise<CreateTagResult> {
   const parsed = tagSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, errorKey: "saveFailed" };
@@ -19,38 +17,26 @@ export async function createTag(
 
   const name = parsed.data.name;
   const userId = await currentUserId();
-  
+
   return writeTransaction((tx) => {
     const clash = tx
       .select({ id: tags.id })
       .from(tags)
-      .where(
-        and(
-          eq(tags.userId, userId),
-          sql`lower(${tags.name}) = lower(${name})`
-        ),
-      )
+      .where(and(eq(tags.userId, userId), sql`lower(${tags.name}) = lower(${name})`))
       .get();
 
     if (clash) {
       return { ok: false, errorKey: "nameTaken" };
     }
 
-    const { id } = tx
-      .insert(tags)
-      .values({ name, userId })
-      .returning({ id: tags.id })
-      .get();
+    const { id } = tx.insert(tags).values({ name, userId }).returning({ id: tags.id }).get();
 
     revalidatePath("/tags");
     return { ok: true, id };
   });
 }
 
-export async function updateTag(
-  id: number,
-  input: unknown,
-): Promise<TagsResult> {
+export async function updateTag(id: number, input: unknown): Promise<TagsResult> {
   const parsed = tagSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, errorKey: "saveFailed" };
@@ -58,17 +44,13 @@ export async function updateTag(
 
   const name = parsed.data.name;
   const userId = await currentUserId();
-  
+
   return writeTransaction((tx) => {
     const clash = tx
       .select({ id: tags.id })
       .from(tags)
       .where(
-        and(
-          eq(tags.userId, userId),
-          sql`lower(${tags.name}) = lower(${name})`,
-          ne(tags.id, id),
-        ),
+        and(eq(tags.userId, userId), sql`lower(${tags.name}) = lower(${name})`, ne(tags.id, id)),
       )
       .get();
 
@@ -91,13 +73,11 @@ export async function updateTag(
   });
 }
 
-export async function deleteTags(
-  ids: number[],
-): Promise<DeleteTagsResult> {
+export async function deleteTags(ids: number[]): Promise<DeleteTagsResult> {
   if (ids.length === 0) return { ok: true, deleted: 0 };
-  
+
   const userId = await currentUserId();
-  
+
   return writeTransaction((tx) => {
     const result = tx
       .delete(tags)

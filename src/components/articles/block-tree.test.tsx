@@ -105,7 +105,9 @@ describe("BlockNode", () => {
 
     const p = container.querySelector("p");
     expect(p).not.toBeNull();
-    expect(p?.textContent).toContain("Plain text bold textitalic textcode textdeleted textlink text");
+    expect(p?.textContent).toContain(
+      "Plain text bold textitalic textcode textdeleted textlink text",
+    );
 
     expect(container.querySelector("strong")?.textContent).toBe("bold text");
     expect(container.querySelector("em")?.textContent).toBe("italic text");

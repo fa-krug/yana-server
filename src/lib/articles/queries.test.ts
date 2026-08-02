@@ -1,0 +1,265 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import Database from "better-sqlite3";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { signInCookie } from "@/lib/auth/test-support";
+import { parseListParams } from "@/lib/crud/params";
+import { applyMigrationsAt } from "@/lib/db/test-support";
+
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+
+const { requestHeaders, cookieJar } = vi.hoisted(() => ({
+  requestHeaders: { current: new Headers() },
+  cookieJar: new Map<string, string>(),
+}));
+
+vi.mock("next/headers", async () =>
+  (await import("@/test/next-headers")).nextHeadersStub(requestHeaders, cookieJar),
+);
+
+const PASSWORD = "correct horse battery staple";
+
+describe("articles queries", () => {
+  let dbPath: string;
+  let queries: typeof import("./queries");
+  let auth: typeof import("@/lib/auth/server").auth;
+  let createUserWithPassword: typeof import("@/lib/auth/server").createUserWithPassword;
+  let client: typeof import("@/lib/db/client");
+  let schema: typeof import("@/lib/db/schema");
+  let actingUserId: string | undefined;
+
+  function raw(db: unknown): Database.Database {
+    return (db as { $client: Database.Database }).$client;
+  }
+
+  function requestAs(cookie: string): void {
+    requestHeaders.current = new Headers({ cookie });
+  }
+
+  async function seedUser(input: { email: string }): Promise<string> {
+    const user = await createUserWithPassword({
+      email: input.email,
+      password: PASSWORD,
+      firstName: "",
+      lastName: "",
+      role: "user",
+    });
+    return user.id;
+  }
+
+  async function currentUserId(): Promise<string> {
+    if (actingUserId) return actingUserId;
+    actingUserId = await seedUser({ email: "user@example.com" });
+    const cookie = await signInCookie(auth, { email: "user@example.com", password: PASSWORD });
+    requestAs(cookie);
+    cookieJar.clear();
+    return actingUserId;
+  }
+
+  async function switchToOtherUser(): Promise<string> {
+    const otherId = await seedUser({ email: "other@example.com" });
+    const cookie = await signInCookie(auth, { email: "other@example.com", password: PASSWORD });
+    requestAs(cookie);
+    actingUserId = otherId;
+    return otherId;
+  }
+
+  function seedFeed(name = "Test Feed", userId?: string): number {
+    const uid = userId ?? actingUserId!;
+    return client.writeTransaction((tx) => {
+      const feed = tx
+        .insert(schema.feeds)
+        .values({ name, userId: uid })
+        .returning({ id: schema.feeds.id })
+        .get();
+      return feed.id;
+    });
+  }
+
+  function seedArticle(
+    feedId: number,
+    overrides: Partial<typeof schema.articles.$inferInsert> = {},
+  ) {
+    return client.writeTransaction((tx) => {
+      const article = tx
+        .insert(schema.articles)
+        .values({
+          name: "Article Title",
+          identifier: `art-${Math.random()}`,
+          date: new Date(),
+          feedId,
+          plainText: "Full plain text body content",
+          rawContent: "<p>Full plain text body content</p>",
+          ...overrides,
+        })
+        .returning()
+        .get();
+      return article;
+    });
+  }
+
+  beforeEach(async () => {
+    vi.resetModules();
+    requestHeaders.current = new Headers();
+    cookieJar.clear();
+    actingUserId = undefined;
+
+    const stamp = `${process.pid}-${Math.random().toString(36).slice(2)}`;
+    dbPath = path.join(os.tmpdir(), `yana-art-queries-${stamp}.db`);
+    applyMigrationsAt(dbPath);
+    process.env.DATABASE_PATH = dbPath;
+    process.env.BETTER_AUTH_SECRET = "test-secret-not-used-outside-this-file-0123456789";
+
+    ({ auth, createUserWithPassword } = await import("@/lib/auth/server"));
+    queries = await import("./queries");
+    client = await import("@/lib/db/client");
+    schema = await import("@/lib/db/schema");
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_PATH;
+    delete process.env.BETTER_AUTH_SECRET;
+    const connection = raw(client.getDb());
+    if (connection.open) connection.close();
+    for (const suffix of ["", "-shm", "-wal"]) {
+      fs.rmSync(`${dbPath}${suffix}`, { force: true });
+    }
+  });
+
+  describe("listArticles", () => {
+    it("returns owner-scoped articles with explicit column selection", async () => {
+      const user1Id = await currentUserId();
+      const feedId = seedFeed("Tech Blog");
+      seedArticle(feedId, { name: "First Post" });
+
+      await switchToOtherUser();
+      const otherFeed = seedFeed("Other Blog");
+      seedArticle(otherFeed, { name: "Other Post" });
+
+      // Back to original user
+      const cookie = await signInCookie(auth, { email: "user@example.com", password: PASSWORD });
+      requestAs(cookie);
+      actingUserId = user1Id;
+
+      const params = parseListParams({});
+      const result = await queries.listArticles(params);
+
+      expect(result.total).toBe(1);
+      expect(result.rows[0]).toMatchObject({
+        name: "First Post",
+        feedName: "Tech Blog",
+        feedId,
+      });
+      // Verify plainText and rawContent are omitted from row
+      expect(result.rows[0]).not.toHaveProperty("plainText");
+      expect(result.rows[0]).not.toHaveProperty("rawContent");
+    });
+
+    it("searches name and plainText", async () => {
+      await currentUserId();
+      const feedId = seedFeed();
+      seedArticle(feedId, { name: "TypeScript Tips", plainText: "something else" });
+      seedArticle(feedId, { name: "Unrelated Title", plainText: "drizzle ORM guide" });
+
+      const nameMatch = await queries.listArticles(parseListParams({ q: "TypeScript" }));
+      expect(nameMatch.total).toBe(1);
+      expect(nameMatch.rows[0].name).toBe("TypeScript Tips");
+
+      const bodyMatch = await queries.listArticles(parseListParams({ q: "drizzle" }));
+      expect(bodyMatch.total).toBe(1);
+      expect(bodyMatch.rows[0].name).toBe("Unrelated Title");
+    });
+
+    it("filters by read, starred, feed, and tag", async () => {
+      await currentUserId();
+      const feed1 = seedFeed("Feed 1");
+      const feed2 = seedFeed("Feed 2");
+
+      const tagId = client.writeTransaction((tx) => {
+        const tag = tx
+          .insert(schema.tags)
+          .values({ name: "News", userId: actingUserId! })
+          .returning()
+          .get();
+        tx.insert(schema.feedTags).values({ feedId: feed1, tagId: tag.id }).run();
+        return tag.id;
+      });
+
+      seedArticle(feed1, { name: "Read & Starred", read: true, starred: true });
+      seedArticle(feed2, { name: "Unread & Unstarred", read: false, starred: false });
+
+      const readRes = await queries.listArticles(parseListParams({ read: "true" }));
+      expect(readRes.total).toBe(1);
+      expect(readRes.rows[0].name).toBe("Read & Starred");
+
+      const starredRes = await queries.listArticles(parseListParams({ starred: "true" }));
+      expect(starredRes.total).toBe(1);
+      expect(starredRes.rows[0].name).toBe("Read & Starred");
+
+      const feedRes = await queries.listArticles(parseListParams({ feed: String(feed1) }));
+      expect(feedRes.total).toBe(1);
+
+      const tagRes = await queries.listArticles(parseListParams({ tag: String(tagId) }));
+      expect(tagRes.total).toBe(1);
+      expect(tagRes.rows[0].feedId).toBe(feed1);
+    });
+  });
+
+  describe("getArticle", () => {
+    it("returns article with feed details for owner", async () => {
+      await currentUserId();
+      const feedId = seedFeed("Awesome Feed");
+      const art = seedArticle(feedId, { name: "Article Details" });
+
+      const result = await queries.getArticle(art.id);
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe("Article Details");
+      expect(result?.feed).toMatchObject({ id: feedId, name: "Awesome Feed" });
+    });
+
+    it("returns null for another user's article", async () => {
+      await currentUserId();
+      const feedId = seedFeed();
+      const art = seedArticle(feedId);
+
+      await switchToOtherUser();
+      expect(await queries.getArticle(art.id)).toBeNull();
+    });
+  });
+
+  describe("getBlockTree", () => {
+    it("fetches blocks and runs and builds tree", async () => {
+      await currentUserId();
+      const feedId = seedFeed();
+      const art = seedArticle(feedId);
+
+      client.writeTransaction((tx) => {
+        const blk = tx
+          .insert(schema.articleBlocks)
+          .values({ articleId: art.id, position: 0, kind: "paragraph" })
+          .returning()
+          .get();
+        tx.insert(schema.articleInlineRuns)
+          .values({ blockId: blk.id, position: 0, text: "Hello block" })
+          .run();
+      });
+
+      const tree = await queries.getBlockTree(art.id);
+      expect(tree).toHaveLength(1);
+      expect(tree[0].kind).toBe("paragraph");
+      expect(tree[0].runs[0].text).toBe("Hello block");
+    });
+
+    it("returns empty array for unauthorized article", async () => {
+      await currentUserId();
+      const feedId = seedFeed();
+      const art = seedArticle(feedId);
+
+      await switchToOtherUser();
+      expect(await queries.getBlockTree(art.id)).toEqual([]);
+    });
+  });
+});

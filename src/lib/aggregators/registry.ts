@@ -23,16 +23,52 @@ export type AggregatorSpec = {
 export type Capabilities = { youtube: boolean; reddit: boolean; ai: boolean };
 
 const AI_OPTIONS: OptionSpec[] = [
-  { key: "ai_summarize", label: "Summarize Content", kind: "boolean", default: false, requires: "ai" },
-  { key: "ai_improve_writing", label: "Improve Writing", kind: "boolean", default: false, requires: "ai" },
-  { key: "ai_translate", label: "Translate Content", kind: "boolean", default: false, requires: "ai" },
-  { key: "ai_translate_language", label: "Target Language", kind: "text", default: "English", requires: "ai" },
+  {
+    key: "ai_summarize",
+    label: "Summarize Content",
+    kind: "boolean",
+    default: false,
+    requires: "ai",
+  },
+  {
+    key: "ai_improve_writing",
+    label: "Improve Writing",
+    kind: "boolean",
+    default: false,
+    requires: "ai",
+  },
+  {
+    key: "ai_translate",
+    label: "Translate Content",
+    kind: "boolean",
+    default: false,
+    requires: "ai",
+  },
+  {
+    key: "ai_translate_language",
+    label: "Target Language",
+    kind: "text",
+    default: "English",
+    requires: "ai",
+  },
 ];
 
 const WEBSITE_OPTIONS: OptionSpec[] = [
   ...AI_OPTIONS,
-  { key: "content_selectors", label: "Content Selectors", kind: "selectorList", default: "", help: "CSS selectors for the content, one per line" },
-  { key: "ignore_selectors", label: "Selectors to Remove", kind: "selectorList", default: "", help: "CSS selectors to remove, one per line" },
+  {
+    key: "content_selectors",
+    label: "Content Selectors",
+    kind: "selectorList",
+    default: "",
+    help: "CSS selectors for the content, one per line",
+  },
+  {
+    key: "ignore_selectors",
+    label: "Selectors to Remove",
+    kind: "selectorList",
+    default: "",
+    help: "CSS selectors to remove, one per line",
+  },
 ];
 
 export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
@@ -72,7 +108,12 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierHelp: "Select Merkur feed",
     options: [
       ...WEBSITE_OPTIONS,
-      { key: "remove_empty_elements", label: "Remove Empty Elements", kind: "boolean", default: true },
+      {
+        key: "remove_empty_elements",
+        label: "Remove Empty Elements",
+        kind: "boolean",
+        default: true,
+      },
     ],
   },
   tagesschau: {
@@ -192,16 +233,27 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierHelp: "Subreddit name or URL",
     options: [
       ...AI_OPTIONS,
-      { key: "subreddit_sort", label: "Sort Order", kind: "select", default: "hot", options: [
-        { value: "hot", label: "Hot" },
-        { value: "new", label: "New" },
-        { value: "top", label: "Top" },
-        { value: "rising", label: "Rising" }
-      ]},
+      {
+        key: "subreddit_sort",
+        label: "Sort Order",
+        kind: "select",
+        default: "hot",
+        options: [
+          { value: "hot", label: "Hot" },
+          { value: "new", label: "New" },
+          { value: "top", label: "Top" },
+          { value: "rising", label: "Rising" },
+        ],
+      },
       { key: "min_comments", label: "Minimum Comments", kind: "number", default: 5 },
       { key: "min_age_hours", label: "Minimum Post Age (hours)", kind: "number", default: 48 },
       { key: "comment_limit", label: "Comment Limit", kind: "number", default: 10 },
-      { key: "include_header_image", label: "Include Header Image", kind: "boolean", default: true },
+      {
+        key: "include_header_image",
+        label: "Include Header Image",
+        kind: "boolean",
+        default: true,
+      },
     ],
   },
   podcast: {
@@ -213,7 +265,12 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     options: [
       ...AI_OPTIONS,
       { key: "include_player", label: "Include Player", kind: "boolean", default: true },
-      { key: "include_download_link", label: "Include Download Link", kind: "boolean", default: true },
+      {
+        key: "include_download_link",
+        label: "Include Download Link",
+        kind: "boolean",
+        default: true,
+      },
       { key: "artwork_size", label: "Artwork Size", kind: "number", default: 300 },
     ],
   },
@@ -242,23 +299,26 @@ export function schemaFor(key: AggregatorKey): z.ZodType {
       case "selectorList":
         type = z.string().transform((val) => {
           if (!val) return [];
-          return val.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+          return val
+            .split(/[\n,]+/)
+            .map((s) => s.trim())
+            .filter(Boolean);
         });
         break;
       default:
         type = z.any();
     }
-    
+
     shape[option.key] = type.default(option.default);
   }
-  
+
   return z.object(shape).strip();
 }
 
 export function visibleOptionsFor(key: AggregatorKey, capabilities: Capabilities): OptionSpec[] {
   const spec = AGGREGATOR_SPECS[key];
   if (!spec) return [];
-  
+
   return spec.options.filter((option) => {
     if (option.requires && !capabilities[option.requires]) {
       return false;
@@ -267,16 +327,18 @@ export function visibleOptionsFor(key: AggregatorKey, capabilities: Capabilities
   });
 }
 
-export function stripUnavailable(key: AggregatorKey, values: Record<string, unknown>, capabilities: Capabilities): Record<string, unknown> {
+export function stripUnavailable(
+  key: AggregatorKey,
+  values: Record<string, unknown>,
+  capabilities: Capabilities,
+): Record<string, unknown> {
   const spec = AGGREGATOR_SPECS[key];
   if (!spec) return {};
-  
+
   const allowedKeys = new Set(
-    spec.options
-      .filter((opt) => !opt.requires || capabilities[opt.requires])
-      .map((opt) => opt.key)
+    spec.options.filter((opt) => !opt.requires || capabilities[opt.requires]).map((opt) => opt.key),
   );
-  
+
   const cleaned: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(values)) {
     if (allowedKeys.has(k)) {

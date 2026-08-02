@@ -5,10 +5,7 @@ export type BlockNode = ArticleBlock & {
   runs: ArticleInlineRun[];
 };
 
-export function buildTree(
-  blocks: ArticleBlock[],
-  runs: ArticleInlineRun[],
-): BlockNode[] {
+export function buildTree(blocks: ArticleBlock[], runs: ArticleInlineRun[]): BlockNode[] {
   // Group and sort runs by blockId
   const runsByBlockId = new Map<number, ArticleInlineRun[]>();
   for (const run of runs) {

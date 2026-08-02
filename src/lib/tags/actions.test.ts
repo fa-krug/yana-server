@@ -73,9 +73,7 @@ describe("the tags queries and actions", () => {
         .values({ name: "My Feed", userId: actingUserId! })
         .returning({ id: schema.feeds.id })
         .get();
-      tx.insert(schema.feedTags)
-        .values({ feedId: feed.id, tagId })
-        .run();
+      tx.insert(schema.feedTags).values({ feedId: feed.id, tagId }).run();
       return feed.id;
     });
   }
@@ -166,7 +164,7 @@ describe("the tags queries and actions", () => {
   describe("getTag", () => {
     it("returns null for another user's tag", async () => {
       await currentUserId();
-      const { id } = await actions.createTag({ name: "Mine" }) as { id: number };
+      const { id } = (await actions.createTag({ name: "Mine" })) as { id: number };
       await switchToOtherUser();
       expect(await queries.getTag(id)).toBeNull();
     });
@@ -175,7 +173,7 @@ describe("the tags queries and actions", () => {
   describe("deleteTags", () => {
     it("detaches feeds without deleting them", async () => {
       await currentUserId();
-      const { id } = await actions.createTag({ name: "Temp" }) as { id: number };
+      const { id } = (await actions.createTag({ name: "Temp" })) as { id: number };
       const feedId = seedFeedWithTag(id);
       await actions.deleteTags([id]);
       expect(feedExists(feedId)).toBe(true);
@@ -184,7 +182,7 @@ describe("the tags queries and actions", () => {
 
     it("refuses another user's tag", async () => {
       await currentUserId();
-      const { id } = await actions.createTag({ name: "Mine" }) as { id: number };
+      const { id } = (await actions.createTag({ name: "Mine" })) as { id: number };
       await switchToOtherUser();
       const result = await actions.deleteTags([id]);
       if (result.ok) expect(result.deleted).toBe(0);
@@ -194,7 +192,7 @@ describe("the tags queries and actions", () => {
   describe("updateTag", () => {
     it("allows renaming a tag to its own current name", async () => {
       await currentUserId();
-      const { id } = await actions.createTag({ name: "Keep" }) as { id: number };
+      const { id } = (await actions.createTag({ name: "Keep" })) as { id: number };
       expect((await actions.updateTag(id, { name: "Keep" })).ok).toBe(true);
     });
   });

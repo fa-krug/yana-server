@@ -5,11 +5,7 @@ import { TagForm } from "@/components/tags/tag-form";
 import { requireUser } from "@/lib/auth/session";
 import { getTag } from "@/lib/tags/queries";
 
-export default async function EditTagPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default async function EditTagPage({ params }: { params: Promise<{ id: string }> }) {
   await requireUser();
 
   const id = parseInt((await params).id, 10);

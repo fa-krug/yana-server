@@ -11,7 +11,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 
 import { createFeed, updateFeed } from "@/lib/feeds/actions";
@@ -21,31 +27,29 @@ import { AlertCircle } from "lucide-react";
 
 type FeedListRow = Feed & { tags: Tag[] };
 
-export function FeedForm({ 
-  feed, 
+export function FeedForm({
+  feed,
   capabilities,
-  allTags 
-}: { 
-  feed?: FeedListRow; 
+  allTags,
+}: {
+  feed?: FeedListRow;
   capabilities: Capabilities;
   allTags: Tag[];
 }) {
   const t = useTranslations("feeds");
   const c = useTranslations("common");
   const router = useRouter();
-  
+
   const [pending, start] = useTransition();
 
   const [aggregator, setAggregator] = useState<keyof typeof AGGREGATOR_SPECS>(
-    (feed?.aggregator as keyof typeof AGGREGATOR_SPECS) || "full_website"
+    (feed?.aggregator as keyof typeof AGGREGATOR_SPECS) || "full_website",
   );
   const [name, setName] = useState(feed?.name ?? "");
   const [identifier, setIdentifier] = useState(feed?.identifier ?? "");
-  const [tagIds, setTagIds] = useState<string[]>(
-    feed?.tags.map((t) => String(t.id)) ?? []
-  );
+  const [tagIds, setTagIds] = useState<string[]>(feed?.tags.map((t) => String(t.id)) ?? []);
   const [enabled, setEnabled] = useState(feed?.enabled ?? true);
-  
+
   const [options, setOptions] = useState<Record<string, unknown>>(feed?.options ?? {});
 
   const spec = AGGREGATOR_SPECS[aggregator];
@@ -53,7 +57,7 @@ export function FeedForm({
 
   // Check what's hidden
   const missingGuards = new Set<string>();
-  spec.options.forEach(opt => {
+  spec.options.forEach((opt) => {
     if (opt.requires && !capabilities[opt.requires]) {
       missingGuards.add(opt.requires);
     }
@@ -75,7 +79,7 @@ export function FeedForm({
   }
 
   function handleOptionChange(key: string, value: unknown) {
-    setOptions(prev => ({ ...prev, [key]: value }));
+    setOptions((prev) => ({ ...prev, [key]: value }));
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -121,7 +125,7 @@ export function FeedForm({
         <Select
           value={aggregator}
           onValueChange={handleAggregatorChange}
-          items={Object.values(AGGREGATOR_SPECS).map(s => ({ value: s.key, label: s.label }))}
+          items={Object.values(AGGREGATOR_SPECS).map((s) => ({ value: s.key, label: s.label }))}
           disabled={pending}
         >
           <SelectTrigger id="aggregator">
@@ -184,9 +188,13 @@ export function FeedForm({
                 <span className="text-muted-foreground">{t("form.tagsPlaceholder")}</span>
               ) : (
                 <div className="flex gap-1 flex-wrap">
-                  {tagIds.map(id => {
-                    const tag = allTags.find(t => String(t.id) === id);
-                    return tag ? <span key={id} className="bg-secondary px-1 rounded">{tag.name}</span> : null;
+                  {tagIds.map((id) => {
+                    const tag = allTags.find((t) => String(t.id) === id);
+                    return tag ? (
+                      <span key={id} className="bg-secondary px-1 rounded">
+                        {tag.name}
+                      </span>
+                    ) : null;
                   })}
                 </div>
               )}
@@ -208,23 +216,16 @@ export function FeedForm({
             <Label htmlFor="enabled" className="text-base">
               {t("form.enabled")}
             </Label>
-            <p className="text-sm text-muted-foreground">
-              {t("form.enabledDescription")}
-            </p>
+            <p className="text-sm text-muted-foreground">{t("form.enabledDescription")}</p>
           </div>
-          <Switch
-            id="enabled"
-            checked={enabled}
-            onCheckedChange={setEnabled}
-            disabled={pending}
-          />
+          <Switch id="enabled" checked={enabled} onCheckedChange={setEnabled} disabled={pending} />
         </div>
       )}
 
       {visibleOptions.length > 0 && (
         <div className="space-y-4 rounded-lg border p-4 bg-muted/20">
           <h3 className="font-medium text-lg">{t("form.options")}</h3>
-          
+
           {visibleOptions.map((opt) => (
             <div key={opt.key} className="grid gap-2">
               {opt.kind === "boolean" ? (
@@ -265,7 +266,11 @@ export function FeedForm({
                   <Label htmlFor={`opt-${opt.key}`}>{opt.label}</Label>
                   <Textarea
                     id={`opt-${opt.key}`}
-                    value={Array.isArray(options[opt.key]) ? (options[opt.key] as string[]).join("\n") : (options[opt.key] as string) || ""}
+                    value={
+                      Array.isArray(options[opt.key])
+                        ? (options[opt.key] as string[]).join("\n")
+                        : (options[opt.key] as string) || ""
+                    }
                     onChange={(e) => {
                       const val = e.target.value.split("\n");
                       handleOptionChange(opt.key, val);
@@ -300,25 +305,37 @@ export function FeedForm({
             </div>
           ))}
 
-          {missingGuards.size > 0 && Array.from(missingGuards).map((guard) => (
-            <div key={guard} className="flex items-start gap-2 text-sm text-muted-foreground bg-secondary/50 p-3 rounded-md mt-4 border border-border">
-              <AlertCircle className="size-4 mt-0.5 shrink-0" />
-              <div>
-                {guard === "ai" && (
-                  <span>
-                    Some AI options are hidden because no AI provider is configured. You can enable them in{" "}
-                    <Link href="/ai" className="underline hover:text-primary">AI Settings</Link>.
-                  </span>
-                )}
-                {guard !== "ai" && (
-                  <span>
-                    Some options are hidden because the {guard} integration is not configured. You can enable it in{" "}
-                    <Link href="/integrations" className="underline hover:text-primary">Integrations</Link>.
-                  </span>
-                )}
+          {missingGuards.size > 0 &&
+            Array.from(missingGuards).map((guard) => (
+              <div
+                key={guard}
+                className="flex items-start gap-2 text-sm text-muted-foreground bg-secondary/50 p-3 rounded-md mt-4 border border-border"
+              >
+                <AlertCircle className="size-4 mt-0.5 shrink-0" />
+                <div>
+                  {guard === "ai" && (
+                    <span>
+                      Some AI options are hidden because no AI provider is configured. You can
+                      enable them in{" "}
+                      <Link href="/ai" className="underline hover:text-primary">
+                        AI Settings
+                      </Link>
+                      .
+                    </span>
+                  )}
+                  {guard !== "ai" && (
+                    <span>
+                      Some options are hidden because the {guard} integration is not configured. You
+                      can enable it in{" "}
+                      <Link href="/integrations" className="underline hover:text-primary">
+                        Integrations
+                      </Link>
+                      .
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
         </div>
       )}
 

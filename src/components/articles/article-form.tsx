@@ -1,0 +1,130 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
+import { useState, useTransition } from "react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { updateArticle } from "@/lib/articles/actions";
+import type { Article, Feed } from "@/lib/db/schema";
+
+export function ArticleForm({
+  article,
+  feeds,
+}: {
+  article: Article & { feed: Feed };
+  feeds: { id: number; name: string }[];
+}) {
+  const t = useTranslations("articles");
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+
+  const [name, setName] = useState(article.name);
+  const [feedId, setFeedId] = useState(article.feedId);
+  const [date, setDate] = useState(() => {
+    const d = new Date(article.date);
+    return Number.isNaN(d.getTime()) ? "" : d.toISOString().split("T")[0];
+  });
+  const [error, setError] = useState<string | null>(null);
+
+  const feedItems = feeds.map((f) => ({ value: String(f.id), label: f.name }));
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    startTransition(async () => {
+      const parsedDate = date ? new Date(date) : new Date(article.date);
+      const res = await updateArticle(article.id, {
+        name,
+        feedId,
+        date: parsedDate,
+      });
+
+      if (!res.ok) {
+        setError(res.error || t("saveFailed"));
+        toast.error(res.error || t("saveFailed"));
+        return;
+      }
+
+      toast.success(t("saved"));
+      router.refresh();
+    });
+  };
+
+  const createdAtFormatted = new Date(article.createdAt).toLocaleString();
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-6 max-w-xl">
+      {error && (
+        <div className="rounded-md bg-destructive/15 p-3 text-sm text-destructive font-medium">
+          {error}
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <Label htmlFor="article-name">{t("name")}</Label>
+        <Input id="article-name" value={name} onChange={(e) => setName(e.target.value)} required />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="article-feed">{t("feed")}</Label>
+        <Select
+          items={feedItems}
+          value={String(feedId)}
+          onValueChange={(val) => setFeedId(Number(val))}
+        >
+          <SelectTrigger id="article-feed" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {feedItems.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="article-date">{t("date")}</Label>
+        <Input
+          id="article-date"
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          required
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="article-created-at">{t("createdAt")}</Label>
+        <Input
+          id="article-created-at"
+          value={createdAtFormatted}
+          readOnly
+          disabled
+          className="bg-muted text-muted-foreground cursor-not-allowed"
+        />
+        <p className="text-xs text-muted-foreground">{t("createdAtNote")}</p>
+      </div>
+
+      <div className="flex items-center space-x-2 pt-2">
+        <Button type="submit" disabled={isPending}>
+          {isPending ? t("save") + "..." : t("save")}
+        </Button>
+      </div>
+    </form>
+  );
+}

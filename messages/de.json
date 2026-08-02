@@ -424,5 +424,59 @@
     "previous": "Vorherige Seite",
     "next": "Nächste Seite"
   },
-  "common": { "save": "Speichern", "saving": "Wird gespeichert", "cancel": "Abbrechen", "loading": "Wird geladen", "new": "Neu" }
+  "common": {
+    "save": "Speichern",
+    "saving": "Wird gespeichert",
+    "cancel": "Abbrechen",
+    "loading": "Wird geladen",
+    "new": "Neu"
+  },
+  "articles": {
+    "title": "Artikel",
+    "editTitle": "Artikel bearbeiten",
+    "searchPlaceholder": "Artikel suchen",
+    "columns": {
+      "title": "Titel",
+      "feed": "Feed",
+      "date": "Datum",
+      "added": "Hinzugefügt",
+      "read": "Gelesen",
+      "starred": "Markiert"
+    },
+    "filters": {
+      "feed": "Feed",
+      "allFeeds": "Alle Feeds",
+      "read": "Lesestatus",
+      "allRead": "Alle Lesestatus",
+      "readOnly": "Gelesen",
+      "unreadOnly": "Ungelesen",
+      "starred": "Favoritenstatus",
+      "allStarred": "Alle Favoritenstatus",
+      "starredOnly": "Favorisiert",
+      "unstarredOnly": "Nicht favorisiert",
+      "tag": "Tag",
+      "allTags": "Alle Tags"
+    },
+    "bulkDelete": "Löschen",
+    "bulkDeleteTitle": "{count, plural, one {Diesen Artikel löschen?} other {Diese # Artikel löschen?}}",
+    "bulkDeleteDescription": "{count, plural, one {Der Artikel} other {Die # Artikel}} wird dauerhaft gelöscht.",
+    "deleteConfirm": "Löschen",
+    "deleted": "{count, plural, one {# Artikel gelöscht} other {# Artikel gelöscht}}",
+    "deletedNone": "Nichts wurde gelöscht — diese Artikel existieren nicht mehr.",
+    "bulkMarkRead": "Als gelesen markieren",
+    "bulkMarkUnread": "Als ungelesen markieren",
+    "bulkStar": "Favorisieren",
+    "bulkUnstar": "Entfavorisieren",
+    "updated": "{count, plural, one {# Artikel aktualisiert} other {# Artikel aktualisiert}}",
+    "saveFailed": "Artikel konnte nicht gespeichert werden",
+    "general": "Allgemein",
+    "content": "Inhalt",
+    "name": "Titel",
+    "feed": "Feed",
+    "date": "Datum",
+    "createdAt": "Hinzugefügt am",
+    "createdAtNote": "Das Hinzufügedatum dient nur zur Information und kann nicht bearbeitet werden.",
+    "save": "Artikel speichern",
+    "saved": "Artikel gespeichert"
+  }
 }

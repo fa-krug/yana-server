@@ -71,7 +71,7 @@ describe("createFeed", () => {
     await seedUser({ email: "other@example.com" });
     const cookie = await signInCookie(auth, { email: "other@example.com", password: PASSWORD });
     requestAs(cookie);
-    actingUserId = undefined; 
+    actingUserId = undefined;
   }
 
   beforeEach(async () => {
@@ -110,13 +110,17 @@ describe("createFeed", () => {
 
   it("allows an empty identifier for a scraper", async () => {
     await currentUserId();
-    expect((await actions.createFeed({ name: "Heise", aggregator: "heise", identifier: "" })).ok).toBe(true);
+    expect(
+      (await actions.createFeed({ name: "Heise", aggregator: "heise", identifier: "" })).ok,
+    ).toBe(true);
   });
 
   it("strips an option whose integration is unconfigured", async () => {
     await currentUserId();
     const { id } = await actions.createFeed({
-      name: "X", aggregator: "heise", options: { ai_summarize: true },
+      name: "X",
+      aggregator: "heise",
+      options: { ai_summarize: true },
     });
     expect((await actions.getFeed(id!))?.options).not.toHaveProperty("ai_summarize");
   });
@@ -129,17 +133,23 @@ describe("createFeed", () => {
 
   it("attaches multiple tags", async () => {
     await currentUserId();
-    const a = await tagsActions.createTag({ name: "A" }) as { id: number };
-    const b = await tagsActions.createTag({ name: "B" }) as { id: number };
-    const { id } = await actions.createFeed({ name: "X", aggregator: "heise", tagIds: [a.id, b.id] });
+    const a = (await tagsActions.createTag({ name: "A" })) as { id: number };
+    const b = (await tagsActions.createTag({ name: "B" })) as { id: number };
+    const { id } = await actions.createFeed({
+      name: "X",
+      aggregator: "heise",
+      tagIds: [a.id, b.id],
+    });
     expect((await actions.getFeed(id!))?.tags).toHaveLength(2);
   });
 
   it("rejects another user's tag id", async () => {
     await currentUserId();
-    const a = await tagsActions.createTag({ name: "A" }) as { id: number };
+    const a = (await tagsActions.createTag({ name: "A" })) as { id: number };
     await switchToOtherUser();
     const foreign = a.id;
-    expect((await actions.createFeed({ name: "X", aggregator: "heise", tagIds: [foreign] })).ok).toBe(false);
+    expect(
+      (await actions.createFeed({ name: "X", aggregator: "heise", tagIds: [foreign] })).ok,
+    ).toBe(false);
   });
 });
