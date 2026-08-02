@@ -3,6 +3,7 @@ import type { AggregatorKey } from "@/lib/db/schema/enums";
 import type { FeedLike } from "./base";
 import { BaseAggregator } from "./base";
 import { RssAggregator } from "./rss";
+import { OglafAggregator } from "./sites/oglaf";
 import { FullWebsiteAggregator } from "./website";
 
 export type AggregatorClass = (new (feed: any) => BaseAggregator) & {
@@ -17,6 +18,7 @@ export const IMPLEMENTED_AGGREGATORS: Record<string, AggregatorClass | undefined
   feed_content: RssAggregator as unknown as AggregatorClass,
   rss: RssAggregator as unknown as AggregatorClass,
   full_website: FullWebsiteAggregator as unknown as AggregatorClass,
+  oglaf: OglafAggregator as unknown as AggregatorClass,
 };
 
 export class AggregatorRegistry {

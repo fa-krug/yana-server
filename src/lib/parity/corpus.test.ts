@@ -28,7 +28,6 @@ const SKIP_LIST: string[] = [
   "caschys_blog/basic", // unskipped in 11c (scrapers)
   "dark_legacy/basic", // unskipped in 11c (scrapers)
   "explosm/basic", // unskipped in 11c (scrapers)
-  "oglaf/basic", // unskipped in 11c (scrapers)
   "podcast/basic", // unskipped in 11b (embeds)
   "full_website/basic", // unskipped in 11c task 2 (scrapers)
   "rss/basic", // unskipped in 11c task 2 (scrapers)
