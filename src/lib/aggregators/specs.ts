@@ -243,7 +243,10 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
         label: "Brandenburg",
       },
       { value: "https://www.tagesschau.de/inland/regional/bremen/index~rss2.xml", label: "Bremen" },
-      { value: "https://www.tagesschau.de/inland/regional/hamburg/index~rss2.xml", label: "Hamburg" },
+      {
+        value: "https://www.tagesschau.de/inland/regional/hamburg/index~rss2.xml",
+        label: "Hamburg",
+      },
       { value: "https://www.tagesschau.de/inland/regional/hessen/index~rss2.xml", label: "Hessen" },
       {
         value: "https://www.tagesschau.de/inland/regional/mecklenburgvorpommern/index~rss2.xml",
@@ -422,9 +425,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select Mein MMO feed",
-    identifierChoices: [
-      { value: "https://mein-mmo.de/feed/", label: "Main Feed (All Articles)" },
-    ],
+    identifierChoices: [{ value: "https://mein-mmo.de/feed/", label: "Main Feed (All Articles)" }],
     options: [
       ...WEBSITE_OPTIONS,
       { key: "combine_pages", label: "Combine Pages", kind: "boolean", default: true },
