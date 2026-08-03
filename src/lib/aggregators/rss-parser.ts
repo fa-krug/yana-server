@@ -8,6 +8,14 @@ export interface FeedEntry {
   summary: string;
   published?: string;
   author?: string;
+  enclosures?: Array<{ url?: string; type?: string; length?: string }>;
+  itunes_duration?: string;
+  "itunes:duration"?: string;
+  duration?: string;
+  itunes_image?: string | { href?: string; url?: string };
+  "itunes:image"?: string | { href?: string; url?: string };
+  media_thumbnail?: Array<{ url?: string }>;
+  [key: string]: unknown;
 }
 
 export interface ParsedFeed {
@@ -90,13 +98,10 @@ export function feedUrlInHtml(html: string, baseUrl?: string): string | null {
 /**
  * Fetch `pageUrl` and return its advertised feed URL, or `null`.
  */
-export async function discoverFeedUrl(pageUrl: string): Promise<string | null> {
-  try {
-    const html = await fetchHtml(pageUrl, { timeout: 30000 });
-    return feedUrlInHtml(html, pageUrl);
-  } catch {
-    return null;
-  }
+export function discoverFeedUrl(pageUrl: string): Promise<string | null> {
+  return fetchHtml(pageUrl, { timeout: 30000 })
+    .then((html) => feedUrlInHtml(html, pageUrl))
+    .catch(() => null);
 }
 
 /**
@@ -132,7 +137,54 @@ export function parseXmlFeed(xml: string): ParsedFeed {
         $item.find("dc\\:creator").first().text().trim() ||
         $item.find("author").first().text().trim();
 
-      entries.push({ title, link, summary, published, author });
+      const enclosures: Array<{ url?: string; type?: string; length?: string }> = [];
+      $item.find("enclosure").each((_, enc) => {
+        const url = $(enc).attr("url");
+        const type = $(enc).attr("type");
+        const length = $(enc).attr("length");
+        if (url) enclosures.push({ url, type, length });
+      });
+      $item.find("media\\:content").each((_, enc) => {
+        const url = $(enc).attr("url");
+        const type = $(enc).attr("type");
+        if (url) enclosures.push({ url, type });
+      });
+
+      const itunesDuration =
+        $item.find("itunes\\:duration").first().text().trim() ||
+        $item.find("duration").first().text().trim() ||
+        undefined;
+
+      let itunesImage: string | { href?: string; url?: string } | undefined;
+      const itunesImgHref = $item.find("itunes\\:image").first().attr("href")?.trim();
+      if (itunesImgHref) {
+        itunesImage = { href: itunesImgHref };
+      } else {
+        const itunesImgText = $item.find("itunes\\:image").first().text().trim();
+        if (itunesImgText) {
+          itunesImage = itunesImgText;
+        }
+      }
+
+      const mediaThumbnails: Array<{ url?: string }> = [];
+      $item.find("media\\:thumbnail").each((_, thumb) => {
+        const url = $(thumb).attr("url");
+        if (url) mediaThumbnails.push({ url });
+      });
+
+      entries.push({
+        title,
+        link,
+        summary,
+        published,
+        author,
+        enclosures: enclosures.length > 0 ? enclosures : undefined,
+        itunes_duration: itunesDuration,
+        "itunes:duration": itunesDuration,
+        itunes_image: itunesImage,
+        "itunes:image": itunesImage,
+        media_thumbnail: mediaThumbnails.length > 0 ? mediaThumbnails : undefined,
+      });
     });
   } else {
     // 2. Try Atom entries (<entry>)
@@ -158,7 +210,22 @@ export function parseXmlFeed(xml: string): ParsedFeed {
           $entry.find("author name").first().text().trim() ||
           $entry.find("author").first().text().trim();
 
-        entries.push({ title, link, summary, published, author });
+        const enclosures: Array<{ url?: string; type?: string; length?: string }> = [];
+        $entry.find("link[rel='enclosure']").each((_, enc) => {
+          const url = $(enc).attr("href");
+          const type = $(enc).attr("type");
+          const length = $(enc).attr("length");
+          if (url) enclosures.push({ url, type, length });
+        });
+
+        entries.push({
+          title,
+          link,
+          summary,
+          published,
+          author,
+          enclosures: enclosures.length > 0 ? enclosures : undefined,
+        });
       });
     }
   }

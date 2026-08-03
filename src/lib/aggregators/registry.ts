@@ -16,6 +16,7 @@ import { MactechnewsAggregator } from "./sites/mactechnews/aggregator";
 import { MeinMmoAggregator } from "./sites/mein_mmo/aggregator";
 import { MerkurAggregator } from "./sites/merkur";
 import { OglafAggregator } from "./sites/oglaf";
+import { PodcastAggregator } from "./sites/podcast";
 import { TagesschauAggregator } from "./sites/tagesschau/aggregator";
 import { TheVergeAggregator } from "./sites/the_verge";
 import { FullWebsiteAggregator } from "./website";
@@ -43,6 +44,7 @@ export const IMPLEMENTED_AGGREGATORS: Record<string, AggregatorClass | undefined
   tagesschau: TagesschauAggregator as unknown as AggregatorClass,
   heise: HeiseAggregator as unknown as AggregatorClass,
   mein_mmo: MeinMmoAggregator as unknown as AggregatorClass,
+  podcast: PodcastAggregator as unknown as AggregatorClass,
 };
 
 export class AggregatorRegistry {

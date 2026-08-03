@@ -18,7 +18,6 @@ import {
  * Every entry MUST have a comment indicating which phase will unskip it.
  */
 const SKIP_LIST: string[] = [
-  "podcast/basic", // unskipped in 11b (embeds)
   "full_website/basic", // unskipped in 11c task 2 (scrapers)
   "rss/basic", // unskipped in 11c task 2 (scrapers)
   "reddit/basic", // unskipped in 11b (embeds)
