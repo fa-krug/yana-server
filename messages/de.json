@@ -235,7 +235,7 @@
       "unavailable": "Diese Integration ist nicht eingerichtet. Du kannst sie unter Integrationen einrichten.",
       "unavailableBannerBefore": "Die Integration für diesen Feed ist nicht eingerichtet. Du kannst sie unter",
       "unavailableBannerLink": "Integrationen",
-      "unavailableBannerAfter": "einrichten."
+      "unavailableBannerAfter": " einrichten."
     },
     "form": {
       "aggregator": "Aggregator",
