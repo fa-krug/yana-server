@@ -4,9 +4,27 @@ import { AGGREGATOR_KEYS } from "@/lib/db/schema";
 
 import { BaseAggregator } from "./base";
 import { AggregatorRegistry, getAggregator, IMPLEMENTED_AGGREGATORS } from "./registry";
-import { AGGREGATOR_SPECS, schemaFor, stripUnavailable, visibleOptionsFor } from "./specs";
+import {
+  AGGREGATOR_SPECS,
+  defaultIdentifierFor,
+  identifierModeFor,
+  schemaFor,
+  stripUnavailable,
+  visibleOptionsFor,
+} from "./specs";
 import { RssAggregator } from "./rss";
 import { FullWebsiteAggregator } from "./website";
+import { ArsTechnicaAggregator } from "./sites/ars_technica";
+import { CaschysBlogAggregator } from "./sites/caschys_blog";
+import { DarkLegacyAggregator } from "./sites/dark_legacy";
+import { ExplosmAggregator } from "./sites/explosm";
+import { HeiseAggregator } from "./sites/heise";
+import { MactechnewsAggregator } from "./sites/mactechnews/aggregator";
+import { MeinMmoAggregator } from "./sites/mein_mmo/aggregator";
+import { MerkurAggregator } from "./sites/merkur";
+import { OglafAggregator } from "./sites/oglaf";
+import { TagesschauAggregator } from "./sites/tagesschau/aggregator";
+import { TheVergeAggregator } from "./sites/the_verge";
 
 const ALL = { youtube: true, reddit: true, ai: true };
 const NONE = { youtube: false, reddit: false, ai: false };
@@ -101,5 +119,69 @@ describe("schemaFor", () => {
 
   it("rejects a boolean option given a string", () => {
     expect(() => schemaFor("caschys_blog").parse({ skip_ads: "yes" })).toThrow();
+  });
+});
+
+describe("identifierModeFor", () => {
+  it("derives the four modes from the data on each spec", () => {
+    const expected: Record<string, string> = {
+      full_website: "url",
+      feed_content: "url",
+      podcast: "url",
+      heise: "choice",
+      merkur: "choice",
+      tagesschau: "choice",
+      ars_technica: "choice",
+      mactechnews: "choice",
+      explosm: "none",
+      dark_legacy: "none",
+      caschys_blog: "none",
+      oglaf: "none",
+      mein_mmo: "none",
+      the_verge: "none",
+      youtube: "search",
+      reddit: "search",
+    };
+
+    for (const key of AGGREGATOR_KEYS) {
+      expect(identifierModeFor(AGGREGATOR_SPECS[key]), key).toBe(expected[key]);
+    }
+  });
+
+  it("gives none/choice modes a non-empty default identifier", () => {
+    for (const key of AGGREGATOR_KEYS) {
+      const spec = AGGREGATOR_SPECS[key];
+      const mode = identifierModeFor(spec);
+      if (mode === "none" || mode === "choice") {
+        expect(defaultIdentifierFor(spec), key).not.toBe("");
+      } else {
+        expect(defaultIdentifierFor(spec), key).toBe("");
+      }
+    }
+  });
+});
+
+describe("identifierChoices parity with the ported aggregator classes", () => {
+  const classesWithChoices: [string, typeof BaseAggregator][] = [
+    ["heise", HeiseAggregator],
+    ["merkur", MerkurAggregator],
+    ["tagesschau", TagesschauAggregator],
+    ["ars_technica", ArsTechnicaAggregator],
+    ["mactechnews", MactechnewsAggregator],
+    ["explosm", ExplosmAggregator],
+    ["dark_legacy", DarkLegacyAggregator],
+    ["caschys_blog", CaschysBlogAggregator],
+    ["oglaf", OglafAggregator],
+    ["mein_mmo", MeinMmoAggregator],
+    ["the_verge", TheVergeAggregator],
+  ];
+
+  it("matches each site class's getIdentifierChoices() byte-for-byte", () => {
+    for (const [key, cls] of classesWithChoices) {
+      const fromClass = cls.getIdentifierChoices().map(([value, label]) => ({ value, label }));
+      expect(AGGREGATOR_SPECS[key as keyof typeof AGGREGATOR_SPECS].identifierChoices, key).toEqual(
+        fromClass,
+      );
+    }
   });
 });
