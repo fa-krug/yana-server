@@ -30,7 +30,12 @@ describe("FeedForm identifier field", () => {
   it("renders nothing for a none-mode aggregator", () => {
     renderWithProviders(<FeedForm capabilities={ALL} allTags={[]} />);
     selectAggregator("Explosm");
-    expect(screen.queryByLabelText("Feed")).toBeNull();
+    // Asserted against the element every identifier control shares rather than
+    // against one exact label: `queryByLabelText("Feed")` is an exact match, so
+    // a regression rendering Explosm as `choice` mode ("Feed (Optional)") or
+    // `url` mode ("URL (Optional)") passed it either way.
+    expect(document.querySelector("#identifier")).toBeNull();
+    expect(screen.queryByLabelText(/feed|url/i)).toBeNull();
   });
 
   it("renders a plain text input for a url-mode aggregator", () => {
@@ -45,10 +50,20 @@ describe("FeedForm identifier field", () => {
     expect(screen.getByRole("combobox", { name: "Feed (Optional)" })).toBeTruthy();
   });
 
-  it("renders the autocomplete for a search-mode aggregator", () => {
+  it("renders the autocomplete for a search-mode aggregator, labelled and required", () => {
     renderWithProviders(<FeedForm capabilities={ALL} allTags={[]} />);
     selectAggregator("YouTube");
-    expect(screen.getByPlaceholderText("Type to search")).toBeTruthy();
+    // The label association is real now (`id="identifier"` reaches the Base UI
+    // input), so query by it rather than by the placeholder.
+    const input = screen.getByLabelText("Channel") as HTMLInputElement;
+    expect(input.getAttribute("placeholder")).toBe("Type to search");
+    expect(input.required).toBe(true);
+  });
+
+  it("labels the search field per aggregator", () => {
+    renderWithProviders(<FeedForm capabilities={ALL} allTags={[]} />);
+    selectAggregator("Reddit");
+    expect(screen.getByLabelText("Subreddit")).toBeTruthy();
   });
 
   it("resets the identifier to the new aggregator's default when switching", () => {
@@ -87,6 +102,13 @@ describe("FeedForm identifier field", () => {
     renderWithProviders(<FeedForm feed={feed} capabilities={NONE} allTags={[]} />);
 
     expect(screen.getByText(/integration is not configured/i)).toBeTruthy();
-    expect((screen.getByPlaceholderText("Type to search") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText("Channel") as HTMLInputElement).disabled).toBe(true);
+
+    // The banner and the disabled state both follow from the `aggregator`
+    // state initializer alone, so they would still pass with the carve-out
+    // (`|| s.key === feed?.aggregator` in `availableAggregators`) deleted.
+    // This is the assertion that actually pins it.
+    fireEvent.click(screen.getByLabelText("Aggregator"));
+    expect(screen.getByRole("option", { name: "YouTube" })).toBeTruthy();
   });
 });
