@@ -21,9 +21,16 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 
 import { createFeed, updateFeed } from "@/lib/feeds/actions";
-import { AGGREGATOR_SPECS, visibleOptionsFor, type Capabilities } from "@/lib/aggregators/specs";
+import {
+  AGGREGATOR_SPECS,
+  defaultIdentifierFor,
+  identifierModeFor,
+  visibleOptionsFor,
+  type Capabilities,
+} from "@/lib/aggregators/specs";
 import type { Feed, Tag } from "@/lib/db/schema";
 import { AlertCircle } from "lucide-react";
+import { IdentifierAutocomplete } from "./identifier-autocomplete";
 
 type FeedListRow = Feed & { tags: Tag[] };
 
@@ -54,6 +61,13 @@ export function FeedForm({
 
   const spec = AGGREGATOR_SPECS[aggregator];
   const visibleOptions = visibleOptionsFor(aggregator, capabilities);
+  const identifierMode = identifierModeFor(spec);
+
+  const availableAggregators = Object.values(AGGREGATOR_SPECS).filter(
+    (s) => !s.identifierSearch || capabilities[s.identifierSearch] || s.key === feed?.aggregator,
+  );
+  const identifierSearchUnavailable =
+    identifierMode === "search" && spec.identifierSearch && !capabilities[spec.identifierSearch];
 
   // Check what's hidden
   const missingGuards = new Set<string>();
@@ -74,6 +88,7 @@ export function FeedForm({
       for (const opt of newSpec.options) {
         newOptions[opt.key] = opt.default;
       }
+      setIdentifier(defaultIdentifierFor(newSpec));
     }
     setOptions(newOptions);
   }
@@ -125,14 +140,14 @@ export function FeedForm({
         <Select
           value={aggregator}
           onValueChange={handleAggregatorChange}
-          items={Object.values(AGGREGATOR_SPECS).map((s) => ({ value: s.key, label: s.label }))}
+          items={availableAggregators.map((s) => ({ value: s.key, label: s.label }))}
           disabled={pending}
         >
           <SelectTrigger id="aggregator">
             <SelectValue placeholder={t("form.aggregatorPlaceholder")} />
           </SelectTrigger>
           <SelectContent>
-            {Object.values(AGGREGATOR_SPECS).map((s) => (
+            {availableAggregators.map((s) => (
               <SelectItem key={s.key} value={s.key}>
                 {s.label}
               </SelectItem>
@@ -153,7 +168,7 @@ export function FeedForm({
         />
       </div>
 
-      {(spec.identifierRequired || spec.identifierLabel) && (
+      {identifierMode === "url" && (
         <div className="grid gap-2">
           <Label htmlFor="identifier">
             {spec.identifierLabel}
@@ -169,6 +184,59 @@ export function FeedForm({
           />
           {spec.identifierHelp && (
             <p className="text-sm text-muted-foreground">{spec.identifierHelp}</p>
+          )}
+        </div>
+      )}
+
+      {identifierMode === "choice" && (
+        <div className="grid gap-2">
+          <Label htmlFor="identifier">{spec.identifierLabel} (Optional)</Label>
+          <Select
+            value={identifier || defaultIdentifierFor(spec)}
+            onValueChange={(val: string | null) => val && setIdentifier(val)}
+            items={spec.identifierChoices}
+            disabled={pending}
+          >
+            <SelectTrigger id="identifier">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {spec.identifierChoices.map((choice) => (
+                <SelectItem key={choice.value} value={choice.value}>
+                  {choice.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {spec.identifierHelp && (
+            <p className="text-sm text-muted-foreground">{spec.identifierHelp}</p>
+          )}
+        </div>
+      )}
+
+      {identifierMode === "search" && (
+        <div className="grid gap-2">
+          <Label htmlFor="identifier">{spec.identifierLabel}</Label>
+          <IdentifierAutocomplete
+            aggregator={spec.identifierSearch as "youtube" | "reddit"}
+            value={identifier}
+            onValueChange={setIdentifier}
+            disabled={pending || identifierSearchUnavailable}
+          />
+          {spec.identifierHelp && (
+            <p className="text-sm text-muted-foreground">{spec.identifierHelp}</p>
+          )}
+          {identifierSearchUnavailable && (
+            <div className="flex items-start gap-2 text-sm text-muted-foreground bg-secondary/50 p-3 rounded-md border border-border">
+              <AlertCircle className="size-4 mt-0.5 shrink-0" />
+              <span>
+                {t("identifierSearch.unavailableBannerBefore")}{" "}
+                <Link href="/integrations" className="underline hover:text-primary">
+                  {t("identifierSearch.unavailableBannerLink")}
+                </Link>
+                {t("identifierSearch.unavailableBannerAfter")}
+              </span>
+            </div>
           )}
         </div>
       )}
