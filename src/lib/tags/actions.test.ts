@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { signInCookie } from "@/lib/auth/test-support";
 import { applyMigrationsAt } from "@/lib/db/test-support";
+import { DEFAULT_TAG_COLOR } from "@/lib/tags/colors";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
@@ -159,6 +160,25 @@ describe("the tags queries and actions", () => {
       await switchToOtherUser();
       expect((await actions.createTag({ name: "Shared" })).ok).toBe(true);
     });
+
+    it("stores the given color", async () => {
+      await currentUserId();
+      const result = (await actions.createTag({ name: "News", color: "violet" })) as { id: number };
+      expect((await queries.getTag(result.id))?.color).toBe("violet");
+    });
+
+    it("defaults to the standard color when none is given", async () => {
+      await currentUserId();
+      const result = (await actions.createTag({ name: "News" })) as { id: number };
+      expect((await queries.getTag(result.id))?.color).toBe(DEFAULT_TAG_COLOR);
+    });
+
+    it("rejects an unrecognized color", async () => {
+      await currentUserId();
+      const result = await actions.createTag({ name: "News", color: "mauve" });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errorKey).toBe("saveFailed");
+    });
   });
 
   describe("getTag", () => {
@@ -194,6 +214,20 @@ describe("the tags queries and actions", () => {
       await currentUserId();
       const { id } = (await actions.createTag({ name: "Keep" })) as { id: number };
       expect((await actions.updateTag(id, { name: "Keep" })).ok).toBe(true);
+    });
+
+    it("changes the color when one is given", async () => {
+      await currentUserId();
+      const { id } = (await actions.createTag({ name: "Keep" })) as { id: number };
+      await actions.updateTag(id, { name: "Keep", color: "teal" });
+      expect((await queries.getTag(id))?.color).toBe("teal");
+    });
+
+    it("leaves the color untouched when none is given", async () => {
+      await currentUserId();
+      const { id } = (await actions.createTag({ name: "Keep", color: "pink" })) as { id: number };
+      await actions.updateTag(id, { name: "Renamed" });
+      expect((await queries.getTag(id))?.color).toBe("pink");
     });
   });
 });

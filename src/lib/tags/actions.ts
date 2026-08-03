@@ -6,6 +6,7 @@ import { currentUserId, requireUser } from "@/lib/auth/session";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { feedTags, tags } from "@/lib/db/schema";
 import { revalidatePath } from "next/cache";
+import { DEFAULT_TAG_COLOR } from "./colors";
 import { tagSchema } from "./fields";
 import type { CreateTagResult, DeleteTagsResult, TagsResult } from "./result";
 
@@ -15,7 +16,7 @@ export async function createTag(input: unknown): Promise<CreateTagResult> {
     return { ok: false, errorKey: "saveFailed" };
   }
 
-  const name = parsed.data.name;
+  const { name, color } = parsed.data;
   const userId = await currentUserId();
 
   return writeTransaction((tx) => {
@@ -29,7 +30,11 @@ export async function createTag(input: unknown): Promise<CreateTagResult> {
       return { ok: false, errorKey: "nameTaken" };
     }
 
-    const { id } = tx.insert(tags).values({ name, userId }).returning({ id: tags.id }).get();
+    const { id } = tx
+      .insert(tags)
+      .values({ name, userId, color: color ?? DEFAULT_TAG_COLOR })
+      .returning({ id: tags.id })
+      .get();
 
     revalidatePath("/tags");
     return { ok: true, id };
@@ -42,7 +47,7 @@ export async function updateTag(id: number, input: unknown): Promise<TagsResult>
     return { ok: false, errorKey: "saveFailed" };
   }
 
-  const name = parsed.data.name;
+  const { name, color } = parsed.data;
   const userId = await currentUserId();
 
   return writeTransaction((tx) => {
@@ -60,7 +65,7 @@ export async function updateTag(id: number, input: unknown): Promise<TagsResult>
 
     const result = tx
       .update(tags)
-      .set({ name })
+      .set({ name, ...(color ? { color } : {}) })
       .where(and(eq(tags.id, id), eq(tags.userId, userId)))
       .run();
 
