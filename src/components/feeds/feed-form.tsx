@@ -24,6 +24,8 @@ import { createFeed, updateFeed } from "@/lib/feeds/actions";
 import { AGGREGATOR_SPECS, visibleOptionsFor, type Capabilities } from "@/lib/aggregators/specs";
 import type { Feed, Tag } from "@/lib/db/schema";
 import { AlertCircle } from "lucide-react";
+import { TagBadge } from "@/components/tags/tag-badge";
+import { TagColorDot } from "@/components/tags/tag-color-dot";
 
 type FeedListRow = Feed & { tags: Tag[] };
 
@@ -191,9 +193,12 @@ export function FeedForm({
                   {tagIds.map((id) => {
                     const tag = allTags.find((t) => String(t.id) === id);
                     return tag ? (
-                      <span key={id} className="bg-secondary px-1 rounded">
-                        {tag.name}
-                      </span>
+                      <TagBadge
+                        key={id}
+                        name={tag.name}
+                        color={tag.color}
+                        className="text-[10px] px-1.5 h-4"
+                      />
                     ) : null;
                   })}
                 </div>
@@ -203,7 +208,10 @@ export function FeedForm({
           <SelectContent>
             {allTags.map((tag) => (
               <SelectItem key={tag.id} value={String(tag.id)}>
-                {tag.name}
+                <span className="flex items-center gap-2">
+                  <TagColorDot color={tag.color} />
+                  {tag.name}
+                </span>
               </SelectItem>
             ))}
           </SelectContent>
