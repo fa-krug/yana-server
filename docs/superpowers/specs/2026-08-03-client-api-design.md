@@ -31,28 +31,53 @@ credential at the end.
 2. The user signs in exactly as on the web (password or passkey).
 3. On success, the page navigates to a new, session-cookie-authenticated route,
    `GET /device/pair?scheme=yana&deviceName=<name>`. This route:
-   - mints a Better Auth API key via the `apiKey` plugin, named/tagged for this
-     device (not a bespoke token table — one credential system, same as the
-     web session),
-   - responds with a redirect to `yana://auth-callback?token=<key>&keyId=<id>`.
+   - calls `requireUser()` (the existing cookie session — this route is *inside*
+     `(app)`'s auth boundary, not a new auth mechanism),
+   - mints a **dedicated new Better Auth session** for this device via
+     `auth.$context.internalAdapter.createSession(user.id, false, { deviceName })`
+     — a second, independent session row for the same user, not a copy of the
+     browser's own session token. `better-auth@1.6.25` (the pinned version) has
+     no `apiKey` plugin; a session *is* the credential system Better Auth
+     ships, and creating an extra one for a named device costs nothing beyond
+     the `deviceName` column below.
+   - responds with a redirect to `yana://auth-callback?token=<sessionToken>`.
 4. The app's `WKWebView` navigation delegate intercepts that custom-scheme
    redirect **before it becomes a network request** (`decidePolicyForNavigationAction`),
    extracts the token, stores it in Keychain, and dismisses the webview.
 5. Every subsequent `/api/v1/**` request carries `Authorization: Bearer <token>`.
 
-`src/lib/api/auth.ts` resolves that header to a user via Better Auth's API key
-verification, the same role `requireUser()`/`requireAdmin()` play for cookie
-sessions — a Bearer-token analog, not a replacement for the existing session
-model, which the web UI keeps using unchanged.
+`src/lib/api/auth.ts` resolves that header directly: look up `sessions` by
+`token`, check `expiresAt > now`, join `users`. This is a plain Drizzle query
+against the same `sessions` table Better Auth already owns — not a Better Auth
+plugin call — matching this codebase's existing preference for direct queries
+over hidden plugin behavior (the same reasoning that keeps the `admin()`
+plugin's HTTP surface closed while still using its `role` semantics). It plays
+the role `requireUser()`/`requireAdmin()` play for cookie sessions, without
+replacing them — the web UI keeps using cookie sessions unchanged, and a device
+session is just an ordinary session row with `deviceName` set instead of null.
 
 **Device management UI.** `/account` gains a "Devices" section listing this
-user's API keys (device name, created date, last used) with a revoke button per
-key, backed by Better Auth's existing key management — no new storage. This is
-in scope for this phase, built alongside the API itself.
+user's device sessions (`auth.api.listSessions({ headers })`, filtered to rows
+with a non-null `deviceName` — the browser's own session has none) with a
+revoke button per device, backed by `auth.api.revokeSession({ headers, body: { token } })`
+— both core, self-service Better Auth endpoints, already reachable since
+`disabledPaths` only closes `/admin/*` and `/update-user`. Revoking deletes the
+session row outright, which immediately invalidates that device's Bearer token
+on its very next request — no separate revocation mechanism needed. This is in
+scope for this phase, built alongside the API itself.
 
 ## 2. Data model changes
 
-Three schema changes, all additive except the logo column swap.
+Four schema changes, all additive except the logo column swap.
+
+**Device sessions.** `sessions` gains a nullable `deviceName` (text). Declared
+both in `src/lib/db/schema/auth.ts` and as `session.additionalFields.deviceName`
+in `betterAuth()`'s config (`src/lib/auth/server.ts`), mirroring the existing
+`user.additionalFields` pattern for `firstName`/`lastName` — Better Auth's
+adapter throws on a field it's told about that the table lacks, so both sides
+must agree. Browser sessions (from `/login`) leave it null; device-pairing
+sessions (§1) set it explicitly. No CHECK constraint, consistent with every
+other column on this Better-Auth-owned table.
 
 **Tombstones.** New table `article_tombstones`:
 
@@ -108,7 +133,7 @@ many-per-feed relationship; only the serializer changes (§3).
 
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/device/pair` | GET | mint device API key, redirect to app (§1) |
+| `/device/pair` | GET | mint device session, redirect to app (§1) |
 | `/api/v1/articles/sync` | GET | paginated list **and** incremental delta, unified |
 | `/api/v1/articles/:id/content` | GET | block-tree body (wire format v1) |
 | `/api/v1/articles/:id` | PATCH | `{ starred?, read? }` |
@@ -233,18 +258,19 @@ this phase introduces no exception to that rule.
 | `src/lib/api/events.ts` | the per-user `EventEmitter` registry backing SSE |
 
 **Testing.** Same convention as the rest of the codebase: real SQLite, no
-driver mocks, `.test.ts` in the node vitest project. A real API key minted
-through Better Auth's plugin authenticates real requests against real route
-handlers; SSE assertions read real chunks emitted off real job-row writes, not
-a simulated event bus.
+driver mocks, `.test.ts` in the node vitest project. A real device session
+minted through `internalAdapter.createSession()` authenticates real requests
+against real route handlers; SSE assertions read real chunks emitted off real
+job-row writes, not a simulated event bus.
 
 ## Resolved: the nine original open questions
 
 For traceability against `nextjs-13-client-api.md`'s list:
 
 1. **Endpoint surface/shapes** — §3.
-2. **Auth / per-device session model** — §1: webview login + Better Auth API
-   keys, not cookie sessions and not a bespoke device-credential system.
+2. **Auth / per-device session model** — §1: webview login + a dedicated
+   Better Auth session per device, not the browser's cookie session and not a
+   bespoke device-credential system.
 3. **Incremental sync** — §3: unified `sync` endpoint, opaque cursor over
    `(createdAt, id)` for new rows and `(updatedAt, id)` for changed rows.
 4. **Read/starred reconciliation** — §3: last-write-wins, no per-device state,
