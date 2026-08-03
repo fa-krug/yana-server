@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { buildListHref } from "@/lib/crud/params";
-import { hexForTagColor } from "@/lib/tags/colors";
+import { TagColorDot } from "@/components/tags/tag-color-dot";
 
 /** How long typing pauses before the search becomes a navigation. */
 const DEBOUNCE_MS = 300;
@@ -109,13 +109,7 @@ export function SearchFilterBar({
           <SelectContent>
             {spec.options.map((option) => (
               <SelectItem key={option.value} value={option.value}>
-                {option.color && (
-                  <span
-                    aria-hidden="true"
-                    className="mr-2 inline-block size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: hexForTagColor(option.color) }}
-                  />
-                )}
+                {option.color && <TagColorDot color={option.color} className="mr-2 size-2" />}
                 {option.label}
               </SelectItem>
             ))}
