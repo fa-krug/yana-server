@@ -119,7 +119,7 @@ export class MerkurAggregator extends FullWebsiteAggregator {
     return extracted;
   }
 
-  override processContent(html: string, article: RawArticle): string {
+  override processContent(html: string, article: RawArticle): string | Promise<string> {
     const options = (this.feed.options as Record<string, unknown> | null) || {};
     const removeEmpty = options.remove_empty_elements !== false;
 

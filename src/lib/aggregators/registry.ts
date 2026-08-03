@@ -11,6 +11,7 @@ import { ArsTechnicaAggregator } from "./sites/ars_technica";
 import { CaschysBlogAggregator } from "./sites/caschys_blog";
 import { DarkLegacyAggregator } from "./sites/dark_legacy";
 import { ExplosmAggregator } from "./sites/explosm";
+import { HeiseAggregator } from "./sites/heise";
 import { MactechnewsAggregator } from "./sites/mactechnews/aggregator";
 import { MerkurAggregator } from "./sites/merkur";
 import { OglafAggregator } from "./sites/oglaf";
@@ -39,6 +40,7 @@ export const IMPLEMENTED_AGGREGATORS: Record<string, AggregatorClass | undefined
   ars_technica: ArsTechnicaAggregator as unknown as AggregatorClass,
   mactechnews: MactechnewsAggregator as unknown as AggregatorClass,
   tagesschau: TagesschauAggregator as unknown as AggregatorClass,
+  heise: HeiseAggregator as unknown as AggregatorClass,
 };
 
 export class AggregatorRegistry {

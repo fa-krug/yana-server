@@ -74,7 +74,7 @@ export class CaschysBlogAggregator extends FullWebsiteAggregator {
     return result;
   }
 
-  override processContent(html: string, article: RawArticle): string {
+  override processContent(html: string, article: RawArticle): string | Promise<string> {
     const $ = cheerio.load(html);
     const baseUrl = article.identifier;
 

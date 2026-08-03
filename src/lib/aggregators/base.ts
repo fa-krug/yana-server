@@ -191,7 +191,7 @@ export abstract class BaseAggregator {
     return html;
   }
 
-  processContent(content: string, _article: RawArticle): string {
+  processContent(content: string, _article: RawArticle): string | Promise<string> {
     return content;
   }
 

@@ -227,24 +227,23 @@ export class TagesschauAggregator extends FullWebsiteAggregator {
     return mediaHeader;
   }
 
-  override processContent(html: string, article: RawArticle): string {
+  override async processContent(html: string, article: RawArticle): Promise<string> {
     const art = article as any;
     const rawHtml = article.raw_content || "";
     const mediaHeader = this.mediaHeader(rawHtml, article);
-    delete art._tagesschau_media_header;
-
     const headerData = article.header_data;
     if (mediaHeader && headerData) {
-      article.header_data = undefined;
+      art.header_data = null;
     }
 
     let processed: string;
     try {
-      processed = super.processContent(html, article);
+      processed = await super.processContent(html, article);
     } finally {
       if (mediaHeader && headerData) {
         article.header_data = headerData;
       }
+      delete art._tagesschau_media_header;
     }
 
     if (mediaHeader) {

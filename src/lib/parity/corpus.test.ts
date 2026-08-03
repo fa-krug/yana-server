@@ -18,7 +18,6 @@ import {
  * Every entry MUST have a comment indicating which phase will unskip it.
  */
 const SKIP_LIST: string[] = [
-  "heise/basic", // unskipped in 11c (scrapers)
   "mein_mmo/basic", // unskipped in 11c (scrapers)
   "mein_mmo/combined-pages", // unskipped in 11c (scrapers)
   "podcast/basic", // unskipped in 11b (embeds)
@@ -65,7 +64,7 @@ describe("golden corpus parity", () => {
         }
 
         const extracted = agg.extractContent(fixtureContent, rawArticle);
-        const processed = agg.processContent(extracted, rawArticle);
+        const processed = await agg.processContent(extracted, rawArticle);
         const blocks = parseBlocks(processed);
         const wireDoc = encodeDocument(blocks);
         const plainText = plainTextOf(blocks);

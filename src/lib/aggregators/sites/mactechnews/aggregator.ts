@@ -136,7 +136,7 @@ export class MactechnewsAggregator extends FullWebsiteAggregator {
     return combinedHtml;
   }
 
-  override processContent(html: string, article: RawArticle): string {
+  override processContent(html: string, article: RawArticle): string | Promise<string> {
     const $ = cheerio.load(html);
     const baseUrl = article.identifier;
 

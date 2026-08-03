@@ -69,7 +69,7 @@ export class OglafAggregator extends FullWebsiteAggregator {
     return null;
   }
 
-  override processContent(htmlContent: string, article: RawArticle): string {
+  override processContent(htmlContent: string, article: RawArticle): string | Promise<string> {
     const options = (this.feed.options as Record<string, unknown> | null) || {};
     const showAltText = options.show_alt_text !== false;
 

@@ -125,7 +125,7 @@ export class FullWebsiteAggregator extends RssAggregator {
     return extracted;
   }
 
-  processContent(html: string, article: RawArticle): string {
+  processContent(html: string, article: RawArticle): string | Promise<string> {
     const $ = cheerio.load(html);
 
     proxyYoutubeEmbeds($);
@@ -158,7 +158,7 @@ export class FullWebsiteAggregator extends RssAggregator {
         article.raw_content = rawHtml;
 
         const content = this.extractContent(rawHtml, article);
-        const processed = this.processContent(content, article);
+        const processed = await this.processContent(content, article);
         article.content = processed;
 
         enriched.push(article);
