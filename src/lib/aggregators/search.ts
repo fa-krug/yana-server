@@ -1,3 +1,5 @@
+"use server";
+
 import type { AggregatorKey } from "@/lib/db/schema/enums";
 import type { NamespaceKey } from "@/i18n/next-intl";
 import { PROBE_TIMEOUT_MS, readJson, transportFailure } from "@/lib/integrations/probe";
@@ -76,7 +78,12 @@ async function searchYoutubeChannels(
     const searchResponse = await fetch(searchUrl, {
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
-    if (!searchResponse.ok) return UNAVAILABLE;
+    if (!searchResponse.ok) {
+      // A fixed sentence plus the status number only -- same no-echo rule the
+      // probes follow: a body can replay the submitted API key straight back.
+      console.warn(`youtube search.list returned an unexpected status (${searchResponse.status}).`);
+      return UNAVAILABLE;
+    }
 
     const searchBody = (await readJson(searchResponse)) as YoutubeSearchResponse | null;
     const channelIds = (searchBody?.items ?? [])
@@ -93,7 +100,12 @@ async function searchYoutubeChannels(
     const channelsResponse = await fetch(channelsUrl, {
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
-    if (!channelsResponse.ok) return UNAVAILABLE;
+    if (!channelsResponse.ok) {
+      console.warn(
+        `youtube channels.list returned an unexpected status (${channelsResponse.status}).`,
+      );
+      return UNAVAILABLE;
+    }
 
     const channelsBody = (await readJson(channelsResponse)) as YoutubeChannelsResponse | null;
     const results = (channelsBody?.items ?? [])
@@ -147,7 +159,10 @@ async function searchSubreddits(
       },
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
-    if (!response.ok) return UNAVAILABLE;
+    if (!response.ok) {
+      console.warn(`reddit subreddits/search returned an unexpected status (${response.status}).`);
+      return UNAVAILABLE;
+    }
 
     const body = (await readJson(response)) as RedditSearchResponse | null;
     const results = (body?.data?.children ?? [])
