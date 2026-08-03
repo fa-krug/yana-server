@@ -13,6 +13,7 @@ import { DarkLegacyAggregator } from "./sites/dark_legacy";
 import { ExplosmAggregator } from "./sites/explosm";
 import { HeiseAggregator } from "./sites/heise";
 import { MactechnewsAggregator } from "./sites/mactechnews/aggregator";
+import { MeinMmoAggregator } from "./sites/mein_mmo/aggregator";
 import { MerkurAggregator } from "./sites/merkur";
 import { OglafAggregator } from "./sites/oglaf";
 import { TagesschauAggregator } from "./sites/tagesschau/aggregator";
@@ -41,6 +42,7 @@ export const IMPLEMENTED_AGGREGATORS: Record<string, AggregatorClass | undefined
   mactechnews: MactechnewsAggregator as unknown as AggregatorClass,
   tagesschau: TagesschauAggregator as unknown as AggregatorClass,
   heise: HeiseAggregator as unknown as AggregatorClass,
+  mein_mmo: MeinMmoAggregator as unknown as AggregatorClass,
 };
 
 export class AggregatorRegistry {

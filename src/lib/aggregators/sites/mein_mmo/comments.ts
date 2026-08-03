@@ -1,0 +1,132 @@
+import * as cheerio from "cheerio";
+import type { Element } from "domhandler";
+import { isSafeUrl } from "../../blocks/parser";
+import { cleanHtml, removeSanitizedAttributes, sanitizeHtmlAttributes } from "../../extract/clean";
+import { escapeHtml } from "../../extract/format";
+
+function commentLink(url: string, label: string): string {
+  if (isSafeUrl(url)) {
+    return `<a href="${escapeHtml(url)}">${label}</a>`;
+  }
+  return label;
+}
+
+function sanitizeCommentHtml(contentHtml: string): string {
+  const $ = cheerio.load(cleanHtml(contentHtml));
+  sanitizeHtmlAttributes($);
+  removeSanitizedAttributes($);
+
+  $("a").each((_, tag) => {
+    const href = $(tag).attr("href");
+    if (href && !isSafeUrl(href)) {
+      $(tag).removeAttr("href");
+    }
+  });
+
+  $("img").each((_, tag) => {
+    const src = $(tag).attr("src");
+    if (src && !isSafeUrl(src)) {
+      $(tag).remove();
+    }
+  });
+
+  const body = $("body");
+  return body.length > 0 ? body.html() || "" : $.html();
+}
+
+function processComment(
+  commentEl: cheerio.Cheerio<Element>,
+  articleUrl: string,
+  _$: cheerio.CheerioAPI,
+): string | null {
+  let author = "Unknown";
+  const authorEl = commentEl.find("div.wpd-comment-author").first();
+  if (authorEl.length > 0) {
+    const link = authorEl.find("a").first();
+    const text = link.length > 0 ? link.text().trim() : authorEl.text().trim();
+    if (text) {
+      author = text;
+    }
+  }
+
+  let timestamp = "";
+  const dateEl = commentEl.find("div.wpd-comment-date").first();
+  if (dateEl.length > 0) {
+    const titleAttr = dateEl.attr("title");
+    timestamp = titleAttr ? titleAttr.trim() : dateEl.text().trim();
+  }
+
+  const textEl = commentEl.find("div.wpd-comment-text").first();
+  if (textEl.length === 0) {
+    return null;
+  }
+
+  const commentText = textEl.html() || "";
+  if (!commentText.trim()) {
+    return null;
+  }
+
+  let anchorUrl = `${articleUrl}#comments`;
+  const rightEl = commentEl.find("div.wpd-comment-right").first();
+  if (rightEl.length > 0) {
+    const commentId = rightEl.attr("id");
+    if (commentId) {
+      anchorUrl = `${articleUrl}#${commentId}`;
+    }
+  }
+
+  const tsDisplay = timestamp ? ` (${escapeHtml(timestamp)})` : "";
+
+  return (
+    `<blockquote>` +
+    `<p><strong>${escapeHtml(author)}</strong>${tsDisplay} | ` +
+    `${commentLink(anchorUrl, "source")}</p>` +
+    `<div>${sanitizeCommentHtml(commentText)}</div>` +
+    `</blockquote>`
+  );
+}
+
+/**
+ * Extract wpDiscuz comments from a Mein-MMO article page.
+ *
+ * @param html - Full article page HTML
+ * @param articleUrl - Article URL for building anchor links
+ * @param maxComments - Maximum number of comments to extract
+ * @returns HTML string with formatted comments, or null if no comments found
+ */
+export function extractComments(html: string, articleUrl: string, maxComments = 5): string | null {
+  if (maxComments <= 0) {
+    return null;
+  }
+
+  const $ = cheerio.load(html);
+
+  const thread = $("div.wpd-thread-list").first();
+  if (thread.length === 0) {
+    return null;
+  }
+
+  const comments = thread.find("div.wpd-comment");
+  if (comments.length === 0) {
+    return null;
+  }
+
+  const commentParts: string[] = [];
+  const limit = Math.min(comments.length, maxComments);
+
+  for (let i = 0; i < limit; i++) {
+    const commentEl = $(comments.get(i)!);
+    const commentHtml = processComment(commentEl, articleUrl, $);
+    if (commentHtml) {
+      commentParts.push(commentHtml);
+    }
+  }
+
+  if (commentParts.length === 0) {
+    return null;
+  }
+
+  const commentsUrl = `${articleUrl}#comments`;
+  const header = `<h3>${commentLink(commentsUrl, "Comments")}</h3>`;
+  return `<section>${header}${commentParts.join("")}</section>`;
+}
