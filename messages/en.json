@@ -179,11 +179,26 @@
     },
     "form": {
       "name": "Name",
+      "color": "Color",
       "create": "Create tag",
       "save": "Save tag",
       "cancel": "Cancel",
       "created": "Tag created",
       "saved": "Tag saved"
+    },
+    "colors": {
+      "red": "Red",
+      "orange": "Orange",
+      "amber": "Amber",
+      "yellow": "Yellow",
+      "lime": "Lime",
+      "green": "Green",
+      "teal": "Teal",
+      "cyan": "Cyan",
+      "blue": "Blue",
+      "indigo": "Indigo",
+      "violet": "Violet",
+      "pink": "Pink"
     },
     "deleteAction": "Delete tag",
     "deleteConfirm": "Delete",

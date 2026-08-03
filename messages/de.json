@@ -179,11 +179,26 @@
     },
     "form": {
       "name": "Name",
+      "color": "Farbe",
       "create": "Tag anlegen",
       "save": "Tag speichern",
       "cancel": "Abbrechen",
       "created": "Tag angelegt",
       "saved": "Tag gespeichert"
+    },
+    "colors": {
+      "red": "Rot",
+      "orange": "Orange",
+      "amber": "Bernstein",
+      "yellow": "Gelb",
+      "lime": "Limette",
+      "green": "Grün",
+      "teal": "Türkis",
+      "cyan": "Cyan",
+      "blue": "Blau",
+      "indigo": "Indigo",
+      "violet": "Violett",
+      "pink": "Pink"
     },
     "deleteAction": "Tag löschen",
     "deleteConfirm": "Löschen",

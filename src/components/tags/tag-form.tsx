@@ -11,7 +11,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 import { createTag, deleteTags, updateTag } from "@/lib/tags/actions";
+import { DEFAULT_TAG_COLOR, TAG_COLOR_KEYS, hexForTagColor } from "@/lib/tags/colors";
 import { attempt, type TagsKey } from "@/lib/tags/result";
+import { cn } from "@/lib/utils";
 import type { Tag } from "@/lib/db/schema";
 import { useTagUsage } from "./use-tag-usage";
 
@@ -21,6 +23,7 @@ export function TagForm({ tag }: { tag?: Tag }) {
   const router = useRouter();
 
   const [name, setName] = useState(tag?.name ?? "");
+  const [color, setColor] = useState<string>(tag?.color ?? DEFAULT_TAG_COLOR);
   const [pending, start] = useTransition();
   const usage = useTagUsage(tag ? [tag.id] : []);
 
@@ -33,14 +36,14 @@ export function TagForm({ tag }: { tag?: Tag }) {
 
     start(async () => {
       if (tag) {
-        const result = await attempt(() => updateTag(tag.id, { name }));
+        const result = await attempt(() => updateTag(tag.id, { name, color }));
         if (!result.ok) return failed(result.errorKey);
         toast.success(t("form.saved"));
         router.refresh();
         return;
       }
 
-      const result = await attempt(() => createTag({ name }));
+      const result = await attempt(() => createTag({ name, color }));
       if (!result.ok) return failed(result.errorKey);
       toast.success(t("form.created"));
       router.replace("/tags");
@@ -84,6 +87,28 @@ export function TagForm({ tag }: { tag?: Tag }) {
             disabled={pending}
             className="max-w-md"
           />
+        </div>
+
+        <div className="grid gap-2">
+          <Label>{t("form.color")}</Label>
+          <div role="radiogroup" aria-label={t("form.color")} className="flex flex-wrap gap-2">
+            {TAG_COLOR_KEYS.map((key) => (
+              <button
+                key={key}
+                type="button"
+                role="radio"
+                aria-checked={color === key}
+                aria-label={t(`colors.${key}`)}
+                disabled={pending}
+                onClick={() => setColor(key)}
+                className={cn(
+                  "size-7 rounded-full border-2 transition-colors",
+                  color === key ? "border-foreground" : "border-transparent",
+                )}
+                style={{ backgroundColor: hexForTagColor(key) }}
+              />
+            ))}
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-2">
