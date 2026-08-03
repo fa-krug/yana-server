@@ -21,10 +21,7 @@ import { cn } from "@/lib/utils";
  * `AutocompleteRoot`'s two real overloads when spread; this component only ever
  * renders flat search results, never grouped ones.
  */
-type AutocompleteProps<ItemValue> = Omit<
-  AutocompletePrimitive.Root.Props<ItemValue>,
-  "items"
-> & {
+type AutocompleteProps<ItemValue> = Omit<AutocompletePrimitive.Root.Props<ItemValue>, "items"> & {
   items?: readonly ItemValue[];
 };
 
