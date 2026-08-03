@@ -4,7 +4,7 @@ import { getTranslations } from "next-intl/server";
 
 import { AdvancedSection } from "@/components/ai/advanced-section";
 import { ProviderSection } from "@/components/ai/provider-section";
-import { CardSkeleton } from "@/components/data-skeleton";
+import { CardSkeletonGroup } from "@/components/data-skeleton";
 import { getAiStatus } from "@/lib/ai/queries";
 
 /**
@@ -51,7 +51,7 @@ export default async function AiPage() {
         <h1 className="text-2xl font-semibold">{t("title")}</h1>
         <p className="text-sm text-muted-foreground">{t("description")}</p>
       </div>
-      <Suspense fallback={<CardSkeleton />}>
+      <Suspense fallback={<CardSkeletonGroup count={2} />}>
         <Sections />
       </Suspense>
     </div>

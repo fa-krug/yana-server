@@ -1,9 +1,5 @@
 {
-  "dashboard": {
-    "librarySummary": "Aufbewahrung {days} Tage · Aktualisierung alle {minutes} Minuten"
-  },
   "nav": {
-    "dashboard": "Übersicht",
     "feeds": "Feeds",
     "articles": "Artikel",
     "tags": "Tags",

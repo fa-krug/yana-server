@@ -2,7 +2,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 
-import { CardSkeleton } from "@/components/data-skeleton";
+import { CardSkeletonGroup } from "@/components/data-skeleton";
 import { RedditSection } from "@/components/integrations/reddit-section";
 import { YoutubeSection } from "@/components/integrations/youtube-section";
 import { getIntegrationStatus } from "@/lib/integrations/queries";
@@ -45,7 +45,7 @@ export default async function IntegrationsPage() {
         <h1 className="text-2xl font-semibold">{t("title")}</h1>
         <p className="text-sm text-muted-foreground">{t("description")}</p>
       </div>
-      <Suspense fallback={<CardSkeleton />}>
+      <Suspense fallback={<CardSkeletonGroup count={2} />}>
         <Sections />
       </Suspense>
     </div>

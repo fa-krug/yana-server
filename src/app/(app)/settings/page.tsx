@@ -2,7 +2,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 
-import { CardSkeleton } from "@/components/data-skeleton";
+import { CardSkeletonGroup } from "@/components/data-skeleton";
 import { AboutSection } from "@/components/settings/about-section";
 import { GeneralSection } from "@/components/settings/general-section";
 import { LibrarySection } from "@/components/settings/library-section";
@@ -41,7 +41,7 @@ export default async function SettingsPage() {
   return (
     <div className="max-w-2xl space-y-6">
       <h1 className="text-2xl font-semibold">{t("title")}</h1>
-      <Suspense fallback={<CardSkeleton />}>
+      <Suspense fallback={<CardSkeletonGroup count={3} />}>
         <Sections />
       </Suspense>
     </div>

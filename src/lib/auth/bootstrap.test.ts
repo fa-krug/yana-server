@@ -120,8 +120,8 @@ describe("ensureAdminExists", () => {
 
   it("creates the user_settings row the app needs to render at all", async () => {
     // getSettings() throws when this row is absent, by design (no
-    // insert-if-absent fallback), so without it the dashboard and /settings
-    // both fail on a fresh instance -- and nothing else creates it.
+    // insert-if-absent fallback), so without it every route fails on a fresh
+    // instance -- and nothing else creates it.
     await bootstrap.ensureAdminExists();
 
     const settings = all<{ user_id: string; language: string }>(

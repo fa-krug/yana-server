@@ -48,7 +48,7 @@ export function AppSidebar({ isAdmin, user }: { isAdmin: boolean; user: SidebarU
                     the target element goes in `render`, contents stay as children. */}
                 <SidebarMenuButton
                   render={<Link href={item.href} />}
-                  isActive={item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)}
+                  isActive={pathname.startsWith(item.href)}
                 >
                   <item.icon />
                   <span>{t(item.labelKey)}</span>

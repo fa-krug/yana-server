@@ -1,6 +1,5 @@
 import {
   Bot,
-  LayoutDashboard,
   Newspaper,
   Plug,
   Rss,
@@ -31,9 +30,8 @@ export type NavItem = {
 
 /** The single source for both sidebar navigation and breadcrumb labels. */
 export const NAV_ITEMS: readonly NavItem[] = [
-  { href: "/", labelKey: "nav.dashboard", icon: LayoutDashboard, adminOnly: false },
-  { href: "/feeds", labelKey: "nav.feeds", icon: Rss, adminOnly: false },
   { href: "/articles", labelKey: "nav.articles", icon: Newspaper, adminOnly: false },
+  { href: "/feeds", labelKey: "nav.feeds", icon: Rss, adminOnly: false },
   { href: "/tags", labelKey: "nav.tags", icon: Tags, adminOnly: false },
   { href: "/users", labelKey: "nav.users", icon: Users, adminOnly: true },
   { href: "/integrations", labelKey: "nav.integrations", icon: Plug, adminOnly: false },
@@ -100,7 +98,7 @@ export type Crumb = { href: string; labelKey: CrumbLabelKey } | { href: string; 
  */
 export function breadcrumbsFor(pathname: string): Crumb[] {
   const segments = pathname.split("/").filter(Boolean);
-  const crumbs: Crumb[] = [{ href: "/", labelKey: "nav.dashboard" }];
+  const crumbs: Crumb[] = [];
 
   let href = "";
   for (const segment of segments) {

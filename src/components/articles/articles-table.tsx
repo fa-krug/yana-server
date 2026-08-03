@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 import { useState } from "react";
 import { toast } from "sonner";
 import { StarIcon } from "lucide-react";
@@ -27,13 +27,9 @@ export function ArticlesTable({
   total: number;
 }) {
   const t = useTranslations("articles");
+  const format = useFormatter();
   const router = useRouter();
   const [selected, setSelected] = useState<number[]>([]);
-
-  const formatDate = (d: Date | string | number) => {
-    const dateObj = new Date(d);
-    return Number.isNaN(dateObj.getTime()) ? "-" : dateObj.toLocaleDateString();
-  };
 
   const columns: Column<ArticleListRow>[] = [
     {
@@ -81,13 +77,26 @@ export function ArticlesTable({
       key: "date",
       header: t("columns.date"),
       sortable: true,
-      cell: (row) => <span className="text-muted-foreground">{formatDate(row.date)}</span>,
+      cell: (row) => (
+        <span className="text-muted-foreground">
+          {format.dateTime(row.date, { dateStyle: "medium" })}
+        </span>
+      ),
     },
     {
       key: "createdAt",
       header: t("columns.added"),
       sortable: true,
-      cell: (row) => <span className="text-muted-foreground">{formatDate(row.createdAt)}</span>,
+      // next-intl's formatter, not toLocaleDateString(): the locale is the one
+      // this request resolved and the time zone is the one configured in
+      // src/i18n/request.ts, so the server and the browser print the same day
+      // -- a raw toLocaleDateString() here is what caused a hydration mismatch
+      // whenever the two disagreed (e.g. server "7.6.2026" vs. browser "6/7/2026").
+      cell: (row) => (
+        <span className="text-muted-foreground">
+          {format.dateTime(row.createdAt, { dateStyle: "medium" })}
+        </span>
+      ),
     },
   ];
 

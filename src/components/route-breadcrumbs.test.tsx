@@ -24,8 +24,8 @@ describe("RouteBreadcrumbs", () => {
 
     expect(container.querySelectorAll("li li")).toHaveLength(0);
     // Guards the assertion above: with no separators rendered at all it would
-    // pass vacuously. Three crumbs means two separators, five <li> in total.
-    expect(container.querySelectorAll("li")).toHaveLength(5);
+    // pass vacuously. Two crumbs means one separator, three <li> in total.
+    expect(container.querySelectorAll("li")).toHaveLength(3);
   });
 
   it("translates known routes and shows an unknown segment verbatim", () => {
@@ -35,7 +35,7 @@ describe("RouteBreadcrumbs", () => {
     setPathname("/articles/42");
     const { container } = renderWithProviders(<RouteBreadcrumbs />, { locale: "de" });
 
-    expect(itemTexts(container)).toEqual(["Übersicht", "Artikel", "42"]);
+    expect(itemTexts(container)).toEqual(["Artikel", "42"]);
   });
 
   it("translates an action segment rather than echoing the URL", () => {
@@ -45,6 +45,6 @@ describe("RouteBreadcrumbs", () => {
     setPathname("/tags/new");
     const { container } = renderWithProviders(<RouteBreadcrumbs />, { locale: "de" });
 
-    expect(itemTexts(container)).toEqual(["Übersicht", "Tags", "Neu"]);
+    expect(itemTexts(container)).toEqual(["Tags", "Neu"]);
   });
 });

@@ -42,9 +42,9 @@ export default getRequestConfig(async () => {
   // bootstrap seed is memoized per process, so that state persists until a
   // restart. Locale resolution must never be able to take the application
   // down over it -- an English UI is a far better failure mode than a blank
-  // error page. This is the only place the read is allowed to degrade; the
-  // dashboard and /settings still surface the real error through their own
-  // error boundary.
+  // error page. This is the only place the read is allowed to degrade; every
+  // other page's own getSettings() call still surfaces the real error through
+  // its error boundary.
   let locale: AppLocale = FALLBACK_LOCALE;
   try {
     const settings = await getSettings();

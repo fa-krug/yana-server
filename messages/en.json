@@ -1,9 +1,5 @@
 {
-  "dashboard": {
-    "librarySummary": "Retention {days} days · updates every {minutes} minutes"
-  },
   "nav": {
-    "dashboard": "Dashboard",
     "feeds": "Feeds",
     "articles": "Articles",
     "tags": "Tags",

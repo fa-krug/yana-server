@@ -40,8 +40,8 @@ const FALLBACK_THEME = "system";
  * so that state survives until a restart. The value is only a pre-hydration
  * default for next-themes, so falling back costs at most a wrong first paint;
  * propagating costs the whole application. Deliberately limited to this one
- * call: the dashboard's and /settings' own reads of getSettings() still throw
- * and surface a real error through the error boundary.
+ * call: /settings' own read of getSettings() still throws and surfaces a real
+ * error through the error boundary.
  */
 async function themePreference(): Promise<string> {
   try {

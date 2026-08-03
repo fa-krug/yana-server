@@ -5,7 +5,7 @@ import { getTranslations } from "next-intl/server";
 import { PasskeySection } from "@/components/account/passkey-section";
 import { PasswordSection } from "@/components/account/password-section";
 import { ProfileSection } from "@/components/account/profile-section";
-import { CardSkeleton } from "@/components/data-skeleton";
+import { CardSkeletonGroup } from "@/components/data-skeleton";
 import { getAccountOverview } from "@/lib/account/queries";
 
 /**
@@ -60,7 +60,7 @@ export default async function AccountPage() {
   return (
     <div className="max-w-2xl space-y-6">
       <h1 className="text-2xl font-semibold">{t("title")}</h1>
-      <Suspense fallback={<CardSkeleton />}>
+      <Suspense fallback={<CardSkeletonGroup count={3} />}>
         <Sections />
       </Suspense>
     </div>
