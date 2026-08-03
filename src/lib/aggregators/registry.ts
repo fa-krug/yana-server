@@ -14,6 +14,7 @@ import { ExplosmAggregator } from "./sites/explosm";
 import { MactechnewsAggregator } from "./sites/mactechnews/aggregator";
 import { MerkurAggregator } from "./sites/merkur";
 import { OglafAggregator } from "./sites/oglaf";
+import { TagesschauAggregator } from "./sites/tagesschau/aggregator";
 import { TheVergeAggregator } from "./sites/the_verge";
 import { FullWebsiteAggregator } from "./website";
 
@@ -37,6 +38,7 @@ export const IMPLEMENTED_AGGREGATORS: Record<string, AggregatorClass | undefined
   the_verge: TheVergeAggregator as unknown as AggregatorClass,
   ars_technica: ArsTechnicaAggregator as unknown as AggregatorClass,
   mactechnews: MactechnewsAggregator as unknown as AggregatorClass,
+  tagesschau: TagesschauAggregator as unknown as AggregatorClass,
 };
 
 export class AggregatorRegistry {

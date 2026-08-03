@@ -1,0 +1,275 @@
+import crypto from "node:crypto";
+import * as cheerio from "cheerio";
+import type { Element } from "domhandler";
+import { isSafeUrl } from "../../blocks/parser";
+import { escapeHtml } from "../../extract/format";
+import { buildImageRef, IMAGE_REF_SCHEME } from "../../images/store";
+
+export function storeImageRefFromUrlSync(url: string): string | null {
+  if (!url || !isSafeUrl(url)) return null;
+  const hash = crypto.createHash("sha256").update(url).digest("hex");
+  return buildImageRef(hash);
+}
+
+function localizeImageUrl(imageUrl: string | null): string | null {
+  if (!imageUrl || !imageUrl.startsWith("http")) {
+    return imageUrl;
+  }
+  try {
+    const ref = storeImageRefFromUrlSync(imageUrl);
+    if (ref) {
+      return ref;
+    }
+  } catch (err) {
+    console.warn(`Failed to store Tagesschau header image ${imageUrl}:`, err);
+  }
+  return imageUrl;
+}
+
+function safeImageSrc(imageUrl: string | null): string | null {
+  if (!imageUrl) return null;
+  if (imageUrl.startsWith(IMAGE_REF_SCHEME)) {
+    return imageUrl;
+  }
+  if (!isSafeUrl(imageUrl)) {
+    return null;
+  }
+  return escapeHtml(imageUrl);
+}
+
+function parsePlayerData(dataV: string): any {
+  const decoded = dataV
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+  return JSON.parse(decoded);
+}
+
+function getPlayerImageFromMetadata(mc: any): string | null {
+  const fields = ["poster", "image", "thumbnail", "preview", "cover"];
+
+  for (const field of fields) {
+    if (mc[field] && typeof mc[field] === "string") {
+      return mc[field];
+    }
+  }
+
+  const streams = Array.isArray(mc.streams) ? mc.streams : [];
+  for (const stream of streams) {
+    for (const field of fields) {
+      if (stream[field] && typeof stream[field] === "string") {
+        return stream[field];
+      }
+    }
+  }
+
+  return null;
+}
+
+function getPlayerImageFromDom($: cheerio.CheerioAPI, playerDiv: Element): string | null {
+  const $player = $(playerDiv);
+  const $parent = $player.parent();
+  if ($parent.length > 0) {
+    const $img = $parent.find("img").first();
+    if ($img.length > 0) {
+      const src = $img.attr("src");
+      if (src) return src;
+    }
+  }
+
+  const $prev = $player.prev();
+  if ($prev.length > 0) {
+    const $img = $prev.find("img").first();
+    if ($img.length > 0) {
+      const src = $img.attr("src");
+      if (src) return src;
+    }
+  }
+
+  return null;
+}
+
+function getPlayerImage($: cheerio.CheerioAPI, playerDiv: Element, mc: any): string | null {
+  let imageUrl = getPlayerImageFromMetadata(mc);
+  if (!imageUrl) {
+    imageUrl = getPlayerImageFromDom($, playerDiv);
+  }
+
+  if (imageUrl) {
+    if (imageUrl.startsWith("//")) {
+      return "https:" + imageUrl;
+    }
+    if (imageUrl.startsWith("/")) {
+      return "https://www.tagesschau.de" + imageUrl;
+    }
+  }
+
+  return imageUrl;
+}
+
+function buildHeaderFromEmbedCode(
+  embedCode: string,
+  isAudioOnly: boolean,
+  imageUrl: string | null,
+): string | null {
+  const decoded = embedCode
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+
+  const $ = cheerio.load(decoded);
+  const $iframe = $("iframe").first();
+  if ($iframe.length === 0) return null;
+
+  let src = $iframe.attr("src");
+  if (!src) return null;
+
+  src = src.replace("$params$", "");
+  if (src.startsWith("//")) {
+    src = "https:" + src;
+  } else if (src.startsWith("/")) {
+    src = "https://www.tagesschau.de" + src;
+  }
+
+  if (!isSafeUrl(src)) {
+    return null;
+  }
+
+  const safeSrc = escapeHtml(src);
+  const height = isAudioOnly ? "200" : "315";
+  const playerHtml =
+    `<div class="media-player" style="width: 100%;">` +
+    `<iframe src="${safeSrc}" width="100%" height="${height}" ` +
+    `frameborder="0" allowfullscreen scrolling="no"></iframe>` +
+    `</div>`;
+
+  const safeImage = safeImageSrc(imageUrl);
+  if (isAudioOnly && safeImage) {
+    const imgPart =
+      `<div class="media-image"><img src="${safeImage}" alt="Article image" ` +
+      `style="max-width: 100%; height: auto; border-radius: 8px;"></div>`;
+    return `<header class="media-header">${imgPart}${playerHtml}</header>`;
+  }
+
+  return `<header class="media-header">${playerHtml}</header>`;
+}
+
+function findMediaByMimeType(
+  streams: any[],
+  mediaType: string,
+): { url: string; mime_type: string } | null {
+  for (const stream of streams) {
+    const mediaList = Array.isArray(stream.media) ? stream.media : [];
+    for (const media of mediaList) {
+      const url = media.url;
+      const mimeType = media.mimeType || "";
+      if (
+        url &&
+        typeof url === "string" &&
+        mimeType.toLowerCase().includes(mediaType) &&
+        isSafeUrl(url)
+      ) {
+        return {
+          url: escapeHtml(url),
+          mime_type: escapeHtml(mimeType),
+        };
+      }
+    }
+  }
+  return null;
+}
+
+function buildHeaderFromStreams(
+  streams: any[],
+  isAudioOnly: boolean,
+  imageUrl: string | null,
+): string | null {
+  const safeImage = safeImageSrc(imageUrl);
+  if (isAudioOnly) {
+    const audioMedia = findMediaByMimeType(streams, "audio");
+    if (audioMedia) {
+      const imgPart = safeImage
+        ? `<div class="media-image"><img src="${safeImage}" alt="Article image" style="max-width: 100%; height: auto; border-radius: 8px;"></div>`
+        : "";
+      return (
+        `<header class="media-header">${imgPart}` +
+        `<div class="media-player" style="width: 100%;">` +
+        `<audio controls preload="auto" style="width: 100%;">` +
+        `<source src="${audioMedia.url}" type="${audioMedia.mime_type}">` +
+        `Your browser does not support the audio element.` +
+        `</audio></div></header>`
+      );
+    }
+  } else {
+    const videoMedia = findMediaByMimeType(streams, "video");
+    if (videoMedia) {
+      const posterAttr = safeImage ? ` poster="${safeImage}"` : "";
+      return (
+        `<header class="media-header">` +
+        `<div class="media-player" style="width: 100%;">` +
+        `<video controls preload="auto"${posterAttr} style="width: 100%;">` +
+        `<source src="${videoMedia.url}" type="${videoMedia.mime_type}">` +
+        `Your browser does not support the video element.` +
+        `</video></div></header>`
+      );
+    }
+  }
+  return null;
+}
+
+export function extractMediaHeader(html: string): string | null {
+  const $ = cheerio.load(html);
+  const mediaPlayers: Element[] = [];
+
+  $('div[data-v-type="MediaPlayer"]').each((_, div) => {
+    const classAttr = $(div).attr("class") || "";
+    const classes = classAttr.split(/\s+/).filter(Boolean);
+    if (classes.some((c) => c.toLowerCase().includes("mediaplayer"))) {
+      mediaPlayers.push(div);
+    }
+  });
+
+  const teaserPlayers = mediaPlayers.filter((p) => {
+    const classAttr = $(p).attr("class") || "";
+    const classes = classAttr.split(/\s+/).filter(Boolean);
+    return classes.some((c) => c.toLowerCase().includes("teaser-top"));
+  });
+
+  const players = teaserPlayers.length > 0 ? teaserPlayers : mediaPlayers;
+
+  for (const playerDiv of players) {
+    const dataV = $(playerDiv).attr("data-v");
+    if (!dataV) continue;
+
+    try {
+      const playerData = parsePlayerData(dataV);
+      const mc = playerData.mc || {};
+      const streams = Array.isArray(mc.streams) ? mc.streams : [];
+
+      const isAudioOnly =
+        streams.length > 0 && streams.every((s: any) => s.isAudioOnly === true);
+      const rawImage = getPlayerImage($, playerDiv, mc);
+      const imageUrl = localizeImageUrl(rawImage);
+
+      const pluginData = playerData.pluginData || {};
+      const sharingWeb = pluginData["sharing@web"] || {};
+      const embedCode = sharingWeb.embedCode;
+
+      if (embedCode) {
+        const result = buildHeaderFromEmbedCode(embedCode, isAudioOnly, imageUrl);
+        if (result) return result;
+      }
+
+      const result = buildHeaderFromStreams(streams, isAudioOnly, imageUrl);
+      if (result) return result;
+    } catch {
+      // ignore parse error
+    }
+  }
+
+  return null;
+}
