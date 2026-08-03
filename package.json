@@ -23,6 +23,7 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "seed:feeds": "tsx scripts/seed-feeds.ts",
     "aggregator": "tsx scripts/aggregator.ts",
     "aggregator:full_website": "tsx scripts/aggregator.ts full_website",
     "aggregator:feed_content": "tsx scripts/aggregator.ts feed_content",
