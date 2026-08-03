@@ -1,35 +1,111 @@
-{
-  "data": {
-    "children": [
-      {
-        "data": {
-          "id": "test123",
-          "title": "Test Reddit Post Title",
-          "selftext": "This is a test self post with some content.\n\nIt has multiple paragraphs and **markdown formatting**.",
-          "selftext_html": "<div class=\"md\"><p>This is a test self post with some content.</p>\n<p>It has multiple paragraphs and <strong>markdown formatting</strong>.</p>\n</div>",
-          "url": "https://example.com/link",
-          "permalink": "/r/programming/comments/test123/test_reddit_post_title/",
-          "created_utc": 1765665232,
-          "author": "testuser",
-          "score": 1234,
-          "num_comments": 56,
-          "thumbnail": "https://example.com/thumbnail.jpg",
-          "preview": {
-            "images": [
-              {
-                "source": {
-                  "url": "https://example.com/image.jpg",
-                  "width": 1920,
-                  "height": 1080
-                }
-              }
-            ]
-          },
-          "is_self": true,
-          "is_gallery": false,
-          "is_video": false
+[
+  {
+    "kind": "Listing",
+    "data": {
+      "children": [
+        {
+          "kind": "t3",
+          "data": {
+            "id": "1v88a95",
+            "title": "The log line announcing a successful Redis connection is what disabled Redis",
+            "author": "BTWigley",
+            "selftext": "Spent an evening a couple of weeks ago working out why cache hits were zero and webhook idempotency was falling through to the database. Redis was fine. Up, reachable, ping succeeded.\n\nThe connect method was roughly this:\n\n```\ntry:\n    client.ping()\n    self._connected = True\n    logger.info(\"redis_connected\", host=parsed.hostname, port=parsed.port, db=parsed.path)\n    return True\nexcept Exception as e:\n    logger.warning(f\"Redis connection failed: {e}\")\n    self._connected = False\n```\n\nThat logger call is structlog style. The logger is a stdlib logging.Logger, which doesn't take arbitrary kwargs, so it raises TypeError: Logger._log() got an unexpected keyword argument 'host'.\n\nIt raises after ping succeeds and after _connected is set to True. So it lands in the except, logs \"Redis connection failed\", flips _connected back to False, and Redis is off for the whole app. Caching disabled, idempotency on the DB.\n\nThe fix was one line, an f-string instead of kwargs.\n\nWhat still bugs me is that every signal pointed away from it. Redis itself was healthy. The connection genuinely worked. The only artifact was a log message saying it had failed, which is the last thing you distrust when you're trying to find out why something failed.\n\nAnyone else had one where the logging was the bug?",
+            "url": "https://www.reddit.com/r/Python/comments/1v88a95/the_log_line_announcing_a_successful_redis/",
+            "permalink": "/r/Python/comments/1v88a95/the_log_line_announcing_a_successful_redis/",
+            "created_utc": 1769537397,
+            "score": 120,
+            "num_comments": 45,
+            "is_self": true,
+            "is_gallery": false,
+            "is_video": false,
+            "subreddit": "Python"
+          }
         }
-      }
-    ]
+      ]
+    }
+  },
+  {
+    "kind": "Listing",
+    "data": {
+      "children": [
+        {
+          "kind": "t1",
+          "data": {
+            "id": "p03wv1q",
+            "author": "aes110",
+            "body": "Well the log includes the exception, so it was clear what caused it wasn't it?\n\nAlso, might be a good time to switch from catch Exception to something more specific :)\n\nRegarding the question, yeah, many times i had stuff fail due to logging, you tend to not test or give much care to it until it breaks",
+            "permalink": "/r/Python/comments/1v88a95/the_log_line_announcing_a_successful_redis/p03wv1q/",
+            "score": 45,
+            "created_utc": 1769538000
+          }
+        },
+        {
+          "kind": "t1",
+          "data": {
+            "id": "p048qab",
+            "author": "hstarnaud",
+            "body": "This has nothing to do with Redis itself. It's just exception handling best practices.\n\nWhen you catch an arbitrary exception, you should still log it as an exception. It won't halt the code. Use logger.exception and print the traceback inside your except block, you would have seen right away that the traceback for the exception was the logging call and not Redis itself.",
+            "permalink": "/r/Python/comments/1v88a95/the_log_line_announcing_a_successful_redis/p048qab/",
+            "score": 30,
+            "created_utc": 1769539000
+          }
+        },
+        {
+          "kind": "t1",
+          "data": {
+            "id": "p046ib4",
+            "author": "Physical-Profit-5485",
+            "body": "Annoying, but:\n - read the logs, the actual error was logged by yourself. \n - use a debugger to find out where the exception is thrown\n - use another possibility (e.g. logs) to find out where your app breaks (but preferred is the debugger)\n\nFollowing one of the advices you will find the next similar issue within seconds rather than hours.",
+            "permalink": "/r/Python/comments/1v88a95/the_log_line_announcing_a_successful_redis/p046ib4/",
+            "score": 20,
+            "created_utc": 1769540000
+          }
+        },
+        {
+          "kind": "t1",
+          "data": {
+            "id": "p04vogl",
+            "author": "latkde",
+            "body": "If I had been given this for code review, this wouldn't have passed (btw most of these points would also be raised by linters such as Pylint or Ruff):\n\n* Don't catch `Exception`, but a more specific type. Does your Redis library offer some kind of connection-error type?\n\n* Narrow the try-except so that it only covers a single fallible operation, here: the ping. If you need to do additional stuff upon success, it can likely come *after* the try-statement. Alternatively, consider the try-except-else statement.\n\n* Actually, do you even need exception handling? If caching was enabled in the configs, but the cache cannot be connected, then it's probably best to just crash loudly. In my experience, the vast majority of exception handlers are detrimental to system reliability. Catch-all handlers are only appropriate at failure boundaries (e.g. a failing request shouldn't take down an entire HTTP server), but many systems don't have any natural failure boundary.\n\n* The kwargs in the log statement look incorrect. Are you trying to pass `extra=...` data to the formatter? Type checkers should have rejected this.\n\n* The log statement in the exception handler looks incorrect. Typically, just use `logger.exception(\"msg\")`, which will automatically append the stack trace. If you want a lower severity, you can use `logger.warning(\"msg\", exc_info=True)`. Do not duplicate the error message within the log message.\n\n* As an alternative to logging an exception here, consider letting it bubble up, but with attached context via `exc.add_note(\"while testing Redis connection\"); raise`.\n\nAny of these points would have prevented the error or would have made detection much easier. For example, letting an exception bubble up or logging with a stacktrace would have pointed you *directly* to the offending line, and you would have certainly encountered this error in tests if this code path was covered. The incorrect logger arguments were the immediate trigger for your problem, but the underlying latent problems were suboptimal exception handling, and your lack of automated linting. In that short snippet of code, a lot of causes had lined up to cause production problems. Compare [Dr. Reason's Swiss Cheese Model Of Accident Causation](https://en.wikipedia.org/wiki/Swiss_cheese_model).\n\nAlso, it's worth repeating that linting and type checking tools would have helped you prevent this. If you used an IDE or LSP, there were red squiggles under the log statement.",
+            "permalink": "/r/Python/comments/1v88a95/the_log_line_announcing_a_successful_redis/p04vogl/",
+            "score": 15,
+            "created_utc": 1769541000
+          }
+        },
+        {
+          "kind": "t1",
+          "data": {
+            "id": "p04al1v",
+            "author": "cointoss3",
+            "body": "You don’t seem to understand how to use the logging package. The kwargs would have worked fine if you had formatted your log string correctly.\n\nFor example, this works:\n logger.info(\"redis_connected to {db} {host}:{port}\", host=parsed.hostname, port=parsed.port, db=parsed.path)\n\nOr:\n\nlogger.info(\"redis_connected to %s %s:%d\", parsed.path, parsed.hostname, parsed.port)",
+            "permalink": "/r/Python/comments/1v88a95/the_log_line_announcing_a_successful_redis/p04al1v/",
+            "score": 10,
+            "created_utc": 1769542000
+          }
+        },
+        {
+          "kind": "t1",
+          "data": {
+            "id": "p05ke1t",
+            "author": "ThatOtherBatman",
+            "body": "This is why your IDE probably had a little squiggle telling your exception class is too broad.",
+            "permalink": "/r/Python/comments/1v88a95/the_log_line_announcing_a_successful_redis/p05ke1t/",
+            "score": 8,
+            "created_utc": 1769543000
+          }
+        },
+        {
+          "kind": "t1",
+          "data": {
+            "id": "p05dk0p",
+            "author": "DudeWithaTwist",
+            "body": "Yea ive been burned a few times catching Exception and doing minimal logging. Annoying that I did it a few times before learning my lesson lol.\n\nNow I always add a traceback.print_exc() in the except block to help future me.",
+            "permalink": "/r/Python/comments/1v88a95/the_log_line_announcing_a_successful_redis/p05dk0p/",
+            "score": 5,
+            "created_utc": 1769544000
+          }
+        }
+      ]
+    }
   }
-}
+]

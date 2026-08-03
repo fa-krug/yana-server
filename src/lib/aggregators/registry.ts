@@ -17,6 +17,7 @@ import { MeinMmoAggregator } from "./sites/mein_mmo/aggregator";
 import { MerkurAggregator } from "./sites/merkur";
 import { OglafAggregator } from "./sites/oglaf";
 import { PodcastAggregator } from "./sites/podcast";
+import { RedditAggregator } from "./sites/reddit/aggregator";
 import { TagesschauAggregator } from "./sites/tagesschau/aggregator";
 import { TheVergeAggregator } from "./sites/the_verge";
 import { YouTubeAggregator } from "./sites/youtube/aggregator";
@@ -47,6 +48,7 @@ export const IMPLEMENTED_AGGREGATORS: Record<string, AggregatorClass | undefined
   mein_mmo: MeinMmoAggregator as unknown as AggregatorClass,
   podcast: PodcastAggregator as unknown as AggregatorClass,
   youtube: YouTubeAggregator as unknown as AggregatorClass,
+  reddit: RedditAggregator as unknown as AggregatorClass,
 };
 
 export class AggregatorRegistry {
