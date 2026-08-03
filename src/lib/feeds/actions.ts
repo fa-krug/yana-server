@@ -256,7 +256,6 @@ export async function updateFeed(id: number, input: FeedInput) {
 
   const name = input?.name;
   const aggregator = input?.aggregator;
-  const options = input?.options || {};
   const tagIds = input?.tagIds || [];
   const enabled = input?.enabled;
 
@@ -291,9 +290,22 @@ export async function updateFeed(id: number, input: FeedInput) {
     return { ok: false, field: "identifier", error: "Identifier is required" };
   }
 
-  const optionsParsed = schemaFor(spec.key).safeParse(options);
-  if (!optionsParsed.success) {
-    return { ok: false, error: "Invalid options" };
+  /**
+   * The same "omitted" versus "submitted" distinction the `identifier` fix
+   * above makes, and for the same reason: `const options = input?.options || {}`
+   * made `options` always defined, so the `options !== undefined` guard on the
+   * `.set()` call below always fired -- and `schemaFor(spec.key).safeParse({})`
+   * *applies defaults* rather than producing an empty object, so an update
+   * that omitted `options` (a rename, a toggle of `enabled`, a tag change)
+   * silently reset every per-feed option to its schema default. Parsing only
+   * happens when the caller actually submitted something, and `undefined`
+   * flows through to the spread otherwise.
+   */
+  let submittedOptions: Record<string, unknown> | undefined;
+  if (input?.options !== undefined) {
+    const parsed = schemaFor(spec.key).safeParse(input.options);
+    if (!parsed.success) return { ok: false, error: "Invalid options" };
+    submittedOptions = parsed.data as Record<string, unknown>;
   }
 
   const capabilities = await capabilitiesFor();
@@ -303,11 +315,10 @@ export async function updateFeed(id: number, input: FeedInput) {
     return { ok: false, error: "Invalid aggregator" };
   }
 
-  const cleanedOptions = stripUnavailable(
-    spec.key,
-    optionsParsed.data as Record<string, unknown>,
-    capabilities,
-  );
+  const cleanedOptions =
+    submittedOptions !== undefined
+      ? stripUnavailable(spec.key, submittedOptions, capabilities)
+      : undefined;
 
   return writeTransaction((tx) => {
     if (tagIds.length > 0) {
@@ -326,7 +337,7 @@ export async function updateFeed(id: number, input: FeedInput) {
         ...(name !== undefined && { name }),
         ...(aggregator !== undefined && { aggregator: spec.key }),
         ...(identifier !== undefined && { identifier }),
-        ...(options !== undefined && { options: cleanedOptions }),
+        ...(cleanedOptions !== undefined && { options: cleanedOptions }),
         ...(enabled !== undefined && { enabled }),
       })
       .where(and(eq(feeds.id, id), eq(feeds.userId, userId)))

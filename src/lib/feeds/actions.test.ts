@@ -269,6 +269,44 @@ describe("updateFeed", () => {
     expect(updated?.identifier).toBe("programming");
   });
 
+  it("leaves stored options alone when the update omits them", async () => {
+    const { id } = await actions.createFeed({
+      name: "Heise",
+      aggregator: "heise",
+      options: { include_comments: false, max_comments: 42 },
+    });
+
+    const created = await actions.getFeed(id!);
+    expect((created?.options as Record<string, unknown>).max_comments).toBe(42);
+    expect((created?.options as Record<string, unknown>).include_comments).toBe(false);
+
+    // No `options` field at all. `schemaFor(spec.key).safeParse({})` *applies
+    // defaults*, so treating an omitted `options` as `{}` reset every
+    // per-feed option (max_comments back to 5, include_comments back to true)
+    // on a plain rename.
+    const result = await actions.updateFeed(id!, { name: "Heise (renamed)" });
+    expect(result.ok).toBe(true);
+
+    const updated = await actions.getFeed(id!);
+    expect(updated?.name).toBe("Heise (renamed)");
+    expect((updated?.options as Record<string, unknown>).max_comments).toBe(42);
+    expect((updated?.options as Record<string, unknown>).include_comments).toBe(false);
+  });
+
+  it("still writes options when the update submits them", async () => {
+    const { id } = await actions.createFeed({
+      name: "Heise",
+      aggregator: "heise",
+      options: { max_comments: 42 },
+    });
+
+    const result = await actions.updateFeed(id!, { options: { max_comments: 7 } });
+    expect(result.ok).toBe(true);
+
+    const updated = await actions.getFeed(id!);
+    expect((updated?.options as Record<string, unknown>).max_comments).toBe(7);
+  });
+
   it("rejects changing an existing feed's aggregator to reddit while it's disabled", async () => {
     const { id } = await actions.createFeed({ name: "X", aggregator: "heise" });
     const result = await actions.updateFeed(id!, {
