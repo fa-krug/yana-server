@@ -49,6 +49,7 @@ export async function getFeed(id: number) {
     .select({
       id: tags.id,
       name: tags.name,
+      color: tags.color,
       userId: tags.userId,
       createdAt: tags.createdAt,
       updatedAt: tags.updatedAt,
@@ -114,6 +115,7 @@ export async function listFeeds(params: ListParams) {
       .select({
         id: tags.id,
         name: tags.name,
+        color: tags.color,
         userId: tags.userId,
         createdAt: tags.createdAt,
         updatedAt: tags.updatedAt,
