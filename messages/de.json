@@ -212,6 +212,8 @@
   },
   "feeds": {
     "title": "Feeds",
+    "sessionEnded": "Deine Sitzung ist beendet. Melde dich erneut an, um fortzufahren.",
+    "requestFailed": "Der Server hat nicht geantwortet. Prüfe deine Verbindung und versuche es erneut.",
     "newTitle": "Neuer Feed",
     "editTitle": "Feed bearbeiten",
     "new": "Neuer Feed",
@@ -225,6 +227,15 @@
       "tags": "Tags",
       "articles": "Artikel",
       "enabled": "Aktiviert"
+    },
+    "identifierSearch": {
+      "placeholder": "Zum Suchen tippen",
+      "loading": "Suche läuft…",
+      "empty": "Keine Ergebnisse",
+      "unavailable": "Diese Integration ist nicht eingerichtet. Du kannst sie unter Integrationen einrichten.",
+      "unavailableBannerBefore": "Die Integration für diesen Feed ist nicht eingerichtet. Du kannst sie unter",
+      "unavailableBannerLink": "Integrationen",
+      "unavailableBannerAfter": "einrichten."
     },
     "form": {
       "aggregator": "Aggregator",

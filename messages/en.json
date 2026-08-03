@@ -212,6 +212,8 @@
   },
   "feeds": {
     "title": "Feeds",
+    "sessionEnded": "Your session ended. Sign in again to continue.",
+    "requestFailed": "The server did not answer. Check your connection and try again.",
     "newTitle": "New feed",
     "editTitle": "Edit feed",
     "new": "New feed",
@@ -225,6 +227,15 @@
       "tags": "Tags",
       "articles": "Articles",
       "enabled": "Enabled"
+    },
+    "identifierSearch": {
+      "placeholder": "Type to search",
+      "loading": "Searching…",
+      "empty": "No results",
+      "unavailable": "This integration is not configured. You can configure it in Integrations.",
+      "unavailableBannerBefore": "This feed's integration is not configured. You can configure it in",
+      "unavailableBannerLink": "Integrations",
+      "unavailableBannerAfter": "."
     },
     "form": {
       "aggregator": "Aggregator",
