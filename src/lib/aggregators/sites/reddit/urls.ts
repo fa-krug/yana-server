@@ -4,6 +4,15 @@
  * Ported from old/core/aggregators/reddit/urls.py.
  */
 
+/** The subset of `/r/{subreddit}/about.json`'s response `fetchSubredditInfo` reads. */
+interface RedditSubredditAboutResponse {
+  data?: {
+    icon_img?: string;
+    community_icon?: string;
+    header_img?: string;
+  };
+}
+
 export function decodeHtmlEntitiesInUrl(url: string): string {
   if (!url) return "";
   return url
@@ -81,7 +90,7 @@ export async function fetchSubredditInfo(
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return { iconUrl: null };
-    const data = (await res.json()) as any;
+    const data = (await res.json()) as RedditSubredditAboutResponse;
     const rawIcon =
       data?.data?.icon_img || data?.data?.community_icon || data?.data?.header_img || null;
     return { iconUrl: fixRedditMediaUrl(rawIcon) };

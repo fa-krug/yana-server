@@ -5,6 +5,7 @@
  */
 
 import * as cheerio from "cheerio";
+import type { AnyNode } from "domhandler";
 import { isSafeUrl } from "../../blocks/parser";
 import { cleanHtml, removeSanitizedAttributes, sanitizeHtmlAttributes } from "../../extract/clean";
 import { escapeHtml } from "../../extract/format";
@@ -36,7 +37,10 @@ function parseInlineMarkdown(text: string): string {
   s = s.replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
   s = s.replace(/\^\(([^)\n]+)\)/g, "<sup>$1</sup>");
   s = s.replace(/\^(\w+)/g, "<sup>$1</sup>");
-  s = s.replace(/>!([^!\n]+)!</g, '<span class="spoiler" style="background: #000; color: #000;">$1</span>');
+  s = s.replace(
+    />!([^!\n]+)!</g,
+    '<span class="spoiler" style="background: #000; color: #000;">$1</span>',
+  );
   s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2">$1</a>');
   return s;
 }
@@ -176,8 +180,9 @@ export function linkifyHtml(htmlContent: string): string {
     const $ = cheerio.load(htmlContent);
     const urlPattern = /(https?:\/\/[^\s<"]+)/g;
 
-    const processTextNode = (node: any) => {
-      if (node.type === "text" && node.parent && node.parent.name !== "a") {
+    const processTextNode = (node: AnyNode) => {
+      const parent = node.parent;
+      if (node.type === "text" && parent && (!("name" in parent) || parent.name !== "a")) {
         const text = node.data || "";
         if (urlPattern.test(text)) {
           urlPattern.lastIndex = 0;
@@ -270,9 +275,8 @@ export function convertRedditMarkdown(text: string): string {
       safeImgHtml(decodeHtmlEntitiesInUrl(url), caption || "Reddit preview image"),
   );
 
-  input = input.replace(
-    /(?<!\[\(])https?:\/\/preview\.redd\.it\/[^\s)]+/g,
-    (match) => safeImgHtml(decodeHtmlEntitiesInUrl(match), "Reddit preview image"),
+  input = input.replace(/(?<!\[\(])https?:\/\/preview\.redd\.it\/[^\s)]+/g, (match) =>
+    safeImgHtml(decodeHtmlEntitiesInUrl(match), "Reddit preview image"),
   );
 
   input = input.replace(

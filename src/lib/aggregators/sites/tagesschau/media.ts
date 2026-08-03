@@ -37,20 +37,64 @@ function safeImageSrc(imageUrl: string | null): string | null {
   return escapeHtml(imageUrl);
 }
 
-function parsePlayerData(dataV: string): any {
+/**
+ * Shape of the JSON embedded in a Tagesschau media player's `data-v`
+ * attribute. This is untrusted, attacker-reachable data scraped from the
+ * page (mirrors `old/core/aggregators/tagesschau/media_processor.py`'s
+ * `Dict[str, Any]`), so every field is optional and every read downstream
+ * still narrows with `typeof`/`Array.isArray` before use.
+ */
+interface TagesschauImageFields {
+  poster?: string;
+  image?: string;
+  thumbnail?: string;
+  preview?: string;
+  cover?: string;
+}
+
+interface TagesschauMediaAsset {
+  url?: string;
+  mimeType?: string;
+}
+
+interface TagesschauStream extends TagesschauImageFields {
+  isAudioOnly?: boolean;
+  media?: TagesschauMediaAsset[];
+}
+
+interface TagesschauMediaContainer extends TagesschauImageFields {
+  streams?: TagesschauStream[];
+}
+
+interface TagesschauPlayerData {
+  mc?: TagesschauMediaContainer;
+  pluginData?: {
+    "sharing@web"?: {
+      embedCode?: string;
+    };
+  };
+}
+
+const IMAGE_FIELDS: Array<keyof TagesschauImageFields> = [
+  "poster",
+  "image",
+  "thumbnail",
+  "preview",
+  "cover",
+];
+
+function parsePlayerData(dataV: string): TagesschauPlayerData {
   const decoded = dataV
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">");
-  return JSON.parse(decoded);
+  return JSON.parse(decoded) as TagesschauPlayerData;
 }
 
-function getPlayerImageFromMetadata(mc: any): string | null {
-  const fields = ["poster", "image", "thumbnail", "preview", "cover"];
-
-  for (const field of fields) {
+function getPlayerImageFromMetadata(mc: TagesschauMediaContainer): string | null {
+  for (const field of IMAGE_FIELDS) {
     if (mc[field] && typeof mc[field] === "string") {
       return mc[field];
     }
@@ -58,7 +102,7 @@ function getPlayerImageFromMetadata(mc: any): string | null {
 
   const streams = Array.isArray(mc.streams) ? mc.streams : [];
   for (const stream of streams) {
-    for (const field of fields) {
+    for (const field of IMAGE_FIELDS) {
       if (stream[field] && typeof stream[field] === "string") {
         return stream[field];
       }
@@ -91,7 +135,11 @@ function getPlayerImageFromDom($: cheerio.CheerioAPI, playerDiv: Element): strin
   return null;
 }
 
-function getPlayerImage($: cheerio.CheerioAPI, playerDiv: Element, mc: any): string | null {
+function getPlayerImage(
+  $: cheerio.CheerioAPI,
+  playerDiv: Element,
+  mc: TagesschauMediaContainer,
+): string | null {
   let imageUrl = getPlayerImageFromMetadata(mc);
   if (!imageUrl) {
     imageUrl = getPlayerImageFromDom($, playerDiv);
@@ -159,7 +207,7 @@ function buildHeaderFromEmbedCode(
 }
 
 function findMediaByMimeType(
-  streams: any[],
+  streams: TagesschauStream[],
   mediaType: string,
 ): { url: string; mime_type: string } | null {
   for (const stream of streams) {
@@ -184,7 +232,7 @@ function findMediaByMimeType(
 }
 
 function buildHeaderFromStreams(
-  streams: any[],
+  streams: TagesschauStream[],
   isAudioOnly: boolean,
   imageUrl: string | null,
 ): string | null {
@@ -250,8 +298,7 @@ export function extractMediaHeader(html: string): string | null {
       const mc = playerData.mc || {};
       const streams = Array.isArray(mc.streams) ? mc.streams : [];
 
-      const isAudioOnly =
-        streams.length > 0 && streams.every((s: any) => s.isAudioOnly === true);
+      const isAudioOnly = streams.length > 0 && streams.every((s) => s.isAudioOnly === true);
       const rawImage = getPlayerImage($, playerDiv, mc);
       const imageUrl = localizeImageUrl(rawImage);
 

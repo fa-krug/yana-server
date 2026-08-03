@@ -5,7 +5,13 @@
  */
 
 import { convertRedditMarkdown, escapeHtml, safeLinkHtml } from "./markdown";
-import { RedditComment } from "./types";
+import { RedditComment, RedditCommentRaw, RedditListing, RedditPostRaw } from "./types";
+
+/** `/comments/{postId}.json?...` always answers `[postListing, commentsListing]`. */
+type RedditCommentsPageResponse = [
+  RedditListing<"t3", RedditPostRaw>,
+  RedditListing<string, RedditCommentRaw>,
+];
 
 export function formatCommentHtml(comment: RedditComment): string {
   const author = comment.author || "[deleted]";
@@ -21,9 +27,7 @@ export function formatCommentHtml(comment: RedditComment): string {
 export function isBotAccount(author: string): boolean {
   if (!author) return false;
   const lower = author.toLowerCase();
-  return (
-    lower.endsWith("_bot") || lower.endsWith("-bot") || lower === "automoderator"
-  );
+  return lower.endsWith("_bot") || lower.endsWith("-bot") || lower === "automoderator";
 }
 
 export function isValidComment(comment: RedditComment): boolean {
@@ -60,10 +64,11 @@ export async function fetchPostComments(
     });
 
     if (!res.ok) return [];
-    const data = (await res.json()) as any;
+    const data: unknown = await res.json();
     if (!Array.isArray(data) || data.length < 2) return [];
 
-    const commentListing = data[1]?.data?.children || [];
+    const [, commentsListing] = data as RedditCommentsPageResponse;
+    const commentListing = commentsListing?.data?.children || [];
     const comments: RedditComment[] = [];
 
     for (const item of commentListing) {

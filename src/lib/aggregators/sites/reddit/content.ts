@@ -7,7 +7,7 @@
 import { fetchPostComments, formatCommentHtml } from "./comments";
 import { extractAnimatedGifUrl } from "./images";
 import { convertRedditMarkdown, escapeHtml, safeImgHtml, safeLinkHtml } from "./markdown";
-import { RedditComment, RedditPostData } from "./types";
+import { RedditComment, RedditGalleryItem, RedditPostData } from "./types";
 import { decodeHtmlEntitiesInUrl, fixRedditMediaUrl } from "./urls";
 
 export async function buildPostContent(
@@ -33,19 +33,12 @@ export async function buildPostContent(
   addLinkMedia(post, contentParts, isCrossPost);
 
   // 4. Comments section
-  await addCommentsSection(
-    post,
-    commentLimit,
-    subreddit,
-    userId,
-    contentParts,
-    commentsList,
-  );
+  await addCommentsSection(post, commentLimit, subreddit, userId, contentParts, commentsList);
 
   return contentParts.join("");
 }
 
-function processGalleryItem(item: Record<string, any>, post: RedditPostData): string | null {
+function processGalleryItem(item: RedditGalleryItem, post: RedditPostData): string | null {
   const mediaId = item.media_id;
   if (!mediaId || !post.media_metadata) return null;
 
@@ -80,7 +73,7 @@ function addGalleryMedia(post: RedditPostData, contentParts: string[]): void {
     return;
   }
 
-  const items = (post.gallery_data as any).items || [];
+  const items = post.gallery_data.items || [];
   for (const item of items) {
     const html = processGalleryItem(item, post);
     if (html) {
@@ -89,11 +82,7 @@ function addGalleryMedia(post: RedditPostData, contentParts: string[]): void {
   }
 }
 
-function addLinkMedia(
-  post: RedditPostData,
-  contentParts: string[],
-  isCrossPost: boolean,
-): void {
+function addLinkMedia(post: RedditPostData, contentParts: string[], isCrossPost: boolean): void {
   if (!post.url || post.is_gallery) return;
 
   const url = decodeHtmlEntitiesInUrl(post.url);
@@ -107,11 +96,7 @@ function addLinkMedia(
   }
 }
 
-function processLinkMedia(
-  post: RedditPostData,
-  url: string,
-  contentParts: string[],
-): boolean {
+function processLinkMedia(post: RedditPostData, url: string, contentParts: string[]): boolean {
   const urlLower = url.toLowerCase();
 
   // GIF media
@@ -162,9 +147,7 @@ async function addCommentsSection(
 ): Promise<void> {
   const decodedPermalink = decodeHtmlEntitiesInUrl(post.permalink);
   const permalink = `https://reddit.com${decodedPermalink}`;
-  const commentSectionParts: string[] = [
-    `<h3>${safeLinkHtml(permalink, "Comments")}</h3>`,
-  ];
+  const commentSectionParts: string[] = [`<h3>${safeLinkHtml(permalink, "Comments")}</h3>`];
 
   if (commentLimit > 0) {
     try {

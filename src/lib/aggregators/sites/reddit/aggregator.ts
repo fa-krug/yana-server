@@ -5,10 +5,15 @@
  */
 
 import * as cheerio from "cheerio";
-import { BaseAggregator, FeedLike, RawArticle } from "../../base";
+import { AggregatorUserSettings, BaseAggregator, FeedLike, RawArticle } from "../../base";
 import { getHeaderImageRef, HeaderElementData } from "../../header/context";
 import { extractHeaderElement } from "../../header/extractor";
-import { buildHeaderHtml, extractYoutubeVideoId, formatArticleContent, isTwitterUrl } from "../../extract/format";
+import {
+  buildHeaderHtml,
+  extractYoutubeVideoId,
+  formatArticleContent,
+  isTwitterUrl,
+} from "../../extract/format";
 import { storeImageRefFromUrl } from "../../images/store";
 
 import { getRedditAccessToken, getRedditUserSettings } from "./auth";
@@ -17,7 +22,13 @@ import { buildPostContent } from "./content";
 import { extractAnimatedGifUrl, extractHeaderImageUrl, extractThumbnailUrl } from "./images";
 import { convertRedditMarkdown, escapeHtml, safeImgHtml, safeLinkHtml } from "./markdown";
 import { fetchRedditPost } from "./posts";
-import { RedditComment, RedditPostData } from "./types";
+import {
+  RedditComment,
+  RedditListing,
+  RedditPostData,
+  RedditPostDataDict,
+  RedditPostRaw,
+} from "./types";
 import {
   decodeHtmlEntitiesInUrl,
   extractPostInfoFromUrl,
@@ -26,6 +37,12 @@ import {
   normalizeSubreddit,
   validateSubreddit,
 } from "./urls";
+
+/** The shape `fetchSourceData` produces and `parseToRawArticles` consumes. */
+interface RedditSourceData {
+  posts: Array<{ data: RedditPostData }>;
+  subreddit: string;
+}
 
 export class RedditAggregator extends BaseAggregator {
   static identifierField = "subreddit";
@@ -146,10 +163,7 @@ export class RedditAggregator extends BaseAggregator {
     return identifier;
   }
 
-  async fetchSourceData(limit?: number): Promise<{
-    posts: Array<{ data: RedditPostData }>;
-    subreddit: string;
-  }> {
+  async fetchSourceData(limit?: number): Promise<RedditSourceData> {
     const subreddit = normalizeSubreddit(this.identifier);
     if (!subreddit) {
       throw new Error(`Could not extract subreddit from identifier: ${this.identifier}`);
@@ -189,11 +203,11 @@ export class RedditAggregator extends BaseAggregator {
         return { posts: [], subreddit };
       }
 
-      const data = (await res.json()) as any;
+      const data = (await res.json()) as RedditListing<"t3", RedditPostRaw> | null;
       const children = data?.data?.children || [];
       const posts = children
-        .filter((child: any) => child.kind === "t3" && child.data)
-        .map((child: any) => ({ data: new RedditPostData(child.data) }));
+        .filter((child) => child.kind === "t3" && child.data)
+        .map((child) => ({ data: new RedditPostData(child.data) }));
 
       return { posts, subreddit };
     } catch {
@@ -201,16 +215,16 @@ export class RedditAggregator extends BaseAggregator {
     }
   }
 
-  async parseToRawArticles(sourceData: any): Promise<RawArticle[]> {
-    const posts: Array<{ data: RedditPostData }> = sourceData?.posts || [];
-    const subreddit: string = sourceData?.subreddit || "";
+  async parseToRawArticles(sourceData: unknown): Promise<RawArticle[]> {
+    const data = sourceData as RedditSourceData | null | undefined;
+    const posts: Array<{ data: RedditPostData }> = data?.posts || [];
+    const subreddit: string = data?.subreddit || "";
     const articles: RawArticle[] = [];
 
     for (const postWrapper of posts) {
       const originalPostData = this._getOriginalPostData(postWrapper.data);
       const isCrossPost = Boolean(
-        postWrapper.data.crosspost_parent_list &&
-          postWrapper.data.crosspost_parent_list.length > 0,
+        postWrapper.data.crosspost_parent_list && postWrapper.data.crosspost_parent_list.length > 0,
       );
 
       const originalSubreddit =
@@ -318,7 +332,7 @@ export class RedditAggregator extends BaseAggregator {
 
     for (const article of articles) {
       try {
-        const postDataDict = (article._reddit_post_data as Record<string, any>) || {};
+        const postDataDict = (article._reddit_post_data as RedditPostDataDict) || {};
         const postData = new RedditPostData(postDataDict);
         const subreddit = (article._reddit_subreddit as string) || "";
         const isCrossPost = (article._reddit_is_cross_post as boolean) || false;
@@ -353,7 +367,7 @@ export class RedditAggregator extends BaseAggregator {
 
   override async finalizeArticles(
     articles: RawArticle[],
-    userSettings?: any,
+    userSettings?: AggregatorUserSettings,
   ): Promise<RawArticle[]> {
     const processedArticles = await this.applyAiProcessing(articles, userSettings);
     const finalized: RawArticle[] = [];
@@ -385,10 +399,7 @@ export class RedditAggregator extends BaseAggregator {
         if (headerHtml && article.content) {
           article.content = this._stripImageFromContent(article.content, headerSourceUrl);
           if (isYoutubeHeader) {
-            article.content = this._stripYoutubeLinkFromContent(
-              article.content,
-              headerSourceUrl,
-            );
+            article.content = this._stripYoutubeLinkFromContent(article.content, headerSourceUrl);
           }
         }
       }
@@ -414,10 +425,7 @@ export class RedditAggregator extends BaseAggregator {
     return finalized;
   }
 
-  protected async _storeHeaderImage(
-    headerImageUrl: string,
-    _article: RawArticle,
-  ): Promise<string> {
+  protected async _storeHeaderImage(headerImageUrl: string, _article: RawArticle): Promise<string> {
     if (!headerImageUrl.startsWith("http")) {
       return headerImageUrl;
     }
@@ -560,7 +568,7 @@ export class RedditAggregator extends BaseAggregator {
     if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
       try {
         const data = JSON.parse(trimmed);
-        let postDict: Record<string, any> | null = null;
+        let postDict: RedditPostRaw | null = null;
         let commentsList: RedditComment[] | undefined = undefined;
 
         if (Array.isArray(data)) {
@@ -605,15 +613,13 @@ export class RedditAggregator extends BaseAggregator {
           }
 
           if (postData.is_gallery && postData.media_metadata && postData.gallery_data) {
-            const items = (postData.gallery_data as any).items || [];
+            const items = postData.gallery_data.items || [];
             for (const item of items) {
               const mediaId = item.media_id;
               if (mediaId && postData.media_metadata[mediaId]) {
                 const mediaInfo = postData.media_metadata[mediaId];
                 const isAnimated = mediaInfo.e === "AnimatedImage";
-                const mediaUrl = isAnimated
-                  ? mediaInfo.s?.gif || mediaInfo.s?.mp4
-                  : mediaInfo.s?.u;
+                const mediaUrl = isAnimated ? mediaInfo.s?.gif || mediaInfo.s?.mp4 : mediaInfo.s?.u;
                 if (mediaUrl) {
                   const fixedUrl = fixRedditMediaUrl(decodeHtmlEntitiesInUrl(mediaUrl));
                   const caption = item.caption || "";
@@ -663,9 +669,7 @@ export class RedditAggregator extends BaseAggregator {
 
           const decodedPermalink = decodeHtmlEntitiesInUrl(postData.permalink);
           const permalink = `https://reddit.com${decodedPermalink}`;
-          const commentSectionParts: string[] = [
-            `<h3>${safeLinkHtml(permalink, "Comments")}</h3>`,
-          ];
+          const commentSectionParts: string[] = [`<h3>${safeLinkHtml(permalink, "Comments")}</h3>`];
 
           if (commentLimit > 0) {
             if (commentsList && commentsList.length > 0) {
@@ -691,7 +695,7 @@ export class RedditAggregator extends BaseAggregator {
   }
 
   override async processContent(content: string, article: RawArticle): Promise<string> {
-    let headerHtml = (article.header_html as string | null | undefined);
+    let headerHtml = article.header_html as string | null | undefined;
 
     if (headerHtml === undefined && (this.feed.options?.include_header_image ?? true)) {
       const headerData = article.header_data;

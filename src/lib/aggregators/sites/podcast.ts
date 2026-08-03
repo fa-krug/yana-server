@@ -1,10 +1,15 @@
 import * as cheerio from "cheerio";
 import { RawArticle } from "../base";
 import { isSafeUrl } from "../blocks/parser";
-import { cleanHtml, removeSanitizedAttributes, sanitizeClassNames, sanitizeHtmlAttributes } from "../extract/clean";
+import {
+  cleanHtml,
+  removeSanitizedAttributes,
+  sanitizeClassNames,
+  sanitizeHtmlAttributes,
+} from "../extract/clean";
 import { escapeHtml, formatArticleContent } from "../extract/format";
 import { RssAggregator } from "../rss";
-import { ParsedFeed, unescapeEntities } from "../rss-parser";
+import { FeedEntry, ParsedFeed, unescapeEntities } from "../rss-parser";
 
 function safeUrlAttr(url?: string | null): string | null {
   if (!url) return null;
@@ -83,11 +88,7 @@ export class PodcastAggregator extends RssAggregator {
     const parts = str.split(":");
     try {
       if (parts.length === 3) {
-        return (
-          parseInt(parts[0], 10) * 3600 +
-          parseInt(parts[1], 10) * 60 +
-          parseInt(parts[2], 10)
-        );
+        return parseInt(parts[0], 10) * 3600 + parseInt(parts[1], 10) * 60 + parseInt(parts[2], 10);
       } else if (parts.length === 2) {
         return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
       }
@@ -112,7 +113,7 @@ export class PodcastAggregator extends RssAggregator {
 
   override async parseToRawArticles(sourceData: unknown): Promise<RawArticle[]> {
     const feed = sourceData as ParsedFeed;
-    const entries = (feed?.entries || []) as any[];
+    const entries = feed?.entries || [];
     const articles: RawArticle[] = [];
     const limit = this.getCurrentRunLimit();
 
@@ -122,7 +123,7 @@ export class PodcastAggregator extends RssAggregator {
       let mediaUrl = "";
       let mediaType = "audio/mpeg";
 
-      const enclosures = (entry.enclosures || []) as Array<Record<string, any>>;
+      const enclosures: NonNullable<FeedEntry["enclosures"]> = entry.enclosures || [];
       if (enclosures.length > 0) {
         for (const enc of enclosures) {
           const url = String(enc.url || "");
@@ -145,10 +146,7 @@ export class PodcastAggregator extends RssAggregator {
       }
 
       let duration: number | null = null;
-      const durationStr =
-        entry.itunes_duration ||
-        entry["itunes:duration"] ||
-        entry.duration;
+      const durationStr = entry.itunes_duration || entry["itunes:duration"] || entry.duration;
       if (durationStr) {
         duration = this.parseDurationToSeconds(String(durationStr));
       }
@@ -157,7 +155,7 @@ export class PodcastAggregator extends RssAggregator {
       const itunesImage = entry.itunes_image ?? entry["itunes:image"];
       if (itunesImage) {
         if (typeof itunesImage === "object" && itunesImage !== null) {
-          imageUrl = (itunesImage as any).href || (itunesImage as any).url || "";
+          imageUrl = itunesImage.href || itunesImage.url || "";
         } else {
           imageUrl = String(itunesImage);
         }
@@ -246,9 +244,7 @@ export class PodcastAggregator extends RssAggregator {
               `download>Download Episode</a>`,
           );
         } else {
-          metaParts.push(
-            `<span data-sanitized-class="podcast-download">Download Episode</span>`,
-          );
+          metaParts.push(`<span data-sanitized-class="podcast-download">Download Episode</span>`);
         }
       }
 

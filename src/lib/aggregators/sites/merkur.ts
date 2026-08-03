@@ -1,6 +1,10 @@
 import * as cheerio from "cheerio";
 import { RawArticle, FeedLike } from "../base";
-import { removeEmptyElements, sanitizeHtmlAttributes, removeSanitizedAttributes } from "../extract/clean";
+import {
+  removeEmptyElements,
+  sanitizeHtmlAttributes,
+  removeSanitizedAttributes,
+} from "../extract/clean";
 import { extractMainContent } from "../extract/content";
 import { proxyYoutubeEmbeds } from "../embeds/youtube";
 import { FullWebsiteAggregator } from "../website";
@@ -21,30 +25,18 @@ export class MerkurAggregator extends FullWebsiteAggregator {
       ],
       ["https://www.merkur.de/lokales/wuermtal/rssfeed.rdf", "Würmtal"],
       ["https://www.merkur.de/lokales/starnberg/rssfeed.rdf", "Starnberg"],
-      [
-        "https://www.merkur.de/lokales/fuerstenfeldbruck/rssfeed.rdf",
-        "Fürstenfeldbruck",
-      ],
+      ["https://www.merkur.de/lokales/fuerstenfeldbruck/rssfeed.rdf", "Fürstenfeldbruck"],
       ["https://www.merkur.de/lokales/dachau/rssfeed.rdf", "Dachau"],
       ["https://www.merkur.de/lokales/freising/rssfeed.rdf", "Freising"],
       ["https://www.merkur.de/lokales/erding/rssfeed.rdf", "Erding"],
       ["https://www.merkur.de/lokales/ebersberg/rssfeed.rdf", "Ebersberg"],
       ["https://www.merkur.de/lokales/muenchen/rssfeed.rdf", "München"],
-      [
-        "https://www.merkur.de/lokales/muenchen-lk/rssfeed.rdf",
-        "München Landkreis",
-      ],
+      ["https://www.merkur.de/lokales/muenchen-lk/rssfeed.rdf", "München Landkreis"],
       ["https://www.merkur.de/lokales/holzkirchen/rssfeed.rdf", "Holzkirchen"],
       ["https://www.merkur.de/lokales/miesbach/rssfeed.rdf", "Miesbach"],
-      [
-        "https://www.merkur.de/lokales/region-tegernsee/rssfeed.rdf",
-        "Region Tegernsee",
-      ],
+      ["https://www.merkur.de/lokales/region-tegernsee/rssfeed.rdf", "Region Tegernsee"],
       ["https://www.merkur.de/lokales/bad-toelz/rssfeed.rdf", "Bad Tölz"],
-      [
-        "https://www.merkur.de/lokales/wolfratshausen/rssfeed.rdf",
-        "Wolfratshausen",
-      ],
+      ["https://www.merkur.de/lokales/wolfratshausen/rssfeed.rdf", "Wolfratshausen"],
       ["https://www.merkur.de/lokales/weilheim/rssfeed.rdf", "Weilheim"],
       ["https://www.merkur.de/lokales/schongau/rssfeed.rdf", "Schongau"],
     ];

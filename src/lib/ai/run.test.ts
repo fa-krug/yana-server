@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AIClient, applyAiOptions } from "./run";
+import type { AiRuntimeSettings } from "./run";
 
-function makeSettings(overrides: Record<string, unknown> = {}) {
+function makeSettings(overrides: Partial<AiRuntimeSettings> = {}): AiRuntimeSettings {
   const provider = overrides.activeAiProvider ?? overrides.active_ai_provider ?? "gemini";
   return {
     activeAiProvider: provider,
@@ -420,7 +421,15 @@ describe("applyAiOptions & AIClient processing", () => {
       const options = { ai_summarize: true };
 
       let capturedUrl = "";
-      let capturedBody: any = null;
+      let capturedBody:
+        | {
+            generationConfig?: {
+              responseMimeType?: string;
+              responseSchema?: { type?: string; properties?: Record<string, { type?: string }> };
+              responseJsonSchema?: unknown;
+            };
+          }
+        | undefined;
 
       globalThis.fetch = vi.fn().mockImplementation(async (url, init) => {
         capturedUrl = String(url);
@@ -461,12 +470,13 @@ describe("applyAiOptions & AIClient processing", () => {
 
       expect(capturedUrl).toContain("generativelanguage.googleapis.com");
       const config = capturedBody?.generationConfig || {};
+      const schema = config.responseSchema;
       expect(config.responseMimeType).toBe("application/json");
-      expect(config.responseSchema).toBeDefined();
+      expect(schema).toBeDefined();
       expect(config.responseJsonSchema).toBeUndefined();
-      expect(config.responseSchema.type).toBe("OBJECT");
-      expect(config.responseSchema.properties.title.type).toBe("STRING");
-      expect(config.responseSchema.properties.content.type).toBe("STRING");
+      expect(schema?.type).toBe("OBJECT");
+      expect(schema?.properties?.title.type).toBe("STRING");
+      expect(schema?.properties?.content.type).toBe("STRING");
     });
   });
 

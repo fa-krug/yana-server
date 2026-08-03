@@ -21,9 +21,9 @@ function backgroundColorOf(hsl: string): string {
 describe("<TagBadge>", () => {
   it("paints the given color as its background", () => {
     render(<TagBadge name="News" color="blue" />);
-    expect(screen.getByText("News").style.backgroundColor).toBe(backgroundColorOf(
-      hexForTagColor("blue"),
-    ));
+    expect(screen.getByText("News").style.backgroundColor).toBe(
+      backgroundColorOf(hexForTagColor("blue")),
+    );
   });
 
   it("falls back to the default palette color for an unrecognized value", () => {

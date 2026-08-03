@@ -23,7 +23,7 @@ import { TheVergeAggregator } from "./sites/the_verge";
 import { YouTubeAggregator } from "./sites/youtube/aggregator";
 import { FullWebsiteAggregator } from "./website";
 
-export type AggregatorClass = (new (feed: any) => BaseAggregator) & {
+export type AggregatorClass = (new (feed: FeedLike) => BaseAggregator) & {
   identifierField?: string;
   getIdentifierFromRelated?: (relatedObj: unknown) => string;
   getDefaultIdentifier?: () => string;

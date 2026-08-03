@@ -29,14 +29,7 @@ export class CaschysBlogAggregator extends FullWebsiteAggregator {
   static contentSelectors = [".entry-inner"];
   protected contentSelectors = [...CaschysBlogAggregator.contentSelectors];
 
-  static selectorsToRemove = [
-    ".aawp",
-    ".aawp-disclaimer",
-    "script",
-    "style",
-    "noscript",
-    "svg",
-  ];
+  static selectorsToRemove = [".aawp", ".aawp-disclaimer", "script", "style", "noscript", "svg"];
   protected selectorsToRemove = [...CaschysBlogAggregator.selectorsToRemove];
 
   usesFirstContentMatch = true;
@@ -135,9 +128,7 @@ export class CaschysBlogAggregator extends FullWebsiteAggregator {
 
     // Remove first image if we have a header image (avoid duplication)
     if (article.header_data) {
-      let $container = (
-        $("body").length > 0 ? $("body") : $("html")
-      ) as cheerio.Cheerio<Element>;
+      let $container = ($("body").length > 0 ? $("body") : $("html")) as cheerio.Cheerio<Element>;
       const topLevelTags = $container.children().toArray();
       if (topLevelTags.length === 1) {
         $container = $(topLevelTags[0]);

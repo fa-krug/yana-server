@@ -7,10 +7,21 @@ import {
   AggregatorRegistry,
   getAggregator,
   IMPLEMENTED_AGGREGATORS,
+  type AggregatorClass,
 } from "@/lib/aggregators/registry";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, feeds, users, type Feed } from "@/lib/db/schema";
 import type { AggregatorKey } from "@/lib/db/schema/enums";
+
+/** The constructor `aggregator.constructor` resolves to, plus its runtime `.name`. */
+type AggregatorCtor = AggregatorClass & { name: string };
+
+/** Some aggregator subclasses (e.g. `FullWebsiteAggregator`) expose selector
+ * introspection instance methods that `BaseAggregator` itself does not declare. */
+type SelectorAggregator = BaseAggregator & {
+  getContentSelectors?: () => string[];
+  getIgnoreSelectors?: () => string[];
+};
 
 const DEFAULT_IDENTIFIERS: Record<string, string> = {
   tagesschau: "https://www.tagesschau.de/xml/rss2/",
@@ -182,7 +193,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  let identifier = positionals[1];
+  const identifier = positionals[1];
   const dryRun = values["dry-run"] ?? false;
   const verbose = values.verbose ?? false;
   const numFirst = Math.max(1, parseInt(values.first ?? "1", 10) || 1);
@@ -278,7 +289,7 @@ async function main(): Promise<void> {
 
   printSection("AGGREGATOR CLASS INFO");
   const aggregator = getAggregator(feed!);
-  const aggregatorClass = aggregator.constructor as any;
+  const aggregatorClass = aggregator.constructor as unknown as AggregatorCtor;
 
   printField("Class", aggregatorClass.name);
 
@@ -295,14 +306,15 @@ async function main(): Promise<void> {
   }
 
   if (selectorDebug) {
-    if (typeof (aggregator as any).getContentSelectors === "function") {
-      printField("Content selectors", (aggregator as any).getContentSelectors().join(", "));
+    const selectorAggregator = aggregator as SelectorAggregator;
+    if (typeof selectorAggregator.getContentSelectors === "function") {
+      printField("Content selectors", selectorAggregator.getContentSelectors().join(", "));
     } else if (aggregatorClass.contentSelectors) {
       printField("Content selectors", aggregatorClass.contentSelectors.join(", "));
     }
 
-    if (typeof (aggregator as any).getIgnoreSelectors === "function") {
-      printField("Selectors to remove", (aggregator as any).getIgnoreSelectors().join(", "));
+    if (typeof selectorAggregator.getIgnoreSelectors === "function") {
+      printField("Selectors to remove", selectorAggregator.getIgnoreSelectors().join(", "));
     } else if (aggregatorClass.selectorsToRemove) {
       printField("Selectors to remove", aggregatorClass.selectorsToRemove.join(", "));
     }

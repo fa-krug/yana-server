@@ -11,7 +11,19 @@ import { isSafeUrl } from "../../blocks/parser";
 import { cleanHtml, removeSanitizedAttributes, sanitizeHtmlAttributes } from "../../extract/clean";
 import { createYoutubeEmbedHtml, escapeHtml, formatArticleContent } from "../../extract/format";
 import { buildImageRef, storeImageRefFromUrl } from "../../images/store";
-import { YouTubeAPIError, YouTubeClient, YouTubeCommentThread, YouTubeVideoItem } from "./client";
+import {
+  YouTubeAPIError,
+  YouTubeChannelData,
+  YouTubeClient,
+  YouTubeCommentThread,
+  YouTubeVideoItem,
+} from "./client";
+
+export interface YouTubeSourceData {
+  videos: YouTubeVideoItem[];
+  channel_id: string | null;
+  channel_title: string;
+}
 
 export function safeCommentAuthorHtml(name?: string | null, channelUrl?: string | null): string {
   const escapedName = escapeHtml(name || "Unknown");
@@ -145,11 +157,7 @@ export class YouTubeAggregator extends BaseAggregator {
     return identifier;
   }
 
-  async fetchSourceData(limit?: number): Promise<{
-    videos: YouTubeVideoItem[];
-    channel_id: string | null;
-    channel_title: string;
-  }> {
+  async fetchSourceData(limit?: number): Promise<YouTubeSourceData> {
     const client = this.getClient();
     let channelId = this._channel_id;
 
@@ -165,7 +173,7 @@ export class YouTubeAggregator extends BaseAggregator {
       channelId = this.identifier;
     }
 
-    let channelData: any = null;
+    let channelData: YouTubeChannelData | null = null;
     try {
       if (channelId) {
         channelData = await client.fetchChannelData(channelId);
@@ -191,7 +199,7 @@ export class YouTubeAggregator extends BaseAggregator {
     };
   }
 
-  async parseToRawArticles(sourceData: any): Promise<RawArticle[]> {
+  async parseToRawArticles(sourceData: YouTubeSourceData): Promise<RawArticle[]> {
     const videos: YouTubeVideoItem[] = sourceData?.videos || [];
     const articles: RawArticle[] = [];
 
@@ -207,10 +215,7 @@ export class YouTubeAggregator extends BaseAggregator {
 
       const thumbnails = snippet.thumbnails || {};
       const iconUrl =
-        thumbnails.maxres?.url ||
-        thumbnails.high?.url ||
-        thumbnails.medium?.url ||
-        null;
+        thumbnails.maxres?.url || thumbnails.high?.url || thumbnails.medium?.url || null;
 
       const article: RawArticle = {
         name: snippet.title || "",
@@ -259,11 +264,7 @@ export class YouTubeAggregator extends BaseAggregator {
     return articles;
   }
 
-  buildContentHtml(
-    description: string,
-    comments: YouTubeCommentThread[],
-    videoId: string,
-  ): string {
+  buildContentHtml(description: string, comments: YouTubeCommentThread[], videoId: string): string {
     const formattedDescription = description.replace(/\n/g, "<br>");
     let htmlContent = `<div class="youtube-description">${formattedDescription}</div>`;
 
@@ -294,7 +295,7 @@ export class YouTubeAggregator extends BaseAggregator {
 
   override async finalizeArticles(
     articles: RawArticle[],
-    userSettings?: any,
+    userSettings?: Record<string, unknown>,
   ): Promise<RawArticle[]> {
     const processedArticles = await this.applyAiProcessing(articles, userSettings);
     const finalized: RawArticle[] = [];
@@ -385,7 +386,7 @@ export class YouTubeAggregator extends BaseAggregator {
     let videoId: string | null = null;
     if (this._last_reloaded_video) {
       const vid = this._last_reloaded_video.id;
-      videoId = typeof vid === "string" ? vid : (vid as any)?.videoId || null;
+      videoId = typeof vid === "string" ? vid : vid.videoId || null;
     }
 
     if (!videoId && article.identifier) {

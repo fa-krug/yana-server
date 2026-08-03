@@ -1,18 +1,83 @@
 import * as cheerio from "cheerio";
 
+import type { UserSettings } from "@/lib/db/schema";
+
 export interface ArticleInput {
   name?: string;
   content?: string;
   [key: string]: unknown;
 }
 
+/**
+ * What `AIClient` and `applyAiOptions` accept for a user's AI configuration.
+ *
+ * `getSettings()`'s real row is `UserSettings` -- camelCase, one field per
+ * column -- so `Partial<UserSettings>` covers every production caller. Every
+ * field is also read under its snake_case column name (`this.settings.aiMaxRetries
+ * ?? this.settings.ai_max_retries`), which nothing in this codebase's own
+ * callers produces today; it is kept because dropping it would be a behavior
+ * change for whatever *does* hand this a snake_case row (a raw query result, a
+ * fixture ported from `old/core/ai_client.py`'s Django settings object).
+ *
+ * `aiMaxRetryTime`/`ai_max_retry_time` (the retry-budget cap read in
+ * `requestWithRetry()`) has no `user_settings` column at all -- `old/core/ai_client.py`
+ * reads it with `getattr(self.settings, "ai_max_retry_time", 60)`, always falling
+ * back to its default -- so both spellings are declared here rather than on
+ * `UserSettings`.
+ */
+export type AiRuntimeSettings = Partial<UserSettings> & {
+  active_ai_provider?: string;
+  aiMaxRetryTime?: number;
+  ai_max_retries?: number;
+  ai_retry_delay?: number;
+  ai_max_retry_time?: number;
+  ai_temperature?: number;
+  ai_max_tokens?: number;
+  ai_request_timeout?: number;
+  openai_enabled?: boolean;
+  openai_api_key?: string;
+  openai_api_url?: string;
+  openai_model?: string;
+  anthropic_enabled?: boolean;
+  anthropic_api_key?: string;
+  anthropic_model?: string;
+  gemini_enabled?: boolean;
+  gemini_api_key?: string;
+  gemini_model?: string;
+};
+
+/** The JSON body an AI provider's chat/completion endpoint is POSTed. */
+export type AiRequestBody = Record<string, unknown>;
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Narrows a caught value to the numeric `.status` some rejections carry. */
+function errorStatus(err: unknown): number | undefined {
+  if (typeof err === "object" && err !== null && "status" in err) {
+    const status = (err as Record<string, unknown>).status;
+    if (typeof status === "number") {
+      return status;
+    }
+  }
+  return undefined;
+}
+
+/** Mirrors `err?.message || err` for a caught value of unknown shape. */
+function describeError(err: unknown): string {
+  if (typeof err === "object" && err !== null && "message" in err) {
+    const message = (err as Record<string, unknown>).message;
+    if (typeof message === "string" && message) {
+      return message;
+    }
+  }
+  return String(err);
+}
+
 export class AIClient {
-  private settings: any;
+  private settings: AiRuntimeSettings;
   private provider: string;
 
-  constructor(settings: any) {
+  constructor(settings: AiRuntimeSettings) {
     this.settings = settings || {};
     this.provider = this.settings.activeAiProvider ?? this.settings.active_ai_provider ?? "";
   }
@@ -20,7 +85,7 @@ export class AIClient {
   private async requestWithRetry(
     url: string,
     headers: Record<string, string>,
-    data: any,
+    data: AiRequestBody,
     timeoutSeconds: number,
   ): Promise<Response | null> {
     const maxRetries = this.settings.aiMaxRetries ?? this.settings.ai_max_retries ?? 3;
@@ -72,8 +137,8 @@ export class AIClient {
 
         console.warn(`AI API call failed with status ${response.status}: ${response.statusText}`);
         return null;
-      } catch (err: any) {
-        if (attempt < maxRetries && err?.status === 429) {
+      } catch (err: unknown) {
+        if (attempt < maxRetries && errorStatus(err) === 429) {
           const waitSeconds = retryDelay ? retryDelay * Math.pow(2, attempt) : 0;
           const elapsedSeconds = (Date.now() - startTime) / 1000;
           if (waitSeconds > 0 && elapsedSeconds + waitSeconds > maxRetryTime) {
@@ -93,7 +158,7 @@ export class AIClient {
           continue;
         }
 
-        console.warn(`AI API request error: ${err?.message || err}`);
+        console.warn(`AI API request error: ${describeError(err)}`);
         return null;
       }
     }
@@ -122,8 +187,8 @@ export class AIClient {
         console.warn(`Unknown AI provider: ${this.provider}`);
         return null;
       }
-    } catch (e: any) {
-      console.warn(`AI API call failed: ${e?.message || e}`);
+    } catch (e: unknown) {
+      console.warn(`AI API call failed: ${describeError(e)}`);
       return null;
     }
   }
@@ -152,7 +217,7 @@ export class AIClient {
     const maxTokens = this.settings.aiMaxTokens ?? this.settings.ai_max_tokens ?? 1000;
     const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
 
-    const data: any = {
+    const data: AiRequestBody = {
       model,
       messages: [{ role: "user", content: prompt }],
       temperature,
@@ -257,7 +322,7 @@ export class AIClient {
 export async function applyAiOptions(
   article: ArticleInput,
   options?: Record<string, unknown> | null,
-  userSettings?: any,
+  userSettings?: AiRuntimeSettings,
 ): Promise<ArticleInput> {
   const opts = options || {};
   const aiEnabled = Boolean(opts.ai_summarize || opts.ai_improve_writing || opts.ai_translate);

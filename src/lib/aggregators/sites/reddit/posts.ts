@@ -4,7 +4,16 @@
  * Ported from old/core/aggregators/reddit/posts.py.
  */
 
-import { RedditPostData } from "./types";
+import { RedditListing, RedditPostData, RedditPostRaw } from "./types";
+
+/**
+ * `/comments/{postId}.json` normally answers `[postListing, commentsListing]`,
+ * but this also accepts a bare listing for the same defensive reason the
+ * original lookup did: an unrecognised shape falls through to `postDict`
+ * staying `null`.
+ */
+type RedditPostFetchResponse =
+  RedditListing<"t3", RedditPostRaw> | RedditListing<"t3", RedditPostRaw>[];
 
 export async function fetchRedditPost(
   subreddit: string,
@@ -32,11 +41,13 @@ export async function fetchRedditPost(
     });
 
     if (!res.ok) return null;
-    const data = (await res.json()) as any;
+    const data = (await res.json()) as RedditPostFetchResponse;
 
-    let postDict: Record<string, any> | null = null;
-    if (Array.isArray(data) && data.length > 0 && data[0]?.data?.children?.[0]?.data) {
-      postDict = data[0].data.children[0].data;
+    let postDict: RedditPostRaw | null = null;
+    if (Array.isArray(data)) {
+      if (data.length > 0 && data[0]?.data?.children?.[0]?.data) {
+        postDict = data[0].data.children[0].data;
+      }
     } else if (data?.data?.children?.[0]?.data) {
       postDict = data.data.children[0].data;
     }

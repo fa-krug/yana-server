@@ -13,10 +13,7 @@ export class TagesschauAggregator extends FullWebsiteAggregator {
 
   static getIdentifierChoices(): Array<[string, string]> {
     return [
-      [
-        "https://www.tagesschau.de/infoservices/alle-meldungen-100~rss2.xml",
-        "Alle Meldungen",
-      ],
+      ["https://www.tagesschau.de/infoservices/alle-meldungen-100~rss2.xml", "Alle Meldungen"],
       ["https://www.tagesschau.de/index~rss2.xml", "Startseite"],
       ["https://www.tagesschau.de/inland/index~rss2.xml", "Inland"],
       ["https://www.tagesschau.de/inland/innenpolitik/index~rss2.xml", "Innenpolitik"],
@@ -36,10 +33,7 @@ export class TagesschauAggregator extends FullWebsiteAggregator {
         "https://www.tagesschau.de/inland/regional/mecklenburgvorpommern/index~rss2.xml",
         "Mecklenburg-Vorpommern",
       ],
-      [
-        "https://www.tagesschau.de/inland/regional/niedersachsen/index~rss2.xml",
-        "Niedersachsen",
-      ],
+      ["https://www.tagesschau.de/inland/regional/niedersachsen/index~rss2.xml", "Niedersachsen"],
       [
         "https://www.tagesschau.de/inland/regional/nordrheinwestfalen/index~rss2.xml",
         "Nordrhein-Westfalen",
@@ -50,10 +44,7 @@ export class TagesschauAggregator extends FullWebsiteAggregator {
       ],
       ["https://www.tagesschau.de/inland/regional/saarland/index~rss2.xml", "Saarland"],
       ["https://www.tagesschau.de/inland/regional/sachsen/index~rss2.xml", "Sachsen"],
-      [
-        "https://www.tagesschau.de/inland/regional/sachsenanhalt/index~rss2.xml",
-        "Sachsen-Anhalt",
-      ],
+      ["https://www.tagesschau.de/inland/regional/sachsenanhalt/index~rss2.xml", "Sachsen-Anhalt"],
       [
         "https://www.tagesschau.de/inland/regional/schleswigholstein/index~rss2.xml",
         "Schleswig-Holstein",
@@ -73,10 +64,7 @@ export class TagesschauAggregator extends FullWebsiteAggregator {
         "https://www.tagesschau.de/wirtschaft/technologie/index~rss2.xml",
         "Technologie (Wirtschaft)",
       ],
-      [
-        "https://www.tagesschau.de/wirtschaft/weltwirtschaft/index~rss2.xml",
-        "Weltwirtschaft",
-      ],
+      ["https://www.tagesschau.de/wirtschaft/weltwirtschaft/index~rss2.xml", "Weltwirtschaft"],
       ["https://www.tagesschau.de/wirtschaft/konjunktur/index~rss2.xml", "Konjunktur"],
       ["https://www.tagesschau.de/wissen/index~rss2.xml", "Wissen"],
       ["https://www.tagesschau.de/wissen/gesundheit/index~rss2.xml", "Gesundheit"],
@@ -209,9 +197,9 @@ export class TagesschauAggregator extends FullWebsiteAggregator {
   }
 
   private mediaHeader(html: string, article: RawArticle): string | null {
-    const art = article as any;
-    if ("_tagesschau_media_header" in art) {
-      return art._tagesschau_media_header ?? null;
+    if ("_tagesschau_media_header" in article) {
+      const cached = article._tagesschau_media_header;
+      return typeof cached === "string" ? cached : null;
     }
 
     let mediaHeader: string | null = null;
@@ -223,17 +211,16 @@ export class TagesschauAggregator extends FullWebsiteAggregator {
       }
     }
 
-    art._tagesschau_media_header = mediaHeader;
+    article._tagesschau_media_header = mediaHeader;
     return mediaHeader;
   }
 
   override async processContent(html: string, article: RawArticle): Promise<string> {
-    const art = article as any;
     const rawHtml = article.raw_content || "";
     const mediaHeader = this.mediaHeader(rawHtml, article);
     const headerData = article.header_data;
     if (mediaHeader && headerData) {
-      art.header_data = null;
+      article.header_data = null;
     }
 
     let processed: string;
@@ -243,7 +230,7 @@ export class TagesschauAggregator extends FullWebsiteAggregator {
       if (mediaHeader && headerData) {
         article.header_data = headerData;
       }
-      delete art._tagesschau_media_header;
+      delete article._tagesschau_media_header;
     }
 
     if (mediaHeader) {

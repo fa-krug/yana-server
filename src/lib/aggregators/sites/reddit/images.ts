@@ -6,11 +6,7 @@
 
 import { extractYoutubeVideoId, isTwitterUrl } from "../../extract/format";
 import { RedditPostData } from "./types";
-import {
-  decodeHtmlEntitiesInUrl,
-  extractUrlsFromText,
-  fixRedditMediaUrl,
-} from "./urls";
+import { decodeHtmlEntitiesInUrl, extractUrlsFromText, fixRedditMediaUrl } from "./urls";
 
 export function extractThumbnailUrl(post: RedditPostData): string | null {
   try {
@@ -123,9 +119,15 @@ export function extractHeaderImageUrl(post: RedditPostData): string | null {
       const decodedUrl = decodeHtmlEntitiesInUrl(post.url);
       const urlLower = decodedUrl.toLowerCase();
 
-      if (!/https?:\/\/[^\s]*reddit\.com\/r\/[^/\s]+\/comments\/[a-zA-Z0-9]+\/[^/\s]+\/?$/i.test(decodedUrl)) {
+      if (
+        !/https?:\/\/[^\s]*reddit\.com\/r\/[^/\s]+\/comments\/[a-zA-Z0-9]+\/[^/\s]+\/?$/i.test(
+          decodedUrl,
+        )
+      ) {
         const isDirectImage =
-          [".jpg", ".jpeg", ".png", ".webp", ".gif", ".gifv"].some((ext) => urlLower.includes(ext)) ||
+          [".jpg", ".jpeg", ".png", ".webp", ".gif", ".gifv"].some((ext) =>
+            urlLower.includes(ext),
+          ) ||
           urlLower.includes("i.redd.it") ||
           (urlLower.includes("preview.redd.it") && urlLower.includes(".gif"));
 
@@ -194,7 +196,7 @@ function extractGalleryImageUrl(post: RedditPostData): string | null {
     return null;
   }
 
-  const items = (post.gallery_data as any).items || [];
+  const items = post.gallery_data.items || [];
   if (items.length === 0) return null;
 
   const mediaId = items[0]?.media_id;

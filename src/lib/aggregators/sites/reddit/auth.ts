@@ -15,22 +15,13 @@ export function getRedditUserSettings(
   feedOptions?: Record<string, unknown> | null,
 ): RedditUserSettings {
   const enabled = Boolean(
-    feedOptions?.reddit_enabled ??
-      process.env.REDDIT_ENABLED ??
-      process.env.REDDIT_CLIENT_ID,
+    feedOptions?.reddit_enabled ?? process.env.REDDIT_ENABLED ?? process.env.REDDIT_CLIENT_ID,
   );
-  const clientId =
-    (feedOptions?.reddit_client_id as string) ||
-    process.env.REDDIT_CLIENT_ID ||
-    "";
+  const clientId = (feedOptions?.reddit_client_id as string) || process.env.REDDIT_CLIENT_ID || "";
   const clientSecret =
-    (feedOptions?.reddit_client_secret as string) ||
-    process.env.REDDIT_CLIENT_SECRET ||
-    "";
+    (feedOptions?.reddit_client_secret as string) || process.env.REDDIT_CLIENT_SECRET || "";
   const userAgent =
-    (feedOptions?.reddit_user_agent as string) ||
-    process.env.REDDIT_USER_AGENT ||
-    "Yana/1.0";
+    (feedOptions?.reddit_user_agent as string) || process.env.REDDIT_USER_AGENT || "Yana/1.0";
 
   return {
     reddit_enabled: enabled,

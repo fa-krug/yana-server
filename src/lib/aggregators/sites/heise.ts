@@ -82,20 +82,15 @@ function findForumUrl(html: string, articleUrl: string): string | null {
   return null;
 }
 
-function findCommentElements($: cheerio.CheerioAPI): cheerio.Cheerio<any> {
-  const selectors = [
-    "li.posting_element",
-    '[id^="posting_"]',
-    ".posting",
-    ".a-comment",
-  ];
+function findCommentElements($: cheerio.CheerioAPI): cheerio.Cheerio<Element> {
+  const selectors = ["li.posting_element", '[id^="posting_"]', ".posting", ".a-comment"];
   for (const selector of selectors) {
-    const elements = $(selector);
+    const elements = $<Element, string>(selector);
     if (elements.length > 0) {
       return elements;
     }
   }
-  return $("");
+  return $<Element, string>("");
 }
 
 function processListItemComment($: cheerio.CheerioAPI, el: Element): string | null {
@@ -361,13 +356,19 @@ export class HeiseAggregator extends FullWebsiteAggregator {
       }
     });
 
-    $(".lable, .linkWrapper, .price, .prosHeadding, .prosText, .consHeadding, .consText, .expandTrigger, .title, h1, h2, h3, h4, h5, h6").each((_, elem) => {
-      $(elem).find("*").addBack().contents().each((_, child) => {
-        if (child.type === "text") {
-          const text = $(child).text();
-          $(child).replaceWith(text.trim());
-        }
-      });
+    $(
+      ".lable, .linkWrapper, .price, .prosHeadding, .prosText, .consHeadding, .consText, .expandTrigger, .title, h1, h2, h3, h4, h5, h6",
+    ).each((_, elem) => {
+      $(elem)
+        .find("*")
+        .addBack()
+        .contents()
+        .each((_, child) => {
+          if (child.type === "text") {
+            const text = $(child).text();
+            $(child).replaceWith(text.trim());
+          }
+        });
     });
 
     sanitizeClassNames($);
@@ -384,11 +385,7 @@ export class HeiseAggregator extends FullWebsiteAggregator {
       try {
         const rawHtml = article.raw_content || "";
         if (rawHtml) {
-          commentsHtml = await this.extractComments(
-            article.identifier,
-            rawHtml,
-            maxComments,
-          );
+          commentsHtml = await this.extractComments(article.identifier, rawHtml, maxComments);
         }
       } catch {
         // ignore

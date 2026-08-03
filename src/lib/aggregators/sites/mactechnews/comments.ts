@@ -85,11 +85,7 @@ function processComment(
  * @param maxComments - Maximum number of comments to extract
  * @returns HTML string with formatted comments, or null if no comments found
  */
-export function extractComments(
-  html: string,
-  articleUrl: string,
-  maxComments = 5,
-): string | null {
+export function extractComments(html: string, articleUrl: string, maxComments = 5): string | null {
   if (maxComments <= 0) {
     return null;
   }

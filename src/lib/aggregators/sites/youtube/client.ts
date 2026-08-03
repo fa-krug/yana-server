@@ -22,6 +22,13 @@ export interface YouTubeChannelData {
   channel_icon_url: string | null;
 }
 
+/** A single `{ url, width, height }` thumbnail as returned by the Data API. */
+export interface YouTubeThumbnail {
+  url?: string;
+  width?: number;
+  height?: number;
+}
+
 export interface YouTubeVideoItem {
   id: string | { videoId: string };
   snippet?: {
@@ -30,11 +37,56 @@ export interface YouTubeVideoItem {
     publishedAt?: string;
     channelId?: string;
     channelTitle?: string;
-    thumbnails?: Record<string, { url?: string; width?: number; height?: number }>;
+    thumbnails?: Record<string, YouTubeThumbnail>;
     [key: string]: unknown;
   };
   statistics?: Record<string, unknown>;
   contentDetails?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/** A `channels` list item, as consumed by {@link YouTubeClient.fetchChannelsData}. */
+export interface YouTubeChannelListItem {
+  id: string;
+  snippet?: {
+    title?: string;
+    customUrl?: string;
+    thumbnails?: Record<string, YouTubeThumbnail>;
+    [key: string]: unknown;
+  };
+  contentDetails?: {
+    relatedPlaylists?: {
+      uploads?: string;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+/** A `search` list item — `id` is an object whose shape depends on the requested `type`. */
+export interface YouTubeSearchResultItem {
+  id?: {
+    channelId?: string;
+    videoId?: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+/** A `playlistItems` list item, as consumed by {@link YouTubeClient.fetchVideosFromPlaylist}. */
+export interface YouTubePlaylistItem {
+  contentDetails?: {
+    videoId?: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+/** The `{ items, nextPageToken }` envelope shared by every Data API list endpoint. */
+export interface YouTubeListResponse<T> {
+  items?: T[];
+  nextPageToken?: string;
   [key: string]: unknown;
 }
 
@@ -67,7 +119,7 @@ export class YouTubeClient {
     this.apiKey = apiKey;
   }
 
-  async _get<T = any>(endpoint: string, params: Record<string, string | number>): Promise<T> {
+  async _get<T = unknown>(endpoint: string, params: Record<string, string | number>): Promise<T> {
     const url = new URL(`${YouTubeClient.BASE_URL}/${endpoint}`);
     for (const [key, value] of Object.entries(params)) {
       url.searchParams.set(key, String(value));
@@ -138,7 +190,10 @@ export class YouTubeClient {
 
   private async _validateChannelId(channelId: string): Promise<boolean> {
     try {
-      const data = await this._get("channels", { part: "id", id: channelId });
+      const data = await this._get<YouTubeListResponse<{ id?: string }>>("channels", {
+        part: "id",
+        id: channelId,
+      });
       return Array.isArray(data.items) && data.items.length > 0;
     } catch {
       return false;
@@ -179,7 +234,7 @@ export class YouTubeClient {
   private async _resolveViaSearch(handle: string): Promise<string | null> {
     const q = handle.startsWith("@") ? handle : `@${handle}`;
     try {
-      const data = await this._get("search", {
+      const data = await this._get<YouTubeListResponse<YouTubeSearchResultItem>>("search", {
         part: "snippet",
         q,
         type: "channel",
@@ -188,9 +243,7 @@ export class YouTubeClient {
       const items = data.items || [];
       if (!items.length) return null;
 
-      const channelIds = items
-        .map((item: any) => item.id?.channelId)
-        .filter(Boolean) as string[];
+      const channelIds = items.map((item) => item.id?.channelId).filter(Boolean) as string[];
       if (!channelIds.length) return null;
 
       const channelsData = await this.fetchChannelsData(channelIds);
@@ -221,7 +274,10 @@ export class YouTubeClient {
 
   private async _resolveViaUsername(handle: string): Promise<string | null> {
     try {
-      const data = await this._get("channels", { part: "id", forUsername: handle });
+      const data = await this._get<YouTubeListResponse<{ id?: string }>>("channels", {
+        part: "id",
+        forUsername: handle,
+      });
       const items = data.items || [];
       if (items.length > 0 && items[0].id) {
         return items[0].id;
@@ -246,7 +302,7 @@ export class YouTubeClient {
     const results: YouTubeChannelData[] = [];
     for (let i = 0; i < channelIds.length; i += 50) {
       const batch = channelIds.slice(i, i + 50);
-      const data = await this._get("channels", {
+      const data = await this._get<YouTubeListResponse<YouTubeChannelListItem>>("channels", {
         part: "contentDetails,snippet",
         id: batch.join(","),
       });
@@ -258,8 +314,7 @@ export class YouTubeClient {
         const iconUrl =
           thumbnails.high?.url || thumbnails.medium?.url || thumbnails.default?.url || null;
 
-        const uploadsPlaylistId =
-          item.contentDetails?.relatedPlaylists?.uploads || null;
+        const uploadsPlaylistId = item.contentDetails?.relatedPlaylists?.uploads || null;
 
         let customUrl = snippet.customUrl || null;
         if (customUrl && !customUrl.startsWith("@")) {
@@ -295,12 +350,15 @@ export class YouTubeClient {
         params.pageToken = nextPageToken;
       }
 
-      const data = await this._get("playlistItems", params);
+      const data = await this._get<YouTubeListResponse<YouTubePlaylistItem>>(
+        "playlistItems",
+        params,
+      );
       const items = data.items || [];
       if (!items.length) break;
 
       const videoIds = items
-        .map((item: any) => item.contentDetails?.videoId)
+        .map((item) => item.contentDetails?.videoId)
         .filter(Boolean) as string[];
 
       const detailedVideos = await this.fetchVideoDetails(videoIds);
@@ -317,7 +375,7 @@ export class YouTubeClient {
     const allVideos: YouTubeVideoItem[] = [];
     for (let i = 0; i < videoIds.length; i += 50) {
       const batch = videoIds.slice(i, i + 50);
-      const data = await this._get("videos", {
+      const data = await this._get<YouTubeListResponse<YouTubeVideoItem>>("videos", {
         part: "snippet,statistics,contentDetails",
         id: batch.join(","),
       });
@@ -348,7 +406,10 @@ export class YouTubeClient {
           params.pageToken = nextPageToken;
         }
 
-        const data = await this._get("commentThreads", params);
+        const data = await this._get<YouTubeListResponse<YouTubeCommentThread>>(
+          "commentThreads",
+          params,
+        );
         const items = data.items || [];
         if (!items.length) break;
 
@@ -390,13 +451,11 @@ export class YouTubeClient {
         params.pageToken = nextPageToken;
       }
 
-      const data = await this._get("search", params);
+      const data = await this._get<YouTubeListResponse<YouTubeSearchResultItem>>("search", params);
       const items = data.items || [];
       if (!items.length) break;
 
-      const videoIds = items
-        .map((item: any) => item.id?.videoId)
-        .filter(Boolean) as string[];
+      const videoIds = items.map((item) => item.id?.videoId).filter(Boolean) as string[];
 
       const detailedVideos = await this.fetchVideoDetails(videoIds);
       videos.push(...detailedVideos);

@@ -1,4 +1,5 @@
 import { applyAiOptions } from "../ai/run";
+import type { UserSettings } from "@/lib/db/schema";
 import type { HeaderElementData } from "./header/context";
 import { extractHeaderElement } from "./header/extractor";
 
@@ -22,6 +23,20 @@ export interface RawArticle {
   header_data?: HeaderElementData | null;
   [key: string]: unknown;
 }
+
+/**
+ * Per-user preferences threaded through to AI post-processing
+ * (`applyAiOptions` in `../ai/run`). No job handler wires a real value in yet
+ * -- `src/lib/jobs/handlers/aggregate.ts` calls `aggregate()` with no
+ * userSettings at all -- so this models the eventual caller: the real,
+ * camelCase `UserSettings` row from `src/lib/db/schema/users.ts` (the same
+ * type `getSettings()` returns), plus the snake_case fallback keys `AIClient`
+ * (`../ai/run`) also reads for parity with the retired Django settings object.
+ */
+export type AggregatorUserSettings = Partial<UserSettings> & {
+  ai_request_delay?: number;
+  [key: string]: unknown;
+};
 
 export abstract class BaseAggregator {
   static identifierField = "identifier";
@@ -149,13 +164,16 @@ export abstract class BaseAggregator {
     return articles;
   }
 
-  async finalizeArticles(articles: RawArticle[], userSettings?: any): Promise<RawArticle[]> {
+  async finalizeArticles(
+    articles: RawArticle[],
+    userSettings?: AggregatorUserSettings,
+  ): Promise<RawArticle[]> {
     return this.applyAiProcessing(articles, userSettings);
   }
 
   protected async applyAiProcessing(
     articles: RawArticle[],
-    userSettings?: any,
+    userSettings?: AggregatorUserSettings,
   ): Promise<RawArticle[]> {
     if (!this.feed.options) return articles;
     for (let i = 0; i < articles.length; i++) {
@@ -213,7 +231,7 @@ export abstract class BaseAggregator {
   async aggregate(
     clock?: () => Date,
     collectedToday?: number,
-    userSettings?: any,
+    userSettings?: AggregatorUserSettings,
   ): Promise<RawArticle[]> {
     this.validate();
     const limit = this.getCurrentRunLimit(clock, collectedToday);

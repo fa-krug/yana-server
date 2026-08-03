@@ -12,9 +12,7 @@ export class TheVergeAggregator extends RssSummaryFallbackAggregator {
     return [["https://www.theverge.com/rss/index.xml", "Main Feed"]];
   }
 
-  static contentSelectors = [
-    ".duet--layout--entry-body .duet--article--article-body-component",
-  ];
+  static contentSelectors = [".duet--layout--entry-body .duet--article--article-body-component"];
   protected contentSelectors = [...TheVergeAggregator.contentSelectors];
 
   static selectorsToRemove = [

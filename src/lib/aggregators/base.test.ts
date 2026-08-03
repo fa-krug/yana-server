@@ -79,7 +79,7 @@ describe("BaseAggregator", () => {
       options: { ai_summarize: true },
     };
     const agg = new TestAggregator(feed);
-    let passedSettings: any = null;
+    let passedSettings: unknown = null;
     agg.finalizeArticles = async (articles, userSettings) => {
       passedSettings = userSettings;
       return articles;
