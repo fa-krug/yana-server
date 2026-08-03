@@ -20,6 +20,10 @@ export class OglafAggregator extends FullWebsiteAggregator {
     return "https://www.oglaf.com/feeds/rss/";
   }
 
+  static getIdentifierChoices(): Array<[string, string]> {
+    return [["https://www.oglaf.com/feeds/rss/", "Oglaf (Main Feed)"]];
+  }
+
   static resolvesFeedUrl(): boolean {
     return false;
   }

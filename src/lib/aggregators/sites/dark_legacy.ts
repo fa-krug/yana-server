@@ -20,6 +20,10 @@ export class DarkLegacyAggregator extends FullWebsiteAggregator {
     return "https://darklegacycomics.com/feed.xml";
   }
 
+  static getIdentifierChoices(): Array<[string, string]> {
+    return [["https://darklegacycomics.com/feed.xml", "Dark Legacy Comics (Main Feed)"]];
+  }
+
   static getConfigurationFields(): Record<string, unknown> {
     return {
       show_alt_text: {

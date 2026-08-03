@@ -28,10 +28,47 @@ export type AggregatorSpec = {
   identifierRequired: boolean;
   identifierLabel: string;
   identifierHelp: string;
+  /**
+   * Fixed feed variants, ported verbatim from the aggregator's own
+   * `getIdentifierChoices()` in `src/lib/aggregators/sites/*` — see the
+   * cross-check test in `registry.test.ts` that keeps this hand-kept copy
+   * honest. Empty for the two free-form-URL aggregators and the two
+   * live-search aggregators.
+   */
+  identifierChoices: { value: string; label: string }[];
+  /** Set only for the two aggregators with a live search-as-you-type identifier field. */
+  identifierSearch?: "youtube" | "reddit";
   options: OptionSpec[];
 };
 
 export type Capabilities = { youtube: boolean; reddit: boolean; ai: boolean };
+
+/**
+ * The identifier field's shape, derived from data rather than declared
+ * per-aggregator — so it can never drift from the choices actually listed.
+ *
+ * - `identifierSearch` set -> `"search"`.
+ * - Otherwise, the number of `identifierChoices` decides it: zero is a
+ *   free-form URL, exactly one is nothing to configure (there's only ever
+ *   one possible value), two or more is a fixed dropdown.
+ */
+export type IdentifierMode = "none" | "url" | "choice" | "search";
+
+export function identifierModeFor(spec: AggregatorSpec): IdentifierMode {
+  if (spec.identifierSearch) return "search";
+  if (spec.identifierChoices.length === 0) return "url";
+  if (spec.identifierChoices.length === 1) return "none";
+  return "choice";
+}
+
+/**
+ * The identifier value a `none`/`choice`-mode aggregator starts with (its
+ * first — for `none`, only — choice), or `""` for `url`/`search` modes,
+ * where there's nothing to default to.
+ */
+export function defaultIdentifierFor(spec: AggregatorSpec): string {
+  return spec.identifierChoices[0]?.value ?? "";
+}
 
 const AI_OPTIONS: OptionSpec[] = [
   {
@@ -89,6 +126,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierRequired: false,
     identifierLabel: "URL",
     identifierHelp: "Website URL",
+    identifierChoices: [],
     options: WEBSITE_OPTIONS,
   },
   feed_content: {
@@ -97,6 +135,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierRequired: false,
     identifierLabel: "URL",
     identifierHelp: "RSS Feed URL",
+    identifierChoices: [],
     options: AI_OPTIONS,
   },
   heise: {
@@ -105,6 +144,12 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select Heise feed",
+    identifierChoices: [
+      { value: "https://www.heise.de/rss/heise.rdf", label: "Main Feed" },
+      { value: "https://www.heise.de/rss/heise-security.rdf", label: "Security" },
+      { value: "https://www.heise.de/rss/heise-developer.rdf", label: "Developer" },
+      { value: "https://www.heise.de/rss/heise-top.rdf", label: "Top News" },
+    ],
     options: [
       ...WEBSITE_OPTIONS,
       { key: "include_comments", label: "Include Comments", kind: "boolean", default: true },
@@ -117,6 +162,41 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select Merkur feed",
+    identifierChoices: [
+      { value: "https://www.merkur.de/rssfeed.rdf", label: "Main Feed" },
+      {
+        value: "https://www.merkur.de/lokales/garmisch-partenkirchen/rssfeed.rdf",
+        label: "Garmisch-Partenkirchen",
+      },
+      { value: "https://www.merkur.de/lokales/wuermtal/rssfeed.rdf", label: "Würmtal" },
+      { value: "https://www.merkur.de/lokales/starnberg/rssfeed.rdf", label: "Starnberg" },
+      {
+        value: "https://www.merkur.de/lokales/fuerstenfeldbruck/rssfeed.rdf",
+        label: "Fürstenfeldbruck",
+      },
+      { value: "https://www.merkur.de/lokales/dachau/rssfeed.rdf", label: "Dachau" },
+      { value: "https://www.merkur.de/lokales/freising/rssfeed.rdf", label: "Freising" },
+      { value: "https://www.merkur.de/lokales/erding/rssfeed.rdf", label: "Erding" },
+      { value: "https://www.merkur.de/lokales/ebersberg/rssfeed.rdf", label: "Ebersberg" },
+      { value: "https://www.merkur.de/lokales/muenchen/rssfeed.rdf", label: "München" },
+      {
+        value: "https://www.merkur.de/lokales/muenchen-lk/rssfeed.rdf",
+        label: "München Landkreis",
+      },
+      { value: "https://www.merkur.de/lokales/holzkirchen/rssfeed.rdf", label: "Holzkirchen" },
+      { value: "https://www.merkur.de/lokales/miesbach/rssfeed.rdf", label: "Miesbach" },
+      {
+        value: "https://www.merkur.de/lokales/region-tegernsee/rssfeed.rdf",
+        label: "Region Tegernsee",
+      },
+      { value: "https://www.merkur.de/lokales/bad-toelz/rssfeed.rdf", label: "Bad Tölz" },
+      {
+        value: "https://www.merkur.de/lokales/wolfratshausen/rssfeed.rdf",
+        label: "Wolfratshausen",
+      },
+      { value: "https://www.merkur.de/lokales/weilheim/rssfeed.rdf", label: "Weilheim" },
+      { value: "https://www.merkur.de/lokales/schongau/rssfeed.rdf", label: "Schongau" },
+    ],
     options: [
       ...WEBSITE_OPTIONS,
       {
@@ -133,6 +213,134 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select Tagesschau feed",
+    identifierChoices: [
+      {
+        value: "https://www.tagesschau.de/infoservices/alle-meldungen-100~rss2.xml",
+        label: "Alle Meldungen",
+      },
+      { value: "https://www.tagesschau.de/index~rss2.xml", label: "Startseite" },
+      { value: "https://www.tagesschau.de/inland/index~rss2.xml", label: "Inland" },
+      {
+        value: "https://www.tagesschau.de/inland/innenpolitik/index~rss2.xml",
+        label: "Innenpolitik",
+      },
+      {
+        value: "https://www.tagesschau.de/inland/gesellschaft/index~rss2.xml",
+        label: "Gesellschaft",
+      },
+      {
+        value: "https://www.tagesschau.de/inland/regional/index~rss2.xml",
+        label: "Regional (Alle)",
+      },
+      {
+        value: "https://www.tagesschau.de/inland/regional/badenwuerttemberg/index~rss2.xml",
+        label: "Baden-Württemberg",
+      },
+      { value: "https://www.tagesschau.de/inland/regional/bayern/index~rss2.xml", label: "Bayern" },
+      { value: "https://www.tagesschau.de/inland/regional/berlin/index~rss2.xml", label: "Berlin" },
+      {
+        value: "https://www.tagesschau.de/inland/regional/brandenburg/index~rss2.xml",
+        label: "Brandenburg",
+      },
+      { value: "https://www.tagesschau.de/inland/regional/bremen/index~rss2.xml", label: "Bremen" },
+      {
+        value: "https://www.tagesschau.de/inland/regional/hamburg/index~rss2.xml",
+        label: "Hamburg",
+      },
+      { value: "https://www.tagesschau.de/inland/regional/hessen/index~rss2.xml", label: "Hessen" },
+      {
+        value: "https://www.tagesschau.de/inland/regional/mecklenburgvorpommern/index~rss2.xml",
+        label: "Mecklenburg-Vorpommern",
+      },
+      {
+        value: "https://www.tagesschau.de/inland/regional/niedersachsen/index~rss2.xml",
+        label: "Niedersachsen",
+      },
+      {
+        value: "https://www.tagesschau.de/inland/regional/nordrheinwestfalen/index~rss2.xml",
+        label: "Nordrhein-Westfalen",
+      },
+      {
+        value: "https://www.tagesschau.de/inland/regional/rheinlandpfalz/index~rss2.xml",
+        label: "Rheinland-Pfalz",
+      },
+      {
+        value: "https://www.tagesschau.de/inland/regional/saarland/index~rss2.xml",
+        label: "Saarland",
+      },
+      {
+        value: "https://www.tagesschau.de/inland/regional/sachsen/index~rss2.xml",
+        label: "Sachsen",
+      },
+      {
+        value: "https://www.tagesschau.de/inland/regional/sachsenanhalt/index~rss2.xml",
+        label: "Sachsen-Anhalt",
+      },
+      {
+        value: "https://www.tagesschau.de/inland/regional/schleswigholstein/index~rss2.xml",
+        label: "Schleswig-Holstein",
+      },
+      {
+        value: "https://www.tagesschau.de/inland/regional/thueringen/index~rss2.xml",
+        label: "Thüringen",
+      },
+      { value: "https://www.tagesschau.de/ausland/index~rss2.xml", label: "Ausland" },
+      { value: "https://www.tagesschau.de/ausland/europa/index~rss2.xml", label: "Europa" },
+      { value: "https://www.tagesschau.de/ausland/amerika/index~rss2.xml", label: "Amerika" },
+      { value: "https://www.tagesschau.de/ausland/afrika/index~rss2.xml", label: "Afrika" },
+      { value: "https://www.tagesschau.de/ausland/asien/index~rss2.xml", label: "Asien" },
+      { value: "https://www.tagesschau.de/ausland/ozeanien/index~rss2.xml", label: "Ozeanien" },
+      { value: "https://www.tagesschau.de/wirtschaft/index~rss2.xml", label: "Wirtschaft" },
+      {
+        value: "https://www.tagesschau.de/wirtschaft/finanzen/index~rss2.xml",
+        label: "Finanzen",
+      },
+      {
+        value: "https://www.tagesschau.de/wirtschaft/unternehmen/index~rss2.xml",
+        label: "Unternehmen",
+      },
+      {
+        value: "https://www.tagesschau.de/wirtschaft/verbraucher/index~rss2.xml",
+        label: "Verbraucher",
+      },
+      {
+        value: "https://www.tagesschau.de/wirtschaft/technologie/index~rss2.xml",
+        label: "Technologie (Wirtschaft)",
+      },
+      {
+        value: "https://www.tagesschau.de/wirtschaft/weltwirtschaft/index~rss2.xml",
+        label: "Weltwirtschaft",
+      },
+      {
+        value: "https://www.tagesschau.de/wirtschaft/konjunktur/index~rss2.xml",
+        label: "Konjunktur",
+      },
+      { value: "https://www.tagesschau.de/wissen/index~rss2.xml", label: "Wissen" },
+      {
+        value: "https://www.tagesschau.de/wissen/gesundheit/index~rss2.xml",
+        label: "Gesundheit",
+      },
+      {
+        value: "https://www.tagesschau.de/wissen/klima/index~rss2.xml",
+        label: "Klima & Umwelt",
+      },
+      {
+        value: "https://www.tagesschau.de/wissen/forschung/index~rss2.xml",
+        label: "Forschung",
+      },
+      {
+        value: "https://www.tagesschau.de/wissen/technologie/index~rss2.xml",
+        label: "Technologie (Wissen)",
+      },
+      {
+        value: "https://www.tagesschau.de/faktenfinder/index~rss2.xml",
+        label: "Faktenfinder",
+      },
+      {
+        value: "https://www.tagesschau.de/investigativ/index~rss2.xml",
+        label: "Investigativ",
+      },
+    ],
     options: [
       ...WEBSITE_OPTIONS,
       { key: "skip_livestreams", label: "Skip Livestreams", kind: "boolean", default: true },
@@ -145,6 +353,9 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select Explosm feed",
+    identifierChoices: [
+      { value: "https://explosm.net/rss.xml", label: "Cyanide & Happiness (Main RSS)" },
+    ],
     options: [
       ...WEBSITE_OPTIONS,
       { key: "show_alt_text", label: "Show Alt Text", kind: "boolean", default: true },
@@ -156,6 +367,9 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select Dark Legacy feed",
+    identifierChoices: [
+      { value: "https://darklegacycomics.com/feed.xml", label: "Dark Legacy Comics (Main Feed)" },
+    ],
     options: [
       ...WEBSITE_OPTIONS,
       { key: "show_alt_text", label: "Show Alt Text", kind: "boolean", default: true },
@@ -167,6 +381,9 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select Caschys Blog feed",
+    identifierChoices: [
+      { value: "https://stadt-bremerhaven.de/feed/", label: "Caschy's Blog (Main Feed)" },
+    ],
     options: [
       ...WEBSITE_OPTIONS,
       { key: "skip_ads", label: "Skip Ads", kind: "boolean", default: true },
@@ -178,6 +395,11 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select MacTechNews feed",
+    identifierChoices: [
+      { value: "https://www.mactechnews.de/Rss/News.x", label: "News" },
+      { value: "https://www.mactechnews.de/Rss/Rewind.x", label: "Rewind" },
+      { value: "https://www.mactechnews.de/Rss/Journals.x", label: "Journals" },
+    ],
     options: [
       ...WEBSITE_OPTIONS,
       { key: "combine_pages", label: "Combine Pages", kind: "boolean", default: true },
@@ -191,6 +413,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select Oglaf feed",
+    identifierChoices: [{ value: "https://www.oglaf.com/feeds/rss/", label: "Oglaf (Main Feed)" }],
     options: [
       ...WEBSITE_OPTIONS,
       { key: "show_alt_text", label: "Show Alt Text", kind: "boolean", default: true },
@@ -202,6 +425,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select Mein MMO feed",
+    identifierChoices: [{ value: "https://mein-mmo.de/feed/", label: "Main Feed (All Articles)" }],
     options: [
       ...WEBSITE_OPTIONS,
       { key: "combine_pages", label: "Combine Pages", kind: "boolean", default: true },
@@ -215,6 +439,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select The Verge feed",
+    identifierChoices: [{ value: "https://www.theverge.com/rss/index.xml", label: "Main Feed" }],
     options: WEBSITE_OPTIONS,
   },
   ars_technica: {
@@ -223,6 +448,12 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select Ars Technica feed",
+    identifierChoices: [
+      { value: "https://arstechnica.com/feed/", label: "Main Feed" },
+      { value: "https://arstechnica.com/gadgets/feed/", label: "Gadgets" },
+      { value: "https://arstechnica.com/science/feed/", label: "Science" },
+      { value: "https://arstechnica.com/gaming/feed/", label: "Gaming" },
+    ],
     options: WEBSITE_OPTIONS,
   },
   youtube: {
@@ -231,6 +462,8 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierRequired: true,
     identifierLabel: "Channel",
     identifierHelp: "YouTube Channel ID or URL",
+    identifierChoices: [],
+    identifierSearch: "youtube",
     options: [
       ...AI_OPTIONS,
       { key: "comment_limit", label: "Comment Limit", kind: "number", default: 10 },
@@ -242,6 +475,8 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierRequired: true,
     identifierLabel: "Subreddit",
     identifierHelp: "Subreddit name or URL",
+    identifierChoices: [],
+    identifierSearch: "reddit",
     options: [
       ...AI_OPTIONS,
       {
@@ -273,6 +508,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Podcast RSS Feed",
+    identifierChoices: [],
     options: [
       ...AI_OPTIONS,
       { key: "include_player", label: "Include Player", kind: "boolean", default: true },

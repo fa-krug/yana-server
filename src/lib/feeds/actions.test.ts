@@ -115,6 +115,55 @@ describe("createFeed", () => {
     ).toBe(true);
   });
 
+  it("snaps a choice-mode identifier to the default when the submitted value isn't a known choice", async () => {
+    await currentUserId();
+    const { id } = await actions.createFeed({
+      name: "Heise",
+      aggregator: "heise",
+      identifier: "not-a-real-feed-url",
+    });
+    expect((await actions.getFeed(id!))?.identifier).toBe("https://www.heise.de/rss/heise.rdf");
+  });
+
+  it("keeps a submitted choice-mode identifier when it is a known choice", async () => {
+    await currentUserId();
+    const { id } = await actions.createFeed({
+      name: "Heise Security",
+      aggregator: "heise",
+      identifier: "https://www.heise.de/rss/heise-security.rdf",
+    });
+    expect((await actions.getFeed(id!))?.identifier).toBe(
+      "https://www.heise.de/rss/heise-security.rdf",
+    );
+  });
+
+  it("always sets a none-mode identifier to its one fixed value", async () => {
+    await currentUserId();
+    const { id } = await actions.createFeed({ name: "X", aggregator: "explosm", identifier: "" });
+    expect((await actions.getFeed(id!))?.identifier).toBe("https://explosm.net/rss.xml");
+  });
+
+  it("rejects a new reddit feed when the reddit integration is disabled", async () => {
+    await currentUserId();
+    const result = await actions.createFeed({
+      name: "r/programming",
+      aggregator: "reddit",
+      identifier: "programming",
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it("creates a reddit feed once the reddit integration is enabled", async () => {
+    await currentUserId();
+    raw(client.getDb()).exec(`UPDATE user_settings SET reddit_enabled = 1`);
+    const result = await actions.createFeed({
+      name: "r/programming",
+      aggregator: "reddit",
+      identifier: "programming",
+    });
+    expect(result.ok).toBe(true);
+  });
+
   it("strips an option whose integration is unconfigured", async () => {
     await currentUserId();
     const { id } = await actions.createFeed({
@@ -151,5 +200,119 @@ describe("createFeed", () => {
     expect(
       (await actions.createFeed({ name: "X", aggregator: "heise", tagIds: [foreign] })).ok,
     ).toBe(false);
+  });
+});
+
+describe("updateFeed", () => {
+  let dbPath: string;
+  let actions: typeof import("./actions");
+  let auth: typeof import("@/lib/auth/server").auth;
+  let createUserWithPassword: typeof import("@/lib/auth/server").createUserWithPassword;
+  let client: typeof import("@/lib/db/client");
+
+  function raw(db: unknown): Database.Database {
+    return (db as { $client: Database.Database }).$client;
+  }
+
+  beforeEach(async () => {
+    vi.resetModules();
+    requestHeaders.current = new Headers();
+    cookieJar.clear();
+
+    const stamp = `${process.pid}-${Math.random().toString(36).slice(2)}`;
+    dbPath = path.join(os.tmpdir(), `yana-feeds-update-${stamp}.db`);
+    applyMigrationsAt(dbPath);
+    process.env.DATABASE_PATH = dbPath;
+    process.env.BETTER_AUTH_SECRET = "test-secret-not-used-outside-this-file-0123456789";
+
+    ({ auth, createUserWithPassword } = await import("@/lib/auth/server"));
+    actions = await import("./actions");
+    client = await import("@/lib/db/client");
+
+    const user = await createUserWithPassword({
+      email: "user@example.com",
+      password: PASSWORD,
+      firstName: "",
+      lastName: "",
+      role: "user",
+    });
+    raw(client.getDb()).exec(`INSERT INTO user_settings (user_id) VALUES ('${user.id}')`);
+    const cookie = await signInCookie(auth, { email: "user@example.com", password: PASSWORD });
+    requestHeaders.current = new Headers({ cookie });
+    cookieJar.clear();
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_PATH;
+    delete process.env.BETTER_AUTH_SECRET;
+    const connection = raw(client.getDb());
+    if (connection.open) connection.close();
+    for (const suffix of ["", "-shm", "-wal"]) {
+      fs.rmSync(`${dbPath}${suffix}`, { force: true });
+    }
+  });
+
+  it("keeps an existing reddit feed editable after the integration is later disabled", async () => {
+    raw(client.getDb()).exec(`UPDATE user_settings SET reddit_enabled = 1`);
+    const { id } = await actions.createFeed({
+      name: "r/programming",
+      aggregator: "reddit",
+      identifier: "programming",
+    });
+    raw(client.getDb()).exec(`UPDATE user_settings SET reddit_enabled = 0`);
+
+    const result = await actions.updateFeed(id!, { name: "r/programming (renamed)" });
+    expect(result.ok).toBe(true);
+    const updated = await actions.getFeed(id!);
+    expect(updated?.name).toBe("r/programming (renamed)");
+    // The subreddit must survive a rename that doesn't touch the identifier field at all.
+    expect(updated?.identifier).toBe("programming");
+  });
+
+  it("leaves stored options alone when the update omits them", async () => {
+    const { id } = await actions.createFeed({
+      name: "Heise",
+      aggregator: "heise",
+      options: { include_comments: false, max_comments: 42 },
+    });
+
+    const created = await actions.getFeed(id!);
+    expect((created?.options as Record<string, unknown>).max_comments).toBe(42);
+    expect((created?.options as Record<string, unknown>).include_comments).toBe(false);
+
+    // No `options` field at all. `schemaFor(spec.key).safeParse({})` *applies
+    // defaults*, so treating an omitted `options` as `{}` reset every
+    // per-feed option (max_comments back to 5, include_comments back to true)
+    // on a plain rename.
+    const result = await actions.updateFeed(id!, { name: "Heise (renamed)" });
+    expect(result.ok).toBe(true);
+
+    const updated = await actions.getFeed(id!);
+    expect(updated?.name).toBe("Heise (renamed)");
+    expect((updated?.options as Record<string, unknown>).max_comments).toBe(42);
+    expect((updated?.options as Record<string, unknown>).include_comments).toBe(false);
+  });
+
+  it("still writes options when the update submits them", async () => {
+    const { id } = await actions.createFeed({
+      name: "Heise",
+      aggregator: "heise",
+      options: { max_comments: 42 },
+    });
+
+    const result = await actions.updateFeed(id!, { options: { max_comments: 7 } });
+    expect(result.ok).toBe(true);
+
+    const updated = await actions.getFeed(id!);
+    expect((updated?.options as Record<string, unknown>).max_comments).toBe(7);
+  });
+
+  it("rejects changing an existing feed's aggregator to reddit while it's disabled", async () => {
+    const { id } = await actions.createFeed({ name: "X", aggregator: "heise" });
+    const result = await actions.updateFeed(id!, {
+      aggregator: "reddit",
+      identifier: "programming",
+    });
+    expect(result.ok).toBe(false);
   });
 });

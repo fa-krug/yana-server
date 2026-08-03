@@ -11,8 +11,11 @@ import { getSettings } from "@/lib/settings/queries";
 import type { ListParams } from "@/lib/crud/params";
 import {
   AGGREGATOR_SPECS,
+  defaultIdentifierFor,
+  identifierModeFor,
   schemaFor,
   stripUnavailable,
+  type AggregatorSpec,
   type Capabilities,
 } from "@/lib/aggregators/specs";
 import { providerByKey } from "@/lib/ai/providers";
@@ -32,6 +35,20 @@ export async function capabilitiesFor(): Promise<Capabilities> {
     reddit: settings.redditEnabled,
     ai: !!activeProvider(settings),
   };
+}
+
+/**
+ * Snaps a `none`/`choice`-mode identifier to one of its known choices,
+ * falling back to the default when the submitted value is empty or isn't
+ * one of them. Mirrors Python's `normalize_identifier()`. `url`/`search`
+ * modes pass through unchanged -- there's no fixed set to validate against.
+ */
+function normalizeIdentifier(spec: AggregatorSpec, identifier: string): string {
+  const mode = identifierModeFor(spec);
+  if (mode !== "none" && mode !== "choice") return identifier;
+
+  const validValues = new Set(spec.identifierChoices.map((choice) => choice.value));
+  return validValues.has(identifier) ? identifier : defaultIdentifierFor(spec);
 }
 
 export async function getFeed(id: number) {
@@ -152,7 +169,6 @@ export async function createFeed(
   try {
     const name = input?.name;
     const aggregator = input?.aggregator;
-    const identifier = input?.identifier || "";
     const options = input?.options || {};
     const tagIds = input?.tagIds || [];
 
@@ -161,6 +177,8 @@ export async function createFeed(
 
     const spec = AGGREGATOR_SPECS[aggregator as keyof typeof AGGREGATOR_SPECS];
     if (!spec) return { ok: false, error: "Invalid aggregator" };
+
+    const identifier = normalizeIdentifier(spec, input?.identifier || "");
 
     if (spec.identifierRequired && !identifier) {
       return { ok: false, field: "identifier", error: "Identifier is required" };
@@ -172,6 +190,11 @@ export async function createFeed(
     }
 
     const capabilities = await capabilitiesFor();
+
+    if (spec.identifierSearch && !capabilities[spec.identifierSearch]) {
+      return { ok: false, error: "Invalid aggregator" };
+    }
+
     const cleanedOptions = stripUnavailable(
       spec.key,
       optionsParsed.data as Record<string, unknown>,
@@ -235,8 +258,6 @@ export async function updateFeed(id: number, input: FeedInput) {
 
   const name = input?.name;
   const aggregator = input?.aggregator;
-  const identifier = input?.identifier || "";
-  const options = input?.options || {};
   const tagIds = input?.tagIds || [];
   const enabled = input?.enabled;
 
@@ -247,21 +268,59 @@ export async function updateFeed(id: number, input: FeedInput) {
   const spec = AGGREGATOR_SPECS[targetAggregator as keyof typeof AGGREGATOR_SPECS];
   if (!spec) return { ok: false, error: "Invalid aggregator" };
 
+  /**
+   * `undefined` means "the caller didn't submit this field, leave the
+   * stored value alone" -- distinct from an explicitly empty string, which
+   * is a request to clear it (and, for `none`/`choice` modes,
+   * `normalizeIdentifier` snaps that back to the aggregator's default
+   * rather than actually clearing it). This distinction is deliberately
+   * *new*: the pre-existing `const identifier = input?.identifier || ""`
+   * collapsed "omitted" and "submitted empty" into the same string, which
+   * made the `identifier !== undefined` guard on the `.set()` call below
+   * always true -- so calling `updateFeed(id, { name: "..." })` with no
+   * `identifier` field silently wiped the feed's stored identifier to `""`
+   * on every save. Nothing caught it: this file had no `updateFeed` test at
+   * all before this task. Fixed here because it sits directly on the code
+   * path this task is already restructuring, and left alone it would have
+   * made the "keeps an existing reddit feed editable" test (Step 1, above) pass while
+   * actually erasing that feed's subreddit on every rename.
+   */
+  const identifier =
+    input?.identifier !== undefined ? normalizeIdentifier(spec, input.identifier) : undefined;
+
   if (spec.identifierRequired && !identifier && !feed.identifier) {
     return { ok: false, field: "identifier", error: "Identifier is required" };
   }
 
-  const optionsParsed = schemaFor(spec.key).safeParse(options);
-  if (!optionsParsed.success) {
-    return { ok: false, error: "Invalid options" };
+  /**
+   * The same "omitted" versus "submitted" distinction the `identifier` fix
+   * above makes, and for the same reason: `const options = input?.options || {}`
+   * made `options` always defined, so the `options !== undefined` guard on the
+   * `.set()` call below always fired -- and `schemaFor(spec.key).safeParse({})`
+   * *applies defaults* rather than producing an empty object, so an update
+   * that omitted `options` (a rename, a toggle of `enabled`, a tag change)
+   * silently reset every per-feed option to its schema default. Parsing only
+   * happens when the caller actually submitted something, and `undefined`
+   * flows through to the spread otherwise.
+   */
+  let submittedOptions: Record<string, unknown> | undefined;
+  if (input?.options !== undefined) {
+    const parsed = schemaFor(spec.key).safeParse(input.options);
+    if (!parsed.success) return { ok: false, error: "Invalid options" };
+    submittedOptions = parsed.data as Record<string, unknown>;
   }
 
   const capabilities = await capabilitiesFor();
-  const cleanedOptions = stripUnavailable(
-    spec.key,
-    optionsParsed.data as Record<string, unknown>,
-    capabilities,
-  );
+
+  const isAggregatorChange = aggregator !== undefined && aggregator !== feed.aggregator;
+  if (isAggregatorChange && spec.identifierSearch && !capabilities[spec.identifierSearch]) {
+    return { ok: false, error: "Invalid aggregator" };
+  }
+
+  const cleanedOptions =
+    submittedOptions !== undefined
+      ? stripUnavailable(spec.key, submittedOptions, capabilities)
+      : undefined;
 
   return writeTransaction((tx) => {
     if (tagIds.length > 0) {
@@ -280,7 +339,7 @@ export async function updateFeed(id: number, input: FeedInput) {
         ...(name !== undefined && { name }),
         ...(aggregator !== undefined && { aggregator: spec.key }),
         ...(identifier !== undefined && { identifier }),
-        ...(options !== undefined && { options: cleanedOptions }),
+        ...(cleanedOptions !== undefined && { options: cleanedOptions }),
         ...(enabled !== undefined && { enabled }),
       })
       .where(and(eq(feeds.id, id), eq(feeds.userId, userId)))

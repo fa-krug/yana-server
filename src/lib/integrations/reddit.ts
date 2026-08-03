@@ -1,4 +1,4 @@
-import { PROBE_TIMEOUT_MS, transportFailure, type ProbeResult } from "./probe";
+import { PROBE_TIMEOUT_MS, readJson, transportFailure, type ProbeResult } from "./probe";
 
 export interface RedditCredentials {
   clientId: string;
@@ -43,6 +43,79 @@ function toBasicAuthBase64(value: string): string {
 }
 
 /**
+ * One client-credentials token request against Reddit's OAuth endpoint.
+ *
+ * Shared between {@link testRedditCredentials} (which only needs to know
+ * whether the exchange succeeded) and the identifier-search action in
+ * `src/lib/aggregators/search.ts` (which needs the token itself to call
+ * `/subreddits/search`). Never rejects for an HTTP-level failure -- only a
+ * genuine transport failure (network, timeout) throws, exactly like every
+ * other probe in this file.
+ */
+export async function fetchRedditAccessToken({
+  clientId,
+  clientSecret,
+  userAgent,
+}: RedditCredentials): Promise<{ ok: true; token: string } | { ok: false; result: ProbeResult }> {
+  // Encoded here, inside the caller's `try`, on purpose: `toBasicAuthBase64`
+  // can throw on a hostile credential, and every probe in this codebase owes a
+  // never-rejects contract that has to hold structurally rather than rest on an
+  // argument about which characters a credential can contain.
+  const credentials = toBasicAuthBase64(`${clientId}:${clientSecret}`);
+  const body = new URLSearchParams({ grant_type: "client_credentials" });
+  const response = await fetch("https://www.reddit.com/api/v1/access_token", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${credentials}`,
+      "User-Agent": userAgent,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body,
+    signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+  });
+
+  /**
+   * **A 200 is not enough here: the token has to be in it.** See the note that
+   * used to live on `testRedditCredentials` -- unchanged reasoning, just moved
+   * with the code: an OAuth token endpoint has real answers that are `200` and
+   * prove nothing about the credential (`{"error":"unsupported_grant_type"}` if
+   * the form body ever changes, or an HTML interstitial to a flagged IP).
+   */
+  if (response.ok) {
+    const tokenResponse = (await readJson(response)) as { access_token?: unknown } | null;
+    if (typeof tokenResponse?.access_token === "string" && tokenResponse.access_token !== "") {
+      return { ok: true, token: tokenResponse.access_token };
+    }
+    return {
+      ok: false,
+      result: { ok: false, cause: "unexpected", detail: "A 200 answer carried no access token." },
+    };
+  }
+  if (response.status === 401) {
+    return {
+      ok: false,
+      result: { ok: false, cause: "unauthorized", detail: "The client credentials were rejected." },
+    };
+  }
+  if (response.status === 429) {
+    // Not a verdict on the credential: Reddit sheds load at the edge, before
+    // the Basic auth header is validated.
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        cause: "quota",
+        detail: "Rate limited before the credentials could be checked.",
+      },
+    };
+  }
+  return {
+    ok: false,
+    result: { ok: false, cause: "unexpected", detail: `Unexpected status ${response.status}.` },
+  };
+}
+
+/**
  * One client-credentials token request -- the cheapest call that proves the
  * client id and secret are accepted. Provider messages are classified rather
  * than forwarded, for the same reason as the YouTube probe: a raw body can
@@ -64,68 +137,10 @@ export async function testRedditCredentials({
     };
   }
 
-  // Encoding happens inside the try, alongside the request: this function's
-  // whole contract is that it resolves to a classified ProbeResult and never
-  // rejects, and that must hold structurally rather than by argument about
-  // which characters a client id or secret can contain.
   try {
-    const credentials = toBasicAuthBase64(`${clientId}:${clientSecret}`);
-    const body = new URLSearchParams({ grant_type: "client_credentials" });
-    const response = await fetch("https://www.reddit.com/api/v1/access_token", {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${credentials}`,
-        "User-Agent": userAgent,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body,
-      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-    });
-
-    /**
-     * **A 200 is not enough here: the token has to be in it.**
-     *
-     * An OAuth token endpoint has real answers that are `200` and yet prove
-     * nothing about the credential -- `{"error":"unsupported_grant_type"}` if
-     * the form body is ever changed, and Reddit's edge serving an HTML
-     * interstitial to a flagged or datacentre IP. Trusting the status would
-     * switch the integration on for a credential Reddit never looked at, which
-     * is exactly what the `*Enabled` flag is supposed to rule out; phase 9
-     * would then offer Reddit feeds that come back empty.
-     *
-     * The YouTube probe deliberately does **not** do this -- see the note
-     * there: `channels?forHandle=…` has an empty-but-valid 200.
-     *
-     * The detail stays a constant. Nothing from the body is interpolated,
-     * because that body is where an echoed credential would be.
-     */
-    if (response.ok) {
-      const tokenResponse = (await response.json().catch(() => null)) as {
-        access_token?: unknown;
-      } | null;
-      if (typeof tokenResponse?.access_token === "string" && tokenResponse.access_token !== "") {
-        return { ok: true, detail: "Credentials accepted." };
-      }
-      return {
-        ok: false,
-        cause: "unexpected",
-        detail: "A 200 answer carried no access token.",
-      };
-    }
-    if (response.status === 401) {
-      return { ok: false, cause: "unauthorized", detail: "The client credentials were rejected." };
-    }
-    if (response.status === 429) {
-      // Not a verdict on the credential: Reddit sheds load at the edge, before
-      // the Basic auth header is validated. `./actions` treats it as an
-      // unanswered probe for that reason -- see `quotaMeansVerified` there.
-      return {
-        ok: false,
-        cause: "quota",
-        detail: "Rate limited before the credentials could be checked.",
-      };
-    }
-    return { ok: false, cause: "unexpected", detail: `Unexpected status ${response.status}.` };
+    const tokenResult = await fetchRedditAccessToken({ clientId, clientSecret, userAgent });
+    if (!tokenResult.ok) return tokenResult.result;
+    return { ok: true, detail: "Credentials accepted." };
   } catch (error) {
     return transportFailure("reddit", error, "Could not reach the Reddit API.");
   }
