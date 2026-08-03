@@ -267,6 +267,8 @@
       "intervalRange": "Das Aktualisierungsintervall muss zwischen 1 und 1440 Minuten liegen."
     },
     "about": { "title": "Über", "source": "Quellcode", "issues": "Problem melden" },
+    "sessionEnded": "Deine Sitzung ist beendet. Melde dich erneut an, um fortzufahren.",
+    "requestFailed": "Der Server hat nicht geantwortet. Prüfe deine Verbindung und versuche es erneut.",
     "saved": "Einstellungen gespeichert",
     "saveFailed": "Einstellungen konnten nicht gespeichert werden"
   },

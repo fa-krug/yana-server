@@ -267,6 +267,8 @@
       "intervalRange": "Update interval must be between 1 and 1440 minutes."
     },
     "about": { "title": "About", "source": "Source code", "issues": "Report an issue" },
+    "sessionEnded": "Your session ended. Sign in again to continue.",
+    "requestFailed": "The server did not answer. Check your connection and try again.",
     "saved": "Settings saved",
     "saveFailed": "Could not save settings"
   },
