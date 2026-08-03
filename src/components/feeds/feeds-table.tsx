@@ -10,7 +10,7 @@ import { BulkActionBar, type BulkAction } from "@/components/crud/bulk-action-ba
 import { DataTable, type Column } from "@/components/crud/data-table";
 import { Pagination } from "@/components/crud/pagination";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
+import { TagBadge } from "@/components/tags/tag-badge";
 import { CheckIcon, XIcon } from "lucide-react";
 import { attempt } from "@/lib/tags/result";
 import { deleteFeeds, refreshLogos } from "@/lib/feeds/actions";
@@ -72,9 +72,12 @@ export function FeedsTable({
       cell: (row) => (
         <div className="flex flex-wrap gap-1">
           {row.tags.map((tag) => (
-            <Badge key={tag.id} variant="secondary" className="text-xs font-normal px-1.5 py-0">
-              {tag.name}
-            </Badge>
+            <TagBadge
+              key={tag.id}
+              name={tag.name}
+              color={tag.color}
+              className="text-xs font-normal px-1.5 py-0 h-5"
+            />
           ))}
         </div>
       ),
