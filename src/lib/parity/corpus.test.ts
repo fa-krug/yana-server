@@ -18,8 +18,6 @@ import {
  * Every entry MUST have a comment indicating which phase will unskip it.
  */
 const SKIP_LIST: string[] = [
-  "full_website/basic", // unskipped in 11c task 2 (scrapers)
-  "rss/basic", // unskipped in 11c task 2 (scrapers)
   // mein_mmo/* are skipped for a data bug, not a porting gap: the recovered
   // html/mein_mmo.html (test(parity): Recover the archived fixture corpus,
   // 6d80661) is an old pre-Django snapshot of an unrelated "OLED gaming
@@ -31,6 +29,20 @@ const SKIP_LIST: string[] = [
   // article desired/mein_mmo.json actually describes before this can unskip.
   "mein_mmo/basic",
   "mein_mmo/combined-pages",
+  // full_website/basic and rss/basic hit the exact same recover/regenerate
+  // mismatch as mein_mmo above, on the same two commits. html/full_website.html
+  // and html/feed_content.html (6d80661) are both an unrelated heise/TechStage
+  // "bestenlisten" comparison page (a preisvergleich.techstage.de listing),
+  // while desired/full_website.json and desired/feed_content.json (7f1e2f7)
+  // describe a TorrentFreak piracy-blocking article and a Simon Willison LLM
+  // release-notes post respectively -- neither string appears anywhere in the
+  // HTML fixture it is paired with. Both aggregators are implemented (11a
+  // Task 8) and extract real, well-formed content from whatever HTML they are
+  // given; the mismatch is entirely in which snapshot got attached to which
+  // golden during recovery. Needs a matched html capture of the articles the
+  // two desired/*.json files actually describe before this can unskip.
+  "full_website/basic",
+  "rss/basic",
 ];
 
 describe("golden corpus parity", () => {
@@ -110,8 +122,16 @@ describe("golden corpus parity", () => {
   describe("skip list shrink check", () => {
     it("fails if any case in skip list has a registered aggregator implementation", () => {
       for (const caseId of SKIP_LIST) {
-        if (caseId === "full_website/basic" || caseId === "rss/basic") continue; // unskipped in task 2 (scrapers)
-        if (caseId === "mein_mmo/basic" || caseId === "mein_mmo/combined-pages") continue; // implemented; skipped for the fixture data bug explained above
+        // All four entries are implemented aggregators, skipped only for the
+        // recover/regenerate fixture-pairing bug explained above.
+        if (
+          caseId === "mein_mmo/basic" ||
+          caseId === "mein_mmo/combined-pages" ||
+          caseId === "full_website/basic" ||
+          caseId === "rss/basic"
+        ) {
+          continue;
+        }
         const caseItem = allCases.find((c) => c.id === caseId);
         if (!caseItem) continue;
         const isImplemented = Boolean(IMPLEMENTED_AGGREGATORS[caseItem.aggregator]);
