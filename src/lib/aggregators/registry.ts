@@ -19,6 +19,7 @@ import { OglafAggregator } from "./sites/oglaf";
 import { PodcastAggregator } from "./sites/podcast";
 import { TagesschauAggregator } from "./sites/tagesschau/aggregator";
 import { TheVergeAggregator } from "./sites/the_verge";
+import { YouTubeAggregator } from "./sites/youtube/aggregator";
 import { FullWebsiteAggregator } from "./website";
 
 export type AggregatorClass = (new (feed: any) => BaseAggregator) & {
@@ -45,6 +46,7 @@ export const IMPLEMENTED_AGGREGATORS: Record<string, AggregatorClass | undefined
   heise: HeiseAggregator as unknown as AggregatorClass,
   mein_mmo: MeinMmoAggregator as unknown as AggregatorClass,
   podcast: PodcastAggregator as unknown as AggregatorClass,
+  youtube: YouTubeAggregator as unknown as AggregatorClass,
 };
 
 export class AggregatorRegistry {

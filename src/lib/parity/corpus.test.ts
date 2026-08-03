@@ -21,7 +21,6 @@ const SKIP_LIST: string[] = [
   "full_website/basic", // unskipped in 11c task 2 (scrapers)
   "rss/basic", // unskipped in 11c task 2 (scrapers)
   "reddit/basic", // unskipped in 11b (embeds)
-  "youtube/basic", // unskipped in 11b (embeds)
   // mein_mmo/* are skipped for a data bug, not a porting gap: the recovered
   // html/mein_mmo.html (test(parity): Recover the archived fixture corpus,
   // 6d80661) is an old pre-Django snapshot of an unrelated "OLED gaming

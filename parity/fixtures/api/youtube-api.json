@@ -1,38 +1,145 @@
 {
   "items": [
     {
-      "id": "dQw4w9WgXcQ",
+      "id": "kaD54VXxGrI",
       "snippet": {
-        "title": "Test YouTube Video Title",
-        "description": "This is a test YouTube video description with some content.\n\nIt has multiple lines and formatting.",
-        "publishedAt": "2025-12-13T22:33:52.280Z",
-        "channelId": "UCtest123",
-        "channelTitle": "Test Channel",
-        "thumbnails": {
-          "default": {
-            "url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/default.jpg",
-            "width": 120,
-            "height": 90
-          },
-          "medium": {
-            "url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg",
-            "width": 320,
-            "height": 180
-          },
-          "high": {
-            "url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
-            "width": 480,
-            "height": 360
+        "title": "Fuzzing Programs to Find Bugs - Computerphile",
+        "description": "Fuzzing is a technique to find programming bugs by testing with random inputs - but there are smarter ways to go about it! Professor Alastair F Donaldson leads the Multicore Programming research group at Imperial College. \n\nComputerphile is supported by Jane Street. Learn more about them (and exciting career opportunities) at: https://jane-st.co/computerphile\n\nThis video was filmed and edited by Sean Riley.\n\nComputerphile is a sister project to Brady Haran's Numberphile. More at https://www.bradyharanblog.com",
+        "publishedAt": "2026-06-04T13:30:15Z",
+        "channelId": "UCoxcjq-8xIDTYp3uz647V5A",
+        "channelTitle": "@computerphile"
+      }
+    }
+  ],
+  "comments": [
+    {
+      "id": "Ugy8mac_ASblGQqOuQ94AaABAg",
+      "snippet": {
+        "topLevelComment": {
+          "snippet": {
+            "authorDisplayName": "@Midnotion",
+            "authorChannelUrl": "http://www.youtube.com/@Midnotion",
+            "authorProfileImageUrl": "https://yt3.ggpht.com/ytc/AIdro_kMidnotionAvatar",
+            "textDisplay": "\"Beware of bugs in the above code; I have only proved it correct, not tried it\" -- Knuth"
           }
         }
-      },
-      "statistics": {
-        "viewCount": "1000000",
-        "likeCount": "50000",
-        "commentCount": "5000"
-      },
-      "contentDetails": {
-        "duration": "PT3M33S"
+      }
+    },
+    {
+      "id": "UgzItXGACxxXBBWGJJB4AaABAg",
+      "snippet": {
+        "topLevelComment": {
+          "snippet": {
+            "authorDisplayName": "@Tasarran",
+            "authorChannelUrl": "http://www.youtube.com/@Tasarran",
+            "authorProfileImageUrl": "https://yt3.ggpht.com/ytc/AIdro_kTasarranAvatar",
+            "textDisplay": "I was working as part of a large team on a AAA console/PC game, and the testing guy sat right next to me."
+          }
+        }
+      }
+    },
+    {
+      "id": "UgzKF55csVCFGFhJfip4AaABAg",
+      "snippet": {
+        "topLevelComment": {
+          "snippet": {
+            "authorDisplayName": "@The4Crawler",
+            "authorChannelUrl": "http://www.youtube.com/@The4Crawler",
+            "authorProfileImageUrl": "https://yt3.ggpht.com/ytc/AIdro_kThe4CrawlerAvatar",
+            "textDisplay": "Many decades ago I used to work on device drivers for various PC graphics display accelerators that were used with various applications. These were generally hard to debug as I had no access to the application source or debug symbols and the driver essentially was loaded into the app and fed data and all I could see was the output on the monitor."
+          }
+        }
+      }
+    },
+    {
+      "id": "UgxxoD337ZvPMtPW_0d4AaABAg",
+      "snippet": {
+        "topLevelComment": {
+          "snippet": {
+            "authorDisplayName": "@shoo7130",
+            "authorChannelUrl": "http://www.youtube.com/@shoo7130",
+            "authorProfileImageUrl": "https://yt3.ggpht.com/ytc/AIdro_kshoo7130Avatar",
+            "textDisplay": "Point of order: if you make a compiler crash instead of report a coherent error then that signals where you can induce errant behaviour, so it <i>is</i> interesting because somebody will find it and drill further into it to see how they can stabilise the input to <i>neither</i> crash, <i>nor</i> raise an error, but to covertly do something unintended instead."
+          }
+        }
+      }
+    },
+    {
+      "id": "UgxL7w1zwlR4iodiiyJ4AaABAg",
+      "snippet": {
+        "topLevelComment": {
+          "snippet": {
+            "authorDisplayName": "@mitchblank",
+            "authorChannelUrl": "http://www.youtube.com/@mitchblank",
+            "authorProfileImageUrl": "https://yt3.ggpht.com/ytc/AIdro_kmitchblankAvatar",
+            "textDisplay": "Editing seems a bit strange. I'd have thought there would be some discussion of Barton Miller's landmark paper that introduced the term \"fuzzing\". It seems that the interviewee did talk about it -- in the shots of the table top a printed copy of the paper is there, just unremarked on in the final video.<br><br>Later, the AFL tool gets introduced twice a minute apart. I guess this is two \"takes\" that needed to be spliced together to tell the full story, but it's a bit confusing since at first it seems like he's setting up a contrast between two tools when he's actually continuing to talk about the same one."
+          }
+        }
+      }
+    },
+    {
+      "id": "Ugx_OKKgdagNDcmcR3V4AaABAg",
+      "snippet": {
+        "topLevelComment": {
+          "snippet": {
+            "authorDisplayName": "@jonstewart5525",
+            "authorChannelUrl": "http://www.youtube.com/@jonstewart5525",
+            "authorProfileImageUrl": "https://yt3.ggpht.com/ytc/AIdro_kjonstewart5525Avatar",
+            "textDisplay": "I took classes from Bart Miller at the UW Madison who has a claim to creating fuzz testing. The story he told was that he was sshd into a research cluster during a storm and suddenly the entire thing crashed. It turns out lighting struck near an uninsulated transmission wire and garbled his inputs. So he had a few groups of his grad students create fuzz harnesses and one succeeded! The way he told it, he is the reason it's named Fuzz testing and for the first open tools for the task while acknowledging that some people had been doing some form of scoped random testing before that."
+          }
+        }
+      }
+    },
+    {
+      "id": "UgwLl5QG95t70rbLBUd4AaABAg",
+      "snippet": {
+        "topLevelComment": {
+          "snippet": {
+            "authorDisplayName": "@Cookiedasleepforlife",
+            "authorChannelUrl": "http://www.youtube.com/@Cookiedasleepforlife",
+            "authorProfileImageUrl": "https://yt3.ggpht.com/ytc/AIdro_kCookiedasleepforlifeAvatar",
+            "textDisplay": "Plot twist: the fuzzer gets a bug so you spend 5 months trying to fix the compiler"
+          }
+        }
+      }
+    },
+    {
+      "id": "UgxtIbIlWG7R3aE556l4AaABAg",
+      "snippet": {
+        "topLevelComment": {
+          "snippet": {
+            "authorDisplayName": "@AlexandreJasmin",
+            "authorChannelUrl": "http://www.youtube.com/@AlexandreJasmin",
+            "authorProfileImageUrl": "https://yt3.ggpht.com/ytc/AIdro_kAlexandreJasminAvatar",
+            "textDisplay": "On the well-formed input end of the spectrum, property-based testing lets you constrain a test's input domain so useful properties are verified without triggering unrelated robustness failures."
+          }
+        }
+      }
+    },
+    {
+      "id": "UgyDWll9rS2vZucF0c54AaABAg",
+      "snippet": {
+        "topLevelComment": {
+          "snippet": {
+            "authorDisplayName": "@ciCCapROSTi",
+            "authorChannelUrl": "http://www.youtube.com/@ciCCapROSTi",
+            "authorProfileImageUrl": "https://yt3.ggpht.com/ytc/AIdro_kciCCapROSTiAvatar",
+            "textDisplay": "<a href=\"javascript:void(0)\">7:30</a> I would have brought up the much more relevant example for UB: signed over/underflow. That is a much more subtle error and people are legititmately surprised when the compiler makes some assumptions (since the program cannot have UB) and does something entirely different than they expected. Out of bounds reading or division by zero are obvious errors."
+          }
+        }
+      }
+    },
+    {
+      "id": "UgxA9hmk6t4K_df5gjR4AaABAg",
+      "snippet": {
+        "topLevelComment": {
+          "snippet": {
+            "authorDisplayName": "@olafbaeyens8955",
+            "authorChannelUrl": "http://www.youtube.com/@olafbaeyens8955",
+            "authorProfileImageUrl": "https://yt3.ggpht.com/ytc/AIdro_kolafbaeyens8955Avatar",
+            "textDisplay": "Finally someone else that knows about fuzzy testing."
+          }
+        }
       }
     }
   ]
