@@ -78,4 +78,59 @@ describe("IdentifierAutocomplete", () => {
     );
     expect((screen.getByRole("combobox") as HTMLInputElement).disabled).toBe(true);
   });
+
+  it("invalidates a stale in-flight request when the query drops below the threshold", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    // Controls exactly when the first ("linus") search resolves, so the test
+    // can force it to resolve *after* the query has already been cleared
+    // back below the 2-character threshold.
+    let resolveFirstSearch!: (value: {
+      ok: true;
+      results: { value: string; label: string }[];
+    }) => void;
+    const firstSearch = new Promise<{ ok: true; results: { value: string; label: string }[] }>(
+      (resolve) => {
+        resolveFirstSearch = resolve;
+      },
+    );
+    vi.mocked(searchFeedIdentifier)
+      .mockReturnValueOnce(firstSearch)
+      // Any later ("li") search is left permanently pending: this test's
+      // point is that the *first* request's stale result must not reappear,
+      // not that a second request ever completes.
+      .mockReturnValue(new Promise(() => {}));
+
+    renderWithProviders(
+      <IdentifierAutocomplete aggregator="youtube" value="" onValueChange={vi.fn()} />,
+    );
+
+    const input = screen.getByRole("combobox");
+
+    // Type a real query -- schedules the debounced search.
+    fireEvent.change(input, { target: { value: "linus" } });
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    await waitFor(() => expect(searchFeedIdentifier).toHaveBeenCalledWith("youtube", "linus"));
+
+    // Delete back below the threshold *before* that request resolves.
+    fireEvent.change(input, { target: { value: "l" } });
+
+    // Now let the stale "linus" request resolve.
+    await act(async () => {
+      resolveFirstSearch({
+        ok: true,
+        results: [{ value: "UC123", label: "Linus Tech Tips (@ltt)" }],
+      });
+      await firstSearch;
+    });
+
+    // Reopen by typing a fresh searchable query; its own request never
+    // resolves in this test, so anything rendered now can only have come
+    // from state the (invalidated) first request left behind.
+    fireEvent.change(input, { target: { value: "li" } });
+
+    expect(screen.queryByText("Linus Tech Tips (@ltt)")).toBeNull();
+  });
 });

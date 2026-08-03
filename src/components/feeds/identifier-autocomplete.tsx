@@ -46,14 +46,27 @@ export function IdentifierAutocomplete({
   const [open, setOpen] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const requestIdRef = useRef(0);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    return () => clearTimeout(debounceRef.current);
+    return () => {
+      mountedRef.current = false;
+      clearTimeout(debounceRef.current);
+    };
   }, []);
 
   function handleQueryChange(nextQuery: string) {
     setQuery(nextQuery);
     clearTimeout(debounceRef.current);
+
+    // Invalidate any in-flight request unconditionally -- not just when a new
+    // search supersedes it. Without this, typing "linus" (schedules request 1)
+    // and then deleting back down to "l" before it resolves took this
+    // below-threshold branch, which cleared `results` but left `requestIdRef`
+    // at 1; when request 1's promise later resolved, `requestId !==
+    // requestIdRef.current` (1 !== 1) was false, so its now-stale results
+    // silently repopulated `results` even though the query had been cleared.
+    const requestId = ++requestIdRef.current;
 
     const trimmed = nextQuery.trim();
     if (trimmed.length < MIN_QUERY_LENGTH) {
@@ -65,12 +78,14 @@ export function IdentifierAutocomplete({
 
     setLoading(true);
     setOpen(true);
-    const requestId = ++requestIdRef.current;
 
     debounceRef.current = setTimeout(() => {
       void (async () => {
         const attempted = await attempt(() => searchFeedIdentifier(aggregator, trimmed));
-        if (requestId !== requestIdRef.current) return; // a newer keystroke already superseded this one
+        if (!mountedRef.current) return; // unmounted while the request was in flight
+        // A newer keystroke (a real search or a drop below the threshold)
+        // already superseded this one.
+        if (requestId !== requestIdRef.current) return;
         setLoading(false);
         setResults(attempted.ok ? attempted.results : []);
       })();
