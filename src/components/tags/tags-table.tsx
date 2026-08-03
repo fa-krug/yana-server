@@ -12,6 +12,7 @@ import { Pagination } from "@/components/crud/pagination";
 import { attempt } from "@/lib/tags/result";
 import { deleteTags } from "@/lib/tags/actions";
 import type { TagListRow } from "@/lib/tags/queries";
+import { TagColorDot } from "./tag-color-dot";
 import { useTagUsage } from "./use-tag-usage";
 
 export function TagsTable({
@@ -37,7 +38,11 @@ export function TagsTable({
       header: t("columns.name"),
       sortable: true,
       cell: (row) => (
-        <Link href={`/tags/${row.id}`} className="font-medium hover:underline">
+        <Link
+          href={`/tags/${row.id}`}
+          className="inline-flex items-center gap-2 font-medium hover:underline"
+        >
+          <TagColorDot color={row.color} />
           {row.name}
         </Link>
       ),
