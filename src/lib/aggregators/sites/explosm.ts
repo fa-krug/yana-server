@@ -20,6 +20,10 @@ export class ExplosmAggregator extends FullWebsiteAggregator {
     return "https://explosm.net/rss.xml";
   }
 
+  static getIdentifierChoices(): Array<[string, string]> {
+    return [["https://explosm.net/rss.xml", "Cyanide & Happiness (Main RSS)"]];
+  }
+
   static getConfigurationFields(): Record<string, unknown> {
     return {
       show_alt_text: {
