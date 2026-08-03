@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/render";
 import { setPathname, setRouter, setSearchParams } from "@/test/next-navigation";
+import { hexForTagColor } from "@/lib/tags/colors";
 
 import { SearchFilterBar } from "./search-filter-bar";
 
@@ -103,5 +104,35 @@ describe("<SearchFilterBar>", () => {
     act(() => void vi.advanceTimersByTime(300));
 
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("shows a color dot next to an option that has one", () => {
+    const TAGS = {
+      key: "tag",
+      label: "Tag",
+      options: [
+        { value: "", label: "All tags" },
+        { value: "1", label: "News", color: "blue" },
+      ],
+    };
+    const { container } = renderWithProviders(
+      <SearchFilterBar placeholder="Search articles" filters={[TAGS]} />,
+    );
+
+    fireEvent.click(container.querySelector('[data-slot="select-trigger"]')!);
+    const option = screen.getByRole("option", { name: "News" });
+    const probe = document.createElement("div");
+    probe.style.backgroundColor = hexForTagColor("blue");
+    expect(option.querySelector("span")?.style.backgroundColor).toBe(probe.style.backgroundColor);
+  });
+
+  it("shows no dot next to an option without a color", () => {
+    const { container } = renderWithProviders(
+      <SearchFilterBar placeholder="Search users" filters={[ROLES]} />,
+    );
+
+    fireEvent.click(container.querySelector('[data-slot="select-trigger"]')!);
+    const option = screen.getByRole("option", { name: "Administrator" });
+    expect(option.querySelector("span")).toBe(null);
   });
 });

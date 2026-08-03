@@ -39,6 +39,7 @@ export default async function ArticlesPage({
   const tagOptions = tagsRes.rows.map((t) => ({
     value: String(t.id),
     label: t.name,
+    color: t.color,
   }));
 
   const filters = [

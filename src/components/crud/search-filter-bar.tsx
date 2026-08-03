@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { buildListHref } from "@/lib/crud/params";
+import { hexForTagColor } from "@/lib/tags/colors";
 
 /** How long typing pauses before the search becomes a navigation. */
 const DEBOUNCE_MS = 300;
@@ -26,8 +27,13 @@ export type FilterSpec = {
    * Already translated. An option with `value: ""` clears the filter:
    * `buildListHref` omits empty values, so "All roles" produces a URL with no
    * `role` at all rather than `?role=all`.
+   *
+   * `color`, when present, renders as a small dot before the label -- inside
+   * the open popup only, never on the collapsed trigger, which every filter
+   * (this one included) still resolves the plain way through `items`. Most
+   * filters (roles, aggregator, read/starred) never set it.
    */
-  options: { value: string; label: string }[];
+  options: { value: string; label: string; color?: string }[];
 };
 
 /**
@@ -103,6 +109,13 @@ export function SearchFilterBar({
           <SelectContent>
             {spec.options.map((option) => (
               <SelectItem key={option.value} value={option.value}>
+                {option.color && (
+                  <span
+                    aria-hidden="true"
+                    className="mr-2 inline-block size-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: hexForTagColor(option.color) }}
+                  />
+                )}
                 {option.label}
               </SelectItem>
             ))}
