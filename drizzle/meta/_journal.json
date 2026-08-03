@@ -29,6 +29,13 @@
       "when": 1785595018087,
       "tag": "0003_ai_model_defaults",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1785755008307,
+      "tag": "0004_tag_colors",
+      "breakpoints": true
     }
   ]
 }
