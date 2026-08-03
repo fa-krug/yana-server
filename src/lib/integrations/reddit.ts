@@ -57,6 +57,10 @@ export async function fetchRedditAccessToken({
   clientSecret,
   userAgent,
 }: RedditCredentials): Promise<{ ok: true; token: string } | { ok: false; result: ProbeResult }> {
+  // Encoded here, inside the caller's `try`, on purpose: `toBasicAuthBase64`
+  // can throw on a hostile credential, and every probe in this codebase owes a
+  // never-rejects contract that has to hold structurally rather than rest on an
+  // argument about which characters a credential can contain.
   const credentials = toBasicAuthBase64(`${clientId}:${clientSecret}`);
   const body = new URLSearchParams({ grant_type: "client_credentials" });
   const response = await fetch("https://www.reddit.com/api/v1/access_token", {
