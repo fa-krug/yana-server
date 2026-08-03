@@ -10,6 +10,7 @@ import {
   displayNameFor,
   initialsFor,
   safeAvatarSrc,
+  solveLightnessForHue,
 } from "./avatar";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
@@ -136,6 +137,21 @@ describe("contrastWithWhite", () => {
     for (let l = 1; l <= 100; l += 1) {
       expect(contrastWithWhite(210, 55, l)).toBeLessThan(contrastWithWhite(210, 55, l - 1));
     }
+  });
+});
+
+describe("solveLightnessForHue", () => {
+  it("matches the lightness colourFor derives for every hue", () => {
+    // colourFor()'s own output is the reference: extracting the loop into a
+    // named function must not change a single value it already returns.
+    for (let hue = 0; hue < 360; hue += 1) {
+      const [, , , lightness] = /^hsl\((\d+) (\d+)% (\d+)%\)$/.exec(colourForHue(hue))!;
+      expect(solveLightnessForHue(hue, 55)).toBe(Number(lightness));
+    }
+  });
+
+  it("defaults its saturation to the one colourFor uses", () => {
+    expect(solveLightnessForHue(210)).toBe(solveLightnessForHue(210, 55));
   });
 });
 

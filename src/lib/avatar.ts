@@ -122,6 +122,23 @@ export function contrastWithWhite(hue: number, saturation: number, lightness: nu
 }
 
 /**
+ * The lightness (within the window above) that first clears `TARGET_CONTRAST`
+ * against white for this hue, scanning from lightest to darkest.
+ *
+ * Extracted out of `colourFor()` so `src/lib/tags/colors.ts` can solve the same
+ * problem for a fixed palette of hues instead of a hash-derived one, without a
+ * second copy of the WCAG math.
+ */
+export function solveLightnessForHue(hue: number, saturation: number = SATURATION): number {
+  for (let candidate = MAX_LIGHTNESS; candidate >= MIN_LIGHTNESS; candidate -= 1) {
+    if (contrastWithWhite(hue, saturation, candidate) >= TARGET_CONTRAST) {
+      return candidate;
+    }
+  }
+  return MIN_LIGHTNESS;
+}
+
+/**
  * Deterministic colour from the user id, so an avatar looks the same on every
  * device and across sessions -- there is nothing persisted to disagree with.
  *
@@ -134,13 +151,10 @@ export function contrastWithWhite(hue: number, saturation: number, lightness: nu
  * forever. Relative luminance is wildly non-uniform across hue -- green carries
  * 0.7152 of it and blue 0.0722 -- so no single lightness can serve every hue.
  *
- * So the lightness is *solved* per hue: take the lightest value in the window
- * that still clears `TARGET_CONTRAST` against white. Yellows land near 30% and
- * blues near 62%, and the resulting ratios sit in a narrow 4.60-4.86 band, so
- * the palette reads as one family instead of some colours being much darker
- * than they need to be. An integer descending scan rather than a bisection
- * because luminance is monotonic in lightness, the window is 51 wide, and an
- * exact integer answer needs no rounding step that could cross the threshold.
+ * So the lightness is *solved* per hue via `solveLightnessForHue()`. Yellows
+ * land near 30% and blues near 62%, and the resulting ratios sit in a narrow
+ * 4.60-4.86 band, so the palette reads as one family instead of some colours
+ * being much darker than they need to be.
  *
  * `src/lib/avatar.test.ts` asserts the ratio across the whole hue range, not
  * for a couple of sample ids -- sampling is what let the first version ship.
@@ -151,14 +165,7 @@ export function colourFor(id: string): string {
     hue = (hue * 31 + id.charCodeAt(index)) % 360;
   }
 
-  let lightness = MIN_LIGHTNESS;
-  for (let candidate = MAX_LIGHTNESS; candidate >= MIN_LIGHTNESS; candidate -= 1) {
-    if (contrastWithWhite(hue, SATURATION, candidate) >= TARGET_CONTRAST) {
-      lightness = candidate;
-      break;
-    }
-  }
-
+  const lightness = solveLightnessForHue(hue);
   return `hsl(${hue} ${SATURATION}% ${lightness}%)`;
 }
 
