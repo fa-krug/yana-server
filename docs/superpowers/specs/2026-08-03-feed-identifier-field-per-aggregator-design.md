@@ -20,10 +20,23 @@ registry):
 
 | Mode | Meaning | Aggregators |
 |---|---|---|
-| `none` | One hardcoded feed URL. Nothing to configure. | `explosm`, `dark_legacy`, `caschys_blog`, `mactechnews`, `oglaf`, `mein_mmo`, `the_verge` |
+| `none` | One hardcoded feed URL. Nothing to configure. | `explosm`, `dark_legacy`, `caschys_blog`, `oglaf`, `mein_mmo`, `the_verge` |
 | `url` | Free-form URL, normalized/resolved server-side. | `full_website`, `feed_content`, `podcast` |
-| `choice` | A fixed dropdown of named feed variants. | `heise`, `merkur`, `tagesschau`, `ars_technica` |
+| `choice` | A fixed dropdown of named feed variants. | `heise`, `merkur`, `tagesschau`, `ars_technica`, `mactechnews` |
 | `search` | Live autocomplete against an external API. | `youtube`, `reddit` |
+
+**Correction found while gathering the exact data (checked directly against
+`src/lib/aggregators/sites/*`, not just the retired Django source):**
+`mactechnews.ts`'s `getIdentifierChoices()` already returns three real choices (News/Rewind/Journals)
+that don't exist in `old/core/aggregators/mactechnews/aggregator.py` — a deliberate improvement made
+during its port, not a bug. It belongs in `choice`, not `none`. Conversely, `explosm.ts`,
+`dark_legacy.ts` and `oglaf.ts` are each missing the single-entry `getIdentifierChoices()` override
+Django gave them (`resolvesFeedUrl()`/`identifierField`/`supportsIdentifierSearch` exist on
+`BaseAggregator` in `src/lib/aggregators/base.ts` but nothing in this feature reads them — mode is
+derived from `identifierChoices.length` alone, so a missing override silently reads as `url` instead
+of `none`). This spec's implementation adds the missing one-entry override to those three files,
+matching the pattern `caschys_blog.ts`/`the_verge.ts`/`mein_mmo/aggregator.ts` already use, so every
+`none`-mode aggregator is represented the same way and `identifierModeFor()` needs no special case.
 
 The mode is **derived, not declared**, so it can never drift from the data it's derived from:
 
