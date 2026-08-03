@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
+import { toast } from "sonner";
 
 import {
   Autocomplete,
@@ -33,11 +34,15 @@ export function IdentifierAutocomplete({
   value,
   onValueChange,
   disabled,
+  id,
+  required,
 }: {
   aggregator: "youtube" | "reddit";
   value: string;
   onValueChange: (value: string) => void;
   disabled?: boolean;
+  id?: string;
+  required?: boolean;
 }) {
   const t = useTranslations("feeds");
   const [query, setQuery] = useState(value);
@@ -55,7 +60,17 @@ export function IdentifierAutocomplete({
     };
   }, []);
 
-  function handleQueryChange(nextQuery: string) {
+  function handleQueryChange(nextQuery: string, eventDetails: { reason?: string }) {
+    // Base UI's Root fills the input's own text when an item is pressed and
+    // reports it here with `reason: "item-press"` -- carrying the picked
+    // *value*, not its label. Left unguarded that fired immediately after
+    // `handleSelect` had set the display text to the human-readable label,
+    // overwriting it back to the raw channel id / subreddit name and
+    // scheduling a redundant debounced search for it. `handleSelect` owns
+    // both the display text and the reported value for that case, so there is
+    // nothing to do here.
+    if (eventDetails?.reason === "item-press") return;
+
     setQuery(nextQuery);
     clearTimeout(debounceRef.current);
 
@@ -87,7 +102,16 @@ export function IdentifierAutocomplete({
         // already superseded this one.
         if (requestId !== requestIdRef.current) return;
         setLoading(false);
-        setResults(attempted.ok ? attempted.results : []);
+        if (!attempted.ok) {
+          // Without this, a real failure (the integration switched off
+          // mid-session, a transient network error) was indistinguishable
+          // from a search that genuinely matched nothing: both showed
+          // "No results" and `errorKey` was dropped on the floor.
+          setResults([]);
+          toast.error(t(attempted.errorKey));
+          return;
+        }
+        setResults(attempted.results);
       })();
     }, DEBOUNCE_MS);
   }
@@ -108,7 +132,11 @@ export function IdentifierAutocomplete({
       mode="none"
       disabled={disabled}
     >
-      <AutocompleteInput placeholder={t("identifierSearch.placeholder")} />
+      <AutocompleteInput
+        id={id}
+        required={required}
+        placeholder={t("identifierSearch.placeholder")}
+      />
       <AutocompletePopup>
         <AutocompleteStatus>{loading ? t("identifierSearch.loading") : null}</AutocompleteStatus>
         <AutocompleteEmpty>{!loading ? t("identifierSearch.empty") : null}</AutocompleteEmpty>

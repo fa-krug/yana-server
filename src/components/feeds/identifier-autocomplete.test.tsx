@@ -8,6 +8,9 @@ vi.mock("@/lib/aggregators/search", () => ({
   searchFeedIdentifier: vi.fn(),
 }));
 
+const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
+vi.mock("sonner", () => ({ toast: { error: toastError } }));
+
 import { searchFeedIdentifier } from "@/lib/aggregators/search";
 
 afterEach(() => {
@@ -56,6 +59,78 @@ describe("IdentifierAutocomplete", () => {
     fireEvent.click(item);
 
     expect(onValueChange).toHaveBeenCalledWith("UC123");
+  });
+
+  it("keeps the picked result's label in the input and does not search again for it", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(searchFeedIdentifier).mockResolvedValue({
+      ok: true,
+      results: [{ value: "UC123", label: "Linus Tech Tips (@ltt)" }],
+    });
+
+    renderWithProviders(
+      <IdentifierAutocomplete aggregator="youtube" value="" onValueChange={vi.fn()} />,
+    );
+
+    const input = screen.getByRole("combobox") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "linus" } });
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    await waitFor(() => expect(searchFeedIdentifier).toHaveBeenCalledTimes(1));
+
+    const item = await screen.findByText("Linus Tech Tips (@ltt)");
+    fireEvent.pointerDown(item);
+    fireEvent.click(item);
+
+    // Base UI's Root writes the picked *value* into its own input text and
+    // reports it through `onValueChange` with `reason: "item-press"`. Without
+    // the guard in `handleQueryChange` that overwrote the label the component
+    // had just set, and scheduled a second search for "UC123".
+    await waitFor(() => expect(input.value).toBe("Linus Tech Tips (@ltt)"));
+
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(searchFeedIdentifier).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a failed search rather than showing it as an empty one", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(searchFeedIdentifier).mockResolvedValue({
+      ok: false,
+      errorKey: "identifierSearch.unavailable",
+    });
+
+    renderWithProviders(
+      <IdentifierAutocomplete aggregator="youtube" value="" onValueChange={vi.fn()} />,
+    );
+
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "linus" } });
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        "This integration is not configured. You can configure it in Integrations.",
+      ),
+    );
+  });
+
+  it("forwards id and required to the real input", () => {
+    renderWithProviders(
+      <IdentifierAutocomplete
+        aggregator="youtube"
+        value=""
+        onValueChange={vi.fn()}
+        id="identifier"
+        required
+      />,
+    );
+    const input = screen.getByRole("combobox") as HTMLInputElement;
+    expect(input.id).toBe("identifier");
+    expect(input.required).toBe(true);
   });
 
   it("does not search below 2 characters", async () => {

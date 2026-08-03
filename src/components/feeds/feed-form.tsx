@@ -218,6 +218,16 @@ export function FeedForm({
         <div className="grid gap-2">
           <Label htmlFor="identifier">{spec.identifierLabel}</Label>
           <IdentifierAutocomplete
+            // The autocomplete seeds its visible text from `value` once, on
+            // mount, and never resyncs -- which is what keeps a picked
+            // result's friendly label on screen instead of the raw id. The
+            // cost is that switching aggregators left the previous one's typed
+            // text visible even though `identifier` had been reset. Remounting
+            // on the key is the reset, rather than a `value` effect that would
+            // fight the label.
+            key={aggregator}
+            id="identifier"
+            required={spec.identifierRequired}
             aggregator={spec.identifierSearch as "youtube" | "reddit"}
             value={identifier}
             onValueChange={setIdentifier}
