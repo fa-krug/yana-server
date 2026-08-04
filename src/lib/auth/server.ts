@@ -397,4 +397,43 @@ export async function linkPasswordCredential(input: {
   });
 }
 
+/**
+ * Mint a device session: a Better Auth session row distinct from any browser
+ * session the same user already holds, tagged with `deviceName` so
+ * `/device/pair` and phase 13's device-management UI can tell it apart from
+ * an ordinary sign-in. This is the credential `/device/pair` hands to the
+ * native app -- there is no separate "API key" concept, the Bearer token
+ * `src/lib/api/auth.ts` resolves on `/api/v1/**` IS this session's token, and
+ * revoking it (`auth.api.revokeSession`) is the entire "sign this device out"
+ * story.
+ *
+ * Reaches into `auth.$context.internalAdapter` for the same reason
+ * `createUserWithPassword` and `linkPasswordCredential` do: creating a session
+ * for an arbitrary `userId` with no session of its own to authenticate the
+ * call is not something any `/api/auth/*` route exposes, and does not need to
+ * be -- `internalAdapter` is not routable, so this is only reachable from
+ * server code that already knows which user it is minting a session for
+ * (`/device/pair`, gated by `requireUser()`).
+ *
+ * `dontRememberMe` (the adapter's second positional argument) is left `false`
+ * so this gets the same `session.expiresIn` (30 days) as a browser session,
+ * not the one-day "don't remember me" expiry -- a device pairing is exactly
+ * the case where the user is not sitting at a shared browser and does want
+ * the session to last.
+ *
+ * `override` is `internalAdapter.createSession`'s third argument, spread into
+ * the new row *before* the adapter's own `userId`/`token`/timestamps -- so it
+ * can add `deviceName` but not override those. That only persists because
+ * `deviceName` is declared in `session.additionalFields` above; an
+ * `override` key the adapter does not know about would be silently dropped.
+ */
+export async function createDeviceSession(
+  userId: string,
+  deviceName: string,
+): Promise<{ token: string }> {
+  const ctx = await auth.$context;
+  const session = await ctx.internalAdapter.createSession(userId, false, { deviceName });
+  return { token: session.token };
+}
+
 export type Auth = typeof auth;
