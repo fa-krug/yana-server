@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Let a signed-in user open a background job from `/jobs` and see its raw captured output — persisted history plus a live tail while it runs.
+**Goal:** Let a signed-in user open a background job from `/jobs` and see a curated log of what it did — persisted history plus a live tail while it runs — restricted to jobs they own (admins see all).
 
-**Architecture:** A new `job_logs` table stores one row per captured line. `src/lib/jobs/worker.ts` runs each handler inside an `AsyncLocalStorage`-scoped context (`src/lib/jobs/log-capture.ts`) so `console.log`/`info`/`warn`/`error` calls made *during that handler's own async execution* are redirected into that job's log — safe even though the same process serves HTTP requests concurrently, unlike a time-boxed global console patch. A jobId-keyed in-process pub/sub (`src/lib/jobs/log-bus.ts`) feeds a new session-authenticated SSE route, which a new `/jobs/[id]` detail page's client component consumes via `EventSource`.
+**Architecture:** A new `job_logs` table stores one row per log line. `src/lib/jobs/worker.ts` appends lifecycle markers around every handler call, and each of the six job handlers calls `appendLogLine()` a handful of times at meaningful points (see the Addendum below — Tasks 1-7 originally built an `AsyncLocalStorage`-scoped console-capture mechanism instead; Task 8 removes it in favor of this simpler, explicit approach). A jobId-keyed in-process pub/sub (`src/lib/jobs/log-bus.ts`) feeds a session-authenticated SSE route, which the `/jobs/[id]` detail page's client component consumes via `EventSource`. Tasks 10-13 add a `jobs.userId` column populated at every job-creation site, so `/jobs`, `/jobs/[id]`, and the SSE route can restrict non-admins to their own jobs.
 
 **Tech Stack:** Next.js 16 (App Router, Route Handlers), Drizzle ORM + better-sqlite3, `node:async_hooks` (`AsyncLocalStorage`), `node:events` (`EventEmitter`), Vitest (`node` + `dom` projects), `@testing-library/react`.
 
@@ -1605,8 +1605,1028 @@ git commit -m "feat(jobs): add the job detail page with a live log viewer"
 
 ---
 
+## Addendum (2026-08-05): explicit handler logging, and user-scoped jobs
+
+Two decisions made after Tasks 1-7 shipped and passed a final whole-branch review (see
+`docs/superpowers/specs/2026-08-04-job-live-log-design.md`'s "Revision" note):
+
+1. **Drop the `AsyncLocalStorage` console-capture mechanism (Task 3/4's `log-capture.ts` and its
+   worker wiring) in favor of explicit, curated `appendLogLine()` calls inside each handler.**
+   Capturing verbatim console output logs whatever a handler happens to print, which is noise —
+   none of the six handlers printed anything before this feature. Task 8 removes the capture
+   mechanism (including the "tee" and recursion-safety work from the final review's fix wave, which
+   only existed to make console-patching safe and is moot once nothing patches console); Task 9
+   adds a small, fixed set of meaningful log calls to each handler.
+2. **Make the jobs system user-scoped**: a non-admin only sees their own jobs on `/jobs` and
+   `/jobs/[id]`; admins see all jobs (a human ruling on the final review's ownership-scoping
+   finding). Tasks 10-13.
+
+### Task 8: Remove console capture; make `appendLogLine()` self-protecting
+
+**Files:**
+- Delete: `src/lib/jobs/log-capture.ts`, `src/lib/jobs/log-capture.test.ts`
+- Modify: `src/lib/jobs/queue.ts`
+- Modify: `src/lib/jobs/queue.test.ts`
+- Modify: `src/lib/jobs/worker.ts`
+- Modify: `src/lib/jobs/worker.test.ts`
+
+**Interfaces:**
+- Consumes: nothing new.
+- Produces: `appendLogLine(jobId, stream, line): JobLog | null` (changed return type — `null` on a
+  swallowed write failure, previously threw). `runWithLogCapture` no longer exists; any import of it
+  is deleted along with its module.
+
+- [ ] **Step 1: Update `queue.test.ts` for the new return type and failure behavior**
+
+In `src/lib/jobs/queue.test.ts`, the existing "persists a line and returns it back from
+`listJobLogs`" test currently does `const row = queue.appendLogLine(...); expect(row.jobId)...` —
+update it to assert the row is non-null first:
+
+```ts
+    it("persists a line and returns it back from listJobLogs", () => {
+      const jobId = queue.enqueue("test.job", {});
+
+      const row = queue.appendLogLine(jobId, "stdout", "hello");
+
+      expect(row).not.toBeNull();
+      expect(row!.jobId).toBe(jobId);
+      expect(row!.stream).toBe("stdout");
+      expect(row!.line).toBe("hello");
+
+      const lines = queue.listJobLogs(jobId);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toEqual(row);
+    });
+```
+
+Add a new test in the same `describe("appendLogLine / listJobLogs", ...)` block:
+
+```ts
+    it("does not throw when the underlying write fails, and returns null", () => {
+      const jobId = queue.enqueue("test.job", {});
+      const connection = (client.getDb() as unknown as { $client: Database.Database }).$client;
+      connection.close();
+
+      expect(() => queue.appendLogLine(jobId, "stdout", "should not throw")).not.toThrow();
+      expect(queue.appendLogLine(jobId, "stdout", "still should not throw")).toBeNull();
+    });
+```
+
+(This closes the real database connection to force a write failure — matches the pattern already
+used in `src/lib/jobs/log-capture.test.ts`'s equivalent test, which this step's Task 9 will delete.
+Make sure `Database` is imported as a type in this file the same way `worker.test.ts` does, if it
+isn't already.)
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run src/lib/jobs/queue.test.ts`
+Expected: FAIL — `row.jobId` access on a value TypeScript now considers possibly `null` (a type
+error, or at minimum the new "does not throw" test fails against the current throwing behavior).
+
+- [ ] **Step 3: Harden `appendLogLine()` in `queue.ts`**
+
+Change:
+
+```ts
+export function appendLogLine(jobId: number, stream: JobLogStream, line: string): JobLog {
+  const row = writeTransaction((db) => {
+    return db.insert(jobLogs).values({ jobId, stream, line }).returning().get();
+  });
+
+  publishJobLog(jobId, row);
+  return row;
+}
+```
+
+to:
+
+```ts
+/**
+ * Appends one log line to `jobId`'s log and publishes it on the job log bus for
+ * any live SSE viewer. Never throws: a write failure (e.g. the database is busy)
+ * is caught and reported to the real `console.error`, never allowed to fail the
+ * job it's describing. Every caller -- `worker.ts`'s lifecycle markers and each
+ * handler's own calls alike -- gets this safety for free, with nothing to
+ * remember at the call site.
+ */
+export function appendLogLine(jobId: number, stream: JobLogStream, line: string): JobLog | null {
+  try {
+    const row = writeTransaction((db) => {
+      return db.insert(jobLogs).values({ jobId, stream, line }).returning().get();
+    });
+
+    publishJobLog(jobId, row);
+    return row;
+  } catch (err) {
+    console.error(`[queue] failed to append log line for job ${jobId}:`, err);
+    return null;
+  }
+}
+```
+
+- [ ] **Step 4: Run it to verify it passes**
+
+Run: `npx vitest run src/lib/jobs/queue.test.ts`
+Expected: PASS (all tests, including the two above).
+
+- [ ] **Step 5: Delete the capture module and its test**
+
+```bash
+git rm src/lib/jobs/log-capture.ts src/lib/jobs/log-capture.test.ts
+```
+
+- [ ] **Step 6: Update `worker.test.ts`'s console-capture test to reflect that console output is no longer captured**
+
+Replace the existing "captures a handler's console output into the job's log" test with one that
+proves console output is *not* captured (only the lifecycle markers are), so this test would fail
+if capture were accidentally reintroduced or left partially wired:
+
+```ts
+  it("logs lifecycle markers around a handler's execution, without capturing its console output", async () => {
+    handlers.registerHandler("logging.job", async () => {
+      console.log("this should not appear in the job's log");
+    });
+
+    const id = queue.enqueue("logging.job", {}, { maxAttempts: 1 });
+
+    const loopPromise = worker.runWorkerLoop({ pollIntervalMs: 50 });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    worker.stopWorker();
+    await loopPromise;
+
+    const lines = queue.listJobLogs(id).map((l) => ({ stream: l.stream, line: l.line }));
+    expect(lines).toEqual([
+      { stream: "stdout", line: "job started (attempt 1/1)" },
+      { stream: "stdout", line: "job completed" },
+    ]);
+  });
+```
+
+Leave the "logs a failed handler's full stack trace as stderr lines" test as-is — it doesn't depend
+on capture and should still pass unchanged after Step 7.
+
+- [ ] **Step 7: Simplify `worker.ts`**
+
+Change the imports:
+
+```ts
+import { appendLogLine, claim, complete, fail, resetOrphaned } from "./queue";
+import { getHandler } from "./handlers";
+```
+
+(remove the `import { runWithLogCapture } from "./log-capture";` line entirely.)
+
+Remove the `logSafe()` helper function entirely (it's no longer needed — `appendLogLine()` now
+protects itself).
+
+Replace the loop body:
+
+```ts
+    logSafe(job.id, "stdout", `job started (attempt ${job.attempts}/${job.maxAttempts})`);
+    try {
+      await runWithLogCapture(job.id, () => withTimeout(handler(job), timeoutMs));
+      logSafe(job.id, "stdout", "job completed");
+      complete(job.id);
+    } catch (err) {
+      const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+      for (const line of detail.split("\n")) {
+        logSafe(job.id, "stderr", line);
+      }
+      fail(job.id, err instanceof Error ? err : String(err));
+    }
+```
+
+with:
+
+```ts
+    appendLogLine(job.id, "stdout", `job started (attempt ${job.attempts}/${job.maxAttempts})`);
+    try {
+      await withTimeout(handler(job), timeoutMs);
+      appendLogLine(job.id, "stdout", "job completed");
+      complete(job.id);
+    } catch (err) {
+      const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+      for (const line of detail.split("\n")) {
+        appendLogLine(job.id, "stderr", line);
+      }
+      fail(job.id, err instanceof Error ? err : String(err));
+    }
+```
+
+- [ ] **Step 8: Run it to verify it passes**
+
+Run: `npx vitest run src/lib/jobs/worker.test.ts`
+Expected: PASS (all tests, including the rewritten one from Step 6).
+
+- [ ] **Step 9: Run format, lint, typecheck, and the full suite**
+
+Run: `npm run format && npm run lint && npm run typecheck && npm test`
+Expected: all PASS (aside from the two documented pre-existing failures unrelated to this branch —
+`src/lib/auth/server.test.ts`, `src/lib/parity/corpus.test.ts` — confirmed pre-existing by every
+prior task in this plan).
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add src/lib/jobs/queue.ts src/lib/jobs/queue.test.ts src/lib/jobs/worker.ts src/lib/jobs/worker.test.ts
+git commit -m "refactor(jobs): drop console capture in favor of explicit, self-protecting logging"
+```
+
+---
+
+### Task 9: Explicit "important info" logging in the six job handlers
+
+**Files:**
+- Modify: `src/lib/jobs/handlers/aggregate.ts` (and its `.test.ts`)
+- Modify: `src/lib/jobs/handlers/logo.ts` (and its `.test.ts`)
+- Modify: `src/lib/jobs/handlers/restore.ts` (and its `.test.ts`)
+- Modify: `src/lib/jobs/handlers/reload.ts` (and its `.test.ts`)
+- Modify: `src/lib/jobs/handlers/retention.ts` (and its `.test.ts`)
+- `feed.update`'s handler (`update.ts`) needs no change — it only calls `handleAggregateJob`, whose
+  own logging covers it.
+
+**Interfaces:**
+- Consumes: `appendLogLine(jobId, stream, line)` (Task 8's hardened version) from `../queue`.
+- Produces: nothing new — this task only adds logging calls inside existing handler functions, no
+  new exports.
+
+Read each handler file and its existing `.test.ts` file before editing — match each test file's
+established setup (real temp database, existing fixture-building helpers) rather than introducing a
+new pattern. Each handler already receives the full `Job` row (with `.id`), so no plumbing is needed
+to reach a job id from inside these functions.
+
+**Exact log calls to add, in order, per handler** (all via `appendLogLine(job.id, "stdout", ...)`
+unless noted — nothing here is `"stderr"`; stderr is reserved for the worker's own failure-path
+stack trace):
+
+- [ ] **Step 1: `aggregate.ts`** (`handleAggregateJob`) — three call sites:
+  1. Right after `if (!feed || !feed.enabled) return;`, but *before* the `return` — log
+     `` `feed not found or disabled, skipping` `` and then return (early-exit branches were
+     previously silent; a job that "did nothing" should say why).
+  2. Right after `const rawArticles = await aggregator.aggregate();`, before the
+     `if (rawArticles.length === 0)` check — log `` `fetched ${rawArticles.length} articles` ``.
+  3. At the very end of the function (after the loop, right before the final
+     `writeTransaction` that updates `feed.updatedAt` — or right after it returns, your choice, as
+     long as it's outside any `writeTransaction` block), log a created/updated summary. This needs
+     two counters (`created`/`updated`) incremented inside the per-article loop's `if (existing)`
+     branch (`updated++`) vs. `else` branch (`created++`), declared before the loop starts. Only
+     log this summary line when `total > 0` (the `rawArticles.length === 0` branch already returned
+     earlier and logged its own line via call site 2's "fetched 0 articles").
+     Message: `` `upserted articles: ${created} created, ${updated} updated` ``.
+
+  Write/extend `src/lib/jobs/handlers/aggregate.test.ts`: for a case that already exists exercising
+  the "feed not found/disabled" early return, assert the log line; for a case with N fetched
+  articles, assert both the "fetched N articles" line and the final "created X, updated Y" summary
+  (an existing test that seeds N new articles should show `created: N, updated: 0`; if a test
+  exists for re-aggregating already-seen articles, it should show `updated` instead).
+
+- [ ] **Step 2: `logo.ts`** (`handleLogoJob`) — three call sites:
+  1. Right after `if (!targetUrl) return;`, before the `return` — log
+     `` `no logo source configured, skipping` ``.
+  2. After `const logoResult = await discoverLogo(targetUrl);`, in the `else` case (no result) — log
+     `` `no logo found` ``. Restructure the `if (logoResult) { ... }` into an `if/else` so there's a
+     branch to attach this to.
+  3. Inside the `if (logoResult)` branch, after `await storeLogo(...)` succeeds — log
+     `` `stored logo from ${logoResult.url}` ``.
+
+  Extend `src/lib/jobs/handlers/logo.test.ts` to assert each of the three lines in its corresponding
+  existing (or newly added) test case.
+
+- [ ] **Step 3: `restore.ts`** (`handleRestoreJob`) — one call site:
+  1. The `writeTransaction` that tombstones and deletes existing articles currently returns nothing
+     (`void`). Change it to return `doomed.length`, capture that as `const removed = writeTransaction((tx) => { ... return doomed.length; });`,
+     and right after (outside the transaction, before the `await handleAggregateJob(job)` call at
+     the end), log `` `removed ${removed} existing articles before re-aggregating` ``. (The
+     re-aggregation that follows logs its own lines via Step 1's changes to `aggregate.ts`.)
+
+  Extend `src/lib/jobs/handlers/restore.test.ts` to assert this line for a feed that had existing
+  articles.
+
+- [ ] **Step 4: `reload.ts`** (`handleReloadJob`) — two call sites:
+  1. Right after `if (!article || !article.rawContent) return;`, before the `return` — log
+     `` `article not found or has no stored content, skipping` ``.
+  2. At the very end of the function, after the `writeTransaction` that updates `plainText` returns
+     (outside it) — log `` `reloaded article content` ``.
+
+  Extend `src/lib/jobs/handlers/reload.test.ts` to assert both lines in their respective cases.
+
+- [ ] **Step 5: `retention.ts`** (`handleRetentionJob`) — two call sites, both requiring the
+  transaction to report a count so the log call can happen *after* it returns (never inside a
+  `writeTransaction`, per this feature's convention — see the design spec's "Capture" section):
+  1. Change `deleteWithTombstones()`'s return type from `void` to `number` (the count of deleted
+     articles, i.e. `doomedIds.length`, or `0` when it returns early because `doomed.length === 0` —
+     add an explicit `return 0;` there instead of the current bare `return;`, and
+     `return doomedIds.length;` at the end).
+  2. In `handleRetentionJob`'s per-user loop, change
+     `writeTransaction((tx) => deleteWithTombstones(tx, settings.userId, feedIds, cutoff));` to
+     capture the count: `` const removed = writeTransaction((tx) => deleteWithTombstones(tx, settings.userId, feedIds, cutoff)); ``,
+     then log (outside the transaction, still inside the `for` loop) only when `removed > 0`:
+     `` `user ${settings.userId}: removed ${removed} expired articles` ``. This job has no single
+     owning user (it processes every user's settings in one execution), so there is no `job.id`-only
+     "which user" ambiguity to worry about — the message names the user explicitly.
+  3. After the final tombstone-pruning `writeTransaction` returns (it currently discards its
+     `result.changes`-equivalent; change it to `return` the deleted count the same way, capture it,
+     and log outside the transaction): `` `pruned ${count} expired tombstones` ``. The function
+     signature is `handleRetentionJob(_job: Job)` — rename the parameter to `job` (drop the
+     underscore) since it's now used.
+
+  Extend `src/lib/jobs/handlers/retention.test.ts` to assert: a user with expired articles produces
+  a "removed N expired articles" line naming that user's id; a user with none produces no such line
+  (only users with `removed > 0` get one); the final "pruned N expired tombstones" line always
+  appears (even when N is 0 — don't special-case that one, since pruning runs unconditionally
+  regardless of the per-user loop's outcome).
+
+- [ ] **Step 6: Run the five handlers' focused tests**
+
+Run: `npx vitest run src/lib/jobs/handlers/aggregate.test.ts src/lib/jobs/handlers/logo.test.ts src/lib/jobs/handlers/restore.test.ts src/lib/jobs/handlers/reload.test.ts src/lib/jobs/handlers/retention.test.ts`
+Expected: PASS.
+
+- [ ] **Step 7: Run format, lint, typecheck, and the full suite**
+
+Run: `npm run format && npm run lint && npm run typecheck && npm test`
+Expected: all PASS (aside from the two documented pre-existing failures).
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/lib/jobs/handlers/
+git commit -m "feat(jobs): log meaningful lifecycle events in each job handler"
+```
+
+---
+
+### Task 10: Schema — `jobs.userId` column
+
+**Files:**
+- Modify: `src/lib/db/schema/jobs.ts`
+- Modify: `src/lib/db/schema.test.ts`
+- Create (generated + hand-edited): `drizzle/00XX_<name>.sql` and its `meta/` entries
+
+**Interfaces:**
+- Produces: `jobs.userId` column, nullable, FK to `users.id` with `onDelete: "set null"` (not
+  cascade — matches the existing `jobs.runId` FK's "set null" precedent, which deliberately lets a
+  job row outlive the thing that created it, for audit/history).
+
+- [ ] **Step 1: Write the failing schema tests**
+
+Append to `src/lib/db/schema.test.ts` (a new `describe` block, near the existing "job logs" one):
+
+```ts
+describe("job ownership", () => {
+  it("adds a nullable user_id column to jobs, with an index", () => {
+    const connection = freshDatabase();
+    const cols = (connection.pragma("table_info(jobs)") as { name: string; notnull: number }[]);
+    const userIdCol = cols.find((c) => c.name === "user_id");
+    expect(userIdCol).toBeDefined();
+    expect(userIdCol!.notnull).toBe(0);
+
+    const indexNames = connection
+      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='jobs'")
+      .all()
+      .map((row) => (row as { name: string }).name);
+    expect(indexNames).toContain("jobs_user_idx");
+    connection.close();
+  });
+
+  it("sets a job's user_id to null (not deleting the row) when the owning user is deleted", () => {
+    const connection = freshDatabase();
+    connection.exec(`
+      INSERT INTO users (id, email) VALUES ('u1', 'a@b.c');
+      INSERT INTO jobs (id, kind, user_id) VALUES (1, 'aggregate', 'u1');
+    `);
+
+    connection.exec("DELETE FROM users WHERE id = 'u1'");
+
+    const job = connection.prepare("SELECT user_id FROM jobs WHERE id = 1").get() as {
+      user_id: string | null;
+    } | undefined;
+    expect(job).toBeDefined();
+    expect(job!.user_id).toBeNull();
+    connection.close();
+  });
+});
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `npx vitest run src/lib/db/schema.test.ts`
+Expected: FAIL — no `user_id` column exists yet.
+
+- [ ] **Step 3: Add the column to the schema**
+
+In `src/lib/db/schema/jobs.ts`, add to the `jobs` table's column definitions (after `runId`, before
+`kind`, to keep it near the other "who/what this job relates to" columns):
+
+```ts
+    /**
+     * The job's owning user, for restricting `/jobs`/`/jobs/[id]` to a user's
+     * own jobs (admins see all -- see `isAdminRole()`). Nullable: `retention`
+     * runs once per tick and processes every user internally, so it has no
+     * single owner. `onDelete: "set null"`, not cascade -- matches `runId`'s
+     * precedent of letting a job row outlive the thing that created it.
+     */
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+```
+
+and add the index to the table's index list (alongside the existing `jobs_claim_idx`/`jobs_kind_idx`/`jobs_run_idx`):
+
+```ts
+    index("jobs_user_idx").on(table.userId),
+```
+
+- [ ] **Step 4: Generate the migration**
+
+Run: `npx drizzle-kit generate`
+
+Expected: a new `drizzle/00XX_<name>.sql` with roughly:
+
+```sql
+ALTER TABLE `jobs` ADD `user_id` text REFERENCES users(id) ON UPDATE no action ON DELETE set null;
+--> statement-breakpoint
+CREATE INDEX `jobs_user_idx` ON `jobs` (`user_id`);
+```
+
+Plain addition (no dropped column alongside it), so no interactive prompt.
+
+- [ ] **Step 5: Hand-add a backfill for existing job rows**
+
+Immediately below the generated statements in the new `.sql` file (same file, following the
+`tag-colors` migration's precedent of a hand-added backfill after a generated `ALTER TABLE`), add:
+
+```sql
+--> statement-breakpoint
+UPDATE jobs SET user_id = (
+  SELECT runs.user_id FROM runs WHERE runs.id = jobs.run_id
+) WHERE jobs.run_id IS NOT NULL AND jobs.user_id IS NULL;
+--> statement-breakpoint
+UPDATE jobs SET user_id = (
+  SELECT feeds.user_id FROM articles JOIN feeds ON feeds.id = articles.feed_id
+  WHERE articles.id = CAST(json_extract(jobs.payload, '$.articleId') AS INTEGER)
+) WHERE jobs.kind = 'article.reload' AND jobs.user_id IS NULL;
+--> statement-breakpoint
+UPDATE jobs SET user_id = (
+  SELECT feeds.user_id FROM feeds
+  WHERE feeds.id = CAST(json_extract(jobs.payload, '$.feedId') AS INTEGER)
+) WHERE jobs.kind IN ('aggregate', 'feed.logo', 'feed.update', 'feed.restore')
+  AND jobs.user_id IS NULL;
+```
+
+This backfills every job kind that can be traced to an owner from its existing `run_id` or
+`payload`; `retention` jobs and any job whose referenced run/article/feed no longer exists are left
+`NULL` (falls back to admin-only visibility once Task 13 ships — a reasonable default for orphaned
+rows). Note the second and third `UPDATE`s are guarded with `AND jobs.user_id IS NULL` so the first
+one's result (for jobs that have both a `run_id` and happen to match a later pattern) is never
+overwritten -- though in practice these three conditions are mutually exclusive per job.
+
+Verify this backfill by hand against the current `drizzle/meta/_journal.json` state — this repo's
+convention (see the `tag-colors` design doc) is to verify a hand-written backfill `UPDATE` manually
+rather than building a migration-partial-apply test harness for one-off statements.
+
+- [ ] **Step 6: Run the tests to verify they pass**
+
+Run: `npx vitest run src/lib/db/schema.test.ts`
+Expected: PASS (all tests, including the two new ones).
+
+- [ ] **Step 7: Run the full test suite**
+
+Run: `npm test`
+Expected: PASS (aside from the two documented pre-existing failures).
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/lib/db/schema/jobs.ts src/lib/db/schema.test.ts drizzle/
+git commit -m "feat(jobs): add a nullable userId column to jobs, with backfill"
+```
+
+---
+
+### Task 11: Populate and filter by `userId` in `queue.ts` and `scheduler.ts`
+
+**Files:**
+- Modify: `src/lib/jobs/queue.ts`
+- Modify: `src/lib/jobs/queue.test.ts`
+- Modify: `src/lib/jobs/scheduler.ts`
+- Modify: `src/lib/jobs/scheduler.test.ts`
+
+**Interfaces:**
+- Consumes: `jobs.userId` (Task 10).
+- Produces: `EnqueueOptions.userId?: string`, `enqueueRun()`'s jobs now carry `userId` directly,
+  `ListJobsOptions.userId?: string` — consumed by `/jobs`, `/jobs/[id]`, and the SSE route in
+  Task 13.
+
+- [ ] **Step 1: Write the failing tests**
+
+In `src/lib/jobs/queue.test.ts`, add (inside a fitting `describe`, or a new one):
+
+```ts
+  describe("job ownership", () => {
+    it("enqueue() stores an explicit userId when given one", () => {
+      const id = queue.enqueue("test.job", {}, { userId: "u1" });
+      expect(queue.getJob(id)?.userId).toBe("u1");
+    });
+
+    it("enqueue() leaves userId null when none is given", () => {
+      const id = queue.enqueue("test.job", {});
+      expect(queue.getJob(id)?.userId).toBeNull();
+    });
+
+    it("enqueueRun() stamps every job it creates with the run's userId", () => {
+      const runId = queue.enqueueRun("u1", "aggregate", [{ feedId: 1 }, { feedId: 2 }]);
+      const { jobs } = queue.listJobs({});
+      const runJobs = jobs.filter((j) => j.runId === runId);
+      expect(runJobs).toHaveLength(2);
+      expect(runJobs.every((j) => j.userId === "u1")).toBe(true);
+    });
+
+    it("listJobs() filters by userId when given one", () => {
+      queue.enqueue("test.job", {}, { userId: "u1" });
+      queue.enqueue("test.job", {}, { userId: "u2" });
+      queue.enqueue("test.job", {}); // no owner
+
+      const forU1 = queue.listJobs({ userId: "u1" });
+      expect(forU1.total).toBe(1);
+      expect(forU1.jobs[0]!.userId).toBe("u1");
+    });
+
+    it("listJobs() with no userId returns every job regardless of owner", () => {
+      queue.enqueue("test.job", {}, { userId: "u1" });
+      queue.enqueue("test.job", {}, { userId: "u2" });
+      queue.enqueue("test.job", {});
+
+      expect(queue.listJobs({}).total).toBe(3);
+    });
+  });
+```
+
+(These tests need `users` rows to exist if the `jobs.userId` FK is enforced by SQLite's
+`foreign_keys = ON` pragma — check whether `freshDatabase()`/`applyMigrationsAt()`-backed tests in
+this file already seed users elsewhere; if the FK requires it, seed `users` rows for `'u1'`/`'u2'`
+via a raw `INSERT` before these tests, matching how `schema.test.ts`'s `seedOwnershipGraph()` does
+it, or relax to inserting through `getDb()`.)
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run src/lib/jobs/queue.test.ts`
+Expected: FAIL — `EnqueueOptions` has no `userId`, `ListJobsOptions` has no `userId`.
+
+- [ ] **Step 3: Implement in `queue.ts`**
+
+```ts
+export interface EnqueueOptions {
+  runAt?: Date;
+  maxAttempts?: number;
+  userId?: string;
+}
+
+export function enqueue(
+  kind: string,
+  payload: Record<string, unknown> = {},
+  options?: EnqueueOptions,
+): number {
+  return writeTransaction((db) => {
+    const inserted = db
+      .insert(jobs)
+      .values({
+        kind,
+        payload,
+        status: "pending",
+        runAt: options?.runAt ?? new Date(),
+        maxAttempts: options?.maxAttempts ?? 3,
+        userId: options?.userId,
+      })
+      .returning({ id: jobs.id })
+      .get();
+
+    return inserted.id;
+  });
+}
+```
+
+In `enqueueRun()`, add `userId` to the mapped values (it already receives `userId` as its first
+parameter):
+
+```ts
+    if (!isEmpty) {
+      db.insert(jobs)
+        .values(payloads.map((payload) => ({ kind, payload, runId: run.id, userId })))
+        .run();
+    }
+```
+
+In `ListJobsOptions` and `listJobs()`:
+
+```ts
+export interface ListJobsOptions {
+  kind?: string;
+  status?: string;
+  userId?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export function listJobs(options: ListJobsOptions = {}): { jobs: Job[]; total: number } {
+  const limit = options.limit ?? 50;
+  const offset = options.offset ?? 0;
+
+  return writeTransaction((db) => {
+    const conditions = [];
+    if (options.kind) {
+      conditions.push(eq(jobs.kind, options.kind));
+    }
+    if (options.status) {
+      conditions.push(eq(jobs.status, options.status));
+    }
+    if (options.userId) {
+      conditions.push(eq(jobs.userId, options.userId));
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    // ...unchanged below this point
+```
+
+- [ ] **Step 4: Run them to verify they pass**
+
+Run: `npx vitest run src/lib/jobs/queue.test.ts`
+Expected: PASS.
+
+- [ ] **Step 5: Write the failing scheduler test**
+
+Read `src/lib/jobs/scheduler.test.ts` first to match its existing setup. Add a test asserting that
+an enqueued `aggregate` job carries the feed's `userId`:
+
+```ts
+  it("stamps a scheduled aggregate job with its feed's userId", async () => {
+    // Seed a user and an enabled, due-for-update feed the same way this file's
+    // other tests do (match the existing fixture-building helper here rather
+    // than re-deriving one) -- follow the existing test(s) that already
+    // enqueue an "aggregate" job via tick() and add an assertion on userId.
+    ...
+    await tick();
+    const enqueued = queue.listJobs({ kind: "aggregate" }).jobs[0];
+    expect(enqueued?.userId).toBe(/* the seeded feed's owning user's id */);
+  });
+```
+
+Write this test by reading the existing file's conventions rather than inventing a new fixture
+shape — it should slot in next to whatever test already proves `tick()` enqueues an `aggregate` job
+per due feed.
+
+- [ ] **Step 6: Run it to verify it fails**
+
+Run: `npx vitest run src/lib/jobs/scheduler.test.ts`
+Expected: FAIL — the enqueued job's `userId` is `null`.
+
+- [ ] **Step 7: Implement in `scheduler.ts`**
+
+Change the `activeFeeds` query to also select `feeds.userId`:
+
+```ts
+  const activeFeeds = db
+    .select({
+      feedId: feeds.id,
+      userId: feeds.userId,
+      updatedAt: feeds.updatedAt,
+      updateIntervalMinutes: userSettings.updateIntervalMinutes,
+    })
+    .from(feeds)
+    .leftJoin(userSettings, eq(feeds.userId, userSettings.userId))
+    .where(eq(feeds.enabled, true))
+    .all();
+```
+
+and pass it through at the enqueue call:
+
+```ts
+      enqueue("aggregate", { feedId: item.feedId }, { userId: item.userId });
+```
+
+(Leave the `retention` job's `enqueue("retention", {})` call unchanged — it has no owner by
+design.)
+
+- [ ] **Step 8: Run it to verify it passes**
+
+Run: `npx vitest run src/lib/jobs/scheduler.test.ts`
+Expected: PASS.
+
+- [ ] **Step 9: Run format, lint, typecheck, and the full suite**
+
+Run: `npm run format && npm run lint && npm run typecheck && npm test`
+Expected: all PASS (aside from the two documented pre-existing failures).
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add src/lib/jobs/queue.ts src/lib/jobs/queue.test.ts src/lib/jobs/scheduler.ts src/lib/jobs/scheduler.test.ts
+git commit -m "feat(jobs): populate and filter jobs.userId in queue.ts and the scheduler"
+```
+
+---
+
+### Task 12: Populate `userId` at the remaining direct-insert call sites
+
+**Files:**
+- Modify: `src/lib/feeds/actions.ts`
+- Modify: `src/lib/feeds/actions.test.ts`
+- Modify: `src/lib/articles/actions.ts`
+- Modify: `src/lib/articles/actions.test.ts`
+- Modify: `src/app/api/v1/articles/[id]/reload/route.ts`
+- Modify: `src/app/api/v1/articles/[id]/reload/route.test.ts`
+
+**Interfaces:**
+- Consumes: `jobs.userId` column (Task 10). These call sites bypass `enqueue()`/`enqueueRun()`
+  entirely (direct `tx.insert(jobs).values(...)` inside their own `writeTransaction`), so Task 11's
+  changes don't cover them — each needs its own one-field addition.
+- Produces: nothing new — just data correctness at four existing write paths.
+
+Every call site listed below already has a `userId` (from `currentUserId()` or
+`requireApiUser()`) in scope in the same function, used to filter the rows being acted on — add
+`userId` to the `.values(...)` object passed to `tx.insert(jobs)`, nothing else changes.
+
+- [ ] **Step 1: `src/lib/feeds/actions.ts` — `createFeed()`'s `feed.logo` insert**
+
+Find the `tx.insert(jobs).values({ kind: "feed.logo", payload: { feedId: feed.id } })` call inside
+`createFeed()`. Add `userId` (the function already has it in scope as `userId` from
+`currentUserId()`, used earlier in the same transaction to insert the feed row):
+
+```ts
+tx.insert(jobs).values({ kind: "feed.logo", payload: { feedId: feed.id }, userId }).run();
+```
+
+- [ ] **Step 2: `src/lib/feeds/actions.ts` — `refreshLogos()`'s `feed.logo` insert**
+
+Same file, `refreshLogos()`. The insert is
+`tx.insert(jobs).values(validFeeds.map((f) => ({ kind: "feed.logo", payload: { feedId: f.id } })))`.
+Add `userId` (already in scope) to each mapped object:
+
+```ts
+tx.insert(jobs)
+  .values(validFeeds.map((f) => ({ kind: "feed.logo", payload: { feedId: f.id }, userId })))
+  .run();
+```
+
+- [ ] **Step 3: `src/lib/feeds/actions.ts` — `updateFeedsBulk()`'s `feed.update` insert**
+
+Same shape as Step 2, for `kind: "feed.update"` in `updateFeedsBulk()` — add `userId` to each
+mapped object the same way.
+
+- [ ] **Step 4: `src/lib/feeds/actions.ts` — `restoreFeedsBulk()`'s `feed.restore` insert**
+
+Same shape again, for `kind: "feed.restore"` in `restoreFeedsBulk()`.
+
+- [ ] **Step 5: Extend `src/lib/feeds/actions.test.ts`**
+
+For each of the four functions touched above, extend (or add, if none exists) a test asserting the
+created job row's `userId` matches the acting user — read the file's existing test setup first and
+match its style (it should already have real users/feeds seeded for these functions' existing
+tests).
+
+- [ ] **Step 6: Run the focused test**
+
+Run: `npx vitest run src/lib/feeds/actions.test.ts`
+Expected: PASS.
+
+- [ ] **Step 7: `src/lib/articles/actions.ts` — `reloadArticles()`'s `article.reload` insert**
+
+Find `tx.insert(jobs).values(validArticles.map((a) => ({ kind: "article.reload", payload: { articleId: a.id } })))`.
+Add `userId` (already in scope from `currentUserId()`):
+
+```ts
+tx.insert(jobs)
+  .values(validArticles.map((a) => ({ kind: "article.reload", payload: { articleId: a.id }, userId })))
+  .run();
+```
+
+Extend `src/lib/articles/actions.test.ts` to assert the created job's `userId`.
+
+- [ ] **Step 8: Run the focused test**
+
+Run: `npx vitest run src/lib/articles/actions.test.ts`
+Expected: PASS.
+
+- [ ] **Step 9: `src/app/api/v1/articles/[id]/reload/route.ts`**
+
+Find the `tx.insert(jobs).values({ kind: "article.reload", payload: { articleId } })` call. Add
+`userId: user.id` (already in scope from `requireApiUser(request)`):
+
+```ts
+const inserted = tx
+  .insert(jobs)
+  .values({ kind: "article.reload", payload: { articleId }, userId: user.id })
+  ...
+```
+
+Extend `src/app/api/v1/articles/[id]/reload/route.test.ts` to assert the created job's `userId`.
+
+- [ ] **Step 10: Run the focused test**
+
+Run: `npx vitest run src/app/api/v1/articles/\[id\]/reload/route.test.ts`
+Expected: PASS.
+
+- [ ] **Step 11: Run format, lint, typecheck, and the full suite**
+
+Run: `npm run format && npm run lint && npm run typecheck && npm test`
+Expected: all PASS (aside from the two documented pre-existing failures).
+
+- [ ] **Step 12: Commit**
+
+```bash
+git add src/lib/feeds/actions.ts src/lib/feeds/actions.test.ts src/lib/articles/actions.ts src/lib/articles/actions.test.ts "src/app/api/v1/articles/[id]/reload/route.ts" "src/app/api/v1/articles/[id]/reload/route.test.ts"
+git commit -m "feat(jobs): populate userId at the remaining direct job-insert call sites"
+```
+
+---
+
+### Task 13: Enforce ownership in `/jobs`, `/jobs/[id]`, and the SSE route
+
+**Files:**
+- Modify: `src/app/(app)/jobs/page.tsx`
+- Modify: `src/app/(app)/jobs/[id]/page.tsx`
+- Modify: `src/app/api/jobs/[id]/log-stream/route.ts`
+- Modify: `src/app/api/jobs/[id]/log-stream/route.test.ts`
+
+**Interfaces:**
+- Consumes: `ListJobsOptions.userId` (Task 11), `jobs.userId` (Task 10),
+  `isAdminRole(role)` from `@/lib/auth/roles` (existing, dependency-free per CLAUDE.md).
+- Produces: nothing new — access control only.
+
+- [ ] **Step 1: `src/app/(app)/jobs/page.tsx`**
+
+Change:
+
+```ts
+export default async function JobsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  await requireUser();
+```
+
+to:
+
+```ts
+export default async function JobsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const user = await requireUser();
+  const admin = isAdminRole(user.role);
+```
+
+and update the `listJobs()` call inside `JobsData`. `JobsData` needs `admin`/`user.id` passed down
+to it (it's a separate async component that currently only receives `params`):
+
+```ts
+async function JobsData({ params, userId }: { params: ListParams; userId?: string }) {
+  const { jobs, total } = listJobs({
+    kind: params.filters.kind,
+    status: params.filters.status,
+    userId,
+    limit: params.pageSize,
+    offset: (params.page - 1) * params.pageSize,
+  });
+
+  return <JobsTable rows={jobs} page={params.page} pageSize={params.pageSize} total={total} />;
+}
+```
+
+and pass `userId={admin ? undefined : user.id}` at its call site inside the `<Suspense>` block. Add
+the import: `import { isAdminRole } from "@/lib/auth/roles";`.
+
+- [ ] **Step 2: `src/app/(app)/jobs/[id]/page.tsx`**
+
+Change:
+
+```ts
+  await requireUser();
+
+  const { id } = await params;
+  const jobId = Number(id);
+  const job = Number.isInteger(jobId) ? getJob(jobId) : null;
+  if (!job) notFound();
+```
+
+to:
+
+```ts
+  const user = await requireUser();
+  const admin = isAdminRole(user.role);
+
+  const { id } = await params;
+  const jobId = Number.isInteger(Number(id)) ? Number(id) : null;
+  const job = jobId !== null ? getJob(jobId) : null;
+  if (!job || (!admin && job.userId !== user.id)) notFound();
+```
+
+Add the import: `import { isAdminRole } from "@/lib/auth/roles";`.
+
+- [ ] **Step 3: `src/app/api/jobs/[id]/log-stream/route.ts`**
+
+Same ownership check, adapted to the route's existing shape:
+
+```ts
+  const user = await requireUser();
+  const admin = isAdminRole(user.role);
+
+  const { id } = await params;
+  const jobId = Number(id);
+  const job = Number.isInteger(jobId) ? getJob(jobId) : null;
+  if (!job || (!admin && job.userId !== user.id)) {
+    return new Response(null, { status: 404 });
+  }
+```
+
+Add the import: `import { isAdminRole } from "@/lib/auth/roles";`.
+
+- [ ] **Step 4: Write the failing ownership tests in `route.test.ts`**
+
+Add to `src/app/api/jobs/[id]/log-stream/route.test.ts` (read the file first — it already has a
+`signedInCookie()`-style helper and a `queue` import; extend rather than duplicate):
+
+```ts
+  it("404s for a job owned by a different, non-admin user", async () => {
+    await createUserWithPassword({ ...CREDENTIALS, firstName: "A", lastName: "B" });
+    const cookie = await signInCookie(auth, CREDENTIALS);
+    const other = await createUserWithPassword({
+      email: "owner@example.com",
+      password: "correct horse battery staple",
+      firstName: "O",
+      lastName: "W",
+    });
+    const jobId = queue.enqueue("test.job", {}, { userId: other.id });
+
+    const response = await get(String(jobId), { cookie });
+    expect(response.status).toBe(404);
+  });
+
+  it("streams a job's own log for its owner", async () => {
+    const user = await createUserWithPassword({ ...CREDENTIALS, firstName: "A", lastName: "B" });
+    const cookie = await signInCookie(auth, CREDENTIALS);
+    const jobId = queue.enqueue("test.job", {}, { userId: user.id });
+
+    const response = await get(String(jobId), { cookie });
+    expect(response.status).toBe(200);
+  });
+
+  it("streams any job's log for an admin, regardless of owner", async () => {
+    // Create the admin the way this repo's other admin-role tests do -- read
+    // an existing admin-role test (e.g. src/lib/auth/roles.test.ts or
+    // src/app/(app)/users/page.test.tsx-equivalent) for the exact
+    // createUserWithPassword-plus-role-set shape, and match it here rather
+    // than inventing a new one.
+    ...
+    const other = await createUserWithPassword({
+      email: "someoneelse@example.com",
+      password: "correct horse battery staple",
+      firstName: "S",
+      lastName: "E",
+    });
+    const jobId = queue.enqueue("test.job", {}, { userId: other.id });
+
+    const response = await get(String(jobId), { cookie: adminCookie });
+    expect(response.status).toBe(200);
+  });
+```
+
+- [ ] **Step 5: Run it to verify the new tests fail, then pass**
+
+Run: `npx vitest run "src/app/api/jobs/[id]/log-stream/route.test.ts"`
+Expected: FAIL before Step 3's route change (ownership never checked, so the "different user" case
+wrongly returns 200); PASS after.
+
+- [ ] **Step 6: Run format, lint, typecheck, and the full suite**
+
+Run: `npm run format && npm run lint && npm run typecheck && npm test`
+Expected: all PASS (aside from the two documented pre-existing failures).
+
+- [ ] **Step 7: Manually verify in a running dev server**
+
+1. As a non-admin user, confirm `/jobs` only lists jobs you own (trigger one via the existing
+   aggregate action, confirm it appears; confirm a job you know belongs to another user, or a
+   `retention`/scheduler-triggered job, does not appear).
+2. As the default admin, confirm `/jobs` lists every job, including ones with no owner.
+3. As a non-admin, visit `/jobs/<id>` for a job you don't own — confirm 404.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add "src/app/(app)/jobs/page.tsx" "src/app/(app)/jobs/[id]/page.tsx" "src/app/api/jobs/[id]/log-stream/route.ts" "src/app/api/jobs/[id]/log-stream/route.test.ts"
+git commit -m "feat(jobs): restrict /jobs, /jobs/[id], and the log stream to their owner (admins see all)"
+```
+
+---
+
 ## Self-Review Notes
 
 - **Spec coverage:** every section of `docs/superpowers/specs/2026-08-04-job-live-log-design.md` maps to a task — schema (Task 1), capture mechanism and its `AsyncLocalStorage` reasoning (Task 3), no size cap (no task needed — this is the absence of a feature, confirmed by Task 3's tests never asserting a truncation), live delivery (Task 5), UI (Tasks 6–7), touch points table (covered across Tasks 1–7), testing section (a test is written in every task).
 - **Placeholder scan:** no TBD/TODO; every step shows real code or a real command.
 - **Type consistency:** `JobLogStream`/`JobLog` (Task 2) flow unchanged into `log-capture.ts` (Task 3), `worker.ts` (Task 4), the SSE route (Task 5); the route's JSON payload shape (`id`, `stream`, `line`, `createdAt`) matches `JobLogLine` (Task 6) and the detail page's mapping (Task 7) field-for-field.
+
+### Addendum self-review
+
+- **Spec coverage:** the revised design spec's "Capture" section maps to Tasks 8-9 (removal of `log-capture.ts`, explicit per-handler calls); "Live delivery" is unchanged from Tasks 2/5 and untouched by the addendum. The ownership decision (not written into the spec doc, since it originated from final-review feedback rather than the original brainstorm) is covered by Tasks 10-13.
+- **Placeholder scan:** Task 9's per-handler steps describe exact messages and exact call sites but ask the implementer to match each pre-existing `.test.ts` file's own conventions rather than prescribing literal test code — this is a deliberate, bounded exception (five files this plan didn't create), not a placeholder; every source-code change is exact.
+- **Type consistency:** `appendLogLine`'s new `JobLog | null` return type (Task 8) is used consistently — Task 9's handler calls all discard the return value (fire-and-forget, matching `worker.ts`'s own calls), so the type change has no downstream ripple beyond Task 8's own test. `EnqueueOptions.userId`/`ListJobsOptions.userId` (Task 11) are both optional, so every pre-existing call site compiles unchanged; only the four call sites Task 12 touches (which bypass `enqueue()` entirely) and `scheduler.ts` (Task 11) needed edits.
+- **Ordering dependency:** Task 8 must land before Task 9 (Task 9's handlers call the hardened `appendLogLine`, and Task 8 deletes the test that Task 9's own worker-level test would otherwise conflict with). Tasks 10 → 11 → 12 → 13 are a strict chain (schema, then writers, then remaining writers, then readers) — do not reorder.
