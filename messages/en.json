@@ -25,7 +25,8 @@
     "noJobs": "No jobs found.",
     "log": "Log",
     "logEmpty": "No log output yet.",
-    "logEnded": "Job finished — log ended."
+    "logEnded": "Job finished — log ended.",
+    "detailTitle": "Job #{id}"
   },
   "auth": {
     "signIn": "Sign in",

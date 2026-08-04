@@ -25,7 +25,8 @@
     "noJobs": "Keine Aufgaben gefunden.",
     "log": "Protokoll",
     "logEmpty": "Noch keine Protokollausgabe.",
-    "logEnded": "Auftrag beendet — Protokoll beendet."
+    "logEnded": "Auftrag beendet — Protokoll beendet.",
+    "detailTitle": "Auftrag #{id}"
   },
   "auth": {
     "signIn": "Anmelden",

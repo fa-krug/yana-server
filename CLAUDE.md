@@ -417,12 +417,16 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   `src/app/api/auth/[...all]/route.ts`, whose comment _explains why it has no
   call_. Add a new route here in the same commit. A new page that reads anything
   needs its own line — unless it already awaits a Dynamic API, which opts the
-  route out just as well. **The five that do**: `src/app/(app)/layout.tsx`,
+  route out just as well. **The seven that do**: `src/app/(app)/layout.tsx`,
   because `requireUser()` awaits `headers()` before anything touches SQLite;
-  `src/app/media/avatars/[userId]/route.ts`, for the same reason; and phase 5's
-  three `/users` routes — `src/app/(app)/users/page.tsx`,
-  `src/app/(app)/users/new/page.tsx`, `src/app/(app)/users/[id]/page.tsx` —
-  where `requireAdmin()` does it. That exemption is only worth as much as the
+  `src/app/media/avatars/[userId]/route.ts`, for the same reason;
+  `src/app/(app)/jobs/[id]/page.tsx` and
+  `src/app/api/jobs/[id]/log-stream/route.ts`, likewise (the job live-log
+  feature's detail page and its SSE route, both gated by `requireUser()`
+  before anything else); and phase 5's three `/users` routes —
+  `src/app/(app)/users/page.tsx`, `src/app/(app)/users/new/page.tsx`,
+  `src/app/(app)/users/[id]/page.tsx` — where `requireAdmin()` does it. That
+  exemption is only worth as much as the
   gate's **position**: it is the first statement of each of those three, ahead
   of `getTranslations()`, `parseListParams()` and every query, which is where
   it has to be anyway — inside a `<Suspense>` boundary its `notFound()` would

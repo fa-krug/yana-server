@@ -46,10 +46,7 @@ function patch(method: ConsoleMethod): void {
       try {
         appendLogLine(context.jobId, stream, line);
       } catch (err) {
-        original.error(
-          `[log-capture] failed to persist a log line for job ${context.jobId}:`,
-          err,
-        );
+        original.error(`[log-capture] failed to persist a log line for job ${context.jobId}:`, err);
       }
     }
   };

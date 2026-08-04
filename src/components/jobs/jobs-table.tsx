@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
 
 import { DataTable, type Column } from "@/components/crud/data-table";
@@ -8,7 +9,7 @@ import { Pagination } from "@/components/crud/pagination";
 import { Badge } from "@/components/ui/badge";
 import type { Job } from "@/lib/db/schema";
 
-function StatusBadge({ status }: { status: string }) {
+export function StatusBadge({ status }: { status: string }) {
   switch (status) {
     case "completed":
       return (
@@ -54,7 +55,11 @@ export function JobsTable({
     {
       key: "kind",
       header: t("kind"),
-      cell: (job) => <span className="font-mono text-sm">{job.kind}</span>,
+      cell: (job) => (
+        <Link href={`/jobs/${job.id}`} className="font-mono text-sm hover:underline">
+          {job.kind}
+        </Link>
+      ),
     },
     {
       key: "status",
