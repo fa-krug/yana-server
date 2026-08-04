@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 
 import { currentUserId } from "@/lib/auth/session";
 import { getDb, writeTransaction } from "@/lib/db/client";
-import { feeds, feedTags, tags, jobs, articles } from "@/lib/db/schema";
+import { feeds, feedTags, tags, jobs, articles, articleTombstones } from "@/lib/db/schema";
 import { getSettings } from "@/lib/settings/queries";
 import type { ListParams } from "@/lib/crud/params";
 import {
@@ -364,12 +364,42 @@ export async function updateFeed(id: number, input: FeedInput) {
   });
 }
 
+/**
+ * Deleting a feed cascades to its articles at the schema level (`feeds.id`'s
+ * FK is `onDelete: "cascade"`), so a client that synced before this call
+ * would otherwise never learn those articles are gone. Every hard-delete
+ * path on `articles` writes a tombstone first, in the same transaction --
+ * see `deleteWithTombstones()` in `src/lib/jobs/handlers/retention.ts` for
+ * the sibling path. This one starts from `feeds`, not `articles`, so it
+ * looks up the doomed article ids itself rather than sharing that helper.
+ */
 export async function deleteFeeds(ids: number[]) {
   if (ids.length === 0) return { ok: true, deleted: 0 };
 
   const userId = await currentUserId();
 
   return writeTransaction((tx) => {
+    const ownedFeeds = tx
+      .select({ id: feeds.id })
+      .from(feeds)
+      .where(and(inArray(feeds.id, ids), eq(feeds.userId, userId)))
+      .all();
+    const ownedFeedIds = ownedFeeds.map((f) => f.id);
+
+    if (ownedFeedIds.length > 0) {
+      const doomedArticles = tx
+        .select({ id: articles.id })
+        .from(articles)
+        .where(inArray(articles.feedId, ownedFeedIds))
+        .all();
+
+      if (doomedArticles.length > 0) {
+        tx.insert(articleTombstones)
+          .values(doomedArticles.map((a) => ({ articleId: a.id, userId })))
+          .run();
+      }
+    }
+
     const result = tx
       .delete(feeds)
       .where(and(inArray(feeds.id, ids), eq(feeds.userId, userId)))

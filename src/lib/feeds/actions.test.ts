@@ -316,3 +316,147 @@ describe("updateFeed", () => {
     expect(result.ok).toBe(false);
   });
 });
+
+describe("deleteFeeds", () => {
+  let dbPath: string;
+  let actions: typeof import("./actions");
+  let auth: typeof import("@/lib/auth/server").auth;
+  let createUserWithPassword: typeof import("@/lib/auth/server").createUserWithPassword;
+  let client: typeof import("@/lib/db/client");
+  let actingUserId: string | undefined;
+
+  function raw(db: unknown): Database.Database {
+    return (db as { $client: Database.Database }).$client;
+  }
+
+  function requestAs(cookie: string): void {
+    requestHeaders.current = new Headers({ cookie });
+  }
+
+  async function seedUser(input: { email: string }): Promise<string> {
+    const user = await createUserWithPassword({
+      email: input.email,
+      password: PASSWORD,
+      firstName: "",
+      lastName: "",
+      role: "user",
+    });
+    // Add user_settings to mock real flow since tests don't run full signup flow
+    raw(client.getDb()).exec(`INSERT INTO user_settings (user_id) VALUES ('${user.id}')`);
+    return user.id;
+  }
+
+  async function currentUserId(): Promise<string> {
+    if (actingUserId) return actingUserId;
+    actingUserId = await seedUser({ email: "user@example.com" });
+    const cookie = await signInCookie(auth, { email: "user@example.com", password: PASSWORD });
+    requestAs(cookie);
+    cookieJar.clear();
+    return actingUserId;
+  }
+
+  async function switchToOtherUser(): Promise<void> {
+    await seedUser({ email: "other@example.com" });
+    const cookie = await signInCookie(auth, { email: "other@example.com", password: PASSWORD });
+    requestAs(cookie);
+    actingUserId = undefined;
+  }
+
+  function seedArticle(feedId: number): number {
+    raw(client.getDb()).exec(
+      `INSERT INTO articles (name, identifier, date, feed_id) VALUES ('A', 'a1', ${Math.floor(
+        Date.now() / 1000,
+      )}, ${feedId})`,
+    );
+    const row = raw(client.getDb())
+      .prepare("SELECT id FROM articles WHERE feed_id = ?")
+      .get(feedId) as { id: number };
+    return row.id;
+  }
+
+  beforeEach(async () => {
+    vi.resetModules();
+    requestHeaders.current = new Headers();
+    cookieJar.clear();
+    actingUserId = undefined;
+
+    const stamp = `${process.pid}-${Math.random().toString(36).slice(2)}`;
+    dbPath = path.join(os.tmpdir(), `yana-feeds-delete-${stamp}.db`);
+    applyMigrationsAt(dbPath);
+    process.env.DATABASE_PATH = dbPath;
+    process.env.BETTER_AUTH_SECRET = "test-secret-not-used-outside-this-file-0123456789";
+
+    ({ auth, createUserWithPassword } = await import("@/lib/auth/server"));
+    actions = await import("./actions");
+    client = await import("@/lib/db/client");
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_PATH;
+    delete process.env.BETTER_AUTH_SECRET;
+    const connection = raw(client.getDb());
+    if (connection.open) connection.close();
+    for (const suffix of ["", "-shm", "-wal"]) {
+      fs.rmSync(`${dbPath}${suffix}`, { force: true });
+    }
+  });
+
+  it("tombstones every article belonging to a deleted feed", async () => {
+    const userId = await currentUserId();
+    const { id: feedId } = await actions.createFeed({
+      name: "Doomed",
+      aggregator: "heise",
+      identifier: "",
+    });
+    const articleId = seedArticle(feedId!);
+
+    const result = await actions.deleteFeeds([feedId!]);
+    expect(result).toEqual({ ok: true, deleted: 1 });
+
+    const tombstones = raw(client.getDb())
+      .prepare("SELECT * FROM article_tombstones WHERE article_id = ?")
+      .all(articleId) as { user_id: string }[];
+    expect(tombstones).toHaveLength(1);
+    expect(tombstones[0].user_id).toBe(userId);
+
+    const remainingArticles = raw(client.getDb())
+      .prepare("SELECT * FROM articles WHERE id = ?")
+      .all(articleId);
+    expect(remainingArticles).toHaveLength(0);
+
+    const remainingFeeds = raw(client.getDb())
+      .prepare("SELECT * FROM feeds WHERE id = ?")
+      .all(feedId);
+    expect(remainingFeeds).toHaveLength(0);
+  });
+
+  it("does not tombstone or delete another user's feed", async () => {
+    await currentUserId();
+    const { id: feedId } = await actions.createFeed({
+      name: "Not mine",
+      aggregator: "heise",
+      identifier: "",
+    });
+    const articleId = seedArticle(feedId!);
+
+    await switchToOtherUser();
+    const result = await actions.deleteFeeds([feedId!]);
+    expect(result).toEqual({ ok: true, deleted: 0 });
+
+    const tombstones = raw(client.getDb())
+      .prepare("SELECT * FROM article_tombstones WHERE article_id = ?")
+      .all(articleId);
+    expect(tombstones).toHaveLength(0);
+
+    const remainingArticles = raw(client.getDb())
+      .prepare("SELECT * FROM articles WHERE id = ?")
+      .all(articleId);
+    expect(remainingArticles).toHaveLength(1);
+  });
+
+  it("returns deleted: 0 and writes nothing for an empty id list", async () => {
+    await currentUserId();
+    const result = await actions.deleteFeeds([]);
+    expect(result).toEqual({ ok: true, deleted: 0 });
+  });
+});
