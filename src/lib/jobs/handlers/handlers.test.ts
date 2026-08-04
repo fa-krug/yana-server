@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import Database from "better-sqlite3";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { applyMigrationsAt } from "../../db/test-support";
@@ -139,6 +139,157 @@ describe("src/lib/jobs/handlers", () => {
       expect(identifiers).toContain("a1"); // Saved by new createdAt
       expect(identifiers).toContain("a3"); // Saved by starred
       expect(identifiers).not.toContain("a2"); // Deleted by retention
+    });
+
+    it("writes a tombstone for every article it deletes", async () => {
+      let userId = "";
+      let oldArticleId = 0;
+      let freshArticleId = 0;
+
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+        userId = user!.id;
+
+        db.insert(schema.userSettings).values({ userId, articleRetentionDays: 60 }).run();
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "Test Feed", userId })
+          .returning({ id: schema.feeds.id })
+          .get();
+
+        // Old, unstarred -> must be deleted and tombstoned.
+        const old = db
+          .insert(schema.articles)
+          .values({
+            name: "Old Imported Date",
+            identifier: "old-1",
+            feedId: feed.id,
+            date: new Date("2024-01-01"),
+            starred: false,
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        oldArticleId = old.id;
+
+        const eightyDaysAgo = Math.floor((Date.now() - 80 * 24 * 60 * 60_000) / 1000);
+        db.run(sql`UPDATE articles SET created_at = ${eightyDaysAgo} WHERE id = ${old.id}`);
+
+        // Fresh -> must survive, so it must not produce a tombstone.
+        const fresh = db
+          .insert(schema.articles)
+          .values({
+            name: "Fresh Article",
+            identifier: "fresh-1",
+            feedId: feed.id,
+            date: new Date(),
+            starred: false,
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        freshArticleId = fresh.id;
+      });
+
+      const retentionHandler = handlers.getHandler("retention");
+      expect(retentionHandler).toBeDefined();
+
+      const dummyJob = {
+        id: 1,
+        runId: null,
+        kind: "retention",
+        payload: {},
+        status: "running",
+        attempts: 1,
+        maxAttempts: 3,
+        runAt: new Date(),
+        startedAt: new Date(),
+        finishedAt: null,
+        progress: 0,
+        error: "",
+        createdAt: new Date(),
+      };
+
+      await retentionHandler!(dummyJob);
+
+      const tombstones = client.getDb().select().from(schema.articleTombstones).all();
+      expect(tombstones).toHaveLength(1);
+      expect(tombstones[0].articleId).toBe(oldArticleId);
+      expect(tombstones[0].userId).toBe(userId);
+
+      const remaining = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, oldArticleId))
+        .all();
+      expect(remaining).toHaveLength(0);
+
+      const survivor = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, freshArticleId))
+        .all();
+      expect(survivor).toHaveLength(1);
+    });
+
+    it("prunes tombstones older than the retention window but keeps recent ones", async () => {
+      let userId = "";
+
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+        userId = user!.id;
+
+        db.insert(schema.userSettings).values({ userId, articleRetentionDays: 60 }).run();
+
+        // A stale tombstone, well past the 90-day tombstone-retention window.
+        const stale = db
+          .insert(schema.articleTombstones)
+          .values({ articleId: 999, userId })
+          .returning({ id: schema.articleTombstones.id })
+          .get();
+        const staleDeletedAt = Math.floor((Date.now() - 999 * 24 * 60 * 60_000) / 1000);
+        db.run(
+          sql`UPDATE article_tombstones SET deleted_at = ${staleDeletedAt} WHERE id = ${stale.id}`,
+        );
+
+        // A recent tombstone, well within the window.
+        db.insert(schema.articleTombstones).values({ articleId: 1000, userId }).run();
+      });
+
+      const retentionHandler = handlers.getHandler("retention");
+      expect(retentionHandler).toBeDefined();
+
+      const dummyJob = {
+        id: 1,
+        runId: null,
+        kind: "retention",
+        payload: {},
+        status: "running",
+        attempts: 1,
+        maxAttempts: 3,
+        runAt: new Date(),
+        startedAt: new Date(),
+        finishedAt: null,
+        progress: 0,
+        error: "",
+        createdAt: new Date(),
+      };
+
+      await retentionHandler!(dummyJob);
+
+      const remaining = client.getDb().select().from(schema.articleTombstones).all();
+      const remainingArticleIds = remaining.map((t) => t.articleId);
+      expect(remainingArticleIds).not.toContain(999);
+      expect(remainingArticleIds).toContain(1000);
     });
   });
 });
