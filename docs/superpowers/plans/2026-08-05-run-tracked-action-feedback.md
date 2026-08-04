@@ -296,14 +296,21 @@ describe("reloadArticles", () => {
   });
 
   it("filters out an article whose feed belongs to another user", async () => {
-    await currentUserId();
+    const myId = await currentUserId();
+    const myFeed = seedFeed("Mine", myId);
+    const myArticle = seedArticle(myFeed);
+
     const otherId = await switchToOtherUser();
     const theirFeed = seedFeed("Theirs", otherId);
     const theirArticle = seedArticle(theirFeed);
 
-    await currentUserId();
-    const myFeed = seedFeed("Mine");
-    const myArticle = seedArticle(myFeed);
+    // Explicitly restore the original session rather than calling
+    // currentUserId() again: switchToOtherUser() leaves actingUserId
+    // pointing at the other user, so currentUserId()'s
+    // `if (actingUserId) return actingUserId;` short-circuit would just
+    // return the other user's id again instead of re-establishing "mine".
+    const myCookie = await signInCookie(auth, { email: "user@example.com", password: PASSWORD });
+    requestAs(myCookie);
 
     const result = await actions.reloadArticles([myArticle.id, theirArticle.id]);
     expect(result.enqueued).toBe(1);
