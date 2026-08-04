@@ -199,29 +199,29 @@ export class AIClient {
     }
   }
 
-  private async callOpenai(prompt: string, jsonMode: boolean): Promise<string | null> {
-    const enabled = this.settings.openaiEnabled ?? this.settings.openai_enabled;
-    const apiKey = this.settings.openaiApiKey ?? this.settings.openai_api_key;
-    if (!enabled || !apiKey) {
-      console.warn("OpenAI is not enabled or configured.");
-      return null;
-    }
-
-    const baseUrl = (
-      this.settings.openaiApiUrl ??
-      this.settings.openai_api_url ??
-      "https://api.openai.com/v1"
-    ).replace(/\/+$/, "");
-    const url = `${baseUrl}/chat/completions`;
+  /**
+   * The `/chat/completions` request/response shape every OpenAI-compatible
+   * provider shares. `callOpenai()` and the Mistral/Qwen/DeepSeek branches
+   * all call this with their own resolved base URL, key and model — only
+   * OpenAI's base URL is an operator setting, so only `callOpenai()` needs
+   * to resolve one before calling in.
+   */
+  private async callOpenaiCompatible(
+    baseUrl: string,
+    apiKey: string,
+    model: string,
+    prompt: string,
+    jsonMode: boolean,
+    timeout: number,
+  ): Promise<string | null> {
+    const url = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
     const headers = {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     };
 
-    const model = this.settings.openaiModel ?? this.settings.openai_model ?? "gpt-4o-mini";
     const temperature = this.settings.aiTemperature ?? this.settings.ai_temperature ?? 0.7;
     const maxTokens = this.settings.aiMaxTokens ?? this.settings.ai_max_tokens ?? 1000;
-    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
 
     const data: AiRequestBody = {
       model,
@@ -237,6 +237,22 @@ export class AIClient {
     if (!response) return null;
     const result = await response.json();
     return result?.choices?.[0]?.message?.content ?? null;
+  }
+
+  private async callOpenai(prompt: string, jsonMode: boolean): Promise<string | null> {
+    const enabled = this.settings.openaiEnabled ?? this.settings.openai_enabled;
+    const apiKey = this.settings.openaiApiKey ?? this.settings.openai_api_key;
+    if (!enabled || !apiKey) {
+      console.warn("OpenAI is not enabled or configured.");
+      return null;
+    }
+
+    const baseUrl =
+      this.settings.openaiApiUrl ?? this.settings.openai_api_url ?? "https://api.openai.com/v1";
+    const model = this.settings.openaiModel ?? this.settings.openai_model ?? "gpt-4o-mini";
+    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
+
+    return this.callOpenaiCompatible(baseUrl, apiKey, model, prompt, jsonMode, timeout);
   }
 
   private async callAnthropic(prompt: string): Promise<string | null> {
