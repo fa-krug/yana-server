@@ -98,6 +98,63 @@ describe("src/lib/jobs/log-capture", () => {
     expect(queue.listJobLogs(jobB).map((l) => l.line)).toEqual(["from B", "from B again"]);
   });
 
+  it("tees to the real console as well as persisting, when a context is active", async () => {
+    // `console.log` must be spied on *before* `log-capture.ts` is imported:
+    // its patch captures `original.log = console.log.bind(console)` once at
+    // import time, so a spy installed afterwards would never see calls made
+    // through that already-bound reference. `vi.resetModules()` plus a fresh
+    // dynamic import (this file's usual pattern, one level further) is what
+    // makes "before this particular import" achievable inside a test body.
+    vi.resetModules();
+    const logSpy = vi.spyOn(console, "log");
+
+    try {
+      const freshClient: typeof import("../db/client") = await import("../db/client");
+      const freshQueue: typeof import("./queue") = await import("./queue");
+      const freshLogCapture: typeof import("./log-capture") = await import("./log-capture");
+
+      const jobId = freshQueue.enqueue("test.job", {});
+
+      await freshLogCapture.runWithLogCapture(jobId, async () => {
+        console.log("both places");
+      });
+
+      expect(logSpy).toHaveBeenCalledWith("both places");
+      expect(freshQueue.listJobLogs(jobId)).toEqual([
+        expect.objectContaining({ stream: "stdout", line: "both places" }),
+      ]);
+
+      const conn = (freshClient.getDb() as unknown as { $client: Database.Database }).$client;
+      if (conn.open) conn.close();
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("does not recurse when a log-bus subscriber itself logs while persisting a line", async () => {
+    const { subscribeJobLog } = await import("./log-bus");
+    const jobId = queue.enqueue("test.job", {});
+
+    // Simulates a future subscriber (e.g. the SSE route's `send()`) that
+    // itself calls a patched console method. Without `als.exit()` wrapping
+    // the persist/publish step, `als.getStore()` would still report this same
+    // job context inside the subscriber, so this call would recurse into
+    // `appendLogLine()` -> `publishJobLog()` -> this same listener, forever.
+    const unsubscribe = subscribeJobLog(jobId, () => {
+      console.log("subscriber side-effect log");
+    });
+
+    try {
+      await logCapture.runWithLogCapture(jobId, async () => {
+        console.log("original line");
+      });
+    } finally {
+      unsubscribe();
+    }
+
+    expect(queue.listJobLogs(jobId).map((l) => l.line)).toEqual(["original line"]);
+  });
+
   it("does not throw when the underlying log write fails", async () => {
     const jobId = queue.enqueue("test.job", {});
     const connection = (client.getDb() as unknown as { $client: Database.Database }).$client;

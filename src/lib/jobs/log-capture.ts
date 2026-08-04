@@ -35,16 +35,29 @@ const original: Record<ConsoleMethod, (...args: unknown[]) => void> = {
 function patch(method: ConsoleMethod): void {
   const stream = STREAM_FOR[method];
   console[method] = (...args: unknown[]) => {
+    // Tee, not redirect: the real console call always happens, so an
+    // operator tailing container logs still sees everything a job handler
+    // logs, exactly as before this feature existed. Persistence into the
+    // job's log (below) is additional, not a replacement.
+    original[method](...args);
+
     const context = als.getStore();
-    if (!context) {
-      original[method](...args);
-      return;
-    }
+    if (!context) return;
 
     const text = format(...args);
     for (const line of text.split("\n")) {
       try {
-        appendLogLine(context.jobId, stream, line);
+        // Runs with no active job context. `appendLogLine()`'s write and
+        // `publishJobLog()`'s synchronous `EventEmitter.emit()` -- and every
+        // subscriber that runs inside that `emit()`, today just the SSE
+        // route's `send()`, but nothing prevents a future one -- all happen
+        // inside this callback. Without `als.exit()`, a subscriber that
+        // itself called a patched console method would still see
+        // `als.getStore()` reporting this same `jobId` and recurse back into
+        // `appendLogLine()`, forever. Exiting the store first means any such
+        // call instead falls through to the plain tee-and-return path above,
+        // exactly like a console call made with no job running at all.
+        als.exit(() => appendLogLine(context.jobId, stream, line));
       } catch (err) {
         original.error(`[log-capture] failed to persist a log line for job ${context.jobId}:`, err);
       }
@@ -56,8 +69,10 @@ function patch(method: ConsoleMethod): void {
 
 /**
  * Runs `fn` with `console.log`/`info`/`warn`/`error` calls made during its own
- * async execution captured into `jobId`'s log, instead of the process's real
- * stdout/stderr. Scoped with `AsyncLocalStorage` rather than a time-boxed
+ * async execution *also* captured into `jobId`'s log -- every call still
+ * reaches the real console first, unchanged, so an operator tailing container
+ * logs loses nothing; the job log is an additional destination, not a
+ * replacement one. Scoped with `AsyncLocalStorage` rather than a time-boxed
  * global patch: `src/lib/jobs/worker.ts` runs jobs one at a time, but the same
  * process also serves HTTP requests concurrently, and a patch that was simply
  * "on" for the duration of an `await` would misattribute an unrelated
