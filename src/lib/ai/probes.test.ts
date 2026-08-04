@@ -24,7 +24,7 @@ describe("AI_PROBES", () => {
  * vacuous -- a row with an empty key would pass it for free. The genuinely
  * empty case is covered on its own, further down. Base-URL shapes are *not*
  * varied here: only OpenAI can read `apiUrl`, so varying it would produce rows
- * that are byte-identical inputs for two of the three providers. `openai.test.ts`
+ * that are byte-identical inputs for five of the six providers. `openai.test.ts`
  * owns that axis.
  */
 const hostileCredentials: { label: string; credentials: AiCredentials }[] = [

@@ -309,8 +309,8 @@ describe("the AI actions", () => {
     });
 
     /**
-     * **The three providers do not share one answer to "is a 429 a pass?", and
-     * this pair is where that stops being a comment.**
+     * **The six providers do not all share one answer to "is a 429 a pass?",
+     * and this pair is where that stops being a comment for two of them.**
      *
      * Anthropic resolves rate limits from the key, so a 429 proves it was
      * accepted; OpenAI's base URL is an operator setting, so a gateway can shed

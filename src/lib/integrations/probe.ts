@@ -64,10 +64,10 @@ function transportCode(error: unknown): string | undefined {
  *
  * The alternative was threading a prefix down here, and it was rejected on cost:
  * a probe is handed nothing but a credential (`descriptor.probe(credential)`),
- * so the page would have to be hard-coded in each of the five probe modules --
- * five literals able to drift from the one `logPrefix` in each binding, which is
+ * so the page would have to be hard-coded in each of the eight probe modules --
+ * eight literals able to drift from the one `logPrefix` in each binding, which is
  * the duplication `logPrefix` was made a binding parameter to avoid. The
- * *provider* name is unique across all five providers and appears in both lines,
+ * *provider* name is unique across all eight providers and appears in both lines,
  * so it is the handle that actually joins them; `grep openai` gets the whole
  * story where `grep '\[ai\]'` only ever got half of it.
  */
@@ -82,11 +82,12 @@ export function logUnreachable(provider: string, error: unknown): void {
 /**
  * The tail of every probe's `catch`: a timeout, or nothing came back at all.
  *
- * Shared by all five probes. It arrived in phase 7 serving the three AI ones
+ * Shared by all eight probes. It arrived in phase 7 serving the three AI ones
  * from `src/lib/ai/probe-support.ts`, which left *three* copies of this block
  * where there had been two -- so it moved here and `./youtube` and `./reddit`
  * were converted, and there is now one catch tail rather than a convention that
- * they should agree.
+ * they should agree. Mistral, Qwen and DeepSeek route through
+ * `openaiCompatibleChatProbe()` below, so they add no new copies of it.
  *
  * `unreachableDetail` **must be a string literal at the call site.** It is a
  * parameter only so the sentence can name the provider; nothing derived from a
@@ -214,9 +215,11 @@ export async function openaiCompatibleChatProbe({
       // than inherit a neighbour's), because the trustworthiness of a rate
       // limit depends on facts only the caller knows -- chiefly, whether the
       // endpoint is fixed or an operator setting a gateway could sit in front
-      // of. See `./openai.ts` for that provider's own reasoning; a future
-      // Mistral/Qwen/DeepSeek probe should carry the same kind of note at its
-      // own call site rather than assuming OpenAI's answer.
+      // of. See `./openai.ts` for that provider's own reasoning; Mistral,
+      // Qwen and DeepSeek call this shared function directly with no probe
+      // module of their own reasoning about the 429 case, so their answer --
+      // and why it is `true` for each of them -- lives only beside the field
+      // in `providers.ts`, not duplicated at a call site here.
       return { ok: false, cause: "quota", detail: "Rate limited before a verdict was reached." };
     }
     if (response.status === 401) {

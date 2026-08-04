@@ -22,7 +22,7 @@ import type { AiProviderKey } from "./providers";
  * to be structural rather than remembered.
  *
  * The per-provider reasoning -- what each probe requests, whether it inspects a
- * 200 body, and how it reads each status -- lives in the three modules this
+ * 200 body, and how it reads each status -- lives in the six modules this
  * imports, not here. This file is only the wiring.
  */
 

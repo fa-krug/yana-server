@@ -116,7 +116,8 @@ export const userSettings = sqliteTable(
     activeAiProvider: text("active_ai_provider").notNull().default(""),
 
     /**
-     * **The four defaults below are hand-maintained duplicates of
+     * **The seven defaults below (one base URL plus each of the six providers'
+     * default model) are hand-maintained duplicates of
      * `src/lib/ai/providers.ts`**, and `src/lib/ai/defaults.test.ts` is what
      * keeps them honest: it migrates a real database, inserts a bare row, and
      * compares what SQLite filled in against `OPENAI_DEFAULT_API_URL` and each
