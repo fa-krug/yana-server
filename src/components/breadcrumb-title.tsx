@@ -71,6 +71,12 @@ export function useBreadcrumbTitles(): TitleMap {
  * mounted. Rendered by a detail page once it has loaded the record whose
  * name the breadcrumb should show instead of the raw id. Renders nothing.
  *
+ * This registers under the full current pathname, which only coincides with a
+ * breadcrumb crumb's own `href` because today's four detail routes put the
+ * record id at the end of the path. A future route nesting something under a
+ * detail page (e.g. a hypothetical `/articles/42/content`) would need an
+ * explicit `href` prop here rather than relying on `usePathname()`.
+ *
  * An empty `title` registers nothing -- a blank breadcrumb segment would be
  * worse than the id it replaces, and this is the one guard against it (see
  * the empty-title edge case in the design spec).

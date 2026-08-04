@@ -75,4 +75,17 @@ describe("RouteBreadcrumbs", () => {
 
     expect(itemTexts(container)).toEqual(["Articles", "42"]);
   });
+
+  it("never lets a registered title override a translated label", () => {
+    setPathname("/tags/new");
+    const { container } = renderWithProviders(
+      <BreadcrumbTitleProvider>
+        <SetBreadcrumbTitle title="hijacked" />
+        <RouteBreadcrumbs />
+      </BreadcrumbTitleProvider>,
+      { locale: "de" },
+    );
+
+    expect(itemTexts(container)).toEqual(["Tags", "Neu"]);
+  });
 });

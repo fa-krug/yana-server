@@ -2,8 +2,8 @@ import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 
-import { SetBreadcrumbTitle } from "@/components/breadcrumb-title";
 import { ArticleForm } from "@/components/articles/article-form";
+import { SetBreadcrumbTitle } from "@/components/breadcrumb-title";
 import { BlockTree } from "@/components/articles/block-tree";
 import { TableSkeleton } from "@/components/data-skeleton";
 import { getArticle, getBlockTree } from "@/lib/articles/queries";
