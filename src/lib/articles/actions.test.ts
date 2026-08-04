@@ -227,4 +227,80 @@ describe("articles actions", () => {
       expect(u2?.starred).toBe(false);
     });
   });
+
+  describe("reloadArticles", () => {
+    it("groups the enqueued jobs into one run owned by the caller", async () => {
+      const userId = await currentUserId();
+      const feed = seedFeed("Feed");
+      const a = seedArticle(feed);
+      const b = seedArticle(feed);
+
+      const result = await actions.reloadArticles([a.id, b.id]);
+      expect(result.ok).toBe(true);
+      expect(result.enqueued).toBe(2);
+
+      const runRow = client
+        .getDb()
+        .select()
+        .from(schema.runs)
+        .all()
+        .find((r) => r.id === result.runId)!;
+      expect(runRow.userId).toBe(userId);
+      expect(runRow.totalJobs).toBe(2);
+      expect(runRow.status).toBe("running");
+
+      const jobRows = client
+        .getDb()
+        .select()
+        .from(schema.jobs)
+        .all()
+        .filter((j) => j.runId === result.runId);
+      expect(jobRows).toHaveLength(2);
+      expect(jobRows.every((j) => j.kind === "article.reload")).toBe(true);
+      expect(jobRows.map((j) => j.payload)).toEqual([{ articleId: a.id }, { articleId: b.id }]);
+    });
+
+    it("filters out an article whose feed belongs to another user", async () => {
+      const myId = await currentUserId();
+      const myFeed = seedFeed("Mine", myId);
+      const myArticle = seedArticle(myFeed);
+
+      const otherId = await switchToOtherUser();
+      const theirFeed = seedFeed("Theirs", otherId);
+      const theirArticle = seedArticle(theirFeed);
+
+      // Explicitly restore the original session rather than calling
+      // currentUserId() again: switchToOtherUser() leaves actingUserId
+      // pointing at the other user, so currentUserId()'s
+      // `if (actingUserId) return actingUserId;` short-circuit would just
+      // return the other user's id again instead of re-establishing "mine".
+      const myCookie = await signInCookie(auth, { email: "user@example.com", password: PASSWORD });
+      requestAs(myCookie);
+
+      const result = await actions.reloadArticles([myArticle.id, theirArticle.id]);
+      expect(result.enqueued).toBe(1);
+
+      const jobRows = client
+        .getDb()
+        .select()
+        .from(schema.jobs)
+        .all()
+        .filter((j) => j.runId === result.runId);
+      expect(jobRows).toEqual([expect.objectContaining({ payload: { articleId: myArticle.id } })]);
+    });
+
+    it("returns an already-completed, zero-job run for an empty id list", async () => {
+      await currentUserId();
+      const result = await actions.reloadArticles([]);
+      expect(result).toEqual({ ok: true, enqueued: 0, runId: expect.any(Number) });
+
+      const runRow = client
+        .getDb()
+        .select()
+        .from(schema.runs)
+        .all()
+        .find((r) => r.id === result.runId)!;
+      expect(runRow.status).toBe("completed");
+    });
+  });
 });

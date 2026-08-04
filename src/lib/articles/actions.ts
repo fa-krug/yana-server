@@ -6,7 +6,8 @@ import { z } from "zod";
 
 import { currentUserId } from "@/lib/auth/session";
 import { getDb, writeTransaction } from "@/lib/db/client";
-import { articles, feeds, jobs } from "@/lib/db/schema";
+import { articles, feeds } from "@/lib/db/schema";
+import { enqueueRun } from "@/lib/jobs/queue";
 
 const updateArticleSchema = z.object({
   name: z.string().min(1, "Name is required").optional(),
@@ -145,32 +146,25 @@ export async function setStarred(
   });
 }
 
-export async function reloadArticles(ids: number[]): Promise<{ ok: boolean; enqueued: number }> {
-  if (ids.length === 0) return { ok: true, enqueued: 0 };
-
+export async function reloadArticles(
+  ids: number[],
+): Promise<{ ok: boolean; enqueued: number; runId: number }> {
   const userId = await currentUserId();
   const db = getDb();
 
   const userFeedIds = db.select({ id: feeds.id }).from(feeds).where(eq(feeds.userId, userId));
 
-  return writeTransaction((tx) => {
-    const validArticles = tx
-      .select({ id: articles.id })
-      .from(articles)
-      .where(and(inArray(articles.id, ids), inArray(articles.feedId, userFeedIds)))
-      .all();
+  const validArticles = db
+    .select({ id: articles.id })
+    .from(articles)
+    .where(and(inArray(articles.id, ids), inArray(articles.feedId, userFeedIds)))
+    .all();
 
-    if (validArticles.length > 0) {
-      tx.insert(jobs)
-        .values(
-          validArticles.map((a) => ({
-            kind: "article.reload",
-            payload: { articleId: a.id },
-          })),
-        )
-        .run();
-    }
+  const runId = enqueueRun(
+    userId,
+    "article.reload",
+    validArticles.map((a) => ({ articleId: a.id })),
+  );
 
-    return { ok: true, enqueued: validArticles.length };
-  });
+  return { ok: true, enqueued: validArticles.length, runId };
 }
