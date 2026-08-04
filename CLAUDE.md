@@ -1360,7 +1360,8 @@ was retired. It is how a ported aggregator is proven correct.
 `docs/superpowers/specs/2026-07-30-nextjs-migration-direction.md` is the
 direction record — the decisions every phase builds on (multi-tenant, real tags,
 greenfield data, SQLite `jobs` table with an in-process worker). Per-phase plans
-are `docs/superpowers/plans/nextjs-*.md`, executed in order. Phase 1 (scaffold),
+are `docs/superpowers/plans/nextjs-*.md`, executed in order. All fifteen
+phases are done: phase 1 (scaffold),
 phase 2 (schema, migration `0000` and the bootstrap user — that seeder is gone,
 retired by phase 4's admin bootstrap), phase 3 (app shell —
 i18n/theme, sidebar/breadcrumbs, streaming skeletons, the settings page and
@@ -1371,13 +1372,16 @@ the reusable CRUD kit under it — `src/lib/crud/params.ts` plus
 `src/components/crud/`, which phases 8, 9 and 10 consume for tags, feeds and
 articles), phase 6 (the integrations tab at `/integrations` — the per-user
 credential store, `src/lib/secrets.ts`, and the live YouTube and Reddit probes
-whose verdict derives the `*Enabled` flags), **phase 7 (the AI tab at `/ai` —
+whose verdict derives the `*Enabled` flags), phase 7 (the AI tab at `/ai` —
 `src/lib/ai/` and `src/components/ai/`: a client-safe provider registry, three
 live probes reusing phase 6's `defineIntegration()` descriptor, the
-`active_ai_provider` preference and the nine global tuning values)** and the
-folder swap (phase 14, reworked to keep `old/`) are
-done; phases 8–13 — the remaining CRUD, the aggregators, jobs and
-the client API — are not. The direction record's last sections carry the
+`active_ai_provider` preference and the nine global tuning values), phases 8–10
+(the tags, feeds and articles CRUD tabs, built on phase 5's kit), phase 11
+(a–c: extraction core, embeds/media, and the per-site aggregators), phase 12
+(scheduling and the `jobs` table's in-process worker), phase 13 (the
+`/api/v1` client API — Bearer auth, sync, aggregation, SSE job/run events),
+the folder swap (phase 14, reworked to keep `old/`), and phase 15 (the
+installable `@fa-krug/yana` npm package). The direction record's last sections carry the
 decisions phases 2's, 3's, 4's, 5's, 6's and 7's reviews left to those phases;
 **"Carried forward from phase 6's review" is the one a phase-7 agent has to
 read**, because the two generalisations it records — namespace-parameterising
