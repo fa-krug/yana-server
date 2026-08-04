@@ -68,6 +68,10 @@ describe("serializeFeed", () => {
 
 describe("serializeTag", () => {
   it("projects id, name, color", () => {
-    expect(serializeTag({ id: 1, name: "News", color: "red" } as Tag)).toEqual({ id: 1, name: "News", color: "red" });
+    expect(serializeTag({ id: 1, name: "News", color: "red" } as Tag)).toEqual({
+      id: 1,
+      name: "News",
+      color: "red",
+    });
   });
 });
