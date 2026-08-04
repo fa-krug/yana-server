@@ -1,10 +1,21 @@
 import { eq } from "drizzle-orm";
 
+import type { RawArticle } from "@/lib/aggregators/base";
 import { parseBlocks, plainTextOf } from "@/lib/aggregators/blocks/parser";
 import { writeBlocks } from "@/lib/aggregators/blocks/storage";
+import { createAggregator } from "@/lib/aggregators/factory";
 import { getDb, writeTransaction } from "@/lib/db/client";
-import { articles, type Job } from "@/lib/db/schema";
+import { articles, feeds, type Job } from "@/lib/db/schema";
 
+/**
+ * `article.rawContent` is the whole fetched page for a full-website
+ * aggregator (Tagesschau, Heise, ...) -- nav, header and footer included --
+ * never content ready to parse into blocks as-is. Re-running the same
+ * aggregator's extractContent()/processContent() on it is what
+ * handleAggregateJob does for a fresh fetch; reload must match that, or a
+ * "Reload" brings back exactly the unfiltered page a real aggregation run
+ * would have distilled.
+ */
 export async function handleReloadJob(job: Job): Promise<void> {
   const articleId = Number(job.payload?.articleId);
   if (!articleId) return;
@@ -13,7 +24,26 @@ export async function handleReloadJob(job: Job): Promise<void> {
   const article = db.select().from(articles).where(eq(articles.id, articleId)).get();
   if (!article || !article.rawContent) return;
 
-  const blocks = parseBlocks(article.rawContent, article.identifier);
+  const feed = db.select().from(feeds).where(eq(feeds.id, article.feedId)).get();
+  if (!feed) return;
+
+  const aggregator = createAggregator(feed);
+  const rawArticle: RawArticle = {
+    name: article.name,
+    identifier: article.identifier,
+    raw_content: article.rawContent,
+    content: "",
+    date: article.date,
+    author: article.author || "",
+  };
+
+  const headerData = await aggregator.extractHeaderElement(rawArticle);
+  if (headerData) rawArticle.header_data = headerData;
+
+  const extracted = aggregator.extractContent(article.rawContent, rawArticle);
+  const processed = await aggregator.processContent(extracted, rawArticle);
+
+  const blocks = parseBlocks(processed, article.identifier);
   const plainText = plainTextOf(blocks);
 
   await writeBlocks(article.id, blocks);
