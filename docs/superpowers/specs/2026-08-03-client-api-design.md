@@ -27,24 +27,51 @@ credential at the end.
 
 **Flow:**
 
-1. The app opens a `WKWebView` pointed at `/login`.
-2. The user signs in exactly as on the web (password or passkey).
-3. On success, the page navigates to a new, session-cookie-authenticated route,
-   `GET /device/pair?scheme=yana&deviceName=<name>`. This route:
-   - calls `requireUser()` (the existing cookie session — this route is *inside*
-     `(app)`'s auth boundary, not a new auth mechanism),
-   - mints a **dedicated new Better Auth session** for this device via
-     `auth.$context.internalAdapter.createSession(user.id, false, { deviceName })`
+1. Before ever showing UI, the app calls `GET /device/pair/start` — unauthenticated,
+   no cookie needed. The server mints a single-use, short-lived (10-minute)
+   opaque `state` value, persists it in a new `device_pairing_states` table
+   (`{ id, state, createdAt, expiresAt, usedAt }`, no user association yet —
+   nothing is known about who this is for), and returns `{ state, expiresAt }`.
+2. The app opens a `WKWebView` pointed at
+   `/login?next=%2Fdevice%2Fpair%3Fstate%3D<state>%26scheme%3Dyana%26deviceName%3D<name>`.
+3. The user signs in exactly as on the web (password or passkey); `/login`'s
+   existing `next` handling carries the querystring through unchanged.
+4. The browser lands on `GET /device/pair?state=<state>&scheme=yana&deviceName=<name>`,
+   a session-cookie-authenticated route. In order:
+   - `requireUser()` first (the existing cookie session — this route is *inside*
+     `(app)`'s auth boundary, not a new auth mechanism), so a signed-out prober
+     learns nothing from whichever `state` they guessed;
+   - the `state` is looked up: it must exist, be unexpired, and not already have
+     a `usedAt` — otherwise the request is refused outright and **no session is
+     minted**. It is then marked used (single-use, so it cannot be replayed);
+   - `scheme` is checked against a fixed allow-list (just `"yana"` today) —
+     never accepted as an arbitrary client-supplied value;
+   - the redirect URL is constructed and validated *before* anything is
+     written, closing a mint-then-fail ordering hazard where a bad `scheme`
+     could otherwise leave an orphaned, valid, never-delivered session behind;
+   - only then does it mint a **dedicated new Better Auth session** for this
+     device via `auth.$context.internalAdapter.createSession(user.id, false, { deviceName })`
      — a second, independent session row for the same user, not a copy of the
      browser's own session token. `better-auth@1.6.25` (the pinned version) has
      no `apiKey` plugin; a session *is* the credential system Better Auth
      ships, and creating an extra one for a named device costs nothing beyond
-     the `deviceName` column below.
-   - responds with a redirect to `yana://auth-callback?token=<sessionToken>`.
-4. The app's `WKWebView` navigation delegate intercepts that custom-scheme
+     the `deviceName` column below;
+   - it responds with a redirect to `yana://auth-callback?token=<sessionToken>`.
+5. The app's `WKWebView` navigation delegate intercepts that custom-scheme
    redirect **before it becomes a network request** (`decidePolicyForNavigationAction`),
    extracts the token, stores it in Keychain, and dismisses the webview.
-5. Every subsequent `/api/v1/**` request carries `Authorization: Bearer <token>`.
+6. Every subsequent `/api/v1/**` request carries `Authorization: Bearer <token>`.
+
+**Why the state token, not just a fixed scheme.** A bare `GET /device/pair` with
+no state check is a CSRF hazard: `sessions`' cookie is `SameSite=Lax`, which
+still attaches on a cross-site top-level navigation (e.g. a link a signed-in
+user clicks) even though it blocks cross-site `<img>`/`fetch`. A link an
+attacker controls could otherwise trigger a real session mint using the
+victim's own cookie. Restricting `scheme` alone closes the "redirect the token
+somewhere attacker-controlled" half of that, but not the mint itself. Requiring
+a `state` value the server minted *and will only accept once* closes the mint
+too: an attacker's link cannot know a value it was never given, so the request
+is refused before anything is written — not just discarded after the fact.
 
 `src/lib/api/auth.ts` resolves that header directly: look up `sessions` by
 `token`, check `expiresAt > now`, join `users`. This is a plain Drizzle query
