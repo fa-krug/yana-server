@@ -27,9 +27,10 @@ export { OPENAI_DEFAULT_API_URL };
  * **`max_completion_tokens`, not `max_tokens`.** OpenAI documents `max_tokens`
  * as deprecated and "not compatible with o-series models", and the GPT-5.x
  * family reasons -- so the older field is refused where it matters most. A
- * gateway that does not understand the newer field answers 400, which this
- * probe classifies as `unexpected` (nothing is written) rather than blaming the
- * credential; see the status table below.
+ * gateway that does not understand the newer field answers 400, which
+ * `openaiCompatibleChatProbe()` classifies as `unexpected` (nothing is
+ * written) rather than blaming the credential; see the status classification
+ * there.
  *
  * **This probe inspects the 200 body, like Reddit's and unlike YouTube's.** The
  * reason is the configurable endpoint: whatever answers may be a proxy, a
@@ -48,12 +49,15 @@ export async function testOpenaiKey({
   apiUrl?: string;
   model: string;
 }): Promise<ProbeResult> {
-  // URL building and header construction happen inside the try, with the
-  // request: this function's contract is that it resolves to a classified
-  // ProbeResult for *every* input, and that has to hold structurally rather
-  // than by an argument about which characters an operator can paste into a
-  // base URL or an API key. A key containing a newline makes an illegal header
-  // value and `fetch` rejects; that is caught here and never escapes.
+  // This function's contract is that it resolves to a classified ProbeResult
+  // for *every* input, and that has to hold structurally rather than by an
+  // argument about which characters an operator can paste into a base URL or
+  // an API key. The URL validation below runs unguarded because none of it can
+  // throw (`URL.canParse` is exactly "is this parseable", never a throw); the
+  // request itself, its header construction and the try/catch that keeps a
+  // key containing a newline (an illegal header value, which makes `fetch`
+  // reject) from escaping now live one level down, in
+  // `openaiCompatibleChatProbe()` -- see `@/lib/integrations/probe`.
   const base = (apiUrl?.trim() || OPENAI_DEFAULT_API_URL).replace(/\/+$/, "");
   const target = `${base}/chat/completions`;
 
@@ -76,5 +80,28 @@ export async function testOpenaiKey({
     };
   }
 
+  // **A 429 from this endpoint is not trusted as a verdict.**
+  // `openaiCompatibleChatProbe()` reports every 429 as `cause: "quota"`
+  // regardless of caller; whether that is trusted is `quotaMeansVerified` on
+  // this provider's entry in `./providers`, and OpenAI's is `false` for two
+  // independent reasons. First, this is the one provider whose base URL is an
+  // operator setting, so what answers may be a gateway that sheds load at its
+  // edge before it ever reads the `Authorization` header -- Reddit's
+  // situation exactly. Second, OpenAI puts `insufficient_quota` on the same
+  // 429 as `rate_limit_exceeded`, but the shared probe pulls that out into
+  // `unauthorized` before `quotaMeansVerified` is ever consulted, so what
+  // reaches `quota` really is only a rate limit -- and it is still not
+  // trusted. That paragraph is deliberately duplicated in `providers.ts`,
+  // since the fact and this note live in different files -- change both.
+  //
+  // **403 stays a verdict, and that was ruled on rather than assumed.** The
+  // objection is real and was raised in review: this is the one provider
+  // whose endpoint is an operator setting, so a proxy can answer 403 without
+  // ever having asked OpenAI -- which is exactly the argument that makes its
+  // 429 untrustworthy above. The human's ruling was to keep it: a 403 from a
+  // real OpenAI endpoint genuinely is a rejection, a misrouted proxy 403 is
+  // rarer than a plain bad key, and storing the credential with the
+  // integration off makes a typo visible instead of silently producing empty
+  // summaries. Do not re-derive this as a defect.
   return openaiCompatibleChatProbe({ providerName: "openai", endpoint: target, apiKey, model });
 }

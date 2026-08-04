@@ -162,9 +162,16 @@ export async function openaiCompatibleChatProbe({
         messages: [{ role: "user", content: "hi" }],
         max_completion_tokens: 1,
       }),
-      // See the redirect note on the OpenAI probe this was extracted from:
-      // no real provider endpoint redirects a POST, and following one would
-      // bypass any host validation a caller performed before calling this.
+      // **Redirects are refused, not followed.** No real OpenAI-compatible
+      // endpoint redirects a POST, so nothing legitimate is lost by refusing
+      // one -- and for a caller whose endpoint is an operator setting (as
+      // OpenAI's is: an OpenAI-compatible gateway is an accepted SSRF
+      // surface, see CLAUDE.md), following a redirect would let any host
+      // validation the caller performed before calling this be bypassed by a
+      // gateway answering 302 to, say, a cloud metadata endpoint -- and this
+      // probe's own network-vs-unexpected classification would then be a
+      // usable oracle for what is listening there. `undici` rejects instead,
+      // which the catch below turns into `network`.
       redirect: "error",
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
@@ -180,6 +187,17 @@ export async function openaiCompatibleChatProbe({
     const body = (await readJson(response)) as { error?: { type?: unknown } } | null;
     const errorType = typeof body?.error?.type === "string" ? body.error.type : "";
 
+    // **A 429 splits into two verdicts, and only one of them is a rate
+    // limit.** `insufficient_quota` shares the status with
+    // `rate_limit_exceeded` but means something permanent: the account is out
+    // of credit. Reporting it as `quota` would send it to `judge()`'s
+    // `unknown` arm (see `define.ts`) and write *nothing*, so an operator
+    // whose only fault is an unpaid bill could never save a key that is
+    // perfectly valid. `unauthorized` stores the credential with the
+    // integration switched off, which is the honest state: the key is real,
+    // and it cannot summarise anything today. The catalog key this maps to
+    // must therefore be worded as "the provider would not accept this
+    // credential", not "the key is wrong".
     if (errorType === "insufficient_quota") {
       return {
         ok: false,
@@ -188,11 +206,30 @@ export async function openaiCompatibleChatProbe({
       };
     }
     if (response.status === 429) {
+      // **A bare 429 here is never trusted as a verdict by this shared
+      // function** -- it always reports `cause: "quota"` and leaves it to the
+      // caller to decide whether that means anything. Whether it does is
+      // `quotaMeansVerified` on each provider's entry in `./providers` (a
+      // required field precisely so a new provider has to answer this rather
+      // than inherit a neighbour's), because the trustworthiness of a rate
+      // limit depends on facts only the caller knows -- chiefly, whether the
+      // endpoint is fixed or an operator setting a gateway could sit in front
+      // of. See `./openai.ts` for that provider's own reasoning; a future
+      // Mistral/Qwen/DeepSeek probe should carry the same kind of note at its
+      // own call site rather than assuming OpenAI's answer.
       return { ok: false, cause: "quota", detail: "Rate limited before a verdict was reached." };
     }
     if (response.status === 401) {
       return { ok: false, cause: "unauthorized", detail: "The API key was rejected." };
     }
+    // **403 is treated as a verdict here, not folded into the "unknown"
+    // no-write arm** -- a genuine rejection from a real endpoint is far more
+    // likely than a proxy or gateway answering 403 on the provider's behalf,
+    // and storing the credential with the integration off makes a bad
+    // credential visible instead of silently producing empty summaries. For a
+    // caller whose endpoint is an operator setting this is a closer call
+    // (the same gateway concern that makes 429 untrusted there); see
+    // `./openai.ts` for the ruling on that tension for this provider.
     if (response.status === 403) {
       return { ok: false, cause: "unauthorized", detail: "Access was refused for this API key." };
     }
