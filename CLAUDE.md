@@ -128,11 +128,12 @@ file.
 │   │   │                          #   nothing), bounds.ts (the nine tuning bounds,
 │   │   │                          #   read by the form and the schema — likewise),
 │   │   │                          #   columns.ts (provider -> columns),
-│   │   │                          #   probes.ts + openai/anthropic/gemini.ts (live
-│   │   │                          #   probes, SERVER-ONLY by lint rule), queries.ts
-│   │   │                          #   (SERVER-ONLY, masked only), actions.ts (three
-│   │   │                          #   defineIntegration() declarations, the active
-│   │   │                          #   provider, the nine tuning values), result.ts
+│   │   │                          #   probes.ts + openai/anthropic/gemini/mistral/
+│   │   │                          #   qwen/deepseek.ts (live probes, SERVER-ONLY by
+│   │   │                          #   lint rule), queries.ts (SERVER-ONLY, masked
+│   │   │                          #   only), actions.ts (six defineIntegration()
+│   │   │                          #   declarations, the active provider, the nine
+│   │   │                          #   tuning values), result.ts
 │   │   ├── users/                 # fields.ts (client-safe constants — imports only
 │   │   │                          #   auth/roles), queries.ts (SERVER-ONLY reads),
 │   │   │                          #   actions.ts (writes), result.ts (attempt() binding)
