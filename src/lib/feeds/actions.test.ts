@@ -500,9 +500,10 @@ describe("updateFeedsBulk", () => {
   }
 
   async function switchToOtherUser(): Promise<void> {
-    actingUserId = await seedUser({ email: "other@example.com" });
+    await seedUser({ email: "other@example.com" });
     const cookie = await signInCookie(auth, { email: "other@example.com", password: PASSWORD });
     requestAs(cookie);
+    actingUserId = undefined;
   }
 
   beforeEach(async () => {
@@ -563,7 +564,8 @@ describe("updateFeedsBulk", () => {
   });
 
   it("filters out ids that don't belong to the caller, and still returns a valid runId", async () => {
-    await currentUserId();
+    const userId1 = await currentUserId();
+    const user1Cookie = requestHeaders.current.get("cookie")!;
     const mine = await actions.createFeed({ name: "Mine", aggregator: "heise", identifier: "" });
 
     await switchToOtherUser();
@@ -573,7 +575,10 @@ describe("updateFeedsBulk", () => {
       identifier: "",
     });
 
-    await currentUserId();
+    // Switch back to user 1 by restoring their session
+    requestAs(user1Cookie);
+    actingUserId = userId1;
+
     const result = await actions.updateFeedsBulk([mine.id!, theirs.id!]);
     expect(result.enqueued).toBe(1);
     expect(typeof result.runId).toBe("number");
