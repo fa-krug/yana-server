@@ -61,7 +61,9 @@ export function resolveFeedCredentials(feed: Feed): Feed {
             reddit_user_agent: settings.redditUserAgent,
           }
         : {}),
-      ...(settings.youtubeApiKey ? { youtube_api_key: settings.youtubeApiKey } : {}),
+      ...(settings.youtubeEnabled && settings.youtubeApiKey
+        ? { youtube_api_key: settings.youtubeApiKey }
+        : {}),
     },
   };
 }
