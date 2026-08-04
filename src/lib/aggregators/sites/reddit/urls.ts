@@ -20,7 +20,9 @@ export function decodeHtmlEntitiesInUrl(url: string): string {
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
+    .replace(/&apos;/g, "'")
+    .replace(/&#x([0-9a-fA-F]+);/g, (_m, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_m, dec: string) => String.fromCodePoint(Number(dec)));
 }
 
 export function fixRedditMediaUrl(url?: string | null): string | null {
@@ -82,16 +84,17 @@ export function validateSubreddit(subreddit: string): { valid: boolean; error?: 
 export async function fetchSubredditInfo(
   subreddit: string,
   _userId?: number | string | null,
-  // Accepted now so Task 3's fetchSourceData call site typechecks; Task 4 wires this
-  // through to an authenticated https://oauth.reddit.com/... request.
-  _accessToken?: string | null,
+  accessToken?: string | null,
 ): Promise<{ iconUrl: string | null }> {
   if (!subreddit) return { iconUrl: null };
   try {
-    const res = await fetch(`https://www.reddit.com/r/${subreddit}/about.json`, {
-      headers: { "User-Agent": "Yana/1.0" },
-      signal: AbortSignal.timeout(5000),
-    });
+    const url = accessToken
+      ? `https://oauth.reddit.com/r/${subreddit}/about.json`
+      : `https://www.reddit.com/r/${subreddit}/about.json`;
+    const headers: Record<string, string> = { "User-Agent": "Yana/1.0" };
+    if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(5000) });
     if (!res.ok) return { iconUrl: null };
     const data = (await res.json()) as RedditSubredditAboutResponse;
     const rawIcon =
