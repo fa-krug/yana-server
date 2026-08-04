@@ -8,6 +8,21 @@ import { requireUser } from "@/lib/auth/session";
 const ALLOWED_SCHEMES = new Set(["yana"]);
 
 /**
+ * `deviceName` is stored verbatim in `sessions.deviceName` (unbounded `text`)
+ * and later rendered straight into `/account`'s device list -- and, per this
+ * route's own module doc, the mint can be triggered cross-site (the
+ * `SameSite=Lax` cookie still lets an attacker's crafted link reach this
+ * handler while the victim is signed in). Without a cap, that link could
+ * mint arbitrarily many sessions carrying an arbitrarily long or misleading
+ * name into the victim's own account page. Truncated, not rejected: an
+ * over-length name is still a name, and refusing the whole pairing over it
+ * would break real devices with a verbose default (a long phone model
+ * string, say) for no security benefit -- the cap only bounds what gets
+ * stored and displayed.
+ */
+const DEVICE_NAME_MAX_LENGTH = 64;
+
+/**
  * The webview's landing point right after the user signs in through the
  * ordinary `/login` form (whose `next` param carries this route's full query
  * string through unchanged) -- session-cookie-authenticated like every other
@@ -54,7 +69,10 @@ export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const state = url.searchParams.get("state");
   const scheme = url.searchParams.get("scheme") || "yana";
-  const deviceName = url.searchParams.get("deviceName") || "Unnamed device";
+  const deviceName = (url.searchParams.get("deviceName") || "Unnamed device").slice(
+    0,
+    DEVICE_NAME_MAX_LENGTH,
+  );
 
   if (!state || !ALLOWED_SCHEMES.has(scheme)) {
     return new Response(null, { status: 400 });

@@ -6,8 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { applyMigrationsAt } from "@/lib/db/test-support";
 
-vi.mock("next/server", () => import("@/test/next-server"));
-
 describe("PATCH /api/v1/articles/[id]", () => {
   let dbPath: string;
   let PATCH: typeof import("./route").PATCH;
@@ -241,20 +239,5 @@ describe("PATCH /api/v1/articles/[id]", () => {
       .get();
     expect(row?.starred).toBe(false);
     expect(row?.read).toBe(false);
-  });
-
-  it("await connection() is the first statement, before requireApiUser()", async () => {
-    // A garbage bearer token would normally 401 -- but if requireApiUser()
-    // ran before connection(), a route that dropped the connection() call
-    // could not be told apart from one that has it just by hitting this
-    // endpoint. This test instead pins the *source order* directly, since
-    // that is the actual invariant the self-review asks for and no black-box
-    // request can observe it.
-    const routeSource = fs.readFileSync(path.join(__dirname, "route.ts"), "utf8");
-    const connectionIndex = routeSource.indexOf("connection()");
-    const requireApiUserIndex = routeSource.indexOf("requireApiUser(");
-    expect(connectionIndex).toBeGreaterThan(-1);
-    expect(requireApiUserIndex).toBeGreaterThan(-1);
-    expect(connectionIndex).toBeLessThan(requireApiUserIndex);
   });
 });

@@ -82,14 +82,26 @@ describe("proxy", () => {
     expect([...location.searchParams.keys()]).toEqual(["next"]);
   });
 
-  it.each(["/login", "/login?next=/settings", "/health", "/api/auth/sign-in/email"])(
-    "leaves %s reachable without a session",
-    (url) => {
-      // Guarding any of these breaks the application outright: no login form,
-      // no health probe, and no endpoint for the login form to post to.
-      expect(isPassThrough(proxy(request(url)))).toBe(true);
-    },
-  );
+  it.each([
+    "/login",
+    "/login?next=/settings",
+    "/health",
+    "/api/auth/sign-in/email",
+    "/api/v1/articles/sync",
+  ])("leaves %s reachable without a session", (url) => {
+    // Guarding any of these breaks the application outright: no login form,
+    // no health probe, no endpoint for the login form to post to, and -- for
+    // /api/v1 -- no way for a Bearer-token-only native client to ever reach a
+    // route handler, since this proxy has no session cookie to find for it.
+    expect(isPassThrough(proxy(request(url)))).toBe(true);
+  });
+
+  it("exempts the whole /api/v1 subtree, not just its own path", () => {
+    // /api/v1 authenticates itself per-route via requireApiUser(), so every
+    // route under it needs the same exemption -- not only the prefix itself.
+    expect(isPassThrough(proxy(request("/api/v1/feeds")))).toBe(true);
+    expect(isPassThrough(proxy(request("/api/v1/jobs/events")))).toBe(true);
+  });
 
   it.each(["/loginx", "/login-help", "/api/authorize", "/healthz"])(
     "does not exempt %s just because a public prefix starts it",

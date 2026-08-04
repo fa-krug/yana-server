@@ -2,18 +2,34 @@ import { getSessionCookie } from "better-auth/cookies";
 import { NextResponse, type NextRequest } from "next/server";
 
 /**
- * The routes that must answer without a session.
+ * The routes this proxy lets through without checking for a session cookie.
  *
  * `/login` so signing in is possible at all (Task 4 builds it), `/health` so an
  * orchestrator's probe never depends on credentials, and `/api/auth` because
  * that is where the sign-in request itself goes -- guarding it would make the
- * login form unable to authenticate.
+ * login form unable to authenticate. Those three really are unauthenticated.
  *
- * Prefix matching, so `/api/auth/sign-in/email` and `/health` alike are
- * covered. Nothing else may be added here without a reason of the same kind:
- * this list is the entire unauthenticated surface of the application.
+ * `/api/v1` is different, and is listed for the opposite reason: it is not
+ * unauthenticated, it **authenticates itself**. The native client sends a
+ * Bearer token, never a cookie (see `requireApiUser()` in `@/lib/api/auth`,
+ * which every `/api/v1/**` route calls as its own real auth gate), and this
+ * proxy -- a pure request inspection, per the contract documented below --
+ * structurally cannot evaluate a Bearer token: `getSessionCookie()` only ever
+ * looks for a cookie. Without this entry, every API request has no session
+ * cookie by construction and was redirected `307 -> /login` before its route
+ * handler ever ran, making the entire API unreachable. This is the same
+ * reasoning `media/`'s exemption note below uses for a route that
+ * "authenticates itself" once inside a handler with no layout above it --
+ * here the handler has no layout above it either, and checks a credential
+ * shape this file was never meant to understand.
+ *
+ * Prefix matching, so `/api/auth/sign-in/email` and `/api/v1/articles/sync`
+ * alike are covered. Nothing else may be added here without a reason of the
+ * same kind: this list is every route that must reach its handler without
+ * this proxy's cookie check standing in the way -- either because it is
+ * genuinely unauthenticated, or because it authenticates itself.
  */
-const PUBLIC_PREFIXES = ["/login", "/health", "/api/auth"];
+const PUBLIC_PREFIXES = ["/login", "/health", "/api/auth", "/api/v1"];
 
 /**
  * Is this one of the public routes -- **at a path boundary**?

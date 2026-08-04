@@ -7,8 +7,13 @@ import { articleTombstones, articles, feeds, userSettings, type Job } from "@/li
  * Tombstones themselves can't usefully outlive the window a sync cursor can
  * still trust (src/lib/api/sync.ts's cursor-expiry check) -- see the client
  * API design doc, sync section.
+ *
+ * Exported so `sync.ts`'s `cursorExpired()` can compare a cursor against the
+ * real prune horizon instead of hand-copying this number: a duplicated
+ * literal is a number two files can silently disagree about the moment
+ * either one changes.
  */
-const RETENTION_TOMBSTONE_DAYS = 90;
+export const RETENTION_TOMBSTONE_DAYS = 90;
 
 /**
  * Deletes every unstarred article past `cutoff` among `feedIds`, writing a

@@ -184,6 +184,30 @@ describe("sync", () => {
     expect("resyncRequired" in result).toBe(true);
   });
 
+  it("requires a resync when every tombstone has been pruned and the cursor predates the retention horizon", async () => {
+    // The gap finding 3 of the whole-branch review closed: with zero
+    // surviving tombstone rows, the old logic found no "oldest" row and
+    // defaulted to `false` -- "not expired" -- even though a cursor this old
+    // could easily have missed deletions that happened and were later
+    // pruned by the retention job (RETENTION_TOMBSTONE_DAYS = 90). The fix
+    // compares the cursor against the prune horizon itself, which does not
+    // depend on any row surviving to compare against.
+    const { RETENTION_TOMBSTONE_DAYS } = await import("@/lib/jobs/handlers/retention");
+    const staleCursor = sync.encodeCursor({
+      newPos: [0, 0],
+      updatedPos: [0, 0],
+      removedPos: [
+        Math.floor(Date.now() / 1000) - (RETENTION_TOMBSTONE_DAYS + 10) * 24 * 60 * 60,
+        1,
+      ],
+    });
+
+    // No tombstone rows at all -- as if the retention job pruned every one.
+    const result = sync.syncArticles(userId, sync.decodeCursor(staleCursor), 100);
+
+    expect(result).toEqual({ resyncRequired: true });
+  });
+
   it("does not require a resync on the zero cursor even when tombstones already exist", () => {
     // The literal condition ("removedPos predates the oldest surviving
     // tombstone") would be true for ANY tombstone once a fresh ZERO_CURSOR

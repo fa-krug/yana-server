@@ -770,6 +770,23 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     `public/`'s three files instead (`(?!file\.svg|globe\.svg|window\.svg)`)
     is legal — a matcher entry is a regex — and is rejected only because it
     needs editing every time a file is added there.
+  - **`/api/v1` is in `PUBLIC_PREFIXES` too, and it is not exempt from
+    authentication — it authenticates itself.** The native client sends a
+    Bearer token, never a cookie, and this proxy's check is `getSessionCookie()`
+    only: it structurally cannot evaluate a Bearer token, the same reason a
+    proxy cannot reach the database. Every `/api/v1/**` route calls
+    `requireApiUser()` (`@/lib/api/auth`) itself as its own real auth gate — the
+    same "authenticates itself, nothing above it does" shape as the `media/`
+    route handler below, except here the gate lives inside every route rather
+    than in one shared handler. Without this entry a Bearer-only request has no
+    session cookie by construction, so this proxy 307'd it to `/login` before
+    its route handler ever ran, making the whole API unreachable — caught only
+    because no request ever got far enough to hit the ownership checks and
+    tests those routes carry. `PUBLIC_PREFIXES` is therefore no longer "the
+    entire unauthenticated surface of the application" — it is every route that
+    must reach its handler unblocked by this proxy's cookie check, whether
+    because it is genuinely unauthenticated or because, like `/api/v1`, it
+    checks a different credential entirely.
 - **A route handler serving `media/` authenticates itself — nothing above it
   does.** `src/app/media/avatars/[userId]/route.ts` is the first one and the
   pattern for phases 9/11's article images, which are numerous, per-user and may

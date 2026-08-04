@@ -24,10 +24,17 @@ import type { DeviceSummary } from "@/lib/account/queries";
  * irreversible to confirm -- unlike deleting the last passkey, which can leave
  * an account with no way back in at all.
  *
+ * **`devices` carries each session's `id`, never its `token`.** The token is a
+ * live, durable Bearer credential valid for up to 30 days; `DeviceSummary`
+ * (`@/lib/account/queries`) omits it precisely because this component's props
+ * are serialized into `/account`'s RSC payload. `removeDevice()` resolves the
+ * real token server-side, scoped to the caller's own userId, only when a
+ * revoke actually happens.
+ *
  * `removeDevice()`'s doc comment notes that Better Auth's `revokeSession`
  * silently no-ops on a token that is not the caller's, rather than throwing --
  * so `ok: true` here does not by itself prove the row was deleted. That does
- * not matter for this UI: every token passed to `revoke()` came from the
+ * not matter for this UI: every id passed to `revoke()` came from the
  * `devices` prop this component was just rendered with, which is this same
  * user's own `getAccountOverview()` read, so the mismatch this note warns
  * about cannot arise from normal use of this card.
@@ -38,10 +45,10 @@ export function DeviceSection({ devices }: { devices: DeviceSummary[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
 
-  function revoke(token: string) {
+  function revoke(id: string) {
     start(async () => {
       // attempt(), never a bare await. See @/lib/account/result.
-      const result = await attempt(() => removeDevice({ token }));
+      const result = await attempt(() => removeDevice({ id }));
       if (result.ok) {
         toast.success(t("devices.revoked"));
         router.refresh();
@@ -63,7 +70,7 @@ export function DeviceSection({ devices }: { devices: DeviceSummary[] }) {
         ) : (
           <ul className="divide-y rounded-md border">
             {devices.map((device) => (
-              <li key={device.token} className="flex items-center gap-3 p-3">
+              <li key={device.id} className="flex items-center gap-3 p-3">
                 <Smartphone aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{device.deviceName}</p>
@@ -81,7 +88,7 @@ export function DeviceSection({ devices }: { devices: DeviceSummary[] }) {
                   variant="ghost"
                   size="sm"
                   disabled={pending}
-                  onClick={() => revoke(device.token)}
+                  onClick={() => revoke(device.id)}
                 >
                   {t("devices.revoke")}
                 </Button>

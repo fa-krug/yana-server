@@ -85,9 +85,17 @@ async function listPasskeys(): Promise<PasskeySummary[]> {
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
 
-/** A paired device session as the account page lists it. Never the token's siblings. */
+/**
+ * A paired device session as the account page lists it. Never the token
+ * itself: `DeviceSection` is a `"use client"` component, so its props are
+ * serialized into `/account`'s RSC payload -- plain text in a browser's
+ * network tab -- and `sessions.token` is a live, durable Bearer credential
+ * valid for up to 30 days. `id` (the session row's own primary key) is what
+ * identifies a device to revoke; `removeDevice()` in `./actions` resolves the
+ * real token server-side, only when a revoke actually happens.
+ */
 export type DeviceSummary = {
-  token: string;
+  id: string;
   deviceName: string;
   createdAt: Date;
   updatedAt: Date;
@@ -122,7 +130,7 @@ export type DeviceSummary = {
 export async function listDevices(userId: string): Promise<DeviceSummary[]> {
   const rows = getDb()
     .select({
-      token: sessions.token,
+      id: sessions.id,
       deviceName: sessions.deviceName,
       createdAt: sessions.createdAt,
       updatedAt: sessions.updatedAt,

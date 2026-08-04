@@ -1,5 +1,4 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { connection } from "next/server";
 import { z } from "zod";
 
 import { ApiError, apiErrorResponse, requireApiUser } from "@/lib/api/auth";
@@ -24,19 +23,11 @@ const patchBody = z
  * the caller owns. Re-selecting unconditionally after a 0-row `UPDATE` would
  * hand back another user's article on a request that changed nothing,
  * exactly the enumeration leak the 404-not-403 convention exists to prevent.
- *
- * `await connection()` must be the literal first statement, ahead of
- * `requireApiUser()` -- see the `connection()` bullet in the root CLAUDE.md:
- * this route has no other Dynamic API call in its path (no cookie/header
- * read is guaranteed -- a Bearer-token caller never touches `next/headers`),
- * so nothing else would opt it out of prerendering.
  */
 export async function PATCH(
   request: Request,
   ctx: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  await connection();
-
   try {
     const user = await requireApiUser(request);
 

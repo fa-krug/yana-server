@@ -2,6 +2,7 @@ import { and, asc, eq, gt, inArray, or, type SQL } from "drizzle-orm";
 
 import { getDb } from "@/lib/db/client";
 import { articleTombstones, articles, feeds } from "@/lib/db/schema";
+import { RETENTION_TOMBSTONE_DAYS } from "@/lib/jobs/handlers/retention";
 import { serializeArticleSummary, type ArticleSummaryWire } from "./serializers";
 
 /**
@@ -117,6 +118,17 @@ function afterPos(
  * trace, and there is no way to tell -- so the client must resync from
  * scratch rather than trust a `removed` list that might have a gap in it.
  *
+ * **The comparison is against the prune horizon itself, not only against a
+ * surviving row.** A surviving oldest tombstone is evidence the horizon
+ * check alone would miss nothing new, but its *absence* is not evidence of
+ * the opposite: if the retention job has pruned every tombstone (none
+ * younger than `RETENTION_TOMBSTONE_DAYS`), there is no surviving row to
+ * compare against at all, and a cursor older than that horizon must still be
+ * told to resync -- it may have missed deletions that happened and were
+ * later pruned, with nothing left to prove it either way. Checking the
+ * horizon first, before any row lookup, is what keeps the zero-tombstones
+ * case from silently defaulting to "not expired."
+ *
  * `removedPos === ZERO_CURSOR.removedPos` (`[0, 0]`) is excluded from this
  * check on purpose: it does not mean "caught up as of the epoch," it means
  * "this stream has never consumed a single tombstone." There is nothing to
@@ -129,6 +141,9 @@ function afterPos(
  */
 function cursorExpired(userId: string, cursor: SyncCursor): boolean {
   if (cursor.removedPos[0] === 0 && cursor.removedPos[1] === 0) return false;
+
+  const pruneHorizon = new Date(Date.now() - RETENTION_TOMBSTONE_DAYS * 24 * 60 * 60_000);
+  if (secondsOf(pruneHorizon) > cursor.removedPos[0]) return true;
 
   const oldest = getDb()
     .select({ deletedAt: articleTombstones.deletedAt })

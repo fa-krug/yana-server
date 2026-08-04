@@ -604,13 +604,18 @@ describe("the account actions", () => {
      * CLAUDE.md applies to this table specifically.
      *
      * `expiresAt` defaults far in the future so a planted device reads as live
-     * unless a test asks for an expired one.
+     * unless a test asks for an expired one. Returns the row's `id`, which is
+     * what `removeDevice()` now takes -- never the token, which
+     * `DeviceSummary` deliberately never exposes (see finding 2 of the
+     * whole-branch review: the token is a live Bearer credential, and this
+     * component's props are serialized into `/account`'s RSC payload).
      */
     function plantDeviceSession(
       userId: string,
       token: string,
       opts: { deviceName: string; expiresAt?: Date; createdAt?: Date },
-    ): void {
+    ): string {
+      const id = `sess-${token}`;
       const expiresAt = opts.expiresAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
       const createdAt = opts.createdAt ?? new Date();
       const connection = new Database(dbPath);
@@ -621,7 +626,7 @@ describe("the account actions", () => {
              VALUES (?, ?, ?, ?, ?, ?)`,
           )
           .run(
-            `sess-${token}`,
+            id,
             token,
             userId,
             Math.floor(expiresAt.getTime() / 1000),
@@ -631,6 +636,7 @@ describe("the account actions", () => {
       } finally {
         connection.close();
       }
+      return id;
     }
 
     function countSessionsWithToken(token: string): number {
@@ -642,15 +648,18 @@ describe("the account actions", () => {
 
     it("lists paired devices and omits the browser's own session", async () => {
       const { id, cookie } = await seedAndSignIn();
-      plantDeviceSession(id, "device-iphone", { deviceName: "iPhone" });
+      const deviceId = plantDeviceSession(id, "device-iphone", { deviceName: "iPhone" });
 
       const devices = await queries.listDevices(id);
 
       expect(devices).toHaveLength(1);
-      expect(devices[0]).toMatchObject({ token: "device-iphone", deviceName: "iPhone" });
+      expect(devices[0]).toMatchObject({ id: deviceId, deviceName: "iPhone" });
+      // Never the token: it is a live Bearer credential, and this projection
+      // is what ends up in a client component's props.
+      expect(devices[0]).not.toHaveProperty("token");
       // The browser's own session (minted by seedAndSignIn/signInCookie) has no
       // deviceName, and must never appear alongside a real device.
-      expect(devices.some((device) => device.token === cookie)).toBe(false);
+      expect(devices.some((device) => device.id === cookie)).toBe(false);
     });
 
     it("orders devices newest-first", async () => {
@@ -689,19 +698,19 @@ describe("the account actions", () => {
       const other = await createUserWithPassword(OTHER);
       plantDeviceSession(other.id, "device-theirs", { deviceName: "Their Phone" });
       const { id } = await seedAndSignIn();
-      plantDeviceSession(id, "device-mine", { deviceName: "My Phone" });
+      const mineId = plantDeviceSession(id, "device-mine", { deviceName: "My Phone" });
 
       const devices = await queries.listDevices(id);
 
-      expect(devices.map((device) => device.token)).toEqual(["device-mine"]);
+      expect(devices.map((device) => device.id)).toEqual([mineId]);
     });
 
-    it("revokes a device session by token, so it disappears and the row is gone", async () => {
+    it("revokes a device session by id, so it disappears and the row is gone", async () => {
       const { id } = await seedAndSignIn();
-      plantDeviceSession(id, "device-ipad", { deviceName: "iPad" });
+      const deviceId = plantDeviceSession(id, "device-ipad", { deviceName: "iPad" });
       expect(countSessionsWithToken("device-ipad")).toBe(1);
 
-      const result = await actions.removeDevice({ token: "device-ipad" });
+      const result = await actions.removeDevice({ id: deviceId });
 
       expect(result).toEqual({ ok: true });
       expect(await queries.listDevices(id)).toEqual([]);
@@ -715,31 +724,38 @@ describe("the account actions", () => {
       // the browser's own cookie session is never one of the rows revokeDevice
       // can touch, because it carries no deviceName.
       const { id, cookie } = await seedAndSignIn();
-      plantDeviceSession(id, "device-only", { deviceName: "Only Device" });
+      const deviceId = plantDeviceSession(id, "device-only", { deviceName: "Only Device" });
 
-      await actions.removeDevice({ token: "device-only" });
+      await actions.removeDevice({ id: deviceId });
 
       expect(await sessionFor(cookie)).not.toBe(null);
     });
 
-    it("leaves somebody else's device session untouched, even though the call reports ok", async () => {
-      // Better Auth's own endpoint (`revoke-session` in
-      // `better-auth/dist/api/routes/session.mjs`) checks the token's userId
-      // against the caller's *before* deleting -- but on a mismatch it skips
-      // the delete and still answers `{ status: true }` rather than throwing.
-      // So this action cannot report `ok: false` for a foreign token the way
-      // `removePasskey` does for a foreign passkey id (that endpoint throws on
-      // a mismatch instead). The property that actually holds -- and the one
-      // this test pins -- is that the row survives; the misleading `ok: true`
-      // is a known quirk of the library's endpoint, not of this wrapper.
+    it("refuses to revoke a device session belonging to a different user", async () => {
+      // The finding this test exists for: `removeDevice()` now resolves the
+      // id to a token itself, scoped to `userId = caller.id` -- a local
+      // ownership check that runs *before* Better Auth's own endpoint is ever
+      // called. An id that exists but belongs to someone else must therefore
+      // be refused outright, rather than relying on `revokeSession`'s own
+      // (silent) mismatch handling as the only guard.
       const other = await createUserWithPassword(OTHER);
-      plantDeviceSession(other.id, "device-theirs", { deviceName: "Their Phone" });
+      const theirsId = plantDeviceSession(other.id, "device-theirs", {
+        deviceName: "Their Phone",
+      });
       await seedAndSignIn();
 
-      const result = await actions.removeDevice({ token: "device-theirs" });
+      const result = await actions.removeDevice({ id: theirsId });
 
-      expect(result).toEqual({ ok: true });
+      expect(result).toEqual({ ok: false });
       expect(countSessionsWithToken("device-theirs")).toBe(1);
+    });
+
+    it("refuses an id that does not exist at all", async () => {
+      await seedAndSignIn();
+
+      const result = await actions.removeDevice({ id: "no-such-session" });
+
+      expect(result).toEqual({ ok: false });
     });
   });
 

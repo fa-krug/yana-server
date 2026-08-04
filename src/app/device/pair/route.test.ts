@@ -121,6 +121,31 @@ describe("GET /device/pair", () => {
     expect(sessionCount()).toBe(before);
   });
 
+  it("truncates an over-length deviceName instead of storing it in full", async () => {
+    // deviceName can be driven cross-site (see the module doc), so an
+    // attacker's crafted link could otherwise mint sessions carrying an
+    // arbitrarily long or misleading name into the victim's own /account
+    // device list. Truncated to 64 chars, not rejected.
+    const user = await signIn();
+    const longName = "A".repeat(500);
+
+    const request = new Request(
+      `https://example.com/device/pair?state=abc123&scheme=yana&deviceName=${longName}`,
+    );
+    const response = await GET(request);
+
+    expect(response.status).toBe(307);
+    const row = client
+      .getDb()
+      .select()
+      .from(schema.sessions)
+      .where(eq(schema.sessions.userId, user.id))
+      .all()
+      .find((r) => r.deviceName !== null);
+    expect(row?.deviceName).toBe("A".repeat(64));
+    expect(row?.deviceName?.length).toBe(64);
+  });
+
   it("400s when scheme is outside the allow-list, even with a present state", async () => {
     await signIn();
     const before = sessionCount();

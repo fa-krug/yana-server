@@ -27,7 +27,7 @@ const { toastError, toastSuccess } = vi.hoisted(() => ({
 vi.mock("sonner", () => ({ toast: { error: toastError, success: toastSuccess } }));
 
 const PHONE: DeviceSummary = {
-  token: "tok1",
+  id: "sess1",
   deviceName: "iPhone",
   createdAt: new Date("2026-01-01"),
   updatedAt: new Date("2026-01-01"),
@@ -65,7 +65,7 @@ describe("<DeviceSection>", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /revoke/i }));
 
-    await vi.waitFor(() => expect(removeDevice).toHaveBeenCalledWith({ token: "tok1" }));
+    await vi.waitFor(() => expect(removeDevice).toHaveBeenCalledWith({ id: "sess1" }));
     await vi.waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Device revoked"));
     // The list comes from a server component, so nothing re-renders without it.
     expect(refresh).toHaveBeenCalled();

@@ -3,7 +3,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { z } from "zod";
@@ -12,8 +12,8 @@ import { auth } from "@/lib/auth/server";
 import { refreshSession, requireUser } from "@/lib/auth/session";
 import { AVATAR_MAX_BYTES, avatarUrlFor } from "@/lib/avatar";
 import { avatarFilePath, processAvatar } from "@/lib/avatar-storage";
-import { writeTransaction } from "@/lib/db/client";
-import { users } from "@/lib/db/schema";
+import { getDb, writeTransaction } from "@/lib/db/client";
+import { sessions, users } from "@/lib/db/schema";
 
 import { hasPasswordCredential } from "./queries";
 import type { AccountKey, AccountResult as Result } from "./result";
@@ -73,7 +73,7 @@ const password = z.object({
 
 const passkeyRef = z.object({ id: z.string().min(1).max(255) });
 
-const deviceRef = z.object({ token: z.string().min(1) });
+const deviceRef = z.object({ id: z.string().min(1) });
 
 /**
  * Which field failed, as a catalog key. Anything unlisted falls through to
@@ -410,21 +410,41 @@ export async function removePasskey(input: unknown): Promise<Result> {
 /**
  * Revoke a device session.
  *
- * **Through `auth.api.revokeSession`, unlike `listDevices()` in `./queries`.**
- * That query bypasses `auth.api.listSessions()` because the *read* endpoint is
- * gated by `freshSessionMiddleware` and would 403 for nearly every real
- * session (see the comment on `listDevices()`). `revokeSession` carries no
- * such gate -- it uses `sensitiveSessionMiddleware`, which only requires *a*
- * valid session -- so there is no reason to bypass it here, and every reason
- * not to: it verifies the token belongs to the caller's own userId before
- * deleting it (`better-auth/dist/api/routes/session.mjs`), so a token naming
- * someone else's device session is left alone by the library, not by a WHERE
- * clause written here. **That check is silent, though**: on a mismatch the
- * endpoint skips the delete but still answers `{ status: true }` rather than
- * throwing, so this action cannot report `ok: false` for a foreign token the
- * way `removePasskey` does for a foreign passkey id (whose endpoint does
- * throw on a mismatch). The row's survival is what actually holds; the `ok`
- * value does not distinguish "revoked" from "silently declined" here.
+ * **The caller passes an `id` (the session row's own primary key), never the
+ * token.** `DeviceSummary` (`./queries`) deliberately omits `sessions.token`
+ * -- it is a live, durable Bearer credential valid for up to 30 days, and
+ * `DeviceSection` is a `"use client"` component whose props are serialized
+ * into `/account`'s RSC payload, plain text in a browser's network tab. So the
+ * token is resolved here, server-side, only when a revoke actually happens --
+ * never handed to the browser at all.
+ *
+ * **That resolution is scoped to `userId = user.id`, and that scoping is this
+ * action's own ownership check -- on top of, not instead of,
+ * `revokeSession`'s.** Two independent guards, deliberately: this local
+ * lookup means an id that does not belong to the caller never reaches Better
+ * Auth's endpoint at all, rather than depending on the endpoint's own
+ * (silent) refusal, documented below. A miss here -- wrong id, or somebody
+ * else's -- returns `{ ok: false }` with nothing revoked; there is no reason
+ * to distinguish "not found" from "not yours" for the same reason the media
+ * route's 404s stay uniform.
+ *
+ * **Then through `auth.api.revokeSession`, unlike `listDevices()` in
+ * `./queries`.** That query bypasses `auth.api.listSessions()` because the
+ * *read* endpoint is gated by `freshSessionMiddleware` and would 403 for
+ * nearly every real session (see the comment on `listDevices()`).
+ * `revokeSession` carries no such gate -- it uses
+ * `sensitiveSessionMiddleware`, which only requires *a* valid session -- so
+ * there is no reason to bypass it here. It also re-verifies the token belongs
+ * to the caller's own userId before deleting it
+ * (`better-auth/dist/api/routes/session.mjs`) -- redundant with the local
+ * lookup above given how this action calls it, but defense in depth rather
+ * than dead code: the local check is what keeps an unowned id from ever
+ * reaching the library at all, while this second check is what still holds
+ * if that local scoping were ever loosened by a future edit. **That check is
+ * silent, though**: on a mismatch the endpoint skips the delete but still
+ * answers `{ status: true }` rather than throwing -- immaterial here, because
+ * the local lookup above already turned "not owned" into an early
+ * `{ ok: false }` before this call is even reached.
  *
  * Unlike `removePasskey`, there is no "last one" guard: revoking every device
  * just means re-pairing, never account lockout, because the browser's own
@@ -432,13 +452,20 @@ export async function removePasskey(input: unknown): Promise<Result> {
  * marks, so `revokeSession` here can never end the caller's own session.
  */
 export async function removeDevice(input: unknown): Promise<Result> {
-  await requireUser();
+  const user = await requireUser();
   const parsed = deviceRef.safeParse(input);
   if (!parsed.success) return { ok: false };
 
+  const row = getDb()
+    .select({ token: sessions.token })
+    .from(sessions)
+    .where(and(eq(sessions.id, parsed.data.id), eq(sessions.userId, user.id)))
+    .get();
+  if (!row) return { ok: false };
+
   try {
     await auth.api.revokeSession({
-      body: { token: parsed.data.token },
+      body: { token: row.token },
       headers: await headers(),
     });
   } catch (error) {

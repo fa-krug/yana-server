@@ -96,6 +96,10 @@ export async function GET(request: Request): Promise<Response> {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-store",
       Connection: "keep-alive",
+      // Tells nginx and similar reverse proxies not to buffer this response,
+      // which would defeat SSE's low-latency purpose by holding events until
+      // a buffer fills. Inert for any proxy that does not look for it.
+      "X-Accel-Buffering": "no",
     },
   });
 }
