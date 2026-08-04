@@ -191,4 +191,53 @@ describe("GET /api/v1/jobs/events", () => {
     setIntervalSpy.mockRestore();
     clearIntervalSpy.mockRestore();
   });
+
+  it("unsubscribes and clears the keep-alive interval on a bare reader.cancel(), with no request.signal abort", async () => {
+    const setIntervalSpy = vi.spyOn(global, "setInterval");
+    const clearIntervalSpy = vi.spyOn(global, "clearInterval");
+
+    const user = await createUserWithPassword({
+      email: "e@example.com",
+      password: "correct horse battery staple",
+    });
+    const { token } = await createDeviceSession(user.id, "Test");
+
+    // Deliberately no AbortController/signal here -- this is the one path
+    // the other cleanup test cannot prove, because `controller.abort()`
+    // there fires its listener *synchronously*, which already runs
+    // `cleanup()` and closes the stream before the subsequent
+    // `reader.cancel()` call ever reaches the underlying source's `cancel`
+    // algorithm (a `cancel()` call on an already-`closed` stream is a no-op
+    // per the Streams spec). Calling `reader.cancel()` alone, with no abort
+    // anywhere in the picture, is what actually exercises the route's
+    // `cancel: cleanup` hook.
+    const response = await eventsRequest(token);
+    const reader = response.body!.getReader();
+
+    expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+    const intervalId = setIntervalSpy.mock.results[0]!.value;
+
+    await reader.cancel();
+
+    expect(clearIntervalSpy).toHaveBeenCalledWith(intervalId);
+
+    // The subscription must also be gone: publishing for this user after
+    // cancellation must not throw (a listener still attached would try to
+    // `enqueue()` on a controller torn down by `cancel()`).
+    expect(() =>
+      publishUserEvent(user.id, {
+        type: "job",
+        payload: {
+          jobId: 4,
+          runId: null,
+          kind: "article.reload",
+          status: "completed",
+          progress: 100,
+        },
+      }),
+    ).not.toThrow();
+
+    setIntervalSpy.mockRestore();
+    clearIntervalSpy.mockRestore();
+  });
 });
