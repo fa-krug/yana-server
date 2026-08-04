@@ -29,3 +29,6 @@ export const aiRequests = sqliteTable(
   },
   (table) => [index("ai_requests_user_created_idx").on(table.userId, table.createdAt)],
 );
+
+export type AiRequest = typeof aiRequests.$inferSelect;
+export type NewAiRequest = typeof aiRequests.$inferInsert;
