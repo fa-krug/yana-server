@@ -965,7 +965,7 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     named here.
 - **A probe never rejects, and its `detail` is log-only prose built from
   constants.** `ProbeResult` (`src/lib/integrations/probe.ts`) is the shape both
-  live probes report and the three AI providers in phase 7 will report; every
+  live probes report and all six AI providers report; every
   probe resolves to it for _every_ input, which is why URL building and Basic-auth
   encoding happen **inside** the `try` — the guarantee has to be structural, not
   an argument about which characters a credential can contain. `detail` is what
@@ -1027,8 +1027,9 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   `src/lib/integrations/actions.ts` is then a table of two declarations plus six
   one-line exports (a `"use server"` module can export nothing but async
   functions, which is why the factory cannot live there — the same constraint
-  that put `attempt` in `result.ts`). Phase 7's three AI providers are three more
-  declarations.
+  that put `attempt` in `result.ts`). Phase 7's three AI providers were three
+  more declarations; the 2026-08-04 AI provider expansion added Mistral, Qwen
+  and DeepSeek as three more again, for six declarations total.
 
   **Extracting it out of `"use server"` cost it a safety net, so the net is now
   a lint rule.** Inside `actions.ts` a stray client import was harmless by
@@ -1147,6 +1148,90 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     string is already the longest in either catalog, it is a toast _title_, and
     the cases it does name are the ones an operator reaches. Revisit if that
     reporter ever takes values.
+
+- **`/ai` has six providers, not three.** The direction record's "Carried
+  forward from phase 7's review" originally deferred provider expansion; the
+  2026-08-04 AI provider expansion plan
+  (`docs/superpowers/specs/2026-08-04-ai-provider-expansion-and-prompt-endpoint-design.md`)
+  widened `AI_PROVIDERS` (`src/lib/ai/providers.ts`) from OpenAI/Anthropic/Gemini
+  to add Mistral, Qwen and DeepSeek, following yana-ios's `AppSettings.swift`
+  `AIProvider` enum — the same source this repo already cites for its default
+  model ids. Apple Intelligence, the seventh entry in that enum, is
+  **deliberately excluded**: it is on-device-only in iOS, with no API key and
+  no network call, so there is nothing here for a server-side registry entry to
+  represent. **All three new providers get fixed, non-configurable base
+  URLs**, unlike OpenAI's operator-settable `openaiApiUrl` — a deliberate
+  choice in the design spec, both because none of the three needs the SSRF
+  hardening OpenAI's field carries (redirect refusal, userinfo rejection, URL
+  validation — see the bullet above) and because a fixed endpoint is what lets
+  `quotaMeansVerified: true` hold for all three, by the same reasoning already
+  written for Anthropic and Gemini: nothing can shed load at an edge in front
+  of a host that is never operator-supplied, so a 429 can only mean the key
+  was already accepted. Two helpers, both extracted ahead of the new
+  providers rather than pasted three more times, and both now used by
+  OpenAI's own probe and call path too:
+  - **`openaiCompatibleChatProbe()`** (`src/lib/integrations/probe.ts`) is the
+    shared OpenAI-compatible `/chat/completions` probe body — the one-token
+    completion, the 200/401/403/404/429/400 status classification, the
+    `redirect: "error"` fetch — parameterized by provider name, endpoint,
+    key and model. `testOpenaiKey()` (`src/lib/ai/openai.ts`) and the three
+    new thin probe modules (`testMistralKey`, `testQwenKey`,
+    `testDeepseekKey` in `src/lib/ai/{mistral,qwen,deepseek}.ts`) all call it;
+    only OpenAI's caller resolves and validates a URL first; the other three
+    pass a literal.
+  - **`callOpenaiCompatible()`** is a private method on `AIClient`
+    (`src/lib/ai/run.ts`) — the same `/chat/completions` request/response
+    shape on the runtime-call side, taking a resolved base URL, key, model,
+    prompt and JSON-mode flag. `callOpenai()` and the three new provider
+    branches (`callMistral`, `callQwen`, `callDeepseek`) all call it rather
+    than repeating the request-building and response-parsing block four
+    times.
+- **`aiDefaultDailyLimit`/`aiDefaultMonthlyLimit` went from decorative to
+  enforced, at one chokepoint.** Both settings have existed among the nine
+  tuning values (with bounds in `src/lib/ai/bounds.ts`) since phase 7, but
+  nothing read them until the same 2026-08-04 plan added a new table,
+  **`ai_requests`** (`src/lib/db/schema/ai.ts` — one row per attempted call,
+  `(userId, createdAt)` indexed), and **`checkAndRecordAiUsage()`**
+  (`src/lib/ai/usage.ts`). Neither `old/core/ai_client.py` nor yana-ios ever
+  enforced these limits — confirmed by reading both — so there was no oracle
+  to port from; this is new behaviour, not a port. It is called once, inside
+  **`AIClient.generateResponse()`** (`src/lib/ai/run.ts`), before any outbound
+  provider call — the same chokepoint `applyAiOptions()` (the background
+  AI-post-processing path that has no live caller yet) already runs through,
+  so wiring that path up later inherits enforcement for free rather than
+  needing its own check. Three facts a caller cannot get right by guessing:
+  **usage is recorded for every attempted call, not only successful ones** —
+  the setting is documented as the most AI requests Yana makes, which is about
+  outbound calls, and counting only successes would let a provider outage or a
+  string of 500s bypass the limit entirely; **reset windows are calendar UTC
+  day/month**, not a rolling window, matching this repo's existing
+  `timeZone: "UTC"` convention, and `checkAndRecordAiUsage()` opportunistically
+  deletes a user's rows older than the start of the current UTC month on every
+  call (the daily window is a subset of the monthly one, so nothing needs a row
+  older than that, and no separate cleanup job exists); and the read-then-write
+  is **atomic under the caller's own `writeTransaction()`** (`BEGIN IMMEDIATE`),
+  the same ordering guarantee `setActiveProvider()` already relies on, so two
+  concurrent calls from the same user cannot both read "one under the limit"
+  and both proceed. `generateResponse()`'s return type changed from
+  `string | null` to `AiGenerationResult` —
+  `{ ok: true; text } | { ok: false; reason }`, `reason` one of `noProvider` /
+  `dailyLimitExceeded` / `monthlyLimitExceeded` / `providerError` — so a caller
+  can tell a rate limit from a provider failure instead of both collapsing to
+  `null`.
+- **`POST /api/v1/ai/prompt`** (`src/app/api/v1/ai/prompt/route.ts`) is the
+  native client's server-mediated "ask AI" call, added by the same plan: a
+  free-form prompt run against the caller's active provider, using their
+  stored global tuning values with **no per-request overrides**. It reads
+  `user_settings` directly by `user.id` off `requireApiUser()`'s
+  Bearer-authenticated caller, never through `getSettings()` — that helper is
+  bound to the cookie-session-derived `currentUserId()` and would not resolve
+  for a Bearer-token caller, the same reason
+  `src/lib/jobs/handlers/retention.ts` reads a settings row directly outside a
+  session context. Its failure modes are machine-readable `ApiError` codes
+  (`invalid_prompt`, `prompt_too_long`, `no_active_provider`,
+  `daily_limit_exceeded`, `monthly_limit_exceeded`, `provider_error`) for the
+  native client to branch on — never provider prose, per this API's existing
+  no-echo convention.
 
 - **`/login` is the whole unauthenticated UI, and five things about it are
   load-bearing.** It lives at `src/app/login/page.tsx`, deliberately outside
@@ -1392,16 +1477,32 @@ provider as that section demands: the UI half is
 `src/lib/integrations/define.ts` (see the two bullets above them), and phase 7
 consumed both. Its third item — deciding each AI provider's two probe answers
 rather than copying a neighbour's — is `quotaMeansVerified` in
-`src/lib/ai/providers.ts`, where the three answers differ and each carries its
-reason. **"Carried forward from phase 7's review" holds one item that gates a
-release rather than a phase**: no live call has ever been made to OpenAI,
-Anthropic or Gemini, so nothing proves the three probes send request shapes
-those providers accept — and a shape one of them refuses lands in `judge()`'s
-write-nothing arm, which leaves that provider unconfigurable from the UI. `/ai`
-must not reach a user before one manual pass per provider; the section lists
-what the pass covers. Phase 12 reads the same section for `redirect: "error"`.
+`src/lib/ai/providers.ts`, where all six answers differ in reasoning even
+though the three added by the 2026-08-04 AI provider expansion (see the `/ai`
+bullets above) all resolve to `true`, for the fixed-endpoint reason Anthropic's
+and Gemini's already state. **"Carried forward from phase 7's review" holds
+one item that gates a release rather than a phase**: no live call has ever
+been made to OpenAI, Anthropic or Gemini, so nothing proves those three probes
+send request shapes those providers accept — and a shape one of them refuses
+lands in `judge()`'s write-nothing arm, which leaves that provider
+unconfigurable from the UI. **The same gap now applies to Mistral, Qwen and
+DeepSeek too** — the 2026-08-04 plan added them and their shared
+`openaiCompatibleChatProbe()` helper without a live call against any of the
+three, for the identical reason: nothing but documentation says they accept
+the shape the shared probe sends. `/ai` must not reach a user before one
+manual pass per provider — all six now, not three; the section lists what the
+pass covers. Phase 12 reads the same section for `redirect: "error"`.
 Phase 8 still starts from "Carried
 forward from phase 5's review", where the CRUD kit's contracts are.
+
+**Beyond the fifteen phases**, a 2026-08-04 plan
+(`docs/superpowers/plans/2026-08-04-ai-provider-expansion-and-prompt-endpoint.md`,
+design at
+`docs/superpowers/specs/2026-08-04-ai-provider-expansion-and-prompt-endpoint-design.md`)
+shipped the provider expansion to six (openai/anthropic/gemini/mistral/qwen/deepseek),
+the first real enforcement of the daily/monthly AI request limits, and the new
+`POST /api/v1/ai/prompt` mobile endpoint — see the `/ai` bullets above for what
+changed and why.
 
 **Four plans are amended, not authoritative.**
 `docs/superpowers/plans/nextjs-04-auth.md` was written before three human
