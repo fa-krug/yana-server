@@ -10,6 +10,15 @@ import { type Feed, userSettings } from "@/lib/db/schema";
  * credentials configured there are unreachable and every aggregator silently
  * falls back to a single instance-wide env var (see
  * `getRedditUserSettings()` in `sites/reddit/auth.ts`).
+ *
+ * The owner's stored credentials always take precedence over any same-named
+ * key that might already exist in `feed.options`: these five keys
+ * (`reddit_enabled`, `reddit_client_id`, `reddit_client_secret`,
+ * `reddit_user_agent`, `youtube_api_key`) are credential fields that never
+ * legitimately live in a feed's own options (the feed-options zod schema in
+ * `specs.ts` has no such fields, and unknown keys are stripped before save),
+ * so a colliding value there is stale or accidental, and the fresh,
+ * authoritative read from `user_settings` is what must win.
  */
 export function resolveFeedCredentials(feed: Feed): Feed {
   const settings = getDb()

@@ -75,6 +75,36 @@ describe("resolveFeedCredentials", () => {
     });
   });
 
+  it("prefers the owner's stored credential over a colliding key already in feed.options", () => {
+    let feed: InstanceType<typeof Object> & Record<string, unknown>;
+
+    client.writeTransaction((db) => {
+      db.insert(schema.users).values({ id: "user2", email: "user2@example.com" }).run();
+      db.insert(schema.userSettings)
+        .values({
+          userId: "user2",
+          redditClientId: "fresh-value-from-user-settings",
+        })
+        .run();
+      feed = db
+        .insert(schema.feeds)
+        .values({
+          name: "r/test",
+          userId: "user2",
+          aggregator: "reddit",
+          options: { reddit_client_id: "stale-value-from-feed-options" },
+        })
+        .returning()
+        .get();
+    });
+
+    const resolved = resolution.resolveFeedCredentials(feed! as never);
+
+    expect((resolved.options as Record<string, unknown>).reddit_client_id).toBe(
+      "fresh-value-from-user-settings",
+    );
+  });
+
   it("returns the feed unchanged when the owner has no user_settings row", () => {
     let feed: InstanceType<typeof Object> & Record<string, unknown>;
 
