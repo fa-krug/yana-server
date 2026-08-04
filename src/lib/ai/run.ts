@@ -1,6 +1,9 @@
 import * as cheerio from "cheerio";
 
+import { writeTransaction } from "@/lib/db/client";
 import type { UserSettings } from "@/lib/db/schema";
+
+import { checkAndRecordAiUsage } from "./usage";
 
 export interface ArticleInput {
   name?: string;
@@ -57,6 +60,13 @@ export type AiRuntimeSettings = Partial<UserSettings> & {
 
 /** The JSON body an AI provider's chat/completion endpoint is POSTed. */
 export type AiRequestBody = Record<string, unknown>;
+
+export type AiGenerationResult =
+  | { ok: true; text: string }
+  | {
+      ok: false;
+      reason: "noProvider" | "dailyLimitExceeded" | "monthlyLimitExceeded" | "providerError";
+    };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -185,32 +195,59 @@ export class AIClient {
     prompt: string,
     jsonMode = false,
     jsonSchema?: Record<string, unknown>,
-  ): Promise<string | null> {
+  ): Promise<AiGenerationResult> {
     if (!this.provider) {
       console.warn("No AI provider selected.");
-      return null;
+      return { ok: false, reason: "noProvider" };
+    }
+
+    const userId = this.settings.userId;
+    if (userId) {
+      const dailyLimit = this.settings.aiDefaultDailyLimit ?? 200;
+      const monthlyLimit = this.settings.aiDefaultMonthlyLimit ?? 2000;
+      let usage: ReturnType<typeof checkAndRecordAiUsage>;
+      try {
+        usage = writeTransaction((tx) =>
+          checkAndRecordAiUsage(tx, userId, dailyLimit, monthlyLimit),
+        );
+      } catch (error) {
+        console.warn(`AI usage check failed: ${describeError(error)}`);
+        return { ok: false, reason: "providerError" };
+      }
+      if (usage === "dailyLimitExceeded" || usage === "monthlyLimitExceeded") {
+        return { ok: false, reason: usage };
+      }
+    } else {
+      // No settings row carried a userId (nothing in production hits this
+      // today -- both real call sites read a full `user_settings` row --
+      // but a caller that omits one gets the call through unmetered rather
+      // than a thrown error, matching this class's warn-and-continue style
+      // for misconfiguration elsewhere).
+      console.warn("No user id on AI settings; usage limit not enforced for this call.");
     }
 
     try {
+      let text: string | null;
       if (this.provider === "openai") {
-        return await this.callOpenai(prompt, jsonMode);
+        text = await this.callOpenai(prompt, jsonMode);
       } else if (this.provider === "anthropic") {
-        return await this.callAnthropic(prompt);
+        text = await this.callAnthropic(prompt);
       } else if (this.provider === "gemini") {
-        return await this.callGemini(prompt, jsonMode, jsonSchema);
+        text = await this.callGemini(prompt, jsonMode, jsonSchema);
       } else if (this.provider === "mistral") {
-        return await this.callMistral(prompt, jsonMode);
+        text = await this.callMistral(prompt, jsonMode);
       } else if (this.provider === "qwen") {
-        return await this.callQwen(prompt, jsonMode);
+        text = await this.callQwen(prompt, jsonMode);
       } else if (this.provider === "deepseek") {
-        return await this.callDeepseek(prompt, jsonMode);
+        text = await this.callDeepseek(prompt, jsonMode);
       } else {
         console.warn(`Unknown AI provider: ${this.provider}`);
-        return null;
+        return { ok: false, reason: "providerError" };
       }
+      return text === null ? { ok: false, reason: "providerError" } : { ok: true, text };
     } catch (e: unknown) {
       console.warn(`AI API call failed: ${describeError(e)}`);
-      return null;
+      return { ok: false, reason: "providerError" };
     }
   }
 
@@ -503,9 +540,10 @@ export async function applyAiOptions(
     required: ["title", "content"],
   };
 
-  const result = await client.generateResponse(fullPrompt, true, jsonSchema);
+  const generation = await client.generateResponse(fullPrompt, true, jsonSchema);
 
-  if (result) {
+  if (generation.ok) {
+    const result = generation.text;
     let parsedResult: { title?: string; content?: string } | null = null;
     try {
       parsedResult = JSON.parse(result);

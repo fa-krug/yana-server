@@ -1,11 +1,22 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AIClient, applyAiOptions } from "./run";
+import { applyMigrationsAt } from "@/lib/db/test-support";
+
 import type { AiRuntimeSettings } from "./run";
 
 function makeSettings(overrides: Partial<AiRuntimeSettings> = {}): AiRuntimeSettings {
   const provider = overrides.activeAiProvider ?? overrides.active_ai_provider ?? "gemini";
   return {
+    userId: "test-user",
+    // High enough that the daily/monthly usage check added in Task 9 never
+    // interferes with what these tests actually assert -- usage-limit
+    // behavior itself is covered by `src/lib/ai/usage.test.ts`.
+    aiDefaultDailyLimit: 1000,
+    aiDefaultMonthlyLimit: 1000,
+
     activeAiProvider: provider,
     aiMaxRetries: 3,
     aiRetryDelay: 0, // speed up tests by default
@@ -34,12 +45,45 @@ function makeSettings(overrides: Partial<AiRuntimeSettings> = {}): AiRuntimeSett
 describe("applyAiOptions & AIClient processing", () => {
   const originalFetch = globalThis.fetch;
 
-  beforeEach(() => {
+  let dbPath: string;
+  let AIClient: typeof import("./run").AIClient;
+  let applyAiOptions: typeof import("./run").applyAiOptions;
+
+  beforeEach(async () => {
     vi.restoreAllMocks();
+
+    // `generateResponse()` now calls `checkAndRecordAiUsage()` inside
+    // `writeTransaction()`, which reads the process-wide `getDb()` singleton
+    // pointed at `DATABASE_PATH`. `DATABASE_PATH` is captured into a
+    // module-level constant the moment `@/lib/db/client` is first imported,
+    // so a fresh module registry plus a dynamic import of "./run" (after
+    // setting the env var) is required per test -- the same shape as
+    // `src/app/api/v1/aggregate/route.test.ts`'s `beforeEach`. `applyMigrationsAt`
+    // is imported statically above (not dynamically here) because it never
+    // reads `DATABASE_PATH` itself -- it operates on an explicit connection --
+    // so it is safe to call before the env var below is set; a *dynamic*
+    // import of it here would transitively load "@/lib/db/client" too early
+    // (before `DATABASE_PATH` is set) and lock in the wrong `DB_PATH` for the
+    // rest of this test, since the later `import("@/lib/db/client")` below
+    // would just return that same cached module instance.
+    vi.resetModules();
+    const stamp = `${process.pid}-${Math.random().toString(36).slice(2)}`;
+    dbPath = path.join(os.tmpdir(), `yana-ai-run-test-${stamp}.db`);
+    applyMigrationsAt(dbPath);
+    process.env.DATABASE_PATH = dbPath;
+
+    const { writeTransaction } = await import("@/lib/db/client");
+    const { users } = await import("@/lib/db/schema");
+    writeTransaction((tx) => {
+      tx.insert(users).values({ id: "test-user", email: "test-user@example.com" }).run();
+    });
+
+    ({ AIClient, applyAiOptions } = await import("./run"));
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    fs.rmSync(dbPath, { force: true });
   });
 
   describe("test_ai_processing assertions", () => {
@@ -266,7 +310,7 @@ describe("applyAiOptions & AIClient processing", () => {
       const client = new AIClient(settings);
       const result = await client.generateResponse("test prompt");
 
-      expect(result).toBe("hello");
+      expect(result).toMatchObject({ ok: true, text: "hello" });
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
@@ -292,7 +336,7 @@ describe("applyAiOptions & AIClient processing", () => {
       const client = new AIClient(settings);
       const result = await client.generateResponse("test prompt");
 
-      expect(result).toBe("hello");
+      expect(result).toMatchObject({ ok: true, text: "hello" });
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
@@ -318,7 +362,7 @@ describe("applyAiOptions & AIClient processing", () => {
       const client = new AIClient(settings);
       const result = await client.generateResponse("test prompt");
 
-      expect(result).toBe("hello");
+      expect(result).toMatchObject({ ok: true, text: "hello" });
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
@@ -340,7 +384,7 @@ describe("applyAiOptions & AIClient processing", () => {
       const client = new AIClient(settings);
       const result = await client.generateResponse("test prompt");
 
-      expect(result).toBeNull();
+      expect(result).toMatchObject({ ok: false });
       // 1 initial attempt + 3 retries = 4 attempts
       expect(fetchMock).toHaveBeenCalledTimes(4);
     });
@@ -363,7 +407,7 @@ describe("applyAiOptions & AIClient processing", () => {
       const client = new AIClient(settings);
       const result = await client.generateResponse("test prompt");
 
-      expect(result).toBeNull();
+      expect(result).toMatchObject({ ok: false });
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
@@ -385,7 +429,7 @@ describe("applyAiOptions & AIClient processing", () => {
       const client = new AIClient(settings);
       const result = await client.generateResponse("test prompt");
 
-      expect(result).toBeNull();
+      expect(result).toMatchObject({ ok: false });
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
@@ -408,7 +452,7 @@ describe("applyAiOptions & AIClient processing", () => {
       const client = new AIClient(settings);
       const result = await client.generateResponse("test prompt");
 
-      expect(result).toBeNull();
+      expect(result).toMatchObject({ ok: false });
       // Attempt 0: delay 2s, 2s < 3s -> retry
       // Attempt 1: delay 4s, 2s + 4s = 6s > 3s -> budget exceeded, stops retry!
       expect(fetchMock).toHaveBeenCalledTimes(2);
