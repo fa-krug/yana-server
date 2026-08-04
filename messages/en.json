@@ -455,7 +455,7 @@
       "monthlyLimit": "Monthly request limit",
       "monthlyLimitHelp": "The most AI requests Yana makes in a month. At least as large as the daily limit.",
       "maxPromptLength": "Maximum prompt length",
-      "maxPromptLengthHelp": "The most characters of an article that are sent to the provider.",
+      "maxPromptLengthHelp": "The most characters sent to the provider in a single request — an article being summarized, or a prompt sent from the mobile app.",
       "requestTimeout": "Request timeout (seconds)",
       "requestTimeoutHelp": "How long Yana waits for an answer before it gives up on a request.",
       "maxRetries": "Retries",
