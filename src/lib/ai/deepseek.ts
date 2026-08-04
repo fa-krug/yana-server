@@ -1,12 +1,14 @@
 import { openaiCompatibleChatProbe } from "@/lib/integrations/probe";
 import type { ProbeResult } from "@/lib/integrations/probe";
 
-const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions";
+import { DEEPSEEK_API_URL } from "./providers";
 
 /**
  * DeepSeek's endpoint is fixed (no operator setting, see `providers.ts`), so
  * unlike OpenAI's probe there is no URL to validate — this only ever calls
- * the shared OpenAI-compatible probe with a literal endpoint.
+ * the shared OpenAI-compatible probe with a literal endpoint. The base URL
+ * itself is `DEEPSEEK_API_URL`, imported rather than declared here, so this
+ * probe and `run.ts`'s `callDeepseek()` cannot drift apart on it.
  */
 export async function testDeepseekKey({
   apiKey,
@@ -17,7 +19,7 @@ export async function testDeepseekKey({
 }): Promise<ProbeResult> {
   return openaiCompatibleChatProbe({
     providerName: "deepseek",
-    endpoint: DEEPSEEK_API_URL,
+    endpoint: `${DEEPSEEK_API_URL}/chat/completions`,
     apiKey,
     model,
   });

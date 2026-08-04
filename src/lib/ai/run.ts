@@ -3,6 +3,7 @@ import * as cheerio from "cheerio";
 import { writeTransaction } from "@/lib/db/client";
 import type { UserSettings } from "@/lib/db/schema";
 
+import { DEEPSEEK_API_URL, MISTRAL_API_URL, QWEN_API_URL } from "./providers";
 import { checkAndRecordAiUsage } from "./usage";
 
 export interface ArticleInput {
@@ -402,14 +403,7 @@ export class AIClient {
     const model =
       this.settings.mistralModel ?? this.settings.mistral_model ?? "mistral-small-latest";
     const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
-    return this.callOpenaiCompatible(
-      "https://api.mistral.ai/v1",
-      apiKey,
-      model,
-      prompt,
-      jsonMode,
-      timeout,
-    );
+    return this.callOpenaiCompatible(MISTRAL_API_URL, apiKey, model, prompt, jsonMode, timeout);
   }
 
   private async callQwen(prompt: string, jsonMode: boolean): Promise<string | null> {
@@ -421,14 +415,7 @@ export class AIClient {
     }
     const model = this.settings.qwenModel ?? this.settings.qwen_model ?? "qwen3.5-flash";
     const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
-    return this.callOpenaiCompatible(
-      "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-      apiKey,
-      model,
-      prompt,
-      jsonMode,
-      timeout,
-    );
+    return this.callOpenaiCompatible(QWEN_API_URL, apiKey, model, prompt, jsonMode, timeout);
   }
 
   private async callDeepseek(prompt: string, jsonMode: boolean): Promise<string | null> {
@@ -441,14 +428,7 @@ export class AIClient {
     const model =
       this.settings.deepseekModel ?? this.settings.deepseek_model ?? "deepseek-v4-flash";
     const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
-    return this.callOpenaiCompatible(
-      "https://api.deepseek.com/v1",
-      apiKey,
-      model,
-      prompt,
-      jsonMode,
-      timeout,
-    );
+    return this.callOpenaiCompatible(DEEPSEEK_API_URL, apiKey, model, prompt, jsonMode, timeout);
   }
 }
 

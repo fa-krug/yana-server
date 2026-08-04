@@ -5,6 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { applyMigrationsAt } from "@/lib/db/test-support";
 
+import { AI_COLUMNS } from "./columns";
+import {
+  AI_PROVIDERS,
+  DEEPSEEK_API_URL,
+  MISTRAL_API_URL,
+  OPENAI_DEFAULT_API_URL,
+  QWEN_API_URL,
+} from "./providers";
 import type { AiRuntimeSettings } from "./run";
 
 function makeSettings(overrides: Partial<AiRuntimeSettings> = {}): AiRuntimeSettings {
@@ -621,6 +629,89 @@ describe("applyAiOptions & AIClient processing", () => {
       expect(result).toMatchObject({ ok: true, text: "hello" });
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("usage limit not enforced"));
     });
+  });
+
+  /**
+   * **Every one of the six registered providers, actually exercised.**
+   *
+   * Nothing before this block ever called `callMistral()`, `callQwen()` or
+   * `callDeepseek()` -- the retry and json-extraction suites above only drive
+   * `openai`/`anthropic`/`gemini`. That gap meant a seventh provider (or a typo
+   * in one of these three's base URL or response parsing) would typecheck and
+   * ship with nothing catching it at runtime. This iterates `AI_PROVIDERS`
+   * itself (not a hand-written list of six keys) so a future provider is
+   * included automatically, stubs `fetch` with *that provider's own* response
+   * shape, and asserts both the parsed text and the exact outbound URL --
+   * against the exported `*_API_URL` constants in `./providers`, never a
+   * hard-coded string, so a change to one of them is a single edit rather than
+   * a test left asserting a stale value.
+   */
+  describe("generateResponse across every registered provider", () => {
+    const responseShapeFor = (key: (typeof AI_PROVIDERS)[number]["key"], text: string): unknown => {
+      switch (key) {
+        case "anthropic":
+          return { content: [{ type: "text", text }] };
+        case "gemini":
+          return { candidates: [{ content: { parts: [{ text }] } }] };
+        default:
+          // openai, mistral, qwen, deepseek: the shared OpenAI-compatible shape.
+          return { choices: [{ message: { content: text } }] };
+      }
+    };
+
+    const expectedUrlFor = (
+      key: (typeof AI_PROVIDERS)[number]["key"],
+      provider: (typeof AI_PROVIDERS)[number],
+      apiKey: string,
+    ): string => {
+      switch (key) {
+        case "openai":
+          return `${OPENAI_DEFAULT_API_URL}/chat/completions`;
+        case "anthropic":
+          return "https://api.anthropic.com/v1/messages";
+        case "gemini":
+          return `https://generativelanguage.googleapis.com/v1beta/models/${provider.defaultModel}:generateContent?key=${apiKey}`;
+        case "mistral":
+          return `${MISTRAL_API_URL}/chat/completions`;
+        case "qwen":
+          return `${QWEN_API_URL}/chat/completions`;
+        case "deepseek":
+          return `${DEEPSEEK_API_URL}/chat/completions`;
+      }
+    };
+
+    it.each(AI_PROVIDERS.map((provider) => provider.key))(
+      "calls %s with its own request shape and parses its own response shape",
+      async (key) => {
+        const provider = AI_PROVIDERS.find((p) => p.key === key);
+        if (!provider) throw new Error(`no AI_PROVIDERS entry for "${key}"`);
+        const columns = AI_COLUMNS[key];
+        const apiKey = `test-${key}-key`;
+        const text = `${key} reply`;
+
+        const settings = makeSettings({
+          activeAiProvider: key,
+          [columns.enabled]: true,
+          [columns.apiKey]: apiKey,
+          [columns.model]: provider.defaultModel,
+        } as Partial<AiRuntimeSettings>);
+
+        const fetchMock = vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: async () => responseShapeFor(key, text),
+        } as Response);
+        globalThis.fetch = fetchMock;
+
+        const client = new AIClient(settings);
+        const result = await client.generateResponse("test prompt");
+
+        expect(result).toEqual({ ok: true, text });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const calledUrl = fetchMock.mock.calls[0]?.[0] as string;
+        expect(calledUrl).toBe(expectedUrlFor(key, provider, apiKey));
+      },
+    );
   });
 
   describe("no-op behavior when options or provider disabled", () => {

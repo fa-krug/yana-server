@@ -149,6 +149,58 @@ describe("POST /api/v1/ai/prompt", () => {
     vi.unstubAllGlobals();
   });
 
+  /**
+   * The existing "returns the provider's completion" case above only ever
+   * exercised `anthropic` -- one of the original three. The design spec's
+   * requirement is that this endpoint "must work with the full expanded
+   * provider list from day one," so this repeats it against `deepseek`, one
+   * of the three providers this same plan added, to prove the endpoint
+   * actually reaches a new provider's branch in `AIClient` end to end rather
+   * than only the providers that predate this plan.
+   */
+  it("returns the provider's completion for a newly-added provider (deepseek)", async () => {
+    const token = await ownerToken();
+    const owner = client
+      .getDb()
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.email, "o@example.com"))
+      .get()!;
+    client.writeTransaction((tx) => {
+      tx.update(schema.userSettings)
+        .set({
+          deepseekEnabled: true,
+          deepseekApiKey: "sk-deepseek-test",
+          deepseekModel: "deepseek-v4-flash",
+          activeAiProvider: "deepseek",
+        })
+        .where(eq(schema.userSettings.userId, owner.id))
+        .run();
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ choices: [{ message: { content: "Hello from DeepSeek." } }] }),
+          {
+            status: 200,
+          },
+        ),
+      ),
+    );
+
+    const response = await promptRequest(token, { prompt: "Hello there" });
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({
+      response: "Hello from DeepSeek.",
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+    });
+    vi.unstubAllGlobals();
+  });
+
   it("429s once the daily request limit is reached", async () => {
     const token = await ownerToken();
     const owner = client

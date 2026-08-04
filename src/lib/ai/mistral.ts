@@ -1,12 +1,14 @@
 import { openaiCompatibleChatProbe } from "@/lib/integrations/probe";
 import type { ProbeResult } from "@/lib/integrations/probe";
 
-const MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions";
+import { MISTRAL_API_URL } from "./providers";
 
 /**
  * Mistral's endpoint is fixed (no operator setting, see `providers.ts`), so
  * unlike OpenAI's probe there is no URL to validate — this only ever calls
- * the shared OpenAI-compatible probe with a literal endpoint.
+ * the shared OpenAI-compatible probe with a literal endpoint. The base URL
+ * itself is `MISTRAL_API_URL`, imported rather than declared here, so this
+ * probe and `run.ts`'s `callMistral()` cannot drift apart on it.
  */
 export async function testMistralKey({
   apiKey,
@@ -17,7 +19,7 @@ export async function testMistralKey({
 }): Promise<ProbeResult> {
   return openaiCompatibleChatProbe({
     providerName: "mistral",
-    endpoint: MISTRAL_API_URL,
+    endpoint: `${MISTRAL_API_URL}/chat/completions`,
     apiKey,
     model,
   });
