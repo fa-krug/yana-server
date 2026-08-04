@@ -261,36 +261,49 @@ function bumpRunCounters(
  * belongs to a run -- the `run` event for that run's now-updated counters.
  * Called after the `writeTransaction` in `complete()`/`fail()` has committed,
  * so a dropped/rolled-back write never gets an event published for it.
+ *
+ * Never throws: `EventEmitter.emit()` rethrows synchronously if a subscriber's
+ * listener throws, and `complete()`/`fail()` call this *after* their own
+ * transaction has already committed -- an escaping throw here would land in
+ * the worker loop's `catch`, which would call `fail()` again on a job that
+ * just successfully completed, double-counting its parent run's counters and
+ * overwriting a "completed" status with "failed". `events.ts` documents
+ * publishing as best-effort notification, never the source of truth, so a
+ * broken listener degrades to "no live update," not "corrupted job state."
  */
 function publishJobOutcome(job: Job, status: "completed" | "failed"): void {
-  const userId = resolveJobUserId(job);
-  if (!userId) return;
+  try {
+    const userId = resolveJobUserId(job);
+    if (!userId) return;
 
-  publishUserEvent(userId, {
-    type: "job",
-    payload: {
-      jobId: job.id,
-      runId: job.runId,
-      kind: job.kind,
-      status,
-      progress: status === "completed" ? 100 : job.progress,
-    },
-  });
+    publishUserEvent(userId, {
+      type: "job",
+      payload: {
+        jobId: job.id,
+        runId: job.runId,
+        kind: job.kind,
+        status,
+        progress: status === "completed" ? 100 : job.progress,
+      },
+    });
 
-  if (job.runId !== null) {
-    const run = getRun(job.runId);
-    if (run) {
-      publishUserEvent(userId, {
-        type: "run",
-        payload: {
-          runId: run.id,
-          status: run.status,
-          totalJobs: run.totalJobs,
-          completedJobs: run.completedJobs,
-          failedJobs: run.failedJobs,
-        },
-      });
+    if (job.runId !== null) {
+      const run = getRun(job.runId);
+      if (run) {
+        publishUserEvent(userId, {
+          type: "run",
+          payload: {
+            runId: run.id,
+            status: run.status,
+            totalJobs: run.totalJobs,
+            completedJobs: run.completedJobs,
+            failedJobs: run.failedJobs,
+          },
+        });
+      }
     }
+  } catch (err) {
+    console.error(`[queue] failed to publish outcome for job ${job.id}:`, err);
   }
 }
 
