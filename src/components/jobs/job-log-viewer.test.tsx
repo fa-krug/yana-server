@@ -97,6 +97,27 @@ describe("JobLogViewer", () => {
     expect(screen.getByText("a new line")).toBeTruthy();
   });
 
+  it("ignores a redelivered line after EventSource's native auto-reconnect resends the backfill", () => {
+    renderWithProviders(<JobLogViewer jobId={7} initialLines={INITIAL} />);
+    const source = FakeEventSource.instances[0]!;
+
+    const line = {
+      id: 3,
+      stream: "stdout" as const,
+      line: "a new line",
+      createdAt: "2026-08-04T00:00:02.000Z",
+    };
+
+    act(() => {
+      source.emit("line", line);
+      // A reconnect reopens the same cursored URL, so the server resends
+      // every line after it -- including this one a second time.
+      source.emit("line", line);
+    });
+
+    expect(screen.getAllByText("a new line")).toHaveLength(1);
+  });
+
   it("shows the ended state and closes the source on an end event", () => {
     renderWithProviders(<JobLogViewer jobId={7} initialLines={INITIAL} />);
     const source = FakeEventSource.instances[0]!;

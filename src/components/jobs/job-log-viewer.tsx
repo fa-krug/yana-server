@@ -30,6 +30,12 @@ export function JobLogViewer({
 
     source.addEventListener("line", (event) => {
       const line = JSON.parse((event as MessageEvent).data) as JobLogLine;
+      // The browser's native EventSource auto-reconnect reopens this same
+      // cursored URL after any transient disconnect, so the server resends
+      // every persisted line after that original cursor -- already-seen ids
+      // must be dropped here, or a reconnect duplicates the whole backfill
+      // (visible repeated lines, plus React key collisions since ids repeat).
+      if (line.id <= lastIdRef.current) return;
       lastIdRef.current = line.id;
       setLines((prev) => [...prev, line]);
     });
