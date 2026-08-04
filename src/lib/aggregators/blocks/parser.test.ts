@@ -224,6 +224,19 @@ describe("parseBlocks", () => {
     expect((blocks[0] as Paragraph).runs[0].text).toBe("Article Headline");
   });
 
+  it("keeps the image in a media-header -- TagesschauAggregator's own header, not decorative chrome", () => {
+    // Unlike a generic article-body <header> (a byline, a date, sometimes a
+    // site logo -- decorative, correctly dropped above), `media-header` is
+    // TagesschauAggregator's convention for the header image or video poster
+    // it deliberately built (see extractMediaHeader() in
+    // sites/tagesschau/media.ts). Dropping it here silently threw away an
+    // image the aggregator had already fetched and stored.
+    const html = `<header class="media-header"><div class="media-image"><img src="yana-img://${"a".repeat(64)}"></div></header>`;
+    const blocks = parseBlocks(html);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].kind).toBe("image");
+  });
+
   it("ignores dropped tags like script, style, and form", () => {
     const html = `<script>alert('xss')</script><style>body { color: red; }</style><p>Surviving text</p>`;
     const blocks = parseBlocks(html);

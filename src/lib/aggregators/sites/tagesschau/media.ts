@@ -1,29 +1,22 @@
-import crypto from "node:crypto";
 import * as cheerio from "cheerio";
 import type { Element } from "domhandler";
 import { isSafeUrl } from "../../blocks/parser";
 import { escapeHtml } from "../../extract/format";
-import { buildImageRef, IMAGE_REF_SCHEME } from "../../images/store";
+import { IMAGE_REF_SCHEME } from "../../images/store";
 
-export function storeImageRefFromUrlSync(url: string): string | null {
-  if (!url || !isSafeUrl(url)) return null;
-  const hash = crypto.createHash("sha256").update(url).digest("hex");
-  return buildImageRef(hash);
-}
-
-function localizeImageUrl(imageUrl: string | null): string | null {
-  if (!imageUrl || !imageUrl.startsWith("http")) {
-    return imageUrl;
-  }
-  try {
-    const ref = storeImageRefFromUrlSync(imageUrl);
-    if (ref) {
-      return ref;
-    }
-  } catch (err) {
-    console.warn(`Failed to store Tagesschau header image ${imageUrl}:`, err);
-  }
-  return imageUrl;
+/**
+ * A media header's HTML, plus the one remote image URL still embedded in it
+ * (if any) that a caller must resolve. `extractMediaHeader` runs inside the
+ * synchronous `extractContent()`, so it cannot itself fetch and store the
+ * image -- fetching is real network I/O (see `storeImageRefFromUrl` in
+ * `images/store.ts`, which does it correctly). `imageUrl` is exactly the
+ * value `safeImageSrc()` embedded (escaped) into `html`, so a caller can
+ * resolve it asynchronously and substitute the result by replacing that same
+ * escaped substring -- see `TagesschauAggregator.processContent()`.
+ */
+export interface MediaHeaderResult {
+  html: string;
+  imageUrl: string | null;
 }
 
 function safeImageSrc(imageUrl: string | null): string | null {
@@ -269,7 +262,17 @@ function buildHeaderFromStreams(
   return null;
 }
 
-export function extractMediaHeader(html: string): string | null {
+/**
+ * `imageUrl` when it is a remote URL `safeImageSrc()` would actually embed,
+ * `null` when there is nothing to resolve -- unsafe, absent, or already a
+ * `yana-img://` reference.
+ */
+function resolvableImageUrl(imageUrl: string | null): string | null {
+  if (!imageUrl || imageUrl.startsWith(IMAGE_REF_SCHEME)) return null;
+  return safeImageSrc(imageUrl) ? imageUrl : null;
+}
+
+export function extractMediaHeader(html: string): MediaHeaderResult | null {
   const $ = cheerio.load(html);
   const mediaPlayers: Element[] = [];
 
@@ -299,8 +302,7 @@ export function extractMediaHeader(html: string): string | null {
       const streams = Array.isArray(mc.streams) ? mc.streams : [];
 
       const isAudioOnly = streams.length > 0 && streams.every((s) => s.isAudioOnly === true);
-      const rawImage = getPlayerImage($, playerDiv, mc);
-      const imageUrl = localizeImageUrl(rawImage);
+      const imageUrl = getPlayerImage($, playerDiv, mc);
 
       const pluginData = playerData.pluginData || {};
       const sharingWeb = pluginData["sharing@web"] || {};
@@ -308,11 +310,11 @@ export function extractMediaHeader(html: string): string | null {
 
       if (embedCode) {
         const result = buildHeaderFromEmbedCode(embedCode, isAudioOnly, imageUrl);
-        if (result) return result;
+        if (result) return { html: result, imageUrl: resolvableImageUrl(imageUrl) };
       }
 
       const result = buildHeaderFromStreams(streams, isAudioOnly, imageUrl);
-      if (result) return result;
+      if (result) return { html: result, imageUrl: resolvableImageUrl(imageUrl) };
     } catch {
       // ignore parse error
     }

@@ -4,12 +4,17 @@ import type { Element } from "domhandler";
 /**
  * Extract content from Tagesschau article using textabsatz paragraphs.
  *
- * Ported from old/core/aggregators/tagesschau/content_extraction.py.
+ * Ported from old/core/aggregators/tagesschau/content_extraction.py. `trenner`
+ * is that legacy heading class, kept for backward compatibility; current
+ * tagesschau.de/sportschau.de pages mark section headings `meldung__subhead`
+ * instead. Classless `<h2>`s ("Mehr zum Thema", "Top-Themen") are navigation
+ * and intentionally excluded.
  */
 export function extractTagesschauContent(html: string): string {
   const $ = cheerio.load(html);
   const $root = cheerio.load('<div data-sanitized-class="article-content"></div>');
   const $contentDiv = $root("div");
+  const headingClasses = ["trenner", "meldung__subhead"];
 
   // Find all paragraphs and headings
   $("p, h2").each((_, el) => {
@@ -26,7 +31,10 @@ export function extractTagesschauContent(html: string): string {
       const $pNew = $root("<p></p>");
       $pNew.html(innerHtml);
       $contentDiv.append($pNew);
-    } else if (tagName === "h2" && classes.some((c) => c.includes("trenner"))) {
+    } else if (
+      tagName === "h2" &&
+      classes.some((c) => headingClasses.some((hc) => c.includes(hc)))
+    ) {
       const text = $(el).text().trim();
       const $h2New = $root("<h2></h2>");
       $h2New.text(text);

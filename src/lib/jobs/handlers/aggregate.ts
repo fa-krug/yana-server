@@ -32,7 +32,12 @@ export async function handleAggregateJob(job: Job): Promise<void> {
     const raw = rawArticles[i];
     if (!raw.identifier) continue;
 
-    const htmlContent = raw.raw_content || raw.content || "";
+    // `content` is what extractContent()/processContent() actually distilled
+    // from the page -- `raw_content` is the whole fetched page a full-website
+    // aggregator (Tagesschau, Heise, ...) stashes there unconditionally, nav
+    // and footer included, and is only a fallback for aggregators (plain RSS)
+    // that never populate `content` at all.
+    const htmlContent = raw.content || raw.raw_content || "";
     const blocks = parseBlocks(htmlContent, raw.identifier);
     const plainText = plainTextOf(blocks);
 

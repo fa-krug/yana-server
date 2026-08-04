@@ -1,17 +1,10 @@
-import crypto from "node:crypto";
 import * as cheerio from "cheerio";
 import { FeedLike, RawArticle } from "../base";
 import { isSafeUrl } from "../blocks/parser";
 import { escapeHtml } from "../extract/format";
 import { HeaderElementData } from "../header/context";
-import { buildImageRef } from "../images/store";
+import { storeImageRefFromUrl } from "../images/store";
 import { FullWebsiteAggregator } from "../website";
-
-export function storeImageRefFromUrlSync(url: string): string | null {
-  if (!url || !isSafeUrl(url)) return null;
-  const hash = crypto.createHash("sha256").update(url).digest("hex");
-  return buildImageRef(hash);
-}
 
 export class DarkLegacyAggregator extends FullWebsiteAggregator {
   static brandSiteUrl = "https://darklegacycomics.com/";
@@ -59,18 +52,20 @@ export class DarkLegacyAggregator extends FullWebsiteAggregator {
     return null;
   }
 
-  override processContent(htmlContent: string, article: RawArticle): string | Promise<string> {
+  override async processContent(htmlContent: string, article: RawArticle): Promise<string> {
     const options = (this.feed.options as Record<string, unknown> | null) || {};
     const showAltText = options.show_alt_text !== false;
 
     const $ = cheerio.load(htmlContent);
-    const $images = $("img");
+    const images = $("img").toArray();
 
     let newHtml = htmlContent;
 
-    if ($images.length > 0) {
+    if (images.length > 0) {
       let htmlBuilder = "<div>";
-      $images.each((_, imgEl) => {
+      // A plain for-of, not `.each()`: cheerio's `.each()` callback cannot be
+      // awaited, and a comic page can carry more than one image.
+      for (const imgEl of images) {
         const $img = $(imgEl);
         let src = ($img.attr("src") || "").trim();
         if (
@@ -88,7 +83,8 @@ export class DarkLegacyAggregator extends FullWebsiteAggregator {
 
         let imgSrc = src;
         if (isSafeUrl(src)) {
-          imgSrc = storeImageRefFromUrlSync(src) || src;
+          const ref = await storeImageRefFromUrl(src);
+          imgSrc = ref || src;
         }
 
         const alt = $img.attr("alt");
@@ -103,7 +99,7 @@ export class DarkLegacyAggregator extends FullWebsiteAggregator {
         if (showAltText && altText) {
           htmlBuilder += `<p style="font-style: italic; margin-top: 1em; color: #666; text-align: center;">${escapeHtml(altText)}</p>`;
         }
-      });
+      }
       htmlBuilder += "</div>";
       newHtml = htmlBuilder;
     }

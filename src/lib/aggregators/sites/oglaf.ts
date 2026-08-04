@@ -1,17 +1,10 @@
-import crypto from "node:crypto";
 import * as cheerio from "cheerio";
 import { FeedLike, RawArticle } from "../base";
 import { isSafeUrl } from "../blocks/parser";
 import { escapeHtml, formatArticleContent } from "../extract/format";
 import { HeaderElementData } from "../header/context";
-import { buildImageRef } from "../images/store";
+import { storeImageRefFromUrl } from "../images/store";
 import { FullWebsiteAggregator } from "../website";
-
-export function storeImageRefFromUrlSync(url: string): string | null {
-  if (!url || !isSafeUrl(url)) return null;
-  const hash = crypto.createHash("sha256").update(url).digest("hex");
-  return buildImageRef(hash);
-}
 
 export class OglafAggregator extends FullWebsiteAggregator {
   static brandSiteUrl = "https://www.oglaf.com/";
@@ -73,7 +66,7 @@ export class OglafAggregator extends FullWebsiteAggregator {
     return null;
   }
 
-  override processContent(htmlContent: string, article: RawArticle): string | Promise<string> {
+  override async processContent(htmlContent: string, article: RawArticle): Promise<string> {
     const options = (this.feed.options as Record<string, unknown> | null) || {};
     const showAltText = options.show_alt_text !== false;
 
@@ -106,7 +99,8 @@ export class OglafAggregator extends FullWebsiteAggregator {
 
       let imgSrc: string | null = null;
       if (isSafeUrl(imgUrl)) {
-        imgSrc = escapeHtml(storeImageRefFromUrlSync(imgUrl) || imgUrl);
+        const ref = await storeImageRefFromUrl(imgUrl);
+        imgSrc = escapeHtml(ref || imgUrl);
       }
 
       newHtml = '<figure style="text-align: center;">';

@@ -1,8 +1,6 @@
 import * as cheerio from "cheerio";
 import type { Element } from "domhandler";
 import type { RawArticle } from "../../base";
-import { isSafeUrl } from "../../blocks/parser";
-import { storeImageRefFromUrlSync } from "../tagesschau/media";
 import {
   cleanDataAttributes,
   removeEmptyElements,
@@ -112,17 +110,9 @@ export function extractMeinMmoContent(
 
   // Process embeds (YouTube, Twitter, Reddit, Bluesky, TikTok, YouTubeFallback)
   processEmbeds($content, $);
-  // Replace image src with stored image references for parity tests
-  $content.find("img").each((_, img) => {
-    const $img = $(img);
-    const src = $img.attr("src");
-    if (src && isSafeUrl(src)) {
-      const ref = storeImageRefFromUrlSync(src);
-      if (ref) {
-        $img.attr("src", ref);
-      }
-    }
-  });
+  // Body `<img>` src values are resolved to real yana-img:// references in
+  // MeinMmoAggregator.processContent() -- that step is async (a real fetch),
+  // and this function runs inside the synchronous extractContent().
 
   // Remove empty paragraphs and divs
   removeEmptyElements($, ["p", "div"]);

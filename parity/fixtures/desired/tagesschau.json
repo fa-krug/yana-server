@@ -8,11 +8,11 @@
     "id": 1,
     "identifier": "https://www.tagesschau.de/inland/terrorverdacht-niederbayern-100.html",
     "name": "Festnahmen wegen mutmaßlicher Anschlagspläne auf Weihnachtsmarkt in Bayern",
-    "plainTextLength": 1383
+    "plainTextLength": 1414
   },
   "curation": {
-    "desiredBlockCount": 4,
-    "rawBlockCount": 4,
+    "desiredBlockCount": 6,
+    "rawBlockCount": 6,
     "remoteRefsNeedingLocalization": [],
     "removed": [],
     "warnings": []
@@ -20,6 +20,11 @@
   "document": {
     "version": 1,
     "blocks": [
+      {
+        "type": "image",
+        "ref": "yana-img://60b15315f274d695cfe52a5733331d68df5f58993738128a0df65fc2ca2d6f22",
+        "caption": []
+      },
       {
         "type": "paragraph",
         "runs": [
@@ -45,6 +50,17 @@
         "runs": [
           {
             "text": " Die Staatsanwaltschaft geht derzeit von einer islamistischen Motivation aus. Der Anschlag sollte demnach mit einem Fahrzeug durchgeführt werden - auf welchem Markt genau, ist nicht bekannt. Wie die Generalstaatsanwaltschaft betonte, gilt die Unschuldsvermutung. ",
+            "styles": [],
+            "link": null
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "level": 2,
+        "runs": [
+          {
+            "text": "Festnahmen bereits am Freitag",
             "styles": [],
             "link": null
           }

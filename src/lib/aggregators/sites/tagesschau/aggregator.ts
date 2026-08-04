@@ -1,8 +1,10 @@
 import * as cheerio from "cheerio";
 import { FeedLike, RawArticle } from "../../base";
+import { escapeHtml } from "../../extract/format";
+import { storeImageRefFromUrl } from "../../images/store";
 import { FullWebsiteAggregator } from "../../website";
 import { extractTagesschauContent } from "./extraction";
-import { extractMediaHeader } from "./media";
+import { extractMediaHeader, type MediaHeaderResult } from "./media";
 
 export class TagesschauAggregator extends FullWebsiteAggregator {
   static brandSiteUrl = "https://www.tagesschau.de/";
@@ -150,6 +152,11 @@ export class TagesschauAggregator extends FullWebsiteAggregator {
       return true;
     }
 
+    if (title.startsWith("Bilder:")) {
+      // Photo-gallery articles: no readable body text.
+      return true;
+    }
+
     const skipTerms = [
       "tagesschau",
       "tagesthemen",
@@ -196,13 +203,15 @@ export class TagesschauAggregator extends FullWebsiteAggregator {
     return $("img, iframe, video, audio").length > 0;
   }
 
-  private mediaHeader(html: string, article: RawArticle): string | null {
+  private mediaHeader(html: string, article: RawArticle): MediaHeaderResult | null {
     if ("_tagesschau_media_header" in article) {
       const cached = article._tagesschau_media_header;
-      return typeof cached === "string" ? cached : null;
+      return cached && typeof cached === "object" && "html" in cached
+        ? (cached as MediaHeaderResult)
+        : null;
     }
 
-    let mediaHeader: string | null = null;
+    let mediaHeader: MediaHeaderResult | null = null;
     if (html) {
       try {
         mediaHeader = extractMediaHeader(html);
@@ -213,6 +222,31 @@ export class TagesschauAggregator extends FullWebsiteAggregator {
 
     article._tagesschau_media_header = mediaHeader;
     return mediaHeader;
+  }
+
+  /**
+   * `extractMediaHeader` runs inside the synchronous `extractContent()` and
+   * so cannot itself fetch the header image -- it leaves the one remote URL
+   * it could not resolve on `mediaHeader.imageUrl`, already embedded
+   * (escaped) in `mediaHeader.html`. This is the async step that actually
+   * fetches and stores it, substituting the real `yana-img://` reference for
+   * the same escaped substring. A fetch failure degrades to the original
+   * remote URL already in `html` -- still a renderable image, just not
+   * localized -- rather than losing the image entirely.
+   */
+  private async resolveMediaHeaderImage(mediaHeader: MediaHeaderResult): Promise<string> {
+    if (!mediaHeader.imageUrl) {
+      return mediaHeader.html;
+    }
+    try {
+      const ref = await storeImageRefFromUrl(mediaHeader.imageUrl, { isHeader: true });
+      if (ref) {
+        return mediaHeader.html.replace(escapeHtml(mediaHeader.imageUrl), ref);
+      }
+    } catch (err) {
+      console.warn(`Failed to store Tagesschau header image ${mediaHeader.imageUrl}:`, err);
+    }
+    return mediaHeader.html;
   }
 
   override async processContent(html: string, article: RawArticle): Promise<string> {
@@ -234,7 +268,8 @@ export class TagesschauAggregator extends FullWebsiteAggregator {
     }
 
     if (mediaHeader) {
-      return mediaHeader + processed;
+      const resolvedHeaderHtml = await this.resolveMediaHeaderImage(mediaHeader);
+      return resolvedHeaderHtml + processed;
     }
 
     return processed;

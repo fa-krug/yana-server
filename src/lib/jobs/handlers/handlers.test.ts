@@ -410,4 +410,162 @@ describe("src/lib/jobs/handlers", () => {
       expect(tombstones).toHaveLength(0);
     });
   });
+
+  describe("aggregate", () => {
+    it("parses the aggregator's processed content, not the raw fetched page", async () => {
+      vi.resetModules();
+      vi.doMock("@/lib/aggregators/factory", () => ({
+        createAggregator: () => ({
+          aggregate: async () => [
+            {
+              identifier: "https://example.com/article-1",
+              name: "Article One",
+              // A full-website aggregator (Tagesschau, Heise, ...) always
+              // populates raw_content with the whole fetched page -- nav,
+              // header, footer included -- while `content` is what
+              // extractContent()/processContent() actually distilled from it.
+              raw_content:
+                "<html><body><nav>Hauptnavigation Untermenü einblenden</nav>" +
+                "<article><p>Real article body.</p></article></body></html>",
+              content: "<p>Real article body.</p>",
+              date: new Date("2024-01-01"),
+              author: "",
+            },
+          ],
+        }),
+      }));
+      handlers = await import("./index");
+
+      let userId = "";
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+        userId = user!.id;
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "Test Feed", userId, aggregator: "full_website", enabled: true })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedId = feed.id;
+      });
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+      expect(aggregateHandler).toBeDefined();
+
+      await aggregateHandler!({
+        id: 1,
+        runId: null,
+        kind: "aggregate",
+        payload: { feedId },
+        status: "running",
+        attempts: 1,
+        maxAttempts: 3,
+        runAt: new Date(),
+        startedAt: new Date(),
+        finishedAt: null,
+        progress: 0,
+        error: "",
+        createdAt: new Date(),
+      });
+
+      const article = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.feedId, feedId))
+        .get();
+      expect(article).toBeDefined();
+      expect(article!.plainText).toContain("Real article body");
+      expect(article!.plainText).not.toContain("Hauptnavigation");
+      expect(article!.plainText).not.toContain("Untermenü");
+    });
+  });
+
+  describe("reload", () => {
+    it("re-runs the aggregator's extraction on raw_content instead of re-parsing the raw page verbatim", async () => {
+      vi.resetModules();
+      vi.doMock("@/lib/aggregators/factory", () => ({
+        createAggregator: () => ({
+          // A stand-in for TagesschauAggregator's own extractContent/processContent:
+          // strips everything outside <article>, mirroring what the real
+          // pipeline distills from a full page fetch.
+          extractHeaderElement: async () => null,
+          extractContent: (html: string) => {
+            const match = html.match(/<article>([\s\S]*)<\/article>/);
+            return match ? match[1] : "";
+          },
+          processContent: (html: string) => html,
+        }),
+      }));
+      handlers = await import("./index");
+
+      let userId = "";
+      let feedId = 0;
+      let articleId = 0;
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+        userId = user!.id;
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "Test Feed", userId, aggregator: "full_website", enabled: true })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedId = feed.id;
+
+        const article = db
+          .insert(schema.articles)
+          .values({
+            name: "Article One",
+            identifier: "https://example.com/article-1",
+            feedId,
+            date: new Date("2024-01-01"),
+            rawContent:
+              "<html><body><nav>Hauptnavigation Untermenü einblenden</nav>" +
+              "<article><p>Real article body.</p></article></body></html>",
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        articleId = article.id;
+      });
+
+      const reloadHandler = handlers.getHandler("article.reload");
+      expect(reloadHandler).toBeDefined();
+
+      await reloadHandler!({
+        id: 1,
+        runId: null,
+        kind: "article.reload",
+        payload: { articleId },
+        status: "running",
+        attempts: 1,
+        maxAttempts: 3,
+        runAt: new Date(),
+        startedAt: new Date(),
+        finishedAt: null,
+        progress: 0,
+        error: "",
+        createdAt: new Date(),
+      });
+
+      const article = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, articleId))
+        .get();
+      expect(article!.plainText).toContain("Real article body");
+      expect(article!.plainText).not.toContain("Hauptnavigation");
+      expect(article!.plainText).not.toContain("Untermenü");
+    });
+  });
 });
