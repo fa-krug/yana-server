@@ -48,6 +48,7 @@ const PROVIDERS: Record<AiProviderKey, AiProviderStatus> = {
   gemini: { enabled: false, apiKeyMasked: "", apiUrl: "", model: "gemini-3.5-flash-lite" },
   mistral: { enabled: false, apiKeyMasked: "", apiUrl: "", model: "mistral-small-latest" },
   qwen: { enabled: false, apiKeyMasked: "", apiUrl: "", model: "qwen3.5-flash" },
+  deepseek: { enabled: false, apiKeyMasked: "", apiUrl: "", model: "deepseek-v4-flash" },
 };
 
 function render(active: AiProviderKey | "", locale: "en" | "de" = "de") {

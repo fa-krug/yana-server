@@ -237,6 +237,12 @@ const PROVIDER_KEYS = {
     quota: "qwen.quota",
     modelUnknown: "qwen.modelUnknown",
   },
+  deepseek: {
+    required: "deepseek.required",
+    rejected: "deepseek.rejected",
+    quota: "deepseek.quota",
+    modelUnknown: "deepseek.modelUnknown",
+  },
 } satisfies Record<
   AiProviderKey,
   Record<"required" | "rejected" | "quota" | "modelUnknown", AiKey>
@@ -363,12 +369,31 @@ const qwen = defineIntegration({
   },
 });
 
+const deepseek = defineIntegration({
+  provider: "deepseek",
+  schema: z.object({ apiKey: secretField, model: modelField(registryEntry("deepseek")) }),
+  fields: {
+    apiKey: { column: AI_COLUMNS.deepseek.apiKey, secret: true },
+    model: { column: AI_COLUMNS.deepseek.model, secret: false },
+  },
+  flagColumn: AI_COLUMNS.deepseek.enabled,
+  requiredKey: PROVIDER_KEYS.deepseek.required,
+  fieldErrorKeys: { "model:custom": PROVIDER_KEYS.deepseek.modelUnknown },
+  probe: AI_PROBES.deepseek,
+  keys: {
+    rejected: PROVIDER_KEYS.deepseek.rejected,
+    quota: PROVIDER_KEYS.deepseek.quota,
+    quotaMeansVerified: registryEntry("deepseek").quotaMeansVerified,
+  },
+});
+
 const PROVIDER_ACTIONS: Record<AiProviderKey, IntegrationActions<AiKey>> = {
   openai,
   anthropic,
   gemini,
   mistral,
   qwen,
+  deepseek,
 };
 
 /**

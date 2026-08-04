@@ -74,6 +74,11 @@ export const AI_COLUMNS = {
     apiKey: "qwenApiKey",
     model: "qwenModel",
   },
+  deepseek: {
+    enabled: "deepseekEnabled",
+    apiKey: "deepseekApiKey",
+    model: "deepseekModel",
+  },
 } satisfies Record<AiProviderKey, AiColumns>;
 
 /**

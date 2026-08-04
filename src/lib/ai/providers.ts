@@ -19,7 +19,7 @@
  * `AI_PROBES`, not an edit to the form, the action and the client.
  */
 
-export type AiProviderKey = "openai" | "anthropic" | "gemini" | "mistral" | "qwen";
+export type AiProviderKey = "openai" | "anthropic" | "gemini" | "mistral" | "qwen" | "deepseek";
 
 /**
  * Where an OpenAI credential is probed, and what a fresh `user_settings` row
@@ -210,6 +210,18 @@ export const AI_PROVIDERS: readonly AiProvider[] = [
       { value: "qwen3-max", label: "Qwen 3 Max" },
     ],
     defaultModel: "qwen3.5-flash",
+    hasCustomUrl: false,
+    quotaMeansVerified: true,
+  },
+  {
+    key: "deepseek",
+    label: "DeepSeek",
+    // From yana-ios's AIProvider enum (AppSettings.swift), copied 2026-08-04.
+    models: [
+      { value: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
+      { value: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
+    ],
+    defaultModel: "deepseek-v4-flash",
     hasCustomUrl: false,
     quotaMeansVerified: true,
   },

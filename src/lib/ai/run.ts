@@ -50,6 +50,9 @@ export type AiRuntimeSettings = Partial<UserSettings> & {
   qwen_enabled?: boolean;
   qwen_api_key?: string;
   qwen_model?: string;
+  deepseek_enabled?: boolean;
+  deepseek_api_key?: string;
+  deepseek_model?: string;
 };
 
 /** The JSON body an AI provider's chat/completion endpoint is POSTed. */
@@ -199,6 +202,8 @@ export class AIClient {
         return await this.callMistral(prompt, jsonMode);
       } else if (this.provider === "qwen") {
         return await this.callQwen(prompt, jsonMode);
+      } else if (this.provider === "deepseek") {
+        return await this.callDeepseek(prompt, jsonMode);
       } else {
         console.warn(`Unknown AI provider: ${this.provider}`);
         return null;
@@ -381,6 +386,26 @@ export class AIClient {
     const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
     return this.callOpenaiCompatible(
       "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+      apiKey,
+      model,
+      prompt,
+      jsonMode,
+      timeout,
+    );
+  }
+
+  private async callDeepseek(prompt: string, jsonMode: boolean): Promise<string | null> {
+    const enabled = this.settings.deepseekEnabled ?? this.settings.deepseek_enabled;
+    const apiKey = this.settings.deepseekApiKey ?? this.settings.deepseek_api_key;
+    if (!enabled || !apiKey) {
+      console.warn("DeepSeek is not enabled or configured.");
+      return null;
+    }
+    const model =
+      this.settings.deepseekModel ?? this.settings.deepseek_model ?? "deepseek-v4-flash";
+    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
+    return this.callOpenaiCompatible(
+      "https://api.deepseek.com/v1",
       apiKey,
       model,
       prompt,

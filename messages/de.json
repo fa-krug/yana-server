@@ -434,6 +434,12 @@
       "quota": "Der Schlüssel ist gültig — Qwen begrenzt ihn gerade. In Kürze funktioniert er wieder.",
       "modelUnknown": "Wähle eines der Modelle, die Yana für Qwen anbietet."
     },
+    "deepseek": {
+      "required": "Trage zuerst einen API-Schlüssel ein.",
+      "rejected": "DeepSeek hat diese Zugangsdaten nicht akzeptiert. Prüfe den API-Schlüssel, ob das Konto noch Guthaben hat und ob es das gewählte Modell nutzen darf.",
+      "quota": "Der Schlüssel ist gültig — DeepSeek begrenzt ihn gerade. In Kürze funktioniert er wieder.",
+      "modelUnknown": "Wähle eines der Modelle, die Yana für DeepSeek anbietet."
+    },
     "advanced": {
       "title": "Erweitert",
       "description": "Wie jede KI-Anfrage aussieht. Diese Werte gelten für den jeweils aktiven Anbieter und werden gemeinsam gespeichert, weil sie voneinander abhängen.",

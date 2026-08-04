@@ -36,9 +36,9 @@ describe("the providers module's dependency contract", () => {
 });
 
 describe("AI_PROVIDERS", () => {
-  it("covers exactly the five supported providers", () => {
+  it("covers exactly the six supported providers", () => {
     // The direction record defers provider expansion as a separate concern --
-    // the iOS client supports seven. A sixth entry here is a scope change, not
+    // the iOS client supports seven. A seventh entry here is a scope change, not
     // a tweak.
     expect(AI_PROVIDERS.map((provider) => provider.key)).toEqual([
       "openai",
@@ -46,6 +46,7 @@ describe("AI_PROVIDERS", () => {
       "gemini",
       "mistral",
       "qwen",
+      "deepseek",
     ]);
   });
 
@@ -125,5 +126,7 @@ describe("AI_PROVIDERS", () => {
     expect(providerByKey("mistral")?.quotaMeansVerified).toBe(true);
     // true: fixed endpoint, same reasoning as Mistral/Anthropic/Gemini's `true`.
     expect(providerByKey("qwen")?.quotaMeansVerified).toBe(true);
+    // true: fixed endpoint, same reasoning as Mistral/Anthropic/Gemini's `true`.
+    expect(providerByKey("deepseek")?.quotaMeansVerified).toBe(true);
   });
 });
