@@ -2,6 +2,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 
+import { DeviceSection } from "@/components/account/device-section";
 import { PasskeySection } from "@/components/account/passkey-section";
 import { PasswordSection } from "@/components/account/password-section";
 import { ProfileSection } from "@/components/account/profile-section";
@@ -20,7 +21,7 @@ import { getAccountOverview } from "@/lib/account/queries";
  * `getAccountOverview()` returns is covered against a real database.
  */
 async function Sections() {
-  const { user, passkeys, hasPassword } = await getAccountOverview();
+  const { user, passkeys, devices, hasPassword } = await getAccountOverview();
 
   return (
     <div className="space-y-6">
@@ -41,6 +42,7 @@ async function Sections() {
       />
       <PasswordSection hasPassword={hasPassword} />
       <PasskeySection passkeys={passkeys} hasPassword={hasPassword} />
+      <DeviceSection devices={devices} />
     </div>
   );
 }
@@ -60,7 +62,7 @@ export default async function AccountPage() {
   return (
     <div className="max-w-2xl space-y-6">
       <h1 className="text-2xl font-semibold">{t("title")}</h1>
-      <Suspense fallback={<CardSkeletonGroup count={3} />}>
+      <Suspense fallback={<CardSkeletonGroup count={4} />}>
         <Sections />
       </Suspense>
     </div>
