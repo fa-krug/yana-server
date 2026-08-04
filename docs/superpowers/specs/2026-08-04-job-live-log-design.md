@@ -1,7 +1,7 @@
 # Background Job Live Log
 
 **Date:** 2026-08-04
-**Status:** Approved design, pending spec review
+**Status:** Implemented
 
 ## Goal
 
@@ -43,9 +43,13 @@ repo's "one process" design). Patching `console.log` globally only for the durat
 concurrent request logging in that window would incorrectly get attributed to the job's log.
 
 Instead, a single module-level `AsyncLocalStorage<{ jobId: number }>` is established once
-(`src/lib/jobs/log-capture.ts`), and `console.log`/`info`/`warn`/`error` are patched once at import
-to check the current store: set → redirect into that job's log; unset → call through to the original
-console method, unchanged. The worker wraps each handler invocation:
+(`src/lib/jobs/log-capture.ts`), and `console.log`/`info`/`warn`/`error` are patched once at import to
+**tee**: always call through to the original console method first — so an operator tailing container
+logs loses nothing, whether or not a job happens to be running — then check the current store and,
+when set, additionally persist the line into that job's log. That persist-and-publish step runs with
+the `AsyncLocalStorage` store exited (`als.exit()`), so anything it triggers — including a future log
+bus subscriber that happens to log something itself — falls through to the plain tee path instead of
+recursing back into capture. The worker wraps each handler invocation:
 
 ```ts
 await runWithLogCapture(job.id, () => withTimeout(handler(job), timeoutMs));
@@ -109,25 +113,36 @@ cleans up with it for free.
 
 ## Live delivery
 
-A small in-process, **jobId-keyed** pub/sub, `src/lib/jobs/log-bus.ts` — deliberately not the
-existing per-user bus in `src/lib/api/events.ts`, since jobs aren't uniformly user-owned (`retention`,
-`feed.logo`, etc. have no resolvable owner) and `/jobs` today is visible to any signed-in user, not
-just a job's owner (`listJobs()`/`getJob()` apply no ownership filter, and the page's only gate is
-`requireUser()`). Documented as best-effort/non-durable, same as `events.ts`.
+Two small in-process, **jobId-keyed** pub/sub channels in `src/lib/jobs/log-bus.ts` — deliberately not
+the existing per-user bus in `src/lib/api/events.ts`, since jobs aren't uniformly user-owned
+(`retention`, `feed.logo`, etc. have no resolvable owner) and `/jobs` today is visible to any
+signed-in user, not just a job's owner (`listJobs()`/`getJob()` apply no ownership filter, and the
+page's only gate is `requireUser()`). One channel carries log lines
+(`publishJobLog`/`subscribeJobLog`, as originally designed); a second, distinctly-namespaced channel
+carries a job's terminal transition (`publishJobTerminal`/`subscribeJobTerminal`), so the route below
+can close a still-open stream the moment the job it's tailing finishes, not only when the job was
+already finished at connect time. Both are documented as best-effort/non-durable, same as `events.ts`.
 
 New route, `src/app/api/jobs/[id]/log-stream/route.ts`: session-authenticated via `requireUser()`
 (not the Bearer-auth `/api/v1` style — this is for the web UI only), same `ReadableStream` /
 `event:`/`data:` framing / ping-keepalive / abort-safe-cleanup shape as
-`src/app/api/v1/jobs/events/route.ts`. Takes `?after=<id>`:
+`src/app/api/v1/jobs/events/route.ts`. Takes `?after=<id>` and does, simpler than originally planned
+here:
 
-1. Subscribe to the live bus first (buffering anything received).
-2. Query persisted lines with `id > after`, ordered, and send them; record the highest id sent.
-3. Drain the buffered live events, skipping any with `id` already sent, then continue streaming.
+1. Send persisted lines with `id > after`, ordered (`listJobLogs()`).
+2. Check the job's status — read once at the top of `GET()` (for the 404 check) and reused here
+   rather than re-queried. Already terminal (`completed`/`failed`) → send `end` and close; nothing
+   further will ever arrive, so there's no reason to hold the connection open.
+3. Otherwise, subscribe to both channels: `subscribeJobLog()` forwards new lines as they're
+   published, and `subscribeJobTerminal()` sends `end` and closes the stream the moment the job
+   finishes, wherever that lands relative to the connection's lifetime.
 
-That ordering avoids the gap where a line published between "read the backlog" and "subscribe" would
-otherwise be lost. If the job is already in a terminal status (`completed`/`failed`) when the client
-connects, the route sends the backfill and closes the stream itself — nothing further will ever
-arrive, so there's no reason to hold the connection open.
+No buffer-then-drain step, and no "subscribe before backfill" ordering — both were part of the
+original design and turned out to be unneeded complexity once written against the real code.
+`listJobLogs()` and the terminal-status check are both synchronous, and nothing awaits between
+reading the job row at the top of `GET()` and reaching either step inside `start()`, so there is no
+gap in this single-threaded process for a line — or a terminal transition — to be published and
+missed by every path that's supposed to catch it.
 
 ## UI
 
