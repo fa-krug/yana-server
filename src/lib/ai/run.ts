@@ -44,6 +44,9 @@ export type AiRuntimeSettings = Partial<UserSettings> & {
   gemini_enabled?: boolean;
   gemini_api_key?: string;
   gemini_model?: string;
+  mistral_enabled?: boolean;
+  mistral_api_key?: string;
+  mistral_model?: string;
 };
 
 /** The JSON body an AI provider's chat/completion endpoint is POSTed. */
@@ -189,6 +192,8 @@ export class AIClient {
         return await this.callAnthropic(prompt);
       } else if (this.provider === "gemini") {
         return await this.callGemini(prompt, jsonMode, jsonSchema);
+      } else if (this.provider === "mistral") {
+        return await this.callMistral(prompt, jsonMode);
       } else {
         console.warn(`Unknown AI provider: ${this.provider}`);
         return null;
@@ -338,6 +343,26 @@ export class AIClient {
       return null;
     }
     return text;
+  }
+
+  private async callMistral(prompt: string, jsonMode: boolean): Promise<string | null> {
+    const enabled = this.settings.mistralEnabled ?? this.settings.mistral_enabled;
+    const apiKey = this.settings.mistralApiKey ?? this.settings.mistral_api_key;
+    if (!enabled || !apiKey) {
+      console.warn("Mistral is not enabled or configured.");
+      return null;
+    }
+    const model =
+      this.settings.mistralModel ?? this.settings.mistral_model ?? "mistral-small-latest";
+    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
+    return this.callOpenaiCompatible(
+      "https://api.mistral.ai/v1",
+      apiKey,
+      model,
+      prompt,
+      jsonMode,
+      timeout,
+    );
   }
 }
 

@@ -64,6 +64,11 @@ export const AI_COLUMNS = {
     apiKey: "geminiApiKey",
     model: "geminiModel",
   },
+  mistral: {
+    enabled: "mistralEnabled",
+    apiKey: "mistralApiKey",
+    model: "mistralModel",
+  },
 } satisfies Record<AiProviderKey, AiColumns>;
 
 /**

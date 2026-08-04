@@ -2,6 +2,7 @@ import type { ProbeResult } from "@/lib/integrations/probe";
 
 import { testAnthropicKey } from "./anthropic";
 import { testGeminiKey } from "./gemini";
+import { testMistralKey } from "./mistral";
 import { testOpenaiKey } from "./openai";
 import type { AiProviderKey } from "./providers";
 
@@ -47,8 +48,9 @@ export type AiProbe = (credentials: AiCredentials) => Promise<ProbeResult>;
  */
 export const AI_PROBES: Record<AiProviderKey, AiProbe> = {
   openai: ({ apiKey, apiUrl, model }) => testOpenaiKey({ apiKey, apiUrl, model }),
-  // Destructured without `apiUrl`: these two have no column for one and cannot
+  // Destructured without `apiUrl`: these three have no column for one and cannot
   // read one they are handed.
   anthropic: ({ apiKey, model }) => testAnthropicKey({ apiKey, model }),
   gemini: ({ apiKey, model }) => testGeminiKey({ apiKey, model }),
+  mistral: ({ apiKey, model }) => testMistralKey({ apiKey, model }),
 };

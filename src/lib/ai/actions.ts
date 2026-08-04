@@ -225,6 +225,12 @@ const PROVIDER_KEYS = {
     quota: "gemini.quota",
     modelUnknown: "gemini.modelUnknown",
   },
+  mistral: {
+    required: "mistral.required",
+    rejected: "mistral.rejected",
+    quota: "mistral.quota",
+    modelUnknown: "mistral.modelUnknown",
+  },
 } satisfies Record<
   AiProviderKey,
   Record<"required" | "rejected" | "quota" | "modelUnknown", AiKey>
@@ -315,10 +321,29 @@ const gemini = defineIntegration({
   },
 });
 
+const mistral = defineIntegration({
+  provider: "mistral",
+  schema: z.object({ apiKey: secretField, model: modelField(registryEntry("mistral")) }),
+  fields: {
+    apiKey: { column: AI_COLUMNS.mistral.apiKey, secret: true },
+    model: { column: AI_COLUMNS.mistral.model, secret: false },
+  },
+  flagColumn: AI_COLUMNS.mistral.enabled,
+  requiredKey: PROVIDER_KEYS.mistral.required,
+  fieldErrorKeys: { "model:custom": PROVIDER_KEYS.mistral.modelUnknown },
+  probe: AI_PROBES.mistral,
+  keys: {
+    rejected: PROVIDER_KEYS.mistral.rejected,
+    quota: PROVIDER_KEYS.mistral.quota,
+    quotaMeansVerified: registryEntry("mistral").quotaMeansVerified,
+  },
+});
+
 const PROVIDER_ACTIONS: Record<AiProviderKey, IntegrationActions<AiKey>> = {
   openai,
   anthropic,
   gemini,
+  mistral,
 };
 
 /**

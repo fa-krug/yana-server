@@ -19,7 +19,7 @@
  * `AI_PROBES`, not an edit to the form, the action and the client.
  */
 
-export type AiProviderKey = "openai" | "anthropic" | "gemini";
+export type AiProviderKey = "openai" | "anthropic" | "gemini" | "mistral";
 
 /**
  * Where an OpenAI credential is probed, and what a fresh `user_settings` row
@@ -177,6 +177,27 @@ export const AI_PROVIDERS: readonly AiProvider[] = [
     ],
     defaultModel: "gemini-3.5-flash-lite",
     hasCustomUrl: false,
+    quotaMeansVerified: true,
+  },
+  {
+    key: "mistral",
+    label: "Mistral",
+    // From yana-ios's AIProvider enum (AppSettings.swift), copied 2026-08-04
+    // rather than looked up fresh against Mistral's own docs — same
+    // provenance as the "deferred" three this repo already ported from
+    // there.
+    models: [
+      { value: "mistral-small-latest", label: "Mistral Small" },
+      { value: "mistral-large-latest", label: "Mistral Large" },
+      { value: "mistral-medium-latest", label: "Mistral Medium" },
+    ],
+    defaultModel: "mistral-small-latest",
+    // Fixed endpoint, like Anthropic and Gemini: no operator-configurable
+    // gateway in front of it (a deliberate choice — see the design spec),
+    // so nothing can shed load before the real provider evaluates the key.
+    hasCustomUrl: false,
+    // Fixed endpoint, same reasoning as Anthropic/Gemini's `true`: a 429 can
+    // only come from Mistral itself having already accepted the key.
     quotaMeansVerified: true,
   },
 ];
