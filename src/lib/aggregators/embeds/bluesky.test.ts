@@ -23,7 +23,10 @@ const SAMPLE_POST = {
   },
 };
 
-/** Routes the two Bluesky API calls `buildBlueskyEmbedHtml` makes: DID resolution, then the post fetch. */
+/**
+ * Routes the two Bluesky API calls `buildBlueskyEmbedHtml` makes: DID
+ * resolution, then the post fetch.
+ */
 function mockBlueskyApi(post: Record<string, unknown> | null) {
   mockFetch.mockImplementation(async (url: string) => {
     if (url.includes("resolveHandle")) {
@@ -155,14 +158,16 @@ describe("buildBlueskyEmbedHtml", () => {
 
   it("skips a javascript: post URL as a link but still renders the card", async () => {
     mockBlueskyApi(SAMPLE_POST);
-    // Not a realistic URL shape (fails extractBlueskyPostInfo's own pattern in practice),
-    // so this exercises the is_safe_url guard on a URL that already matched a profile/post path.
-    const result = await buildBlueskyEmbedHtml(
-      "https://bsky.app/profile/stirpicus.bsky.social/post/3mngsbu7t2s27",
-    );
+    // A javascript: URL that still matches extractBlueskyPostInfo's regex
+    // (/\/profile\/([^/]+)\/post\/([^/?#]+)/) — the regex has no start anchor.
+    // This exercises the isSafeUrl guard on a URL that passes pattern extraction.
+    const unsafeUrl = "javascript:alert(1)//profile/a/post/b";
+    const result = await buildBlueskyEmbedHtml(unsafeUrl);
+
     expect(result).not.toBeNull();
     const $ = cheerio.load(result!);
-    expect($("script").length).toBe(0);
+    // The card renders, but the unsafe URL is not rendered as an <a> href.
+    expect($('a[href*="javascript"]').length).toBe(0);
   });
 
   it("skips an unsafe image URL rather than rendering it", async () => {
