@@ -4,6 +4,7 @@
  * Ported from old/core/aggregators/reddit/posts.py.
  */
 
+import { AggregatorError } from "../../errors";
 import { RedditListing, RedditPostData, RedditPostRaw } from "./types";
 
 /**
@@ -23,24 +24,26 @@ export async function fetchRedditPost(
 ): Promise<RedditPostData | null> {
   if (!postId) return null;
 
+  const url = accessToken
+    ? `https://oauth.reddit.com/r/${subreddit || "all"}/comments/${postId}`
+    : `https://www.reddit.com/r/${subreddit || "all"}/comments/${postId}.json`;
+
+  const headers: Record<string, string> = { "User-Agent": "Yana/1.0" };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  let res: Response;
   try {
-    const url = accessToken
-      ? `https://oauth.reddit.com/r/${subreddit || "all"}/comments/${postId}`
-      : `https://www.reddit.com/r/${subreddit || "all"}/comments/${postId}.json`;
+    res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
+  } catch {
+    return null;
+  }
 
-    const headers: Record<string, string> = {
-      "User-Agent": "Yana/1.0",
-    };
-    if (accessToken) {
-      headers["Authorization"] = `Bearer ${accessToken}`;
-    }
+  if (res.status === 401) {
+    throw new AggregatorError("Reddit authentication failed. Please check your API credentials.");
+  }
+  if (!res.ok) return null;
 
-    const res = await fetch(url, {
-      headers,
-      signal: AbortSignal.timeout(10_000),
-    });
-
-    if (!res.ok) return null;
+  try {
     const data = (await res.json()) as RedditPostFetchResponse;
 
     let postDict: RedditPostRaw | null = null;

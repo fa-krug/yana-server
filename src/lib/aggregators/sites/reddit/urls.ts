@@ -82,6 +82,9 @@ export function validateSubreddit(subreddit: string): { valid: boolean; error?: 
 export async function fetchSubredditInfo(
   subreddit: string,
   _userId?: number | string | null,
+  // Accepted now so Task 3's fetchSourceData call site typechecks; Task 4 wires this
+  // through to an authenticated https://oauth.reddit.com/... request.
+  _accessToken?: string | null,
 ): Promise<{ iconUrl: string | null }> {
   if (!subreddit) return { iconUrl: null };
   try {

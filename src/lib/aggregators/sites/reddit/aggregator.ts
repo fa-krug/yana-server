@@ -6,6 +6,7 @@
 
 import * as cheerio from "cheerio";
 import { AggregatorUserSettings, BaseAggregator, FeedLike, RawArticle } from "../../base";
+import { AggregatorError, ArticleSkipError } from "../../errors";
 import { getHeaderImageRef, HeaderElementData } from "../../header/context";
 import { extractHeaderElement } from "../../header/extractor";
 import {
@@ -176,43 +177,53 @@ export class RedditAggregator extends BaseAggregator {
       settings.reddit_user_agent,
     );
 
-    const info = await fetchSubredditInfo(subreddit, this.feed.userId);
+    const info = await fetchSubredditInfo(subreddit, this.feed.userId, accessToken);
     this._subredditIconUrl = info.iconUrl;
 
     const sort = (this.feed.options?.subreddit_sort as string) || "hot";
     const fetchLimit = Math.min((limit || 25) * 3, 100);
 
-    try {
-      const url = accessToken
-        ? `https://oauth.reddit.com/r/${subreddit}/${sort}?limit=${fetchLimit}`
-        : `https://www.reddit.com/r/${subreddit}/${sort}.json?limit=${fetchLimit}`;
+    const url = accessToken
+      ? `https://oauth.reddit.com/r/${subreddit}/${sort}?limit=${fetchLimit}`
+      : `https://www.reddit.com/r/${subreddit}/${sort}.json?limit=${fetchLimit}`;
 
-      const headers: Record<string, string> = {
-        "User-Agent": settings.reddit_user_agent || "Yana/1.0",
-      };
-      if (accessToken) {
-        headers["Authorization"] = `Bearer ${accessToken}`;
-      }
-
-      const res = await fetch(url, {
-        headers,
-        signal: AbortSignal.timeout(10_000),
-      });
-
-      if (!res.ok) {
-        return { posts: [], subreddit };
-      }
-
-      const data = (await res.json()) as RedditListing<"t3", RedditPostRaw> | null;
-      const children = data?.data?.children || [];
-      const posts = children
-        .filter((child) => child.kind === "t3" && child.data)
-        .map((child) => ({ data: new RedditPostData(child.data) }));
-
-      return { posts, subreddit };
-    } catch {
-      return { posts: [], subreddit };
+    const headers: Record<string, string> = {
+      "User-Agent": settings.reddit_user_agent || "Yana/1.0",
+    };
+    if (accessToken) {
+      headers["Authorization"] = `Bearer ${accessToken}`;
     }
+
+    let res: Response;
+    try {
+      res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
+    } catch (err) {
+      throw new AggregatorError(`Failed to connect to Reddit: ${(err as Error).message}`);
+    }
+
+    if (res.status === 401) {
+      throw new AggregatorError("Reddit authentication failed. Please check your API credentials.");
+    }
+    if (res.status === 403) {
+      throw new AggregatorError(`Subreddit 'r/${subreddit}' is private or banned.`);
+    }
+    if (res.status === 404) {
+      throw new AggregatorError(`Subreddit 'r/${subreddit}' does not exist.`);
+    }
+    if (res.status === 429) {
+      throw new AggregatorError("Reddit rate limit exceeded.");
+    }
+    if (!res.ok) {
+      throw new AggregatorError(`Reddit request failed with status ${res.status}.`);
+    }
+
+    const data = (await res.json()) as RedditListing<"t3", RedditPostRaw> | null;
+    const children = data?.data?.children || [];
+    const posts = children
+      .filter((child) => child.kind === "t3" && child.data)
+      .map((child) => ({ data: new RedditPostData(child.data) }));
+
+    return { posts, subreddit };
   }
 
   async parseToRawArticles(sourceData: unknown): Promise<RawArticle[]> {
@@ -330,6 +341,8 @@ export class RedditAggregator extends BaseAggregator {
       settings.reddit_user_agent,
     );
 
+    const enriched: RawArticle[] = [];
+
     for (const article of articles) {
       try {
         const postDataDict = (article._reddit_post_data as RedditPostDataDict) || {};
@@ -356,13 +369,18 @@ export class RedditAggregator extends BaseAggregator {
 
         article.raw_content = content;
         article.content = content;
-      } catch {
+      } catch (err) {
+        if (err instanceof ArticleSkipError) {
+          continue; // drop this article; it's private/removed, not empty-with-comments
+        }
         article.raw_content = "";
         article.content = "";
       }
+
+      enriched.push(article);
     }
 
-    return articles;
+    return enriched;
   }
 
   override async finalizeArticles(
