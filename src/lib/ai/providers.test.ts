@@ -36,11 +36,17 @@ describe("the providers module's dependency contract", () => {
 });
 
 describe("AI_PROVIDERS", () => {
-  it("covers exactly the three supported providers", () => {
+  it("covers exactly the five supported providers", () => {
     // The direction record defers provider expansion as a separate concern --
-    // the iOS client supports seven. A fourth entry here is a scope change, not
+    // the iOS client supports seven. A sixth entry here is a scope change, not
     // a tweak.
-    expect(AI_PROVIDERS.map((provider) => provider.key)).toEqual(["openai", "anthropic", "gemini"]);
+    expect(AI_PROVIDERS.map((provider) => provider.key)).toEqual([
+      "openai",
+      "anthropic",
+      "gemini",
+      "mistral",
+      "qwen",
+    ]);
   });
 
   it("lists its default model among its models", () => {
@@ -67,7 +73,7 @@ describe("AI_PROVIDERS", () => {
   });
 
   it("returns undefined for an unknown key", () => {
-    expect(providerByKey("mistral")).toBeUndefined();
+    expect(providerByKey("unknown")).toBeUndefined();
   });
 
   /**
@@ -114,5 +120,10 @@ describe("AI_PROVIDERS", () => {
     // true: quota is charged to the project the key resolves to, so the key is
     // validated first -- YouTube's stated reason, applied rather than copied.
     expect(providerByKey("gemini")?.quotaMeansVerified).toBe(true);
+    // true: fixed endpoint, so a 429 can only come from Mistral itself having
+    // already accepted the key.
+    expect(providerByKey("mistral")?.quotaMeansVerified).toBe(true);
+    // true: fixed endpoint, same reasoning as Mistral.
+    expect(providerByKey("qwen")?.quotaMeansVerified).toBe(true);
   });
 });

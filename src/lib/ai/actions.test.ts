@@ -520,7 +520,7 @@ describe("the AI actions", () => {
     });
 
     it("refuses a provider key Yana does not support, and touches nothing", async () => {
-      const result = await actions.saveProvider("mistral", { apiKey: "x", model: "y" });
+      const result = await actions.saveProvider("deepseek", { apiKey: "x", model: "y" });
 
       expect(result).toEqual({ ok: false, errorKey: "unknownProvider" });
       expect(failureMessage(result)).toBeTypeOf("string");
@@ -601,7 +601,7 @@ describe("the AI actions", () => {
     });
 
     it("refuses an unsupported provider key", async () => {
-      expect(await actions.testProvider("mistral", {})).toEqual({
+      expect(await actions.testProvider("deepseek", {})).toEqual({
         ok: false,
         errorKey: "unknownProvider",
       });
@@ -634,7 +634,7 @@ describe("the AI actions", () => {
     });
 
     it("refuses an unsupported provider key", async () => {
-      expect(await actions.removeProvider("mistral")).toEqual({
+      expect(await actions.removeProvider("deepseek")).toEqual({
         ok: false,
         errorKey: "unknownProvider",
       });
@@ -689,7 +689,7 @@ describe("the AI actions", () => {
     });
 
     it("refuses an unknown provider key", async () => {
-      const result = await actions.setActiveProvider("mistral");
+      const result = await actions.setActiveProvider("deepseek");
 
       expect(result).toEqual({ ok: false, errorKey: "unknownProvider" });
       expect(failureMessage(result)).toBeTypeOf("string");
