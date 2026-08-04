@@ -292,4 +292,122 @@ describe("src/lib/jobs/handlers", () => {
       expect(remainingArticleIds).toContain(1000);
     });
   });
+
+  describe("restore", () => {
+    it("writes a tombstone for every article it wipes before re-aggregating", async () => {
+      let userId = "";
+      let feedId = 0;
+      let articleAId = 0;
+      let articleBId = 0;
+
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+        userId = user!.id;
+
+        // Disabled, so the re-aggregate handleRestoreJob triggers afterwards
+        // returns immediately -- this test is only about the wipe step.
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "Test Feed", userId, enabled: false })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedId = feed.id;
+
+        const a = db
+          .insert(schema.articles)
+          .values({ name: "Article A", identifier: "a1", feedId, date: new Date("2024-01-01") })
+          .returning({ id: schema.articles.id })
+          .get();
+        articleAId = a.id;
+
+        const b = db
+          .insert(schema.articles)
+          .values({ name: "Article B", identifier: "a2", feedId, date: new Date("2024-01-01") })
+          .returning({ id: schema.articles.id })
+          .get();
+        articleBId = b.id;
+      });
+
+      const restoreHandler = handlers.getHandler("feed.restore");
+      expect(restoreHandler).toBeDefined();
+
+      const dummyJob = {
+        id: 1,
+        runId: null,
+        kind: "feed.restore",
+        payload: { feedId },
+        status: "running",
+        attempts: 1,
+        maxAttempts: 3,
+        runAt: new Date(),
+        startedAt: new Date(),
+        finishedAt: null,
+        progress: 0,
+        error: "",
+        createdAt: new Date(),
+      };
+
+      await restoreHandler!(dummyJob);
+
+      const remainingArticles = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.feedId, feedId))
+        .all();
+      expect(remainingArticles).toHaveLength(0);
+
+      const tombstones = client.getDb().select().from(schema.articleTombstones).all();
+      expect(tombstones).toHaveLength(2);
+      expect(tombstones.every((t) => t.userId === userId)).toBe(true);
+      expect(tombstones.map((t) => t.articleId).sort()).toEqual([articleAId, articleBId].sort());
+    });
+
+    it("wipes no articles and writes no tombstones for a feed with none", async () => {
+      let feedId = 0;
+
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "Empty Feed", userId: user!.id, enabled: false })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedId = feed.id;
+      });
+
+      const restoreHandler = handlers.getHandler("feed.restore");
+      expect(restoreHandler).toBeDefined();
+
+      const dummyJob = {
+        id: 1,
+        runId: null,
+        kind: "feed.restore",
+        payload: { feedId },
+        status: "running",
+        attempts: 1,
+        maxAttempts: 3,
+        runAt: new Date(),
+        startedAt: new Date(),
+        finishedAt: null,
+        progress: 0,
+        error: "",
+        createdAt: new Date(),
+      };
+
+      await restoreHandler!(dummyJob);
+
+      const tombstones = client.getDb().select().from(schema.articleTombstones).all();
+      expect(tombstones).toHaveLength(0);
+    });
+  });
 });

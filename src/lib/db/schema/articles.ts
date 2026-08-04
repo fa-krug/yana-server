@@ -79,8 +79,8 @@ export const articles = sqliteTable(
  *
  * `userId` is denormalized on purpose: once the article (and possibly its
  * feed) is gone, nothing else lets this row be scoped to its owner. Every
- * hard-delete path (retention, feed deletion) must insert one of these for
- * each affected article *before* the delete, inside the same
+ * hard-delete path (retention, feed deletion, feed restore) must insert one
+ * of these for each affected article *before* the delete, inside the same
  * `writeTransaction()`.
  */
 export const articleTombstones = sqliteTable(
