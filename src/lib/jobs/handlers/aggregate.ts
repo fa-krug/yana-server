@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 
 import { parseBlocks, plainTextOf } from "@/lib/aggregators/blocks/parser";
 import { writeBlocks } from "@/lib/aggregators/blocks/storage";
+import { resolveFeedCredentials } from "@/lib/aggregators/credential-resolution";
 import { createAggregator } from "@/lib/aggregators/factory";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, feeds, type Job } from "@/lib/db/schema";
@@ -15,7 +16,7 @@ export async function handleAggregateJob(job: Job): Promise<void> {
   const feed = db.select().from(feeds).where(eq(feeds.id, feedId)).get();
   if (!feed || !feed.enabled) return;
 
-  const aggregator = createAggregator(feed);
+  const aggregator = createAggregator(resolveFeedCredentials(feed));
   const rawArticles = await aggregator.aggregate();
 
   if (rawArticles.length === 0) {
