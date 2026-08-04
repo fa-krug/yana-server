@@ -13,7 +13,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { CheckIcon, XIcon } from "lucide-react";
 import { attempt } from "@/lib/tags/result";
-import { deleteFeeds, refreshLogos } from "@/lib/feeds/actions";
+import { deleteFeeds, refreshLogos, updateFeedsBulk } from "@/lib/feeds/actions";
 import { AGGREGATOR_SPECS } from "@/lib/aggregators/specs";
 import type { Feed, Tag } from "@/lib/db/schema";
 
@@ -41,7 +41,9 @@ export function FeedsTable({
       sortable: false,
       cell: (row) => (
         <Avatar size="sm">
-          {row.logo ? <AvatarImage src={row.logo} alt={row.name} /> : null}
+          {row.logoImageHash ? (
+            <AvatarImage src={`/api/v1/images/${row.logoImageHash}`} alt={row.name} />
+          ) : null}
           <AvatarFallback>{row.name.substring(0, 2).toUpperCase()}</AvatarFallback>
         </Avatar>
       ),
@@ -137,6 +139,21 @@ export function FeedsTable({
     return true;
   }
 
+  async function runAggregation(): Promise<boolean> {
+    if (selected.length === 0) return false;
+
+    const result = await attempt(() => updateFeedsBulk(selected));
+
+    if (!result.ok) {
+      toast.error(t("saveFailed"));
+      return false;
+    }
+
+    setSelected([]);
+    toast.success(t("aggregationEnqueued", { count: result.enqueued }));
+    return true;
+  }
+
   const count = selected.length;
   const actions: BulkAction[] = [
     {
@@ -144,6 +161,12 @@ export function FeedsTable({
       label: t("bulkUpdateLogo"),
       destructive: false,
       run: updateSelectedLogos,
+    },
+    {
+      key: "run-aggregation",
+      label: t("bulkRunAggregation"),
+      destructive: false,
+      run: runAggregation,
     },
     {
       key: "delete",

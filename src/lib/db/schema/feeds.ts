@@ -72,13 +72,11 @@ export const feeds = sqliteTable(
       .$type<Record<string, unknown>>()
       .default({}),
 
-    logo: text("logo"),
     /** Kept so the logo can be re-resolved without re-discovering the source. */
     logoSourceUrl: text("logo_source_url").notNull().default(""),
     /**
-     * Content-addressed replacement for `logo`, referencing
-     * `articleImages.contentHash`. Populated by Task 6; `logo` itself is
-     * dropped in Task 7 once nothing reads it.
+     * Content-addressed logo, referencing `articleImages.contentHash`.
+     * Replaces the old file-path `logo` column, dropped in Task 7.
      */
     logoImageHash: text("logo_image_hash"),
 

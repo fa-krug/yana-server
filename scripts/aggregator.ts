@@ -265,7 +265,6 @@ async function main(): Promise<void> {
         enabled: true,
         userId: user?.id ?? "test-user",
         options: {},
-        logo: null,
         logoSourceUrl: "",
         logoImageHash: null,
         createdAt: new Date(),
