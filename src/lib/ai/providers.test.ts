@@ -37,9 +37,11 @@ describe("the providers module's dependency contract", () => {
 
 describe("AI_PROVIDERS", () => {
   it("covers exactly the six supported providers", () => {
-    // The direction record defers provider expansion as a separate concern --
-    // the iOS client supports seven. A seventh entry here is a scope change, not
-    // a tweak.
+    // Six providers, matching yana-ios's server-callable list. Apple
+    // Intelligence is the iOS client's seventh provider but is on-device-only
+    // with no network call, so it has no server-side equivalent and is
+    // deliberately excluded here. A seventh *server* entry would be a scope
+    // change, not a tweak.
     expect(AI_PROVIDERS.map((provider) => provider.key)).toEqual([
       "openai",
       "anthropic",
@@ -105,8 +107,12 @@ describe("AI_PROVIDERS", () => {
    *
    * `quotaMeansVerified` is what `judge()` in `@/lib/integrations/define` reads
    * to decide whether a 429 stores and enables the credential or writes nothing
-   * at all. The three answers differ; the reasoning lives beside the field in
-   * `providers.ts` and, deliberately duplicated, at each probe's 429 branch.
+   * at all. The six answers differ; the reasoning lives beside the field in
+   * `providers.ts`, and -- for OpenAI, Anthropic and Gemini, whose probes
+   * classify the 429 case themselves -- is deliberately duplicated at each
+   * one's own 429 branch. Mistral, Qwen and DeepSeek route through the shared
+   * `openaiCompatibleChatProbe()` in `@/lib/integrations/probe` instead, so
+   * their reasoning lives only in `providers.ts`.
    * This pins the values, so an edit that "aligns" them fails a test rather than
    * silently enabling an integration a provider never vouched for.
    */
@@ -121,12 +127,19 @@ describe("AI_PROVIDERS", () => {
     // true: quota is charged to the project the key resolves to, so the key is
     // validated first -- YouTube's stated reason, applied rather than copied.
     expect(providerByKey("gemini")?.quotaMeansVerified).toBe(true);
-    // true: fixed endpoint, so a 429 can only come from Mistral itself having
-    // already accepted the key.
+    // true: api.mistral.ai is Mistral's own direct, fixed endpoint -- no
+    // operator-configurable gateway in front of it -- so a 429 can only come
+    // from Mistral itself having already accepted the key.
     expect(providerByKey("mistral")?.quotaMeansVerified).toBe(true);
-    // true: fixed endpoint, same reasoning as Mistral/Anthropic/Gemini's `true`.
+    // true, but the least confident of the six: dashscope-intl.aliyuncs.com is
+    // Alibaba Cloud's own DashScope endpoint, not a third-party proxy, so
+    // Reddit's pre-auth load-shedding argument does not transfer here -- but
+    // whether its edge evaluates the key before rate limiting is less publicly
+    // documented than Anthropic's or Gemini's. This is the answer the
+    // mandatory pre-release manual pass must verify live for Qwen.
     expect(providerByKey("qwen")?.quotaMeansVerified).toBe(true);
-    // true: fixed endpoint, same reasoning as Mistral/Anthropic/Gemini's `true`.
+    // true: api.deepseek.com is DeepSeek's own direct, fixed endpoint --
+    // independently the same argument as Mistral's, not inherited from it.
     expect(providerByKey("deepseek")?.quotaMeansVerified).toBe(true);
   });
 });
