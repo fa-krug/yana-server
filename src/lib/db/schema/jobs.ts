@@ -86,11 +86,13 @@ export type Job = typeof jobs.$inferSelect;
 export type NewJob = typeof jobs.$inferInsert;
 
 /**
- * One row per captured console line for a job's run -- `src/lib/jobs/log-capture.ts`
- * redirects `console.log`/`info`/`warn`/`error` calls made inside a handler's own
- * async execution here, plus `src/lib/jobs/worker.ts`'s own lifecycle markers and
- * a failed handler's stack trace. `id` (globally auto-incrementing) doubles as the
- * per-job ordering/cursor key -- `WHERE job_id = ? AND id > ?` is a cheap indexed
+ * One row per log line for a job's run, appended via `appendLogLine()`
+ * (`src/lib/jobs/queue.ts`) -- `src/lib/jobs/worker.ts`'s own lifecycle markers
+ * (job started/completed, and a failed handler's stack trace) and, starting
+ * with the next task in this plan, explicit calls each job handler makes at a
+ * few meaningful points in its own execution. Console output is deliberately
+ * *not* captured. `id` (globally auto-incrementing) doubles as the per-job
+ * ordering/cursor key -- `WHERE job_id = ? AND id > ?` is a cheap indexed
  * range scan, so no separate per-job sequence column is needed.
  *
  * Cascades with its job: nothing deletes `jobs` rows today (confirmed --
