@@ -35,6 +35,29 @@ export function extractBlueskyPostInfo(url: string): { actor: string; rkey: stri
 }
 
 /**
+ * Accepted risk: unbounded serial network I/O under the job timeout.
+ *
+ * A single buildBlueskyEmbedHtml() call can take up to ~20s on transport
+ * failure (resolveBlueskyDid() and fetchBlueskyPost() each carry their own
+ * 10s AbortSignal.timeout, and mein_mmo's processEmbeds() awaits them one
+ * figure at a time, never in parallel). A feed with many Bluesky-embedding
+ * articles hit during a Bluesky outage could therefore push a single
+ * aggregation run close to or past src/lib/jobs/worker.ts's 300s job-level
+ * timeout (`timeoutMs`).
+ *
+ * This is accepted for now rather than fixed here: it matches the Python
+ * origin's equally unbounded synchronous design (old/core's
+ * BlueskyEmbedProcessor has no equivalent job-level wall-clock cap either),
+ * Bluesky embeds are a minority embed type within any given feed's articles,
+ * and a real fix -- a run-scoped circuit breaker that stops attempting
+ * further Bluesky lookups for the rest of a run after the first transport
+ * failure -- needs shared state threaded through
+ * extractMeinMmoContent -> processEmbeds -> BlueskyEmbedProcessor, which is a
+ * real architecture change deserving its own design/test cycle, not a rushed
+ * addition here. Revisit if this proves problematic in practice.
+ */
+
+/**
  * Resolve a Bluesky handle to a DID.
  * If the actor is already a DID (starts with "did:"), it is returned as-is.
  */

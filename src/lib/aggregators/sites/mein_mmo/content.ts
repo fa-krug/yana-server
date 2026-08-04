@@ -131,6 +131,19 @@ export async function extractMeinMmoContent(
   // data-sanitized-class since embed processors set it directly on wrapper
   // elements rather than via a `class` attribute, so it must survive this
   // strip step to still be present when sanitizeClassNames() runs below).
+  //
+  // Keeping "data-sanitized-class" is a deliberate divergence from the Python
+  // origin, not a parity fix: old/core/aggregators/mein_mmo/content_extraction.py:101
+  // is `clean_data_attributes(content, keep=["data-src", "data-srcset"])` --
+  // Django does NOT keep this attribute, so Django's own output strips it too,
+  // matching the behavior this TS code had before this fix. The divergence is
+  // worth it because without it, YouTube/Dailymotion/Bluesky wrapper divs lose
+  // the marker before src/lib/aggregators/blocks/parser.ts's embedFacade() runs,
+  // so it can no longer recognize the youtube-embed/dailymotion-embed/
+  // bluesky-embed wrapper and the figure silently degrades to a plain
+  // paragraph-with-link instead of a typed EmbedBlock. See
+  // src/lib/parity/corpus.test.ts's SKIP_LIST comment for the fixture-corpus
+  // consequence of this choice.
   cleanDataAttributes($, ["data-src", "data-srcset", "data-sanitized-class"]);
 
   // Sanitize class names

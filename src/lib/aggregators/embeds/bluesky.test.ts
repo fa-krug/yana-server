@@ -156,6 +156,23 @@ describe("buildBlueskyEmbedHtml", () => {
     expect(result).toBeNull();
   });
 
+  it("resolves to null, not a rejection, when fetch throws (network error)", async () => {
+    mockFetch.mockRejectedValue(new Error("network error"));
+
+    await expect(
+      buildBlueskyEmbedHtml("https://bsky.app/profile/user.bsky.social/post/abc"),
+    ).resolves.toBeNull();
+  });
+
+  it("resolves to null when the API answers with an HTTP error status", async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+
+    const result = await buildBlueskyEmbedHtml(
+      "https://bsky.app/profile/user.bsky.social/post/abc",
+    );
+    expect(result).toBeNull();
+  });
+
   it("skips a javascript: post URL as a link but still renders the card", async () => {
     mockBlueskyApi(SAMPLE_POST);
     // A javascript: URL that still matches extractBlueskyPostInfo's regex
@@ -168,6 +185,10 @@ describe("buildBlueskyEmbedHtml", () => {
     const $ = cheerio.load(result!);
     // The card renders, but the unsafe URL is not rendered as an <a> href.
     expect($('a[href*="javascript"]').length).toBe(0);
+    // ...and the text-only fallback ("View on Bluesky" with no href) is what
+    // actually renders in its place -- pins both halves of the guard's
+    // contract, not just the negative half.
+    expect(result).toContain("View on Bluesky");
   });
 
   it("skips an unsafe image URL rather than rendering it", async () => {
