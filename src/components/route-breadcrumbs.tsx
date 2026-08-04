@@ -37,7 +37,7 @@ export function RouteBreadcrumbs() {
           // href (see SetBreadcrumbTitle in breadcrumb-title.tsx); fall back
           // to the raw segment (the id) when nothing was registered.
           const registeredTitle = isRecordSegment ? titles[crumb.href] : undefined;
-          const label = "labelKey" in crumb ? t(crumb.labelKey) : registeredTitle ?? crumb.label;
+          const label = "labelKey" in crumb ? t(crumb.labelKey) : (registeredTitle ?? crumb.label);
           const content = registeredTitle ? (
             <span className="inline-block max-w-40 truncate align-bottom" title={label}>
               {label}
