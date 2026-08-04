@@ -43,42 +43,52 @@ export async function GET(request: Request): Promise<Response> {
 
   const encoder = new TextEncoder();
 
+  // Populated by `start()`, which the stream spec guarantees runs
+  // synchronously before either teardown path below can fire -- `cancel()`
+  // cannot run before a reader exists, and no reader exists until this
+  // `ReadableStream` constructor (which calls `start()` inline) returns.
+  let unsubscribe: (() => void) | undefined;
+  let keepAlive: ReturnType<typeof setInterval> | undefined;
+  let cleaned = false;
+
+  // Guarded so it runs exactly once however the connection ends: the client
+  // disconnecting fires `abort` on `request.signal` (handled in `start()`
+  // below), and a consumer canceling the stream's reader directly -- some
+  // client libraries, and this route's own tests -- invokes the `cancel()`
+  // hook instead. Without the guard, whichever fires second would clear an
+  // already-cleared interval, unsubscribe an already-removed listener, and
+  // (in the `abort` path) call `close()` on a controller `cancel()` already
+  // tore down. All three are individually harmless, but the guard is what
+  // makes that "harmless" rather than "happens to not throw today."
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    clearInterval(keepAlive);
+    unsubscribe?.();
+  };
+
   const stream = new ReadableStream({
     start(controller) {
       const send = (event: string, data: unknown) => {
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
       };
 
-      const unsubscribe = subscribeUserEvents(userId, (event) => send(event.type, event.payload));
+      unsubscribe = subscribeUserEvents(userId, (event) => send(event.type, event.payload));
 
-      const keepAlive = setInterval(() => {
+      keepAlive = setInterval(() => {
         controller.enqueue(encoder.encode(": ping\n\n"));
       }, PING_INTERVAL_MS);
 
-      // Runs exactly once, however the connection ends: the client
-      // disconnecting (fires `abort` on `request.signal`) or the reader on
-      // our own `Response.body` being canceled locally, since Next/undici
-      // propagate a canceled body read back to this stream's `cancel()`.
-      const cleanup = () => {
-        clearInterval(keepAlive);
-        unsubscribe();
+      request.signal.addEventListener("abort", () => {
+        cleanup();
         try {
           controller.close();
         } catch {
-          // Already closed -- e.g. `cancel()` ran first and this is the
-          // `abort` listener firing right after.
+          // Already closed -- e.g. `cancel()` ran first.
         }
-      };
-
-      request.signal.addEventListener("abort", cleanup);
+      });
     },
-    cancel() {
-      // No-op body: cleanup is idempotent and already wired to `abort`
-      // above, which Next fires when the underlying request is done. This
-      // hook exists so a direct `reader.cancel()` (as in tests, or a client
-      // that closes the stream without the request itself aborting) is also
-      // a defined, non-throwing outcome.
-    },
+    cancel: cleanup,
   });
 
   return new Response(stream, {
