@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 
+import { SetBreadcrumbTitle } from "@/components/breadcrumb-title";
 import { TagForm } from "@/components/tags/tag-form";
 import { requireUser } from "@/lib/auth/session";
 import { getTag } from "@/lib/tags/queries";
@@ -18,6 +19,7 @@ export default async function EditTagPage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="space-y-4">
+      <SetBreadcrumbTitle title={tag.name} />
       <h1 className="text-2xl font-semibold">{t("editTitle")}</h1>
       <TagForm tag={tag} />
     </div>
