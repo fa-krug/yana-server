@@ -6,13 +6,14 @@ import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { jobs, users } from "../db/schema";
+import { articles, feeds, jobs, users } from "../db/schema";
 import { applyMigrationsAt } from "../db/test-support";
 
 describe("src/lib/jobs/queue", () => {
   let dbPath: string;
   let queue: typeof import("./queue");
   let client: typeof import("../db/client");
+  let events: typeof import("../api/events");
 
   function seedUserAndReturnId(): string {
     const id = `user-${Math.random().toString(36).slice(2)}`;
@@ -22,6 +23,22 @@ describe("src/lib/jobs/queue", () => {
       .values({ id, email: `${id}@example.com` })
       .run();
     return id;
+  }
+
+  /** A feed + article owned by `userId`, for the `article.reload` job kind. */
+  function seedArticleAndReturnId(userId: string): number {
+    const db = client.getDb();
+    const feed = db
+      .insert(feeds)
+      .values({ name: "Feed", userId })
+      .returning({ id: feeds.id })
+      .get();
+    const article = db
+      .insert(articles)
+      .values({ name: "Article", identifier: "a1", date: new Date(), feedId: feed.id })
+      .returning({ id: articles.id })
+      .get();
+    return article.id;
   }
 
   beforeEach(async () => {
@@ -34,6 +51,7 @@ describe("src/lib/jobs/queue", () => {
     applyMigrationsAt(dbPath);
 
     client = await import("../db/client");
+    events = await import("../api/events");
     queue = await import("./queue");
   });
 
@@ -173,12 +191,16 @@ describe("src/lib/jobs/queue", () => {
       expect(createdJobs.map((j) => j.payload)).toEqual([{ feedId: 1 }, { feedId: 2 }]);
     });
 
-    it("creates a run with no jobs when given an empty payload list", () => {
+    it("creates an already-completed run when given an empty payload list", () => {
       const userId = seedUserAndReturnId();
       const runId = queue.enqueueRun(userId, "aggregate", []);
 
       const run = queue.getRun(runId);
       expect(run?.totalJobs).toBe(0);
+      // No child job will ever complete/fail to drive bumpRunCounters(), so
+      // an empty run must be born terminal rather than stuck "running" forever.
+      expect(run?.status).toBe("completed");
+      expect(run?.finishedAt).not.toBeNull();
 
       const createdJobs = client.getDb().select().from(jobs).where(eq(jobs.runId, runId)).all();
       expect(createdJobs).toHaveLength(0);
@@ -240,6 +262,135 @@ describe("src/lib/jobs/queue", () => {
       const id2 = queue.enqueue("noop", {}, { maxAttempts: 1 });
       queue.claim();
       expect(() => queue.fail(id2, "boom")).not.toThrow();
+    });
+  });
+
+  describe("job/run events", () => {
+    it("publishes job and run events when a run's child job completes", () => {
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(userId, "aggregate", [{ feedId: 1 }, { feedId: 2 }]);
+      const childJobs = client.getDb().select().from(jobs).where(eq(jobs.runId, runId)).all();
+
+      const heard: unknown[] = [];
+      const unsubscribe = events.subscribeUserEvents(userId, (event) => heard.push(event));
+
+      queue.complete(childJobs[0].id);
+      unsubscribe();
+
+      expect(heard).toEqual([
+        {
+          type: "job",
+          payload: {
+            jobId: childJobs[0].id,
+            runId,
+            kind: "aggregate",
+            status: "completed",
+            progress: 100,
+          },
+        },
+        {
+          type: "run",
+          payload: { runId, status: "running", totalJobs: 2, completedJobs: 1, failedJobs: 0 },
+        },
+      ]);
+    });
+
+    it("publishes job and run events when a run's child job fails terminally", () => {
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(userId, "aggregate", [{ feedId: 1 }, { feedId: 2 }]);
+
+      const first = queue.claim();
+      expect(first).not.toBeNull();
+      queue.complete(first!.id);
+
+      const second = queue.claim();
+      expect(second).not.toBeNull();
+      client.getDb().update(jobs).set({ maxAttempts: 1 }).where(eq(jobs.id, second!.id)).run();
+
+      const heard: unknown[] = [];
+      const unsubscribe = events.subscribeUserEvents(userId, (event) => heard.push(event));
+
+      queue.fail(second!.id, "boom");
+      unsubscribe();
+
+      expect(heard).toEqual([
+        {
+          type: "job",
+          payload: { jobId: second!.id, runId, kind: "aggregate", status: "failed", progress: 0 },
+        },
+        {
+          type: "run",
+          payload: { runId, status: "failed", totalJobs: 2, completedJobs: 1, failedJobs: 1 },
+        },
+      ]);
+    });
+
+    it("resolves the owning user via articles->feeds and publishes a job event when a standalone article.reload job completes", () => {
+      const userId = seedUserAndReturnId();
+      const articleId = seedArticleAndReturnId(userId);
+      const id = queue.enqueue("article.reload", { articleId });
+
+      const heard: unknown[] = [];
+      const unsubscribe = events.subscribeUserEvents(userId, (event) => heard.push(event));
+
+      queue.complete(id);
+      unsubscribe();
+
+      expect(heard).toEqual([
+        {
+          type: "job",
+          payload: {
+            jobId: id,
+            runId: null,
+            kind: "article.reload",
+            status: "completed",
+            progress: 100,
+          },
+        },
+      ]);
+    });
+
+    it("resolves the owning user via articles->feeds and publishes a job event when a standalone article.reload job fails terminally", () => {
+      const userId = seedUserAndReturnId();
+      const articleId = seedArticleAndReturnId(userId);
+      const id = queue.enqueue("article.reload", { articleId }, { maxAttempts: 1 });
+      queue.claim();
+
+      const heard: unknown[] = [];
+      const unsubscribe = events.subscribeUserEvents(userId, (event) => heard.push(event));
+
+      queue.fail(id, "boom");
+      unsubscribe();
+
+      expect(heard).toEqual([
+        {
+          type: "job",
+          payload: {
+            jobId: id,
+            runId: null,
+            kind: "article.reload",
+            status: "failed",
+            progress: 0,
+          },
+        },
+      ]);
+    });
+
+    it("publishes nothing for a job with no runId and a kind other than article.reload", () => {
+      const userId = seedUserAndReturnId();
+      const heard: unknown[] = [];
+      const unsubscribe = events.subscribeUserEvents(userId, (event) => heard.push(event));
+
+      const completedId = queue.enqueue("feed.logo", {}, { maxAttempts: 1 });
+      queue.claim();
+      queue.complete(completedId);
+
+      const failedId = queue.enqueue("feed.logo", {}, { maxAttempts: 1 });
+      queue.claim();
+      queue.fail(failedId, "boom");
+
+      unsubscribe();
+      expect(heard).toHaveLength(0);
     });
   });
 });

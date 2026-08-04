@@ -161,6 +161,12 @@ export function resetOrphaned(before: Date): number {
  * poll/subscribe to instead of N job ids (phase 13's `POST /api/v1/aggregate`).
  * All jobs in a run get the same default `maxAttempts`/`runAt` -- there is no
  * per-job override here, by design.
+ *
+ * An empty `payloads` list is legal (e.g. a user with zero feeds triggering
+ * an aggregate run) and is created already `"completed"`, with `finishedAt`
+ * set immediately. `bumpRunCounters()` is the only other code that flips a
+ * run out of `"running"`, and it only runs when a child job completes/fails
+ * -- a run with no children would otherwise never leave `"running"`.
  */
 export function enqueueRun(
   userId: string,
@@ -168,13 +174,19 @@ export function enqueueRun(
   payloads: Record<string, unknown>[],
 ): number {
   return writeTransaction((db) => {
+    const isEmpty = payloads.length === 0;
     const run = db
       .insert(runs)
-      .values({ userId, status: "running", totalJobs: payloads.length })
+      .values({
+        userId,
+        status: isEmpty ? "completed" : "running",
+        totalJobs: payloads.length,
+        finishedAt: isEmpty ? new Date() : null,
+      })
       .returning({ id: runs.id })
       .get();
 
-    if (payloads.length > 0) {
+    if (!isEmpty) {
       db.insert(jobs)
         .values(payloads.map((payload) => ({ kind, payload, runId: run.id })))
         .run();
