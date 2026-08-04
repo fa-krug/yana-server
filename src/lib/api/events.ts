@@ -16,11 +16,23 @@ emitter.setMaxListeners(0);
 export type ApiEvent =
   | {
       type: "job";
-      payload: { jobId: number; runId: number | null; kind: string; status: string; progress: number };
+      payload: {
+        jobId: number;
+        runId: number | null;
+        kind: string;
+        status: string;
+        progress: number;
+      };
     }
   | {
       type: "run";
-      payload: { runId: number; status: string; totalJobs: number; completedJobs: number; failedJobs: number };
+      payload: {
+        runId: number;
+        status: string;
+        totalJobs: number;
+        completedJobs: number;
+        failedJobs: number;
+      };
     };
 
 function channel(userId: string): string {
@@ -32,7 +44,10 @@ export function publishUserEvent(userId: string, event: ApiEvent): void {
 }
 
 /** Returns an unsubscribe function. */
-export function subscribeUserEvents(userId: string, listener: (event: ApiEvent) => void): () => void {
+export function subscribeUserEvents(
+  userId: string,
+  listener: (event: ApiEvent) => void,
+): () => void {
   const name = channel(userId);
   emitter.on(name, listener);
   return () => emitter.off(name, listener);

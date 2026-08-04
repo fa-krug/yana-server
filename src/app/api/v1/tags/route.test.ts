@@ -104,9 +104,7 @@ describe("GET /api/v1/tags", () => {
     });
     const { token } = await createDeviceSession(owner.id, "Test");
     client.writeTransaction((tx) => {
-      tx.insert(schema.tags)
-        .values({ name: "News", userId: owner.id, color: "#FF0000" })
-        .run();
+      tx.insert(schema.tags).values({ name: "News", userId: owner.id, color: "#FF0000" }).run();
     });
 
     const response = await GET(

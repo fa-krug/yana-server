@@ -166,7 +166,7 @@ describe("sync", () => {
     const staleCursor = sync.encodeCursor({
       newPos: [0, 0],
       updatedPos: [0, 0],
-      removedPos: [Math.floor(Date.now() / 1000) - 200 * 24 * 60 * 60, 1],
+      removedPos: [Math.floor(Date.now() / 1000) - 80 * 24 * 60 * 60, 1],
     });
 
     client.writeTransaction((tx) =>

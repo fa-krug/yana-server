@@ -9,7 +9,16 @@ describe("events", () => {
     subscribeUserEvents("user-a", heardByA);
     subscribeUserEvents("user-b", heardByB);
 
-    publishUserEvent("user-a", { type: "job", payload: { jobId: 1, runId: null, kind: "article.reload", status: "completed", progress: 100 } });
+    publishUserEvent("user-a", {
+      type: "job",
+      payload: {
+        jobId: 1,
+        runId: null,
+        kind: "article.reload",
+        status: "completed",
+        progress: 100,
+      },
+    });
 
     expect(heardByA).toHaveBeenCalledTimes(1);
     expect(heardByB).not.toHaveBeenCalled();
@@ -20,7 +29,10 @@ describe("events", () => {
     const unsubscribe = subscribeUserEvents("user-c", heard);
     unsubscribe();
 
-    publishUserEvent("user-c", { type: "run", payload: { runId: 1, status: "completed", totalJobs: 1, completedJobs: 1, failedJobs: 0 } });
+    publishUserEvent("user-c", {
+      type: "run",
+      payload: { runId: 1, status: "completed", totalJobs: 1, completedJobs: 1, failedJobs: 0 },
+    });
 
     expect(heard).not.toHaveBeenCalled();
   });

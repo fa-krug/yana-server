@@ -733,7 +733,7 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   change together: half a rename is a file Next silently never calls, which
   would leave every route unguarded with nothing failing. The doc is
   `node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md`.
-  Three rules:
+  Four rules:
   - **It checks cookie _presence_ only, and is not authentication.** It cannot
     reach the database — `@/lib/db/*` and `@/lib/auth/server` are banned there,
     pinned by `src/proxy.test.ts`, because a proxy is documented as code that may
