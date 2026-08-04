@@ -76,6 +76,20 @@ describe("a freshly provisioned user_settings row", () => {
     for (const provider of AI_PROVIDERS) {
       expect(providerByKey(provider.key)).toBeDefined();
     }
-    expect([row.openai_enabled, row.anthropic_enabled, row.gemini_enabled]).toEqual([0, 0, 0]);
+    expect([
+      row.openai_enabled,
+      row.anthropic_enabled,
+      row.gemini_enabled,
+      row.mistral_enabled,
+      row.qwen_enabled,
+      row.deepseek_enabled,
+    ]).toEqual([0, 0, 0, 0, 0, 0]);
+  });
+
+  it("starts new providers on their correct default models", () => {
+    const row = bareRow();
+    expect(row.mistral_model).toBe("mistral-small-latest");
+    expect(row.qwen_model).toBe("qwen3.5-flash");
+    expect(row.deepseek_model).toBe("deepseek-v4-flash");
   });
 });
