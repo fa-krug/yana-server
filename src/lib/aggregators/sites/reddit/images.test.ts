@@ -25,6 +25,12 @@ describe("extractHeaderImageUrl", () => {
     expect(extractImages).not.toHaveBeenCalled();
   });
 
+  it("rewrites a Giphy watch-page link post to the direct media-CDN GIF", async () => {
+    const post = new RedditPostData({ url: "https://giphy.com/gifs/some-slug-AbC123xyz" });
+    const result = await extractHeaderImageUrl(post);
+    expect(result).toBe("https://media.giphy.com/media/AbC123xyz/giphy.gif");
+  });
+
   it("scrapes the linked page's og:image when a link post has no other image", async () => {
     vi.mocked(extractImages).mockResolvedValue({
       imageUrl: "https://example.com/og.png",

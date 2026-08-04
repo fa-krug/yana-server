@@ -23,6 +23,7 @@ import { buildPostContent } from "./content";
 import { extractAnimatedGifUrl, extractHeaderImageUrl, extractThumbnailUrl } from "./images";
 import { convertRedditMarkdown, escapeHtml, safeImgHtml, safeLinkHtml } from "./markdown";
 import { fetchRedditPost } from "./posts";
+import { buildVideoHeaderHtml, extractRedditVideo } from "./video";
 import {
   RedditComment,
   RedditListing,
@@ -264,6 +265,7 @@ export class RedditAggregator extends BaseAggregator {
       }
 
       const postDate = new Date(originalPostData.created_utc * 1000);
+      const redditVideo = extractRedditVideo(originalPostData);
 
       const article: RawArticle = {
         name: originalPostData.title,
@@ -279,6 +281,7 @@ export class RedditAggregator extends BaseAggregator {
         _reddit_num_comments: originalPostData.num_comments,
         _reddit_header_image_url: headerImageUrl,
         _reddit_video_url: videoUrl,
+        _reddit_video_info: redditVideo,
       };
 
       articles.push(article);
@@ -397,7 +400,15 @@ export class RedditAggregator extends BaseAggregator {
         : null;
 
       let headerHtml: string | null = null;
-      if (headerSourceUrl) {
+      const redditVideo = article._reddit_video_info as
+        { hlsUrl?: string; fallbackUrl?: string } | null | undefined;
+
+      if (redditVideo) {
+        headerHtml = await buildVideoHeaderHtml(redditVideo, headerSourceUrl);
+        if (headerHtml && article.content) {
+          article.content = this._stripImageFromContent(article.content, headerSourceUrl || "");
+        }
+      } else if (headerSourceUrl) {
         const isYoutubeHeader = Boolean(extractYoutubeVideoId(headerSourceUrl));
         const isTwitterHeader = isTwitterUrl(headerSourceUrl);
 
@@ -435,6 +446,7 @@ export class RedditAggregator extends BaseAggregator {
       delete article._reddit_num_comments;
       delete article._reddit_header_image_url;
       delete article._reddit_video_url;
+      delete article._reddit_video_info;
       delete article.header_html;
 
       finalized.push(article);

@@ -5,7 +5,7 @@
  */
 
 import { fetchPostComments, formatCommentHtml } from "./comments";
-import { extractAnimatedGifUrl } from "./images";
+import { extractAnimatedGifUrl, extractGiphyGifUrl } from "./images";
 import { convertRedditMarkdown, escapeHtml, safeImgHtml, safeLinkHtml } from "./markdown";
 import { RedditComment, RedditGalleryItem, RedditPostData } from "./types";
 import { decodeHtmlEntitiesInUrl, fixRedditMediaUrl } from "./urls";
@@ -98,6 +98,13 @@ function addLinkMedia(post: RedditPostData, contentParts: string[], isCrossPost:
 
 function processLinkMedia(post: RedditPostData, url: string, contentParts: string[]): boolean {
   const urlLower = url.toLowerCase();
+
+  const giphyUrl = extractGiphyGifUrl(url);
+  if (giphyUrl) {
+    const imgHtml = safeImgHtml(giphyUrl, "Giphy");
+    if (imgHtml) contentParts.push(`<p>${imgHtml}</p>`);
+    return true;
+  }
 
   // GIF media
   if (urlLower.endsWith(".gif") || urlLower.endsWith(".gifv")) {

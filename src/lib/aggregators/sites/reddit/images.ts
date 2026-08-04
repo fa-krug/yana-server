@@ -86,6 +86,17 @@ export function extractAnimatedGifUrl(post: RedditPostData): string | null {
   }
 }
 
+/**
+ * Rewrites a Giphy watch/embed page link (`giphy.com/gifs/...`,
+ * `giphy.com/embed/...`) -- which carries no file extension and would
+ * otherwise fall through every image check -- to its direct media-CDN GIF.
+ */
+export function extractGiphyGifUrl(url: string): string | null {
+  const match = url.match(/giphy\.com\/(?:gifs|embed)\/(?:[\w-]*-)?([a-zA-Z0-9]+)(?:[/?#]|$)/i);
+  if (!match) return null;
+  return `https://media.giphy.com/media/${match[1]}/giphy.gif`;
+}
+
 export async function extractHeaderImageUrl(post: RedditPostData): Promise<string | null> {
   try {
     // Priority -1: domain image overrides take precedence over everything else.
@@ -98,6 +109,13 @@ export async function extractHeaderImageUrl(post: RedditPostData): Promise<strin
     const videoUrl = extractVideoEmbedUrl(post);
     if (videoUrl && !videoUrl.includes("vxreddit.com")) {
       return videoUrl;
+    }
+
+    // Priority 0.4: Giphy watch/embed link posts (no file extension; would
+    // otherwise fall through to a frozen static preview image).
+    if (post.url) {
+      const giphyUrl = extractGiphyGifUrl(decodeHtmlEntitiesInUrl(post.url));
+      if (giphyUrl) return giphyUrl;
     }
 
     // Priority 0.5: Twitter/X link posts
