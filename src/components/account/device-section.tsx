@@ -14,7 +14,8 @@ import type { DeviceSummary } from "@/lib/account/queries";
 
 /**
  * List and revoke device sessions paired with the API (see `listDevices()` in
- * `@/lib/account/queries` and phase 13's device-pairing route).
+ * `@/lib/account/queries` and the device-pairing route from the client-API
+ * plan's task 9).
  *
  * **No delete guard here the way `PasskeySection` has one, and no confirmation
  * dialog either.** Revoking every device only means re-pairing: the browser's
