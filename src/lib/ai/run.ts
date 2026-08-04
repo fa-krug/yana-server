@@ -103,6 +103,12 @@ export class AIClient {
           method: "POST",
           headers,
           body: JSON.stringify(data),
+          // Same reasoning as the probe's fetch in `openai.ts`: `url` can carry
+          // an operator-supplied `openaiApiUrl`, and `fetch`'s default
+          // `redirect: "follow"` would let a malicious gateway redirect this
+          // call past whatever host validation exists. No real provider
+          // endpoint redirects a POST.
+          redirect: "error",
           signal: controller.signal,
         });
 
