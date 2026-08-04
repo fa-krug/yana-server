@@ -155,6 +155,49 @@ describe("GET /api/v1/articles/sync", () => {
     expect(secondBody.new).toHaveLength(0);
   });
 
+  it("with no limit param, returns more than 1 matching article (regression: Number(null) === 0)", async () => {
+    // `Number(null) === 0`, not `NaN` -- so a naive `Number.isFinite(...)`
+    // check on an absent `limit` param takes the *clamp* branch and floors
+    // every sync call to 1 row per stream, silently, on the common case of
+    // no `limit` param at all. Seeding more than 1 article is what makes a
+    // limit-of-1 bug distinguishable from a correct 200-row default; a
+    // single-article fixture (as in the other tests above) would pass either
+    // way and prove nothing about this specific defect.
+    const user = await createUserWithPassword({
+      email: "d@example.com",
+      password: "correct horse battery staple",
+    });
+    const { token } = await createDeviceSession(user.id, "Test");
+
+    const feed = client.writeTransaction((tx) =>
+      tx
+        .insert(schema.feeds)
+        .values({ name: "G", aggregator: "full_website", identifier: "https://g", userId: user.id })
+        .returning({ id: schema.feeds.id })
+        .get(),
+    );
+    client.writeTransaction((tx) => {
+      tx.insert(schema.articles)
+        .values({ name: "First", identifier: "g1", date: new Date(), feedId: feed.id })
+        .run();
+      tx.insert(schema.articles)
+        .values({ name: "Second", identifier: "g2", date: new Date(), feedId: feed.id })
+        .run();
+      tx.insert(schema.articles)
+        .values({ name: "Third", identifier: "g3", date: new Date(), feedId: feed.id })
+        .run();
+    });
+
+    const response = await GET(
+      new Request("https://example.com/api/v1/articles/sync", {
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.new).toHaveLength(3);
+  });
+
   it("await connection() is the first statement, before requireApiUser()", async () => {
     // A garbage bearer token would normally 401 -- but if requireApiUser()
     // ran before connection(), a route that dropped the connection() call

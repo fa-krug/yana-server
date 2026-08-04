@@ -24,7 +24,13 @@ export async function GET(request: Request): Promise<Response> {
 
     const url = new URL(request.url);
     const cursor = decodeCursor(url.searchParams.get("cursor"));
-    const requestedLimit = Number(url.searchParams.get("limit"));
+    // `Number(null) === 0`, not `NaN` -- so an absent `limit` param must be
+    // distinguished from a present-but-garbage one *before* calling Number(),
+    // or the common "no limit given" case would silently take the clamp
+    // branch below and get floored to 1 instead of falling through to the
+    // 200 default.
+    const rawLimit = url.searchParams.get("limit");
+    const requestedLimit = rawLimit === null || rawLimit === "" ? NaN : Number(rawLimit);
     const limit = Number.isFinite(requestedLimit)
       ? Math.min(Math.max(requestedLimit, 1), 500)
       : 200;
