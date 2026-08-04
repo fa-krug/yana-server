@@ -49,6 +49,7 @@ describe("resolveFeedCredentials", () => {
           redditClientId: "abc123",
           redditClientSecret: "shh",
           redditUserAgent: "Yana/1.0 (test)",
+          youtubeEnabled: true,
           youtubeApiKey: "yt-key",
         })
         .run();
@@ -244,6 +245,32 @@ describe("resolveFeedCredentials", () => {
       feed = db
         .insert(schema.feeds)
         .values({ name: "chan", userId: "noyt", aggregator: "youtube" })
+        .returning()
+        .get();
+    });
+
+    const options = resolution.resolveFeedCredentials(feed!).options as Record<string, unknown>;
+
+    expect(options).not.toHaveProperty("youtube_api_key");
+  });
+
+  it("injects nothing for YouTube when the probe rejected the stored credentials", () => {
+    let feed: Feed;
+
+    // judge()'s `bad` arm stores a refused credential with youtube_enabled = 0,
+    // same as the Reddit case above.
+    client.writeTransaction((db) => {
+      db.insert(schema.users).values({ id: "yt-rejected", email: "yt-rejected@example.com" }).run();
+      db.insert(schema.userSettings)
+        .values({
+          userId: "yt-rejected",
+          youtubeEnabled: false,
+          youtubeApiKey: "known-bad-key",
+        })
+        .run();
+      feed = db
+        .insert(schema.feeds)
+        .values({ name: "chan", userId: "yt-rejected", aggregator: "youtube" })
         .returning()
         .get();
     });
