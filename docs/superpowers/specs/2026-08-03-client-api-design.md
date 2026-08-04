@@ -27,11 +27,10 @@ credential at the end.
 
 **Flow:**
 
-1. Before ever showing UI, the app calls `GET /device/pair/start` — unauthenticated,
-   no cookie needed. The server mints a single-use, short-lived (10-minute)
-   opaque `state` value, persists it in a new `device_pairing_states` table
-   (`{ id, state, createdAt, expiresAt, usedAt }`, no user association yet —
-   nothing is known about who this is for), and returns `{ state, expiresAt }`.
+1. The **app itself** generates a random `state` value locally (e.g. 32 random
+   bytes, hex-encoded) — the server is never asked for one, and never sees it
+   until step 4. The app keeps this value only in memory, for as long as this
+   one pairing attempt is open.
 2. The app opens a `WKWebView` pointed at
    `/login?next=%2Fdevice%2Fpair%3Fstate%3D<state>%26scheme%3Dyana%26deviceName%3D<name>`.
 3. The user signs in exactly as on the web (password or passkey); `/login`'s
@@ -39,11 +38,10 @@ credential at the end.
 4. The browser lands on `GET /device/pair?state=<state>&scheme=yana&deviceName=<name>`,
    a session-cookie-authenticated route. In order:
    - `requireUser()` first (the existing cookie session — this route is *inside*
-     `(app)`'s auth boundary, not a new auth mechanism), so a signed-out prober
-     learns nothing from whichever `state` they guessed;
-   - the `state` is looked up: it must exist, be unexpired, and not already have
-     a `usedAt` — otherwise the request is refused outright and **no session is
-     minted**. It is then marked used (single-use, so it cannot be replayed);
+     `(app)`'s auth boundary, not a new auth mechanism);
+   - `state` must be present (a non-empty string) — otherwise refused, but the
+     server has nothing to validate it *against*: there is no server-side
+     state store, on purpose (see below);
    - `scheme` is checked against a fixed allow-list (just `"yana"` today) —
      never accepted as an arbitrary client-supplied value;
    - the redirect URL is constructed and validated *before* anything is
@@ -56,22 +54,38 @@ credential at the end.
      no `apiKey` plugin; a session *is* the credential system Better Auth
      ships, and creating an extra one for a named device costs nothing beyond
      the `deviceName` column below;
-   - it responds with a redirect to `yana://auth-callback?token=<sessionToken>`.
+   - it responds with a redirect to `yana://auth-callback?token=<sessionToken>&state=<the same state, echoed unchanged>`.
 5. The app's `WKWebView` navigation delegate intercepts that custom-scheme
-   redirect **before it becomes a network request** (`decidePolicyForNavigationAction`),
+   redirect **before it becomes a network request** (`decidePolicyForNavigationAction`).
+   It only accepts the callback if the echoed `state` matches the value it
+   generated in step 1 **and** a pairing attempt is currently open — otherwise
+   it discards the callback outright and never touches Keychain. On a match, it
    extracts the token, stores it in Keychain, and dismisses the webview.
 6. Every subsequent `/api/v1/**` request carries `Authorization: Bearer <token>`.
 
-**Why the state token, not just a fixed scheme.** A bare `GET /device/pair` with
-no state check is a CSRF hazard: `sessions`' cookie is `SameSite=Lax`, which
-still attaches on a cross-site top-level navigation (e.g. a link a signed-in
-user clicks) even though it blocks cross-site `<img>`/`fetch`. A link an
-attacker controls could otherwise trigger a real session mint using the
-victim's own cookie. Restricting `scheme` alone closes the "redirect the token
-somewhere attacker-controlled" half of that, but not the mint itself. Requiring
-a `state` value the server minted *and will only accept once* closes the mint
-too: an attacker's link cannot know a value it was never given, so the request
-is refused before anything is written — not just discarded after the fact.
+**Why client-generated + server-echo, not a server-issued state token.** An
+earlier version of this design had the *server* mint and validate the `state`
+(via an unauthenticated `GET /device/pair/start`). That doesn't work: an
+unauthenticated endpoint that hands a valid `state` to anyone who asks gives an
+attacker one too, so "the server requires a valid `state`" ends up checking
+nothing an attacker couldn't also obtain — the mint still isn't a real secret,
+so it's still not real CSRF protection. This is the standard pattern used by
+`gh auth login --web`, VS Code's browser sign-in, and every other
+"authenticate in a browser, hand a credential back to a native app" flow: the
+*client* holds the one thing an attacker genuinely cannot produce — a random
+value it generated itself and never shared with anyone, including the server,
+until the flow completes. `sessions`' `SameSite=Lax` cookie still means an
+attacker's crafted link can make the **server-side mint happen** (there is no
+way to prevent that without breaking the top-level-navigation webview handoff
+itself), but that mint is harmless: the resulting token is only ever *used* if
+some app's callback handler accepts it, and a legitimate app only accepts a
+callback whose `state` matches one it is actively, currently expecting — a
+value an attacker's link was never given and cannot guess. A CSRF-triggered
+mint just leaves an inert, unused, naturally-expiring (30-day) session row
+behind; nothing reads or exfiltrates it. This needs no server-side storage at
+all: no `device_pairing_states` table, no separate mint-then-validate step —
+`state` is opaque cargo the server carries through the redirect and never
+inspects beyond "is it present."
 
 `src/lib/api/auth.ts` resolves that header directly: look up `sessions` by
 `token`, check `expiresAt > now`, join `users`. This is a plain Drizzle query
