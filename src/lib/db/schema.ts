@@ -8,7 +8,6 @@ import { userSettings, users } from "./schema/users";
 
 export * from "./schema/articles";
 export * from "./schema/auth";
-export * from "./schema/device-pairing";
 export * from "./schema/enums";
 export * from "./schema/feeds";
 export * from "./schema/jobs";
