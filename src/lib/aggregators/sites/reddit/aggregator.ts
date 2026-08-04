@@ -6,6 +6,7 @@
 
 import * as cheerio from "cheerio";
 import { AggregatorUserSettings, BaseAggregator, FeedLike, RawArticle } from "../../base";
+import { AggregatorError, ArticleSkipError } from "../../errors";
 import { getHeaderImageRef, HeaderElementData } from "../../header/context";
 import { extractHeaderElement } from "../../header/extractor";
 import {
@@ -22,6 +23,7 @@ import { buildPostContent } from "./content";
 import { extractAnimatedGifUrl, extractHeaderImageUrl, extractThumbnailUrl } from "./images";
 import { convertRedditMarkdown, escapeHtml, safeImgHtml, safeLinkHtml } from "./markdown";
 import { fetchRedditPost } from "./posts";
+import { buildVideoHeaderHtml, extractRedditVideo } from "./video";
 import {
   RedditComment,
   RedditListing,
@@ -176,43 +178,53 @@ export class RedditAggregator extends BaseAggregator {
       settings.reddit_user_agent,
     );
 
-    const info = await fetchSubredditInfo(subreddit, this.feed.userId);
+    const info = await fetchSubredditInfo(subreddit, this.feed.userId, accessToken);
     this._subredditIconUrl = info.iconUrl;
 
     const sort = (this.feed.options?.subreddit_sort as string) || "hot";
     const fetchLimit = Math.min((limit || 25) * 3, 100);
 
-    try {
-      const url = accessToken
-        ? `https://oauth.reddit.com/r/${subreddit}/${sort}?limit=${fetchLimit}`
-        : `https://www.reddit.com/r/${subreddit}/${sort}.json?limit=${fetchLimit}`;
+    const url = accessToken
+      ? `https://oauth.reddit.com/r/${subreddit}/${sort}?limit=${fetchLimit}`
+      : `https://www.reddit.com/r/${subreddit}/${sort}.json?limit=${fetchLimit}`;
 
-      const headers: Record<string, string> = {
-        "User-Agent": settings.reddit_user_agent || "Yana/1.0",
-      };
-      if (accessToken) {
-        headers["Authorization"] = `Bearer ${accessToken}`;
-      }
-
-      const res = await fetch(url, {
-        headers,
-        signal: AbortSignal.timeout(10_000),
-      });
-
-      if (!res.ok) {
-        return { posts: [], subreddit };
-      }
-
-      const data = (await res.json()) as RedditListing<"t3", RedditPostRaw> | null;
-      const children = data?.data?.children || [];
-      const posts = children
-        .filter((child) => child.kind === "t3" && child.data)
-        .map((child) => ({ data: new RedditPostData(child.data) }));
-
-      return { posts, subreddit };
-    } catch {
-      return { posts: [], subreddit };
+    const headers: Record<string, string> = {
+      "User-Agent": settings.reddit_user_agent || "Yana/1.0",
+    };
+    if (accessToken) {
+      headers["Authorization"] = `Bearer ${accessToken}`;
     }
+
+    let res: Response;
+    try {
+      res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
+    } catch (err) {
+      throw new AggregatorError(`Failed to connect to Reddit: ${(err as Error).message}`);
+    }
+
+    if (res.status === 401) {
+      throw new AggregatorError("Reddit authentication failed. Please check your API credentials.");
+    }
+    if (res.status === 403) {
+      throw new AggregatorError(`Subreddit 'r/${subreddit}' is private or banned.`);
+    }
+    if (res.status === 404) {
+      throw new AggregatorError(`Subreddit 'r/${subreddit}' does not exist.`);
+    }
+    if (res.status === 429) {
+      throw new AggregatorError("Reddit rate limit exceeded.");
+    }
+    if (!res.ok) {
+      throw new AggregatorError(`Reddit request failed with status ${res.status}.`);
+    }
+
+    const data = (await res.json()) as RedditListing<"t3", RedditPostRaw> | null;
+    const children = data?.data?.children || [];
+    const posts = children
+      .filter((child) => child.kind === "t3" && child.data)
+      .map((child) => ({ data: new RedditPostData(child.data) }));
+
+    return { posts, subreddit };
   }
 
   async parseToRawArticles(sourceData: unknown): Promise<RawArticle[]> {
@@ -236,7 +248,7 @@ export class RedditAggregator extends BaseAggregator {
       const decodedPermalink = originalPostData.permalink.replace(/&amp;/g, "&");
       const permalink = `https://reddit.com${decodedPermalink}`;
 
-      const headerImageUrl = extractHeaderImageUrl(originalPostData);
+      const headerImageUrl = await extractHeaderImageUrl(originalPostData);
       const thumbnailUrl = extractThumbnailUrl(originalPostData);
       const articleThumbnailUrl = headerImageUrl || thumbnailUrl;
 
@@ -253,6 +265,7 @@ export class RedditAggregator extends BaseAggregator {
       }
 
       const postDate = new Date(originalPostData.created_utc * 1000);
+      const redditVideo = extractRedditVideo(originalPostData);
 
       const article: RawArticle = {
         name: originalPostData.title,
@@ -268,6 +281,7 @@ export class RedditAggregator extends BaseAggregator {
         _reddit_num_comments: originalPostData.num_comments,
         _reddit_header_image_url: headerImageUrl,
         _reddit_video_url: videoUrl,
+        _reddit_video_info: redditVideo,
       };
 
       articles.push(article);
@@ -330,6 +344,8 @@ export class RedditAggregator extends BaseAggregator {
       settings.reddit_user_agent,
     );
 
+    const enriched: RawArticle[] = [];
+
     for (const article of articles) {
       try {
         const postDataDict = (article._reddit_post_data as RedditPostDataDict) || {};
@@ -356,13 +372,18 @@ export class RedditAggregator extends BaseAggregator {
 
         article.raw_content = content;
         article.content = content;
-      } catch {
+      } catch (err) {
+        if (err instanceof ArticleSkipError) {
+          continue; // drop this article; it's private/removed, not empty-with-comments
+        }
         article.raw_content = "";
         article.content = "";
       }
+
+      enriched.push(article);
     }
 
-    return articles;
+    return enriched;
   }
 
   override async finalizeArticles(
@@ -379,7 +400,19 @@ export class RedditAggregator extends BaseAggregator {
         : null;
 
       let headerHtml: string | null = null;
-      if (headerSourceUrl) {
+      const redditVideo = article._reddit_video_info as
+        { hlsUrl?: string; fallbackUrl?: string } | null | undefined;
+
+      // `include_header_image: false` suppresses the video header too, not just
+      // the image one: both are headers, and a user who turned headers off got a
+      // `<video>` anyway. Nothing is lost -- `addLinkMedia()` in `./content.ts`
+      // still renders the post's own `v.redd.it` link in the body.
+      if (includeHeaderImage && redditVideo) {
+        headerHtml = await buildVideoHeaderHtml(redditVideo, headerSourceUrl);
+        if (headerHtml && article.content) {
+          article.content = this._stripImageFromContent(article.content, headerSourceUrl || "");
+        }
+      } else if (headerSourceUrl) {
         const isYoutubeHeader = Boolean(extractYoutubeVideoId(headerSourceUrl));
         const isTwitterHeader = isTwitterUrl(headerSourceUrl);
 
@@ -417,6 +450,7 @@ export class RedditAggregator extends BaseAggregator {
       delete article._reddit_num_comments;
       delete article._reddit_header_image_url;
       delete article._reddit_video_url;
+      delete article._reddit_video_info;
       delete article.header_html;
 
       finalized.push(article);
