@@ -157,7 +157,7 @@ export class FullWebsiteAggregator extends RssAggregator {
         const rawHtml = await this.fetchArticleContent(url);
         article.raw_content = rawHtml;
 
-        const content = this.extractContent(rawHtml, article);
+        const content = await this.extractContent(rawHtml, article);
         const processed = await this.processContent(content, article);
         article.content = processed;
 

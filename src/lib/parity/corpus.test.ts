@@ -81,7 +81,7 @@ describe("golden corpus parity", () => {
           rawArticle.header_data = headerData;
         }
 
-        const extracted = agg.extractContent(fixtureContent, rawArticle);
+        const extracted = await agg.extractContent(fixtureContent, rawArticle);
         const processed = await agg.processContent(extracted, rawArticle);
         const blocks = parseBlocks(processed);
         const wireDoc = encodeDocument(blocks);
