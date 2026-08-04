@@ -101,7 +101,7 @@ export type AiProvider = {
 };
 
 /**
- * The three providers, in the order the page renders them.
+ * The six providers, in the order the page renders them.
  *
  * **Model lists were looked up, not carried over, and they go stale.** Each
  * entry carries the date and the vendor page it was read from, because the
@@ -115,9 +115,11 @@ export type AiProvider = {
  * **Each list is ordered cheapest-capable first, and each `defaultModel` is its
  * first entry,** because the workload is summarising one article.
  *
- * **Deliberately three.** The direction record defers provider expansion (the
- * iOS client supports seven) as a separate concern; this is not the place to
- * widen it.
+ * **Six providers now, matching yana-ios.** The direction record originally
+ * deferred expansion beyond the initial three (OpenAI, Anthropic, Gemini); that
+ * was widened to six to match yana-ios's full provider list. Apple Intelligence
+ * (the seventh in yana-ios) is deliberately excluded here as it is on-device
+ * only with no server-side equivalent.
  */
 export const AI_PROVIDERS: readonly AiProvider[] = [
   {

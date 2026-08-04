@@ -50,7 +50,7 @@ export type AiProbe = (credentials: AiCredentials) => Promise<ProbeResult>;
  */
 export const AI_PROBES: Record<AiProviderKey, AiProbe> = {
   openai: ({ apiKey, apiUrl, model }) => testOpenaiKey({ apiKey, apiUrl, model }),
-  // Destructured without `apiUrl`: these four have no column for one and cannot
+  // Destructured without `apiUrl`: these five have no column for one and cannot
   // read one they are handed.
   anthropic: ({ apiKey, model }) => testAnthropicKey({ apiKey, model }),
   gemini: ({ apiKey, model }) => testGeminiKey({ apiKey, model }),
