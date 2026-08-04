@@ -3,14 +3,26 @@ import os from "node:os";
 import path from "node:path";
 
 import Database from "better-sqlite3";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { jobs, users } from "../db/schema";
 import { applyMigrationsAt } from "../db/test-support";
 
 describe("src/lib/jobs/queue", () => {
   let dbPath: string;
   let queue: typeof import("./queue");
   let client: typeof import("../db/client");
+
+  function seedUserAndReturnId(): string {
+    const id = `user-${Math.random().toString(36).slice(2)}`;
+    client
+      .getDb()
+      .insert(users)
+      .values({ id, email: `${id}@example.com` })
+      .run();
+    return id;
+  }
 
   beforeEach(async () => {
     vi.resetModules();
@@ -140,6 +152,94 @@ describe("src/lib/jobs/queue", () => {
 
       const job = queue.getJob(id);
       expect(job?.progress).toBe(45);
+    });
+  });
+
+  describe("enqueueRun / run tracking", () => {
+    it("creates a run row with totalJobs matching the payload count", () => {
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(userId, "aggregate", [{ feedId: 1 }, { feedId: 2 }]);
+
+      const run = queue.getRun(runId);
+      expect(run?.totalJobs).toBe(2);
+      expect(run?.completedJobs).toBe(0);
+      expect(run?.failedJobs).toBe(0);
+      expect(run?.status).toBe("running");
+      expect(run?.userId).toBe(userId);
+
+      const createdJobs = client.getDb().select().from(jobs).where(eq(jobs.runId, runId)).all();
+      expect(createdJobs).toHaveLength(2);
+      expect(createdJobs.every((j) => j.kind === "aggregate")).toBe(true);
+      expect(createdJobs.map((j) => j.payload)).toEqual([{ feedId: 1 }, { feedId: 2 }]);
+    });
+
+    it("creates a run with no jobs when given an empty payload list", () => {
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(userId, "aggregate", []);
+
+      const run = queue.getRun(runId);
+      expect(run?.totalJobs).toBe(0);
+
+      const createdJobs = client.getDb().select().from(jobs).where(eq(jobs.runId, runId)).all();
+      expect(createdJobs).toHaveLength(0);
+    });
+
+    it("getRun returns null for an unknown id", () => {
+      expect(queue.getRun(999_999)).toBeNull();
+    });
+
+    it("marks the run completed once every child job completes", () => {
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(userId, "aggregate", [{ feedId: 1 }, { feedId: 2 }]);
+      const childJobs = client.getDb().select().from(jobs).where(eq(jobs.runId, runId)).all();
+
+      queue.complete(childJobs[0].id);
+      let run = queue.getRun(runId);
+      expect(run?.status).toBe("running");
+      expect(run?.completedJobs).toBe(1);
+      expect(run?.finishedAt).toBeNull();
+
+      queue.complete(childJobs[1].id);
+      run = queue.getRun(runId);
+      expect(run?.status).toBe("completed");
+      expect(run?.completedJobs).toBe(2);
+      expect(run?.finishedAt).not.toBeNull();
+    });
+
+    it("marks the run failed if any child job fails", () => {
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(userId, "aggregate", [{ feedId: 1 }, { feedId: 2 }]);
+
+      // Claim and complete the first job normally.
+      const first = queue.claim();
+      expect(first).not.toBeNull();
+      queue.complete(first!.id);
+
+      // Claim the second job (bumps attempts to 1), then pin maxAttempts to 1
+      // so the very next fail() call is already terminal.
+      const second = queue.claim();
+      expect(second).not.toBeNull();
+      client.getDb().update(jobs).set({ maxAttempts: 1 }).where(eq(jobs.id, second!.id)).run();
+
+      queue.fail(second!.id, "boom");
+
+      const run = queue.getRun(runId);
+      expect(run?.status).toBe("failed");
+      expect(run?.completedJobs).toBe(1);
+      expect(run?.failedJobs).toBe(1);
+      expect(run?.finishedAt).not.toBeNull();
+    });
+
+    it("does not touch any run when a plain job (no runId) completes or fails", () => {
+      const id = queue.enqueue("noop", {}, { maxAttempts: 1 });
+      queue.claim();
+
+      // Should not throw despite job.runId being null.
+      expect(() => queue.complete(id)).not.toThrow();
+
+      const id2 = queue.enqueue("noop", {}, { maxAttempts: 1 });
+      queue.claim();
+      expect(() => queue.fail(id2, "boom")).not.toThrow();
     });
   });
 });
