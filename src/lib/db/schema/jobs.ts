@@ -84,3 +84,38 @@ export const jobs = sqliteTable(
 
 export type Job = typeof jobs.$inferSelect;
 export type NewJob = typeof jobs.$inferInsert;
+
+/**
+ * One row per captured console line for a job's run -- `src/lib/jobs/log-capture.ts`
+ * redirects `console.log`/`info`/`warn`/`error` calls made inside a handler's own
+ * async execution here, plus `src/lib/jobs/worker.ts`'s own lifecycle markers and
+ * a failed handler's stack trace. `id` (globally auto-incrementing) doubles as the
+ * per-job ordering/cursor key -- `WHERE job_id = ? AND id > ?` is a cheap indexed
+ * range scan, so no separate per-job sequence column is needed.
+ *
+ * Cascades with its job: nothing deletes `jobs` rows today (confirmed --
+ * `retention` only touches `articles`/`article_tombstones`), so in practice this
+ * persists exactly as long as the job row it describes. A future job-cleanup
+ * feature gets its log cleaned up for free.
+ */
+export const jobLogs = sqliteTable(
+  "job_logs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    jobId: integer("job_id")
+      .notNull()
+      .references(() => jobs.id, { onDelete: "cascade" }),
+    stream: text("stream").notNull(),
+    line: text("line").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [
+    index("job_logs_job_idx").on(table.jobId, table.id),
+    check("job_logs_stream_check", sql`"stream" in ('stdout', 'stderr')`),
+  ],
+);
+
+export type JobLog = typeof jobLogs.$inferSelect;
+export type NewJobLog = typeof jobLogs.$inferInsert;

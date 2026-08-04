@@ -301,6 +301,40 @@ describe("phase 13 additive schema", () => {
   });
 });
 
+describe("job logs", () => {
+  it("creates job_logs as a selectable table", () => {
+    const { connection, db } = freshDrizzle();
+    expect(() => db.select().from(schema.jobLogs).all()).not.toThrow();
+    connection.close();
+  });
+
+  it("rejects a stream value outside stdout/stderr", () => {
+    const connection = freshDatabase();
+    connection.exec("INSERT INTO jobs (kind) VALUES ('k')");
+
+    expect(() =>
+      connection.exec("INSERT INTO job_logs (job_id, stream, line) VALUES (1, 'bogus', 'x')"),
+    ).toThrow(/CHECK constraint failed/);
+    expect(() =>
+      connection.exec("INSERT INTO job_logs (job_id, stream, line) VALUES (1, 'stdout', 'ok')"),
+    ).not.toThrow();
+    connection.close();
+  });
+
+  it("cascades a deleted job's log lines away", () => {
+    const connection = freshDatabase();
+    connection.exec(`
+      INSERT INTO jobs (kind) VALUES ('k');
+      INSERT INTO job_logs (job_id, stream, line) VALUES (1, 'stdout', 'hello');
+      INSERT INTO job_logs (job_id, stream, line) VALUES (1, 'stderr', 'world');
+    `);
+
+    connection.exec("DELETE FROM jobs WHERE id = 1");
+    expect(count(connection, "job_logs")).toBe(0);
+    connection.close();
+  });
+});
+
 describe("updatedAt", () => {
   // `DEFAULT (unixepoch())` only covers the insert; Django's `auto_now=True`
   // rewrote the column on every save. `$onUpdate` is the port of that, and it
