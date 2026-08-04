@@ -247,7 +247,7 @@ export class RedditAggregator extends BaseAggregator {
       const decodedPermalink = originalPostData.permalink.replace(/&amp;/g, "&");
       const permalink = `https://reddit.com${decodedPermalink}`;
 
-      const headerImageUrl = extractHeaderImageUrl(originalPostData);
+      const headerImageUrl = await extractHeaderImageUrl(originalPostData);
       const thumbnailUrl = extractThumbnailUrl(originalPostData);
       const articleThumbnailUrl = headerImageUrl || thumbnailUrl;
 

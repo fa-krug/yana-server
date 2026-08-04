@@ -5,6 +5,7 @@
  */
 
 import { extractYoutubeVideoId, isTwitterUrl } from "../../extract/format";
+import { extractImages, getOverrideImageUrl } from "../../images/extractor";
 import { RedditPostData } from "./types";
 import { decodeHtmlEntitiesInUrl, extractUrlsFromText, fixRedditMediaUrl } from "./urls";
 
@@ -85,8 +86,14 @@ export function extractAnimatedGifUrl(post: RedditPostData): string | null {
   }
 }
 
-export function extractHeaderImageUrl(post: RedditPostData): string | null {
+export async function extractHeaderImageUrl(post: RedditPostData): Promise<string | null> {
   try {
+    // Priority -1: domain image overrides take precedence over everything else.
+    if (post.url) {
+      const overrideUrl = getOverrideImageUrl(decodeHtmlEntitiesInUrl(post.url));
+      if (overrideUrl) return overrideUrl;
+    }
+
     // Priority 0: Check for video embeds (YouTube / v.redd.it)
     const videoUrl = extractVideoEmbedUrl(post);
     if (videoUrl && !videoUrl.includes("vxreddit.com")) {
@@ -119,11 +126,7 @@ export function extractHeaderImageUrl(post: RedditPostData): string | null {
       const decodedUrl = decodeHtmlEntitiesInUrl(post.url);
       const urlLower = decodedUrl.toLowerCase();
 
-      if (
-        !/https?:\/\/[^\s]*reddit\.com\/r\/[^/\s]+\/comments\/[a-zA-Z0-9]+\/[^/\s]+\/?$/i.test(
-          decodedUrl,
-        )
-      ) {
+      if (!isRedditCommentsUrl(decodedUrl)) {
         const isDirectImage =
           [".jpg", ".jpeg", ".png", ".webp", ".gif", ".gifv"].some((ext) =>
             urlLower.includes(ext),
@@ -137,8 +140,8 @@ export function extractHeaderImageUrl(post: RedditPostData): string | null {
       }
     }
 
-    // Priority 3: Extract image URL from selftext
-    const selftextImage = extractImageUrlFromSelftext(post);
+    // Priority 3: extract an image URL from selftext, or scrape its first link's page.
+    const selftextImage = await extractImageUrlFromSelftext(post);
     if (selftextImage) {
       return selftextImage;
     }
@@ -153,10 +156,24 @@ export function extractHeaderImageUrl(post: RedditPostData): string | null {
       return thumbnailUrl;
     }
 
+    // Priority 5: link post with no Reddit-supplied image -- scrape the linked page's og:image.
+    if (post.url && !post.is_self) {
+      const decodedUrl = decodeHtmlEntitiesInUrl(post.url);
+      if (!isRedditCommentsUrl(decodedUrl)) {
+        const pageImage = await extractImages(decodedUrl, true);
+        if (pageImage?.imageUrl) return pageImage.imageUrl;
+      }
+    }
+
     return null;
   } catch {
     return null;
   }
+}
+
+/** True for a Reddit post permalink -- an internal link, never a header image. */
+function isRedditCommentsUrl(url: string): boolean {
+  return /https?:\/\/[^\s]*reddit\.com\/r\/[^/\s]+\/comments\/[a-zA-Z0-9]+\/[^/\s]+\/?$/i.test(url);
 }
 
 function extractVideoEmbedUrl(post: RedditPostData): string | null {
@@ -219,7 +236,7 @@ function extractGalleryImageUrl(post: RedditPostData): string | null {
   return null;
 }
 
-function extractImageUrlFromSelftext(post: RedditPostData): string | null {
+async function extractImageUrlFromSelftext(post: RedditPostData): Promise<string | null> {
   if (!post.is_self || !post.selftext) return null;
 
   let selftextToProcess = post.selftext;
@@ -233,6 +250,7 @@ function extractImageUrlFromSelftext(post: RedditPostData): string | null {
   const urls = extractUrlsFromText(selftextToProcess);
   if (urls.length === 0) return null;
 
+  let firstLink: string | null = null;
   for (const url of urls) {
     if (!url.startsWith("http://") && !url.startsWith("https://")) continue;
     const urlLower = url.toLowerCase();
@@ -242,6 +260,14 @@ function extractImageUrlFromSelftext(post: RedditPostData): string | null {
     ) {
       return url;
     }
+    if (firstLink === null && !isTwitterUrl(url)) {
+      firstLink = url;
+    }
+  }
+
+  if (firstLink) {
+    const pageImage = await extractImages(firstLink, true);
+    if (pageImage?.imageUrl) return pageImage.imageUrl;
   }
 
   return null;
