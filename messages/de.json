@@ -106,6 +106,15 @@
       "removed": "Passkey entfernt",
       "removeFailed": "Der Passkey konnte nicht entfernt werden.",
       "lastOneNeedsPassword": "Das ist deine einzige Anmeldemöglichkeit. Setze zuerst ein Passwort."
+    },
+    "devices": {
+      "title": "Geräte",
+      "description": "Geräte, die bei der Yana-App angemeldet sind. Ein Widerruf meldet das Gerät sofort ab.",
+      "empty": "Es sind noch keine Geräte gekoppelt.",
+      "revoke": "Widerrufen",
+      "revoked": "Gerät widerrufen",
+      "revokeFailed": "Das Gerät konnte nicht widerrufen werden",
+      "pairedOn": "Gekoppelt am {date}"
     }
   },
   "users": {

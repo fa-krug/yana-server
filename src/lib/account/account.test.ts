@@ -593,6 +593,156 @@ describe("the account actions", () => {
     });
   });
 
+  describe("listDevices / removeDevice", () => {
+    /**
+     * A device session row, planted directly -- like `plantPasskey` above, this
+     * is the part no ceremony can drive from a unit test (there is no real
+     * `/device/pair` handshake here), so it stands in for one. Raw SQL rather
+     * than `writeTransaction()` because `sessions` is Better Auth's table, not
+     * one `writeTransaction()`'s convention governs, and the "no
+     * `writeTransaction()` for Better Auth's own writes" exception in
+     * CLAUDE.md applies to this table specifically.
+     *
+     * `expiresAt` defaults far in the future so a planted device reads as live
+     * unless a test asks for an expired one.
+     */
+    function plantDeviceSession(
+      userId: string,
+      token: string,
+      opts: { deviceName: string; expiresAt?: Date; createdAt?: Date },
+    ): void {
+      const expiresAt = opts.expiresAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      const createdAt = opts.createdAt ?? new Date();
+      const connection = new Database(dbPath);
+      try {
+        connection
+          .prepare(
+            `INSERT INTO sessions (id, token, user_id, expires_at, device_name, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            `sess-${token}`,
+            token,
+            userId,
+            Math.floor(expiresAt.getTime() / 1000),
+            opts.deviceName,
+            Math.floor(createdAt.getTime() / 1000),
+          );
+      } finally {
+        connection.close();
+      }
+    }
+
+    function countSessionsWithToken(token: string): number {
+      return query<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM sessions WHERE token = ?",
+        token,
+      ).count;
+    }
+
+    it("lists paired devices and omits the browser's own session", async () => {
+      const { id, cookie } = await seedAndSignIn();
+      plantDeviceSession(id, "device-iphone", { deviceName: "iPhone" });
+
+      const devices = await queries.listDevices(id);
+
+      expect(devices).toHaveLength(1);
+      expect(devices[0]).toMatchObject({ token: "device-iphone", deviceName: "iPhone" });
+      // The browser's own session (minted by seedAndSignIn/signInCookie) has no
+      // deviceName, and must never appear alongside a real device.
+      expect(devices.some((device) => device.token === cookie)).toBe(false);
+    });
+
+    it("orders devices newest-first", async () => {
+      const { id } = await seedAndSignIn();
+      plantDeviceSession(id, "device-older", {
+        deviceName: "Older",
+        createdAt: new Date(Date.now() - 60_000),
+      });
+      plantDeviceSession(id, "device-newer", {
+        deviceName: "Newer",
+        createdAt: new Date(),
+      });
+
+      const devices = await queries.listDevices(id);
+
+      expect(devices.map((device) => device.deviceName)).toEqual(["Newer", "Older"]);
+    });
+
+    it("omits an expired device session", async () => {
+      // Better Auth never deletes a session just because it lapsed -- it only
+      // refuses to extend it -- so an unfiltered read would offer a dead
+      // session as a "device" to revoke, with no effect if the user tried.
+      const { id } = await seedAndSignIn();
+      plantDeviceSession(id, "device-expired", {
+        deviceName: "Expired Device",
+        expiresAt: new Date(Date.now() - 60_000),
+      });
+      plantDeviceSession(id, "device-live", { deviceName: "Live Device" });
+
+      const devices = await queries.listDevices(id);
+
+      expect(devices.map((device) => device.deviceName)).toEqual(["Live Device"]);
+    });
+
+    it("omits another user's device session", async () => {
+      const other = await createUserWithPassword(OTHER);
+      plantDeviceSession(other.id, "device-theirs", { deviceName: "Their Phone" });
+      const { id } = await seedAndSignIn();
+      plantDeviceSession(id, "device-mine", { deviceName: "My Phone" });
+
+      const devices = await queries.listDevices(id);
+
+      expect(devices.map((device) => device.token)).toEqual(["device-mine"]);
+    });
+
+    it("revokes a device session by token, so it disappears and the row is gone", async () => {
+      const { id } = await seedAndSignIn();
+      plantDeviceSession(id, "device-ipad", { deviceName: "iPad" });
+      expect(countSessionsWithToken("device-ipad")).toBe(1);
+
+      const result = await actions.removeDevice({ token: "device-ipad" });
+
+      expect(result).toEqual({ ok: true });
+      expect(await queries.listDevices(id)).toEqual([]);
+      // Not just filtered out of the list -- the row itself is gone, so the
+      // token can never authenticate a device session again either.
+      expect(countSessionsWithToken("device-ipad")).toBe(0);
+    });
+
+    it("leaves the caller's own browser session alone", async () => {
+      // There is no "last device" lockout here, unlike the last-passkey guard:
+      // the browser's own cookie session is never one of the rows revokeDevice
+      // can touch, because it carries no deviceName.
+      const { id, cookie } = await seedAndSignIn();
+      plantDeviceSession(id, "device-only", { deviceName: "Only Device" });
+
+      await actions.removeDevice({ token: "device-only" });
+
+      expect(await sessionFor(cookie)).not.toBe(null);
+    });
+
+    it("leaves somebody else's device session untouched, even though the call reports ok", async () => {
+      // Better Auth's own endpoint (`revoke-session` in
+      // `better-auth/dist/api/routes/session.mjs`) checks the token's userId
+      // against the caller's *before* deleting -- but on a mismatch it skips
+      // the delete and still answers `{ status: true }` rather than throwing.
+      // So this action cannot report `ok: false` for a foreign token the way
+      // `removePasskey` does for a foreign passkey id (that endpoint throws on
+      // a mismatch instead). The property that actually holds -- and the one
+      // this test pins -- is that the row survives; the misleading `ok: true`
+      // is a known quirk of the library's endpoint, not of this wrapper.
+      const other = await createUserWithPassword(OTHER);
+      plantDeviceSession(other.id, "device-theirs", { deviceName: "Their Phone" });
+      await seedAndSignIn();
+
+      const result = await actions.removeDevice({ token: "device-theirs" });
+
+      expect(result).toEqual({ ok: true });
+      expect(countSessionsWithToken("device-theirs")).toBe(1);
+    });
+  });
+
   describe("the Server Action body limit", () => {
     it("leaves room above the avatar limit, so the avatar limit is the one that fires", async () => {
       // Next rejects an action request body over `bodySizeLimit` *before* the
@@ -656,6 +806,7 @@ describe("the account actions", () => {
       expect(overview.user.firstName).toBe("Grace");
       expect(overview.hasPassword).toBe(true);
       expect(overview.passkeys).toEqual([]);
+      expect(overview.devices).toEqual([]);
     });
   });
 });

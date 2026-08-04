@@ -106,6 +106,15 @@
       "removed": "Passkey removed",
       "removeFailed": "The passkey could not be removed.",
       "lastOneNeedsPassword": "This is your only way to sign in. Set a password before removing it."
+    },
+    "devices": {
+      "title": "Devices",
+      "description": "Devices signed in to the Yana app. Revoking one signs it out immediately.",
+      "empty": "No devices are paired yet.",
+      "revoke": "Revoke",
+      "revoked": "Device revoked",
+      "revokeFailed": "Could not revoke that device",
+      "pairedOn": "Paired {date}"
     }
   },
   "users": {

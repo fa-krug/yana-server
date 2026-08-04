@@ -1,10 +1,10 @@
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull } from "drizzle-orm";
 import { headers } from "next/headers";
 
 import { auth } from "@/lib/auth/server";
 import { currentUserRow } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
-import { accounts, type User } from "@/lib/db/schema";
+import { accounts, sessions, type User } from "@/lib/db/schema";
 
 /**
  * Reads for `/account`. Writes are in `./actions`.
@@ -33,6 +33,7 @@ export type PasskeySummary = {
 export type AccountOverview = {
   user: User;
   passkeys: PasskeySummary[];
+  devices: DeviceSummary[];
   /**
    * Does this account have an email+password credential?
    *
@@ -58,6 +59,7 @@ export async function getAccountOverview(): Promise<AccountOverview> {
   return {
     user,
     passkeys: await listPasskeys(),
+    devices: await listDevices(user.id),
     hasPassword: hasPasswordCredential(user.id),
   };
 }
@@ -81,6 +83,67 @@ async function listPasskeys(): Promise<PasskeySummary[]> {
       createdAt: passkey.createdAt,
     }))
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+}
+
+/** A paired device session as the account page lists it. Never the token's siblings. */
+export type DeviceSummary = {
+  token: string;
+  deviceName: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+/**
+ * This user's device sessions -- ordinary `sessions` rows with `deviceName`
+ * set, as opposed to the browser's own session, which has none.
+ *
+ * **A direct query, not `auth.api.listSessions()`.** That endpoint is gated by
+ * Better Auth's `freshSessionMiddleware`, which requires the *caller's own*
+ * session to have been created within `sessionConfig.freshAge` -- 24 hours by
+ * default, and `src/lib/auth/server.ts` does not override it. Session refresh
+ * only ever rewrites `expiresAt`/`updatedAt` (see `/get-session` in
+ * `better-auth/dist/api/routes/session.mjs`), never `createdAt`, so a browser
+ * session that is genuinely still valid -- up to `expiresIn` = 30 days,
+ * silently refreshed every `updateAge` -- still fails that check the moment it
+ * is more than a day past its original sign-in. Calling the gated endpoint
+ * here would 403 this whole card (and, wired into `getAccountOverview()`,
+ * the whole page) for nearly every real visitor. `removeDevice()` in
+ * `./actions` has no such problem: `revokeSession` is gated by
+ * `sensitiveSessionMiddleware`, which checks for *a* valid session, not a
+ * fresh one, so it keeps going through the Better Auth endpoint -- getting its
+ * ownership check for free, the way `src/lib/api/auth.ts`'s
+ * `requireApiUser()` already prefers a direct query over hidden plugin
+ * behaviour for the same class of reason.
+ *
+ * Only still-live sessions are listed (`expiresAt > now`): Better Auth never
+ * proactively deletes an expired row, and offering a dead session as a
+ * "device" to revoke would be confusing busywork with no effect.
+ */
+export async function listDevices(userId: string): Promise<DeviceSummary[]> {
+  const rows = getDb()
+    .select({
+      token: sessions.token,
+      deviceName: sessions.deviceName,
+      createdAt: sessions.createdAt,
+      updatedAt: sessions.updatedAt,
+    })
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.userId, userId),
+        isNotNull(sessions.deviceName),
+        gt(sessions.expiresAt, new Date()),
+      ),
+    )
+    .orderBy(desc(sessions.createdAt))
+    .all();
+
+  // isNotNull() narrows the WHERE clause, not Drizzle's inferred select type,
+  // so deviceName is still `string | null` here -- narrow it for real so
+  // DeviceSummary's field can stay non-nullable for its one consumer, the UI.
+  return rows
+    .filter((row): row is typeof row & { deviceName: string } => row.deviceName !== null)
+    .map((row) => ({ ...row, deviceName: row.deviceName }));
 }
 
 /**

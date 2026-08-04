@@ -73,6 +73,8 @@ const password = z.object({
 
 const passkeyRef = z.object({ id: z.string().min(1).max(255) });
 
+const deviceRef = z.object({ token: z.string().min(1) });
+
 /**
  * Which field failed, as a catalog key. Anything unlisted falls through to
  * `undefined` and the caller shows the generic `account.saveFailed`, exactly
@@ -398,6 +400,49 @@ export async function removePasskey(input: unknown): Promise<Result> {
     await auth.api.deletePasskey({ body: { id: parsed.data.id }, headers: await headers() });
   } catch (error) {
     console.error("Failed to delete a passkey", error);
+    return { ok: false };
+  }
+
+  revalidatePath("/account");
+  return { ok: true };
+}
+
+/**
+ * Revoke a device session.
+ *
+ * **Through `auth.api.revokeSession`, unlike `listDevices()` in `./queries`.**
+ * That query bypasses `auth.api.listSessions()` because the *read* endpoint is
+ * gated by `freshSessionMiddleware` and would 403 for nearly every real
+ * session (see the comment on `listDevices()`). `revokeSession` carries no
+ * such gate -- it uses `sensitiveSessionMiddleware`, which only requires *a*
+ * valid session -- so there is no reason to bypass it here, and every reason
+ * not to: it verifies the token belongs to the caller's own userId before
+ * deleting it (`better-auth/dist/api/routes/session.mjs`), so a token naming
+ * someone else's device session is left alone by the library, not by a WHERE
+ * clause written here. **That check is silent, though**: on a mismatch the
+ * endpoint skips the delete but still answers `{ status: true }` rather than
+ * throwing, so this action cannot report `ok: false` for a foreign token the
+ * way `removePasskey` does for a foreign passkey id (whose endpoint does
+ * throw on a mismatch). The row's survival is what actually holds; the `ok`
+ * value does not distinguish "revoked" from "silently declined" here.
+ *
+ * Unlike `removePasskey`, there is no "last one" guard: revoking every device
+ * just means re-pairing, never account lockout, because the browser's own
+ * cookie session is untouched -- it is not one of the sessions `deviceName`
+ * marks, so `revokeSession` here can never end the caller's own session.
+ */
+export async function removeDevice(input: unknown): Promise<Result> {
+  await requireUser();
+  const parsed = deviceRef.safeParse(input);
+  if (!parsed.success) return { ok: false };
+
+  try {
+    await auth.api.revokeSession({
+      body: { token: parsed.data.token },
+      headers: await headers(),
+    });
+  } catch (error) {
+    console.error("Failed to revoke a device session", error);
     return { ok: false };
   }
 
