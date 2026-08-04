@@ -5,6 +5,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { Feed } from "../db/schema";
 import { applyMigrationsAt } from "../db/test-support";
 
 describe("resolveFeedCredentials", () => {
@@ -37,7 +38,7 @@ describe("resolveFeedCredentials", () => {
   });
 
   it("merges the feed owner's stored Reddit/YouTube credentials into feed.options", () => {
-    let feed: InstanceType<typeof Object> & Record<string, unknown>;
+    let feed: Feed;
 
     client.writeTransaction((db) => {
       db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
@@ -63,7 +64,7 @@ describe("resolveFeedCredentials", () => {
         .get();
     });
 
-    const resolved = resolution.resolveFeedCredentials(feed! as never);
+    const resolved = resolution.resolveFeedCredentials(feed!);
 
     expect(resolved.options).toEqual({
       min_comments: 3,
@@ -76,14 +77,16 @@ describe("resolveFeedCredentials", () => {
   });
 
   it("prefers the owner's stored credential over a colliding key already in feed.options", () => {
-    let feed: InstanceType<typeof Object> & Record<string, unknown>;
+    let feed: Feed;
 
     client.writeTransaction((db) => {
       db.insert(schema.users).values({ id: "user2", email: "user2@example.com" }).run();
       db.insert(schema.userSettings)
         .values({
           userId: "user2",
+          redditEnabled: true,
           redditClientId: "fresh-value-from-user-settings",
+          redditClientSecret: "shh",
         })
         .run();
       feed = db
@@ -98,7 +101,7 @@ describe("resolveFeedCredentials", () => {
         .get();
     });
 
-    const resolved = resolution.resolveFeedCredentials(feed! as never);
+    const resolved = resolution.resolveFeedCredentials(feed!);
 
     expect((resolved.options as Record<string, unknown>).reddit_client_id).toBe(
       "fresh-value-from-user-settings",
@@ -106,7 +109,7 @@ describe("resolveFeedCredentials", () => {
   });
 
   it("returns the feed unchanged when the owner has no user_settings row", () => {
-    let feed: InstanceType<typeof Object> & Record<string, unknown>;
+    let feed: Feed;
 
     client.writeTransaction((db) => {
       db.insert(schema.users).values({ id: "orphan", email: "orphan@example.com" }).run();
@@ -117,7 +120,136 @@ describe("resolveFeedCredentials", () => {
         .get();
     });
 
-    const resolved = resolution.resolveFeedCredentials(feed! as never);
+    const resolved = resolution.resolveFeedCredentials(feed!);
     expect(resolved).toBe(feed!);
+  });
+
+  it("injects nothing for an unconfigured owner, so the env-var fallback is not shadowed", () => {
+    let feed: Feed;
+
+    // A user who never visited /integrations still has a user_settings row: the
+    // defaults are reddit_enabled = 0, empty credentials and the NOT NULL
+    // reddit_user_agent default "Yana/1.0".
+    client.writeTransaction((db) => {
+      db.insert(schema.users).values({ id: "fresh", email: "fresh@example.com" }).run();
+      db.insert(schema.userSettings).values({ userId: "fresh" }).run();
+      feed = db
+        .insert(schema.feeds)
+        .values({
+          name: "r/test",
+          userId: "fresh",
+          aggregator: "reddit",
+          options: { min_comments: 3 },
+        })
+        .returning()
+        .get();
+    });
+
+    const resolved = resolution.resolveFeedCredentials(feed!);
+    const options = resolved.options as Record<string, unknown>;
+
+    expect(options).toEqual({ min_comments: 3 });
+    expect(options).not.toHaveProperty("reddit_enabled");
+    expect(options).not.toHaveProperty("reddit_client_id");
+    expect(options).not.toHaveProperty("reddit_client_secret");
+    expect(options).not.toHaveProperty("reddit_user_agent");
+    expect(options).not.toHaveProperty("youtube_api_key");
+  });
+
+  it("injects nothing for Reddit when the probe rejected the stored credentials", () => {
+    let feed: Feed;
+
+    // judge()'s `bad` arm stores a refused credential with reddit_enabled = 0.
+    client.writeTransaction((db) => {
+      db.insert(schema.users).values({ id: "rejected", email: "rejected@example.com" }).run();
+      db.insert(schema.userSettings)
+        .values({
+          userId: "rejected",
+          redditEnabled: false,
+          redditClientId: "known-bad-id",
+          redditClientSecret: "known-bad-secret",
+          redditUserAgent: "Yana/1.0",
+        })
+        .run();
+      feed = db
+        .insert(schema.feeds)
+        .values({ name: "r/test", userId: "rejected", aggregator: "reddit" })
+        .returning()
+        .get();
+    });
+
+    const options = resolution.resolveFeedCredentials(feed!).options as Record<string, unknown>;
+
+    expect(options).not.toHaveProperty("reddit_client_id");
+    expect(options).not.toHaveProperty("reddit_client_secret");
+    expect(options).not.toHaveProperty("reddit_user_agent");
+    expect(options).not.toHaveProperty("reddit_enabled");
+  });
+
+  it("injects nothing for Reddit when enabled but a credential half is empty", () => {
+    let feed: Feed;
+
+    client.writeTransaction((db) => {
+      db.insert(schema.users).values({ id: "half", email: "half@example.com" }).run();
+      db.insert(schema.userSettings)
+        .values({
+          userId: "half",
+          redditEnabled: true,
+          redditClientId: "an-id",
+          redditClientSecret: "",
+        })
+        .run();
+      feed = db
+        .insert(schema.feeds)
+        .values({ name: "r/test", userId: "half", aggregator: "reddit" })
+        .returning()
+        .get();
+    });
+
+    const options = resolution.resolveFeedCredentials(feed!).options as Record<string, unknown>;
+
+    expect(options).not.toHaveProperty("reddit_client_id");
+    expect(options).not.toHaveProperty("reddit_user_agent");
+  });
+
+  it("preserves an existing feed.options value rather than overwriting it when unconfigured", () => {
+    let feed: Feed;
+
+    client.writeTransaction((db) => {
+      db.insert(schema.users).values({ id: "keeper", email: "keeper@example.com" }).run();
+      db.insert(schema.userSettings).values({ userId: "keeper" }).run();
+      feed = db
+        .insert(schema.feeds)
+        .values({
+          name: "r/test",
+          userId: "keeper",
+          aggregator: "reddit",
+          options: { reddit_user_agent: "Yana/1.0 (operator override)" },
+        })
+        .returning()
+        .get();
+    });
+
+    const options = resolution.resolveFeedCredentials(feed!).options as Record<string, unknown>;
+
+    expect(options.reddit_user_agent).toBe("Yana/1.0 (operator override)");
+  });
+
+  it("omits youtube_api_key when the stored key is empty", () => {
+    let feed: Feed;
+
+    client.writeTransaction((db) => {
+      db.insert(schema.users).values({ id: "noyt", email: "noyt@example.com" }).run();
+      db.insert(schema.userSettings).values({ userId: "noyt", youtubeApiKey: "" }).run();
+      feed = db
+        .insert(schema.feeds)
+        .values({ name: "chan", userId: "noyt", aggregator: "youtube" })
+        .returning()
+        .get();
+    });
+
+    const options = resolution.resolveFeedCredentials(feed!).options as Record<string, unknown>;
+
+    expect(options).not.toHaveProperty("youtube_api_key");
   });
 });

@@ -42,8 +42,12 @@ export async function getRedditAccessToken(
 
   const cacheKey = `${clientId}:${clientSecret}`;
   const cached = tokenCache.get(cacheKey);
-  if (cached && Date.now() < cached.expiresAt) {
-    return cached.token;
+  if (cached) {
+    if (Date.now() < cached.expiresAt) return cached.token;
+    // Drop the stale entry rather than leaving it for the re-fetch below to
+    // overwrite -- the map is then bounded by *live* credential pairs instead
+    // of by every pair the process has ever seen.
+    tokenCache.delete(cacheKey);
   }
 
   try {

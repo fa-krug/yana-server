@@ -44,4 +44,14 @@ describe("decodeHtmlEntitiesInUrl", () => {
     expect(decodeHtmlEntitiesInUrl("https://x.test/a&apos;b")).toBe("https://x.test/a'b");
     expect(decodeHtmlEntitiesInUrl("https://x.test/a&amp;b")).toBe("https://x.test/a&b");
   });
+
+  it("leaves an out-of-range numeric entity ref untouched instead of throwing", () => {
+    // String.fromCodePoint throws RangeError above 0x10FFFF.
+    expect(decodeHtmlEntitiesInUrl("https://x.test/a&#1114112;b")).toBe(
+      "https://x.test/a&#1114112;b",
+    );
+    expect(decodeHtmlEntitiesInUrl("https://x.test/a&#x110000;b")).toBe(
+      "https://x.test/a&#x110000;b",
+    );
+  });
 });

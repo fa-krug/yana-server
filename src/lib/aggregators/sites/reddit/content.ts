@@ -4,6 +4,7 @@
  * Ported from old/core/aggregators/reddit/content.py.
  */
 
+import { ArticleSkipError } from "../../errors";
 import { fetchPostComments, formatCommentHtml } from "./comments";
 import { extractAnimatedGifUrl, extractGiphyGifUrl } from "./images";
 import { convertRedditMarkdown, escapeHtml, safeImgHtml, safeLinkHtml } from "./markdown";
@@ -169,7 +170,16 @@ async function addCommentsSection(
       } else {
         commentSectionParts.push("<p><em>No comments yet.</em></p>");
       }
-    } catch {
+    } catch (err) {
+      // A 403/404 from the comments endpoint means the post itself is private,
+      // removed or gone -- `fetchPostComments()` reports that as an
+      // `ArticleSkipError` and the caller drops the article. Swallowing it here
+      // would silently reinstate the bug that fix by degrading a skipped post
+      // into one whose body says "Comments unavailable." Production always
+      // pre-fetches (`aggregator.ts` passes `commentsList`), so this path is
+      // reachable only from a future caller that does not -- which is exactly
+      // when the guard has to already be here.
+      if (err instanceof ArticleSkipError) throw err;
       commentSectionParts.push("<p><em>Comments unavailable.</em></p>");
     }
   } else {

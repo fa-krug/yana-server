@@ -43,7 +43,7 @@ describe("buildVideoHeaderHtml", () => {
     vi.clearAllMocks();
   });
 
-  it("prefers the HLS source and includes a poster from the stored image ref", async () => {
+  it("prefers the MP4 source and includes a poster from the stored image ref", async () => {
     vi.mocked(storeImageRefFromUrl).mockResolvedValue("yana-img://abc123");
 
     const html = await buildVideoHeaderHtml(
@@ -54,9 +54,63 @@ describe("buildVideoHeaderHtml", () => {
       "https://preview.redd.it/a/preview.jpg",
     );
 
-    expect(html).toContain('<source src="https://v.redd.it/a/HLSPlaylist.m3u8"');
-    expect(html).toContain('type="application/vnd.apple.mpegurl"');
-    expect(html).toContain('poster="yana-img://abc123"');
+    // The block parser reads only the first <source>, and the card it renders
+    // is a link-out -- an .m3u8 there downloads as text in Chrome/Firefox.
+    expect(html).toContain(
+      '<video controls playsinline preload="metadata" poster="yana-img://abc123"',
+    );
+    expect(html).toContain('<source src="https://v.redd.it/a/DASH.mp4" type="video/mp4">');
+    expect(html!.indexOf("DASH.mp4")).toBeLessThan(html!.indexOf("HLSPlaylist.m3u8"));
+  });
+
+  it("emits both sources, MP4 first then HLS, when both URLs exist", async () => {
+    vi.mocked(storeImageRefFromUrl).mockResolvedValue(null);
+
+    const html = await buildVideoHeaderHtml(
+      {
+        hlsUrl: "https://v.redd.it/a/HLSPlaylist.m3u8",
+        fallbackUrl: "https://v.redd.it/a/DASH.mp4",
+      },
+      null,
+    );
+
+    expect(html).toContain(
+      '<source src="https://v.redd.it/a/DASH.mp4" type="video/mp4">' +
+        '<source src="https://v.redd.it/a/HLSPlaylist.m3u8" ' +
+        'type="application/vnd.apple.mpegurl">',
+    );
+  });
+
+  it("emits only the HLS source when there is no MP4 fallback", async () => {
+    vi.mocked(storeImageRefFromUrl).mockResolvedValue(null);
+
+    const html = await buildVideoHeaderHtml(
+      { hlsUrl: "https://v.redd.it/a/HLSPlaylist.m3u8" },
+      null,
+    );
+
+    expect(html).toContain(
+      '<source src="https://v.redd.it/a/HLSPlaylist.m3u8" type="application/vnd.apple.mpegurl">',
+    );
+    expect(html).not.toContain(".mp4");
+  });
+
+  it("degrades to no poster when storing the poster image throws", async () => {
+    vi.mocked(storeImageRefFromUrl).mockRejectedValue(new Error("hash collision"));
+
+    const html = await buildVideoHeaderHtml(
+      { fallbackUrl: "https://v.redd.it/a/DASH_480.mp4" },
+      "https://preview.redd.it/a/preview.jpg",
+    );
+
+    expect(html).toContain('<source src="https://v.redd.it/a/DASH_480.mp4" type="video/mp4">');
+    expect(html).not.toContain("poster=");
+    expect(html).toContain("</video></header>");
+  });
+
+  it("returns null when the only source carries an unsafe scheme", async () => {
+    const html = await buildVideoHeaderHtml({ fallbackUrl: "javascript:alert(1)" }, null);
+    expect(html).toBeNull();
   });
 
   it("falls back to the MP4 source with the correct type when there is no HLS URL", async () => {

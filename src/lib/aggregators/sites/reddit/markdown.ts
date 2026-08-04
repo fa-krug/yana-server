@@ -315,17 +315,17 @@ export function convertRedditMarkdown(text: string): string {
 
   input = input.replace(
     /!\[([^\]]*)\]\(giphy\|([a-z0-9]+)(?:\|[^)]+)?\)/gi,
-    (_, __, id) => `<img src="https://i.giphy.com/${id}.gif" alt="Giphy GIF">`,
+    (_, __, id) => `<img src="https://media.giphy.com/media/${id}/giphy.gif" alt="Giphy GIF">`,
   );
 
   input = input.replace(
     /<img\s+[^>]{0,200}src\s*=\s*["']giphy\|([a-z0-9]{1,50})(?:\|[^"']{0,100})?["'][^>]{0,200}>/gi,
-    (_, id) => `<img src="https://i.giphy.com/${id}.gif" alt="Giphy GIF">`,
+    (_, id) => `<img src="https://media.giphy.com/media/${id}/giphy.gif" alt="Giphy GIF">`,
   );
 
   input = input.replace(
     /(?<!["'])giphy\|([a-z0-9]+)(?!["'])/gi,
-    (_, id) => `<img src="https://i.giphy.com/${id}.gif" alt="Giphy GIF">`,
+    (_, id) => `<img src="https://media.giphy.com/media/${id}/giphy.gif" alt="Giphy GIF">`,
   );
 
   input = input.replace(/\^(\w+)/g, "<sup>$1</sup>");

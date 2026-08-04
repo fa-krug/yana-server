@@ -15,14 +15,31 @@ interface RedditSubredditAboutResponse {
 
 export function decodeHtmlEntitiesInUrl(url: string): string {
   if (!url) return "";
-  return url
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&#x([0-9a-fA-F]+);/g, (_m, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_m, dec: string) => String.fromCodePoint(Number(dec)));
+  return (
+    url
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      // `String.fromCodePoint` throws `RangeError` above 0x10FFFF (`&#1114112;`),
+      // so a malformed ref must leave the matched text alone rather than take the
+      // whole aggregation run down.
+      .replace(/&#x([0-9a-fA-F]+);/g, (match, hex: string) => {
+        try {
+          return String.fromCodePoint(parseInt(hex, 16));
+        } catch {
+          return match;
+        }
+      })
+      .replace(/&#(\d+);/g, (match, dec: string) => {
+        try {
+          return String.fromCodePoint(Number(dec));
+        } catch {
+          return match;
+        }
+      })
+  );
 }
 
 export function fixRedditMediaUrl(url?: string | null): string | null {

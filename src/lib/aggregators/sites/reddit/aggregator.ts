@@ -403,7 +403,11 @@ export class RedditAggregator extends BaseAggregator {
       const redditVideo = article._reddit_video_info as
         { hlsUrl?: string; fallbackUrl?: string } | null | undefined;
 
-      if (redditVideo) {
+      // `include_header_image: false` suppresses the video header too, not just
+      // the image one: both are headers, and a user who turned headers off got a
+      // `<video>` anyway. Nothing is lost -- `addLinkMedia()` in `./content.ts`
+      // still renders the post's own `v.redd.it` link in the body.
+      if (includeHeaderImage && redditVideo) {
         headerHtml = await buildVideoHeaderHtml(redditVideo, headerSourceUrl);
         if (headerHtml && article.content) {
           article.content = this._stripImageFromContent(article.content, headerSourceUrl || "");
