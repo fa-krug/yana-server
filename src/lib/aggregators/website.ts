@@ -100,7 +100,7 @@ export class FullWebsiteAggregator extends RssAggregator {
     return fetchHtml(url, { timeout: 30000 });
   }
 
-  extractContent(html: string, _article: RawArticle): string {
+  extractContent(html: string, _article: RawArticle): string | Promise<string> {
     return extractMainContent(
       html,
       this.getContentSelectors(),

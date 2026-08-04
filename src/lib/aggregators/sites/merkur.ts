@@ -96,7 +96,7 @@ export class MerkurAggregator extends FullWebsiteAggregator {
     return "https://www.merkur.de";
   }
 
-  override extractContent(html: string, article: RawArticle): string {
+  override extractContent(html: string, article: RawArticle): string | Promise<string> {
     const extracted = extractMainContent(
       html,
       this.getContentSelectors(),

@@ -114,7 +114,7 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
     return combinedHtml;
   }
 
-  override extractContent(html: string, article: RawArticle): string {
+  override async extractContent(html: string, article: RawArticle): Promise<string> {
     return extractMeinMmoContent(html, article, this.getIgnoreSelectors());
   }
 

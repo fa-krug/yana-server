@@ -68,11 +68,11 @@ export function processDailymotionBlocks(
  * 7. Clean data attributes
  * 8. Sanitize class names
  */
-export function extractMeinMmoContent(
+export async function extractMeinMmoContent(
   html: string,
   _article: RawArticle,
   selectorsToRemove: string[],
-): string {
+): Promise<string> {
   const $ = cheerio.load(html);
 
   const contentDivs = $("div.entry-content, div.gp-entry-content");
@@ -111,7 +111,7 @@ export function extractMeinMmoContent(
   });
 
   // Process embeds (YouTube, Twitter, Reddit, Bluesky, TikTok, YouTubeFallback)
-  processEmbeds($content, $);
+  await processEmbeds($content, $);
   // Replace image src with stored image references for parity tests
   $content.find("img").each((_, img) => {
     const $img = $(img);
@@ -127,8 +127,11 @@ export function extractMeinMmoContent(
   // Remove empty paragraphs and divs
   removeEmptyElements($, ["p", "div"]);
 
-  // Clean data attributes (keep data-src and data-srcset for lazy loading)
-  cleanDataAttributes($, ["data-src", "data-srcset"]);
+  // Clean data attributes (keep data-src/data-srcset for lazy loading, and
+  // data-sanitized-class since embed processors set it directly on wrapper
+  // elements rather than via a `class` attribute, so it must survive this
+  // strip step to still be present when sanitizeClassNames() runs below).
+  cleanDataAttributes($, ["data-src", "data-srcset", "data-sanitized-class"]);
 
   // Sanitize class names
   sanitizeClassNames($);
