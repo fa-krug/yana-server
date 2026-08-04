@@ -5,14 +5,16 @@
 **Scope:** Why we are moving to Next.js, the target architecture, the schema, the aggregator parity
 contract, and the phase route. Individual phases are planned in `docs/superpowers/plans/nextjs-*.md`.
 
-**Progress (2026-08-01):** Phase 0 (goldens), phase 1 (scaffold), phase 2
-(schema), phase 3 (app shell) and **phase 4 (authentication)** are done, and
-**phase 14's folder swap has been executed early** — the Next.js app is the
-repository root and the Django tree now sits in `old/`. Phases 5–13 and 15 are
-open. Two decisions below were changed by that early swap: Python is **not**
-deleted (`old/` is kept as read-only reference until nothing needs to read it),
-and CI no longer publishes or deploys. See
-`docs/superpowers/plans/nextjs-14-folder-swap.md`.
+**Progress (2026-08-04):** All 15 phases are done — phase 0 (goldens) through
+phase 15 (the installable `@fa-krug/yana` npm package) — and **phase 14's
+folder swap was executed early** — the Next.js app is the repository root and
+the Django tree sits in `old/`. Two decisions below were changed by that early
+swap: Python is **not** deleted (`old/` is kept as read-only reference until
+nothing needs to read it), and CI no longer publishes or deploys. See
+`docs/superpowers/plans/nextjs-14-folder-swap.md`. One release gate remains
+open: no live call has ever been made to the OpenAI, Anthropic or Gemini
+probes (see the "Carried forward from phase 7's review" section) — `/ai` must
+not reach a user before a manual pass per provider.
 
 ## Background
 
