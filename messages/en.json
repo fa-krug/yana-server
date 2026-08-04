@@ -22,7 +22,10 @@
     "filterStatus": "Filter Status",
     "filterKind": "Filter Kind",
     "all": "All",
-    "noJobs": "No jobs found."
+    "noJobs": "No jobs found.",
+    "log": "Log",
+    "logEmpty": "No log output yet.",
+    "logEnded": "Job finished — log ended."
   },
   "auth": {
     "signIn": "Sign in",
