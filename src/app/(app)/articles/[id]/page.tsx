@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 
+import { SetBreadcrumbTitle } from "@/components/breadcrumb-title";
 import { ArticleForm } from "@/components/articles/article-form";
 import { BlockTree } from "@/components/articles/block-tree";
 import { TableSkeleton } from "@/components/data-skeleton";
@@ -20,7 +21,12 @@ async function GeneralSection({ id }: { id: number }) {
     notFound();
   }
 
-  return <ArticleForm article={article} feeds={feedsRes.rows} />;
+  return (
+    <>
+      <SetBreadcrumbTitle title={article.name} />
+      <ArticleForm article={article} feeds={feedsRes.rows} />
+    </>
+  );
 }
 
 async function ContentSection({ id }: { id: number }) {
