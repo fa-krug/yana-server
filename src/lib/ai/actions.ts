@@ -231,6 +231,12 @@ const PROVIDER_KEYS = {
     quota: "mistral.quota",
     modelUnknown: "mistral.modelUnknown",
   },
+  qwen: {
+    required: "qwen.required",
+    rejected: "qwen.rejected",
+    quota: "qwen.quota",
+    modelUnknown: "qwen.modelUnknown",
+  },
 } satisfies Record<
   AiProviderKey,
   Record<"required" | "rejected" | "quota" | "modelUnknown", AiKey>
@@ -339,11 +345,30 @@ const mistral = defineIntegration({
   },
 });
 
+const qwen = defineIntegration({
+  provider: "qwen",
+  schema: z.object({ apiKey: secretField, model: modelField(registryEntry("qwen")) }),
+  fields: {
+    apiKey: { column: AI_COLUMNS.qwen.apiKey, secret: true },
+    model: { column: AI_COLUMNS.qwen.model, secret: false },
+  },
+  flagColumn: AI_COLUMNS.qwen.enabled,
+  requiredKey: PROVIDER_KEYS.qwen.required,
+  fieldErrorKeys: { "model:custom": PROVIDER_KEYS.qwen.modelUnknown },
+  probe: AI_PROBES.qwen,
+  keys: {
+    rejected: PROVIDER_KEYS.qwen.rejected,
+    quota: PROVIDER_KEYS.qwen.quota,
+    quotaMeansVerified: registryEntry("qwen").quotaMeansVerified,
+  },
+});
+
 const PROVIDER_ACTIONS: Record<AiProviderKey, IntegrationActions<AiKey>> = {
   openai,
   anthropic,
   gemini,
   mistral,
+  qwen,
 };
 
 /**

@@ -19,7 +19,7 @@
  * `AI_PROBES`, not an edit to the form, the action and the client.
  */
 
-export type AiProviderKey = "openai" | "anthropic" | "gemini" | "mistral";
+export type AiProviderKey = "openai" | "anthropic" | "gemini" | "mistral" | "qwen";
 
 /**
  * Where an OpenAI credential is probed, and what a fresh `user_settings` row
@@ -198,6 +198,19 @@ export const AI_PROVIDERS: readonly AiProvider[] = [
     hasCustomUrl: false,
     // Fixed endpoint, same reasoning as Anthropic/Gemini's `true`: a 429 can
     // only come from Mistral itself having already accepted the key.
+    quotaMeansVerified: true,
+  },
+  {
+    key: "qwen",
+    label: "Qwen",
+    // From yana-ios's AIProvider enum (AppSettings.swift), copied 2026-08-04.
+    models: [
+      { value: "qwen3.5-flash", label: "Qwen 3.5 Flash" },
+      { value: "qwen3.5-plus", label: "Qwen 3.5 Plus" },
+      { value: "qwen3-max", label: "Qwen 3 Max" },
+    ],
+    defaultModel: "qwen3.5-flash",
+    hasCustomUrl: false,
     quotaMeansVerified: true,
   },
 ];

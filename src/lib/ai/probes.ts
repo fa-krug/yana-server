@@ -4,6 +4,7 @@ import { testAnthropicKey } from "./anthropic";
 import { testGeminiKey } from "./gemini";
 import { testMistralKey } from "./mistral";
 import { testOpenaiKey } from "./openai";
+import { testQwenKey } from "./qwen";
 import type { AiProviderKey } from "./providers";
 
 /**
@@ -53,4 +54,5 @@ export const AI_PROBES: Record<AiProviderKey, AiProbe> = {
   anthropic: ({ apiKey, model }) => testAnthropicKey({ apiKey, model }),
   gemini: ({ apiKey, model }) => testGeminiKey({ apiKey, model }),
   mistral: ({ apiKey, model }) => testMistralKey({ apiKey, model }),
+  qwen: ({ apiKey, model }) => testQwenKey({ apiKey, model }),
 };

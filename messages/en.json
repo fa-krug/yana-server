@@ -428,6 +428,12 @@
       "quota": "The key is valid — Mistral is rate limiting it right now. It works again shortly.",
       "modelUnknown": "Choose one of the models Yana offers for Mistral."
     },
+    "qwen": {
+      "required": "Enter an API key first.",
+      "rejected": "Qwen would not accept these credentials. Check the API key, that the account still has credit, and that it may use the selected model.",
+      "quota": "The key is valid — Qwen is rate limiting it right now. It works again shortly.",
+      "modelUnknown": "Choose one of the models Yana offers for Qwen."
+    },
     "advanced": {
       "title": "Advanced",
       "description": "How every AI request is shaped. These apply to whichever provider is active, and they are saved together because they depend on one another.",

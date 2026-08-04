@@ -47,6 +47,7 @@ const PROVIDERS: Record<AiProviderKey, AiProviderStatus> = {
   anthropic: { enabled: true, apiKeyMasked: MASK, apiUrl: "", model: "claude-haiku-4-5" },
   gemini: { enabled: false, apiKeyMasked: "", apiUrl: "", model: "gemini-3.5-flash-lite" },
   mistral: { enabled: false, apiKeyMasked: "", apiUrl: "", model: "mistral-small-latest" },
+  qwen: { enabled: false, apiKeyMasked: "", apiUrl: "", model: "qwen3.5-flash" },
 };
 
 function render(active: AiProviderKey | "", locale: "en" | "de" = "de") {

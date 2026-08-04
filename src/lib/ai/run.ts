@@ -47,6 +47,9 @@ export type AiRuntimeSettings = Partial<UserSettings> & {
   mistral_enabled?: boolean;
   mistral_api_key?: string;
   mistral_model?: string;
+  qwen_enabled?: boolean;
+  qwen_api_key?: string;
+  qwen_model?: string;
 };
 
 /** The JSON body an AI provider's chat/completion endpoint is POSTed. */
@@ -194,6 +197,8 @@ export class AIClient {
         return await this.callGemini(prompt, jsonMode, jsonSchema);
       } else if (this.provider === "mistral") {
         return await this.callMistral(prompt, jsonMode);
+      } else if (this.provider === "qwen") {
+        return await this.callQwen(prompt, jsonMode);
       } else {
         console.warn(`Unknown AI provider: ${this.provider}`);
         return null;
@@ -357,6 +362,25 @@ export class AIClient {
     const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
     return this.callOpenaiCompatible(
       "https://api.mistral.ai/v1",
+      apiKey,
+      model,
+      prompt,
+      jsonMode,
+      timeout,
+    );
+  }
+
+  private async callQwen(prompt: string, jsonMode: boolean): Promise<string | null> {
+    const enabled = this.settings.qwenEnabled ?? this.settings.qwen_enabled;
+    const apiKey = this.settings.qwenApiKey ?? this.settings.qwen_api_key;
+    if (!enabled || !apiKey) {
+      console.warn("Qwen is not enabled or configured.");
+      return null;
+    }
+    const model = this.settings.qwenModel ?? this.settings.qwen_model ?? "qwen3.5-flash";
+    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
+    return this.callOpenaiCompatible(
+      "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
       apiKey,
       model,
       prompt,
