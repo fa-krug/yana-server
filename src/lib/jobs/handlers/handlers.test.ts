@@ -116,6 +116,7 @@ describe("src/lib/jobs/handlers", () => {
 
       const dummyJob = {
         id: 1,
+        runId: null,
         kind: "retention",
         payload: {},
         status: "running",

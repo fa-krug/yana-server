@@ -201,6 +201,15 @@ export const auth = betterAuth({
      * `disableCookieCache: true` or read `users.role` from the database.
      */
     cookieCache: { enabled: true, maxAge: 60 * 5 },
+    /**
+     * Declared here so Better Auth's adapter agrees with the Drizzle schema
+     * about this field's existence -- see the comment on `sessions.deviceName`
+     * in `src/lib/db/schema/auth.ts`. `internalAdapter.createSession()`'s
+     * `override` argument only persists a key the adapter knows to write.
+     */
+    additionalFields: {
+      deviceName: { type: "string", required: false },
+    },
   },
 
   advanced: {

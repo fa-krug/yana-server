@@ -48,7 +48,9 @@ describe("migrations", () => {
       "article_blocks",
       "article_inline_runs",
       "article_images",
+      "article_tombstones",
       "jobs",
+      "runs",
       "reddit_subreddits",
       "youtube_channels",
     ]) {
@@ -241,6 +243,60 @@ describe("migrations", () => {
 
     insert.run(1, 5, "paragraph");
     expect(() => insert.run(1, 5, "paragraph")).not.toThrow();
+    connection.close();
+  });
+});
+
+describe("phase 13 additive schema", () => {
+  it("creates article_tombstones and runs as selectable tables", () => {
+    const { connection, db } = freshDrizzle();
+
+    expect(() => db.select().from(schema.articleTombstones).all()).not.toThrow();
+    expect(() => db.select().from(schema.runs).all()).not.toThrow();
+
+    connection.close();
+  });
+
+  it("adds device_name to sessions, run_id to jobs, and logo_image_hash to feeds", () => {
+    const connection = freshDatabase();
+
+    const sessionCols = (connection.pragma("table_info(sessions)") as { name: string }[]).map(
+      (row) => row.name,
+    );
+    expect(sessionCols).toContain("device_name");
+
+    const jobCols = (connection.pragma("table_info(jobs)") as { name: string }[]).map(
+      (row) => row.name,
+    );
+    expect(jobCols).toContain("run_id");
+
+    const feedCols = (connection.pragma("table_info(feeds)") as { name: string }[]).map(
+      (row) => row.name,
+    );
+    expect(feedCols).toContain("logo_image_hash");
+
+    connection.close();
+  });
+
+  it("cascades a deleted user's tombstones and set-nulls a deleted run's jobs", () => {
+    const connection = freshDatabase();
+    seedOwnershipGraph(connection);
+    connection.exec(`
+      INSERT INTO article_tombstones (article_id, user_id) VALUES (1, 'u1');
+      INSERT INTO runs (id, user_id, total_jobs) VALUES (1, 'u1', 1);
+      INSERT INTO jobs (id, kind, run_id) VALUES (1, 'aggregate', 1);
+    `);
+
+    connection.exec("DELETE FROM runs WHERE id = 1");
+    const job = connection.prepare("SELECT run_id FROM jobs WHERE id = 1").get() as {
+      run_id: number | null;
+    };
+    expect(job.run_id).toBeNull();
+
+    connection.exec("DELETE FROM users WHERE id = 'u1'");
+    expect(count(connection, "article_tombstones")).toBe(0);
+    expect(count(connection, "runs")).toBe(0);
+
     connection.close();
   });
 });

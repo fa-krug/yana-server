@@ -75,6 +75,12 @@ export const feeds = sqliteTable(
     logo: text("logo"),
     /** Kept so the logo can be re-resolved without re-discovering the source. */
     logoSourceUrl: text("logo_source_url").notNull().default(""),
+    /**
+     * Content-addressed replacement for `logo`, referencing
+     * `articleImages.contentHash`. Populated by Task 6; `logo` itself is
+     * dropped in Task 7 once nothing reads it.
+     */
+    logoImageHash: text("logo_image_hash"),
 
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()

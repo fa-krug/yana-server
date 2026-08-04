@@ -10,6 +10,7 @@ import {
 } from "drizzle-orm/sqlite-core";
 
 import { feeds } from "./feeds";
+import { users } from "./users";
 
 /**
  * `content` from the Django model is deliberately absent: it held processed HTML
@@ -72,6 +73,35 @@ export const articles = sqliteTable(
     index("articles_feed_created_idx").on(table.feedId, table.createdAt),
   ],
 );
+
+/**
+ * Records a hard-deleted article for phase 13's sync `removed` list.
+ *
+ * `userId` is denormalized on purpose: once the article (and possibly its
+ * feed) is gone, nothing else lets this row be scoped to its owner. Every
+ * hard-delete path (retention, feed deletion) must insert one of these for
+ * each affected article *before* the delete, inside the same
+ * `writeTransaction()`.
+ */
+export const articleTombstones = sqliteTable(
+  "article_tombstones",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    articleId: integer("article_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    deletedAt: integer("deleted_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [
+    index("article_tombstones_user_deleted_idx").on(table.userId, table.deletedAt, table.id),
+  ],
+);
+
+export type ArticleTombstone = typeof articleTombstones.$inferSelect;
+export type NewArticleTombstone = typeof articleTombstones.$inferInsert;
 
 /**
  * One node of an article body in the Yana content format.

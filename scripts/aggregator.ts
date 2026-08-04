@@ -267,6 +267,7 @@ async function main(): Promise<void> {
         options: {},
         logo: null,
         logoSourceUrl: "",
+        logoImageHash: null,
         createdAt: new Date(),
         updatedAt: new Date(),
         redditSubredditId: null,

@@ -1,6 +1,36 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
+import { users } from "./users";
+
+/**
+ * Groups the N per-feed `aggregate` jobs one `POST /api/v1/aggregate` call
+ * creates, so a client has one thing to poll/subscribe to instead of N job
+ * ids. `completedJobs`/`failedJobs` are bumped by `src/lib/jobs/queue.ts`'s
+ * `complete()`/`fail()` whenever a job carrying this run's id finishes.
+ */
+export const runs = sqliteTable(
+  "runs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("running"),
+    totalJobs: integer("total_jobs").notNull(),
+    completedJobs: integer("completed_jobs").notNull().default(0),
+    failedJobs: integer("failed_jobs").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    finishedAt: integer("finished_at", { mode: "timestamp" }),
+  },
+  (table) => [index("runs_user_idx").on(table.userId)],
+);
+
+export type Run = typeof runs.$inferSelect;
+export type NewRun = typeof runs.$inferInsert;
+
 /**
  * Durable work queue, replacing django-q2's ORM broker. Same idea: the database
  * is the broker, so there is no Redis to run.
@@ -13,6 +43,8 @@ export const jobs = sqliteTable(
   "jobs",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
+    /** Set when this job was enqueued as part of a run (phase 13's aggregate trigger). */
+    runId: integer("run_id").references(() => runs.id, { onDelete: "set null" }),
     kind: text("kind").notNull(),
     payload: text("payload", { mode: "json" })
       .notNull()
@@ -38,6 +70,7 @@ export const jobs = sqliteTable(
     // The claim query's index: pending jobs whose runAt has passed, oldest first.
     index("jobs_claim_idx").on(table.status, table.runAt),
     index("jobs_kind_idx").on(table.kind),
+    index("jobs_run_idx").on(table.runId),
     /**
      * No Django precedent -- this table is new -- but the same hazard as
      * `feeds.options`: a malformed JSON write that the database accepts turns

@@ -56,6 +56,13 @@ export const sessions = sqliteTable(
      * the table lacks, so it exists.
      */
     impersonatedBy: text("impersonated_by"),
+    /**
+     * Set only on a session minted by `/device/pair` (phase 13's client API) --
+     * null for every ordinary browser session from `/login`. Declared as a
+     * `session.additionalFields` entry in `src/lib/auth/server.ts` too; Better
+     * Auth's adapter throws if the two disagree about which fields exist.
+     */
+    deviceName: text("device_name"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
