@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { currentUserId } from "@/lib/auth/session";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { feeds, feedTags, tags, jobs, articles, articleTombstones } from "@/lib/db/schema";
+import { enqueueRun } from "@/lib/jobs/queue";
 import { getSettings } from "@/lib/settings/queries";
 import type { ListParams } from "@/lib/crud/params";
 import {
@@ -436,31 +437,24 @@ export async function refreshLogos(ids: number[]): Promise<{ ok: boolean; enqueu
   });
 }
 
-export async function updateFeedsBulk(ids: number[]): Promise<{ ok: boolean; enqueued: number }> {
-  if (ids.length === 0) return { ok: true, enqueued: 0 };
-
+export async function updateFeedsBulk(
+  ids: number[],
+): Promise<{ ok: boolean; enqueued: number; runId: number }> {
   const userId = await currentUserId();
 
-  return writeTransaction((tx) => {
-    const validFeeds = tx
-      .select({ id: feeds.id })
-      .from(feeds)
-      .where(and(inArray(feeds.id, ids), eq(feeds.userId, userId)))
-      .all();
+  const validFeeds = getDb()
+    .select({ id: feeds.id })
+    .from(feeds)
+    .where(and(inArray(feeds.id, ids), eq(feeds.userId, userId)))
+    .all();
 
-    if (validFeeds.length > 0) {
-      tx.insert(jobs)
-        .values(
-          validFeeds.map((f) => ({
-            kind: "feed.update",
-            payload: { feedId: f.id },
-          })),
-        )
-        .run();
-    }
+  const runId = enqueueRun(
+    userId,
+    "feed.update",
+    validFeeds.map((f) => ({ feedId: f.id })),
+  );
 
-    return { ok: true, enqueued: validFeeds.length };
-  });
+  return { ok: true, enqueued: validFeeds.length, runId };
 }
 
 export async function restoreFeedsBulk(ids: number[]): Promise<{ ok: boolean; enqueued: number }> {

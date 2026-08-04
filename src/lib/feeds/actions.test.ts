@@ -460,3 +460,137 @@ describe("deleteFeeds", () => {
     expect(result).toEqual({ ok: true, deleted: 0 });
   });
 });
+
+describe("updateFeedsBulk", () => {
+  let dbPath: string;
+  let actions: typeof import("./actions");
+  let auth: typeof import("@/lib/auth/server").auth;
+  let createUserWithPassword: typeof import("@/lib/auth/server").createUserWithPassword;
+  let client: typeof import("@/lib/db/client");
+  let schema: typeof import("@/lib/db/schema");
+  let actingUserId: string | undefined;
+
+  function raw(db: unknown): Database.Database {
+    return (db as { $client: Database.Database }).$client;
+  }
+
+  function requestAs(cookie: string): void {
+    requestHeaders.current = new Headers({ cookie });
+  }
+
+  async function seedUser(input: { email: string }): Promise<string> {
+    const user = await createUserWithPassword({
+      email: input.email,
+      password: PASSWORD,
+      firstName: "",
+      lastName: "",
+      role: "user",
+    });
+    raw(client.getDb()).exec(`INSERT INTO user_settings (user_id) VALUES ('${user.id}')`);
+    return user.id;
+  }
+
+  async function currentUserId(): Promise<string> {
+    if (actingUserId) return actingUserId;
+    actingUserId = await seedUser({ email: "user@example.com" });
+    const cookie = await signInCookie(auth, { email: "user@example.com", password: PASSWORD });
+    requestAs(cookie);
+    cookieJar.clear();
+    return actingUserId;
+  }
+
+  async function switchToOtherUser(): Promise<void> {
+    actingUserId = await seedUser({ email: "other@example.com" });
+    const cookie = await signInCookie(auth, { email: "other@example.com", password: PASSWORD });
+    requestAs(cookie);
+  }
+
+  beforeEach(async () => {
+    vi.resetModules();
+    requestHeaders.current = new Headers();
+    cookieJar.clear();
+    actingUserId = undefined;
+
+    const stamp = `${process.pid}-${Math.random().toString(36).slice(2)}`;
+    dbPath = path.join(os.tmpdir(), `yana-feeds-update-bulk-${stamp}.db`);
+    applyMigrationsAt(dbPath);
+    process.env.DATABASE_PATH = dbPath;
+    process.env.BETTER_AUTH_SECRET = "test-secret-not-used-outside-this-file-0123456789";
+
+    ({ auth, createUserWithPassword } = await import("@/lib/auth/server"));
+    actions = await import("./actions");
+    client = await import("@/lib/db/client");
+    schema = await import("@/lib/db/schema");
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_PATH;
+    delete process.env.BETTER_AUTH_SECRET;
+    const connection = raw(client.getDb());
+    if (connection.open) connection.close();
+    for (const suffix of ["", "-shm", "-wal"]) {
+      fs.rmSync(`${dbPath}${suffix}`, { force: true });
+    }
+  });
+
+  it("groups the enqueued jobs into one run owned by the caller", async () => {
+    const userId = await currentUserId();
+    const a = await actions.createFeed({ name: "A", aggregator: "heise", identifier: "" });
+    const b = await actions.createFeed({ name: "B", aggregator: "heise", identifier: "" });
+
+    const result = await actions.updateFeedsBulk([a.id!, b.id!]);
+    expect(result.ok).toBe(true);
+    expect(result.enqueued).toBe(2);
+
+    const runRow = client
+      .getDb()
+      .select()
+      .from(schema.runs)
+      .all()
+      .find((r) => r.id === result.runId)!;
+    expect(runRow.userId).toBe(userId);
+    expect(runRow.totalJobs).toBe(2);
+    expect(runRow.status).toBe("running");
+
+    const jobRows = client
+      .getDb()
+      .select()
+      .from(schema.jobs)
+      .all()
+      .filter((j) => j.runId === result.runId);
+    expect(jobRows).toHaveLength(2);
+    expect(jobRows.every((j) => j.kind === "feed.update")).toBe(true);
+  });
+
+  it("filters out ids that don't belong to the caller, and still returns a valid runId", async () => {
+    await currentUserId();
+    const mine = await actions.createFeed({ name: "Mine", aggregator: "heise", identifier: "" });
+
+    await switchToOtherUser();
+    const theirs = await actions.createFeed({
+      name: "Theirs",
+      aggregator: "heise",
+      identifier: "",
+    });
+
+    await currentUserId();
+    const result = await actions.updateFeedsBulk([mine.id!, theirs.id!]);
+    expect(result.enqueued).toBe(1);
+    expect(typeof result.runId).toBe("number");
+  });
+
+  it("returns an already-completed, zero-job run for an empty id list", async () => {
+    await currentUserId();
+    const result = await actions.updateFeedsBulk([]);
+    expect(result).toEqual({ ok: true, enqueued: 0, runId: expect.any(Number) });
+
+    const runRow = client
+      .getDb()
+      .select()
+      .from(schema.runs)
+      .all()
+      .find((r) => r.id === result.runId)!;
+    expect(runRow.status).toBe("completed");
+    expect(runRow.totalJobs).toBe(0);
+  });
+});
