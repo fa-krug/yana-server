@@ -1,9 +1,10 @@
-import { and, asc, count, desc, eq, lte, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, lte, sql } from "drizzle-orm";
 
 import { publishUserEvent } from "../api/events";
 import { getDb, writeTransaction } from "../db/client";
-import { articles, feeds, jobs, runs } from "../db/schema";
-import type { Job, Run } from "../db/schema";
+import { articles, feeds, jobLogs, jobs, runs } from "../db/schema";
+import type { Job, JobLog, Run } from "../db/schema";
+import { publishJobLog } from "./log-bus";
 
 export interface EnqueueOptions {
   runAt?: Date;
@@ -363,4 +364,33 @@ export function listJobs(options: ListJobsOptions = {}): { jobs: Job[]; total: n
       total: countResult?.value ?? 0,
     };
   });
+}
+
+export type JobLogStream = "stdout" | "stderr";
+
+/**
+ * Appends one captured line to `jobId`'s log and publishes it on the job log
+ * bus for any live SSE viewer. Callers (`src/lib/jobs/log-capture.ts`,
+ * `src/lib/jobs/worker.ts`) are responsible for catching a failure here --
+ * this deliberately does not swallow one itself, so a caller inside an
+ * `AsyncLocalStorage`-captured context can choose to log the failure through
+ * the *original*, unpatched console rather than risk re-entering the patch.
+ */
+export function appendLogLine(jobId: number, stream: JobLogStream, line: string): JobLog {
+  const row = writeTransaction((db) => {
+    return db.insert(jobLogs).values({ jobId, stream, line }).returning().get();
+  });
+
+  publishJobLog(jobId, row);
+  return row;
+}
+
+/** Every log line for `jobId`, ordered oldest first, after `afterId` (exclusive). */
+export function listJobLogs(jobId: number, afterId = 0): JobLog[] {
+  return getDb()
+    .select()
+    .from(jobLogs)
+    .where(and(eq(jobLogs.jobId, jobId), gt(jobLogs.id, afterId)))
+    .orderBy(asc(jobLogs.id))
+    .all();
 }

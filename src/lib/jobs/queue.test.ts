@@ -393,4 +393,53 @@ describe("src/lib/jobs/queue", () => {
       expect(heard).toHaveLength(0);
     });
   });
+
+  describe("appendLogLine / listJobLogs", () => {
+    it("persists a line and returns it back from listJobLogs", () => {
+      const jobId = queue.enqueue("test.job", {});
+
+      const row = queue.appendLogLine(jobId, "stdout", "hello");
+
+      expect(row.jobId).toBe(jobId);
+      expect(row.stream).toBe("stdout");
+      expect(row.line).toBe("hello");
+
+      const lines = queue.listJobLogs(jobId);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toEqual(row);
+    });
+
+    it("orders lines by id and respects the afterId cursor", () => {
+      const jobId = queue.enqueue("test.job", {});
+      const first = queue.appendLogLine(jobId, "stdout", "one");
+      queue.appendLogLine(jobId, "stdout", "two");
+      const third = queue.appendLogLine(jobId, "stdout", "three");
+
+      expect(queue.listJobLogs(jobId).map((l) => l.line)).toEqual(["one", "two", "three"]);
+      expect(queue.listJobLogs(jobId, first.id).map((l) => l.line)).toEqual(["two", "three"]);
+      expect(queue.listJobLogs(jobId, third.id)).toEqual([]);
+    });
+
+    it("keeps different jobs' lines apart", () => {
+      const jobA = queue.enqueue("test.job", {});
+      const jobB = queue.enqueue("test.job", {});
+      queue.appendLogLine(jobA, "stdout", "a-line");
+      queue.appendLogLine(jobB, "stdout", "b-line");
+
+      expect(queue.listJobLogs(jobA).map((l) => l.line)).toEqual(["a-line"]);
+      expect(queue.listJobLogs(jobB).map((l) => l.line)).toEqual(["b-line"]);
+    });
+
+    it("publishes on the job log bus when a line is appended", async () => {
+      const { subscribeJobLog } = await import("./log-bus");
+      const jobId = queue.enqueue("test.job", {});
+      const received: string[] = [];
+      const unsubscribe = subscribeJobLog(jobId, (line) => received.push(line.line));
+
+      queue.appendLogLine(jobId, "stderr", "boom");
+
+      expect(received).toEqual(["boom"]);
+      unsubscribe();
+    });
+  });
 });
