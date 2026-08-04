@@ -400,13 +400,23 @@ describe("src/lib/jobs/queue", () => {
 
       const row = queue.appendLogLine(jobId, "stdout", "hello");
 
-      expect(row.jobId).toBe(jobId);
-      expect(row.stream).toBe("stdout");
-      expect(row.line).toBe("hello");
+      expect(row).not.toBeNull();
+      expect(row!.jobId).toBe(jobId);
+      expect(row!.stream).toBe("stdout");
+      expect(row!.line).toBe("hello");
 
       const lines = queue.listJobLogs(jobId);
       expect(lines).toHaveLength(1);
       expect(lines[0]).toEqual(row);
+    });
+
+    it("does not throw when the underlying write fails, and returns null", () => {
+      const jobId = queue.enqueue("test.job", {});
+      const connection = (client.getDb() as unknown as { $client: Database.Database }).$client;
+      connection.close();
+
+      expect(() => queue.appendLogLine(jobId, "stdout", "should not throw")).not.toThrow();
+      expect(queue.appendLogLine(jobId, "stdout", "still should not throw")).toBeNull();
     });
 
     it("orders lines by id and respects the afterId cursor", () => {
@@ -416,8 +426,8 @@ describe("src/lib/jobs/queue", () => {
       const third = queue.appendLogLine(jobId, "stdout", "three");
 
       expect(queue.listJobLogs(jobId).map((l) => l.line)).toEqual(["one", "two", "three"]);
-      expect(queue.listJobLogs(jobId, first.id).map((l) => l.line)).toEqual(["two", "three"]);
-      expect(queue.listJobLogs(jobId, third.id)).toEqual([]);
+      expect(queue.listJobLogs(jobId, first!.id).map((l) => l.line)).toEqual(["two", "three"]);
+      expect(queue.listJobLogs(jobId, third!.id)).toEqual([]);
     });
 
     it("keeps different jobs' lines apart", () => {

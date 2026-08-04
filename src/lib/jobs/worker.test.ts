@@ -111,9 +111,9 @@ describe("src/lib/jobs/worker", () => {
     expect(job?.error).toContain("timed out");
   });
 
-  it("captures a handler's console output into the job's log", async () => {
+  it("logs lifecycle markers around a handler's execution, without capturing its console output", async () => {
     handlers.registerHandler("logging.job", async () => {
-      console.log("doing the thing");
+      console.log("this should not appear in the job's log");
     });
 
     const id = queue.enqueue("logging.job", {}, { maxAttempts: 1 });
@@ -126,7 +126,6 @@ describe("src/lib/jobs/worker", () => {
     const lines = queue.listJobLogs(id).map((l) => ({ stream: l.stream, line: l.line }));
     expect(lines).toEqual([
       { stream: "stdout", line: "job started (attempt 1/1)" },
-      { stream: "stdout", line: "doing the thing" },
       { stream: "stdout", line: "job completed" },
     ]);
   });

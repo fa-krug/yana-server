@@ -373,20 +373,25 @@ export function listJobs(options: ListJobsOptions = {}): { jobs: Job[]; total: n
 export type JobLogStream = "stdout" | "stderr";
 
 /**
- * Appends one captured line to `jobId`'s log and publishes it on the job log
- * bus for any live SSE viewer. Callers (`src/lib/jobs/log-capture.ts`,
- * `src/lib/jobs/worker.ts`) are responsible for catching a failure here --
- * this deliberately does not swallow one itself, so a caller inside an
- * `AsyncLocalStorage`-captured context can choose to log the failure through
- * the *original*, unpatched console rather than risk re-entering the patch.
+ * Appends one log line to `jobId`'s log and publishes it on the job log bus for
+ * any live SSE viewer. Never throws: a write failure (e.g. the database is busy)
+ * is caught and reported to the real `console.error`, never allowed to fail the
+ * job it's describing. Every caller -- `worker.ts`'s lifecycle markers and each
+ * handler's own calls alike -- gets this safety for free, with nothing to
+ * remember at the call site.
  */
-export function appendLogLine(jobId: number, stream: JobLogStream, line: string): JobLog {
-  const row = writeTransaction((db) => {
-    return db.insert(jobLogs).values({ jobId, stream, line }).returning().get();
-  });
+export function appendLogLine(jobId: number, stream: JobLogStream, line: string): JobLog | null {
+  try {
+    const row = writeTransaction((db) => {
+      return db.insert(jobLogs).values({ jobId, stream, line }).returning().get();
+    });
 
-  publishJobLog(jobId, row);
-  return row;
+    publishJobLog(jobId, row);
+    return row;
+  } catch (err) {
+    console.error(`[queue] failed to append log line for job ${jobId}:`, err);
+    return null;
+  }
 }
 
 /** Every log line for `jobId`, ordered oldest first, after `afterId` (exclusive). */

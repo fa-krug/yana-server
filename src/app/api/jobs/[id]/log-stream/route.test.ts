@@ -91,7 +91,7 @@ describe("GET /api/jobs/[id]/log-stream", () => {
     const controller = new AbortController();
     const response = await get(String(jobId), {
       cookie,
-      after: String(first.id),
+      after: String(first!.id),
       signal: controller.signal,
     });
     expect(response.status).toBe(200);

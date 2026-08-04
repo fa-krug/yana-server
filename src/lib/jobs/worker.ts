@@ -1,6 +1,5 @@
 import { appendLogLine, claim, complete, fail, resetOrphaned } from "./queue";
 import { getHandler } from "./handlers";
-import { runWithLogCapture } from "./log-capture";
 
 const WORKER_STARTED = Symbol.for("yana.worker.started");
 
@@ -9,21 +8,6 @@ interface GlobalWithWorker {
 }
 
 let isLoopActive = false;
-
-/**
- * `appendLogLine()` can throw (e.g. a busy database); a logging failure must
- * never fail the job it is trying to describe. This call always happens
- * outside `runWithLogCapture()`'s active context (before entering it, or
- * after it has already returned/thrown), so the plain `console.error` here
- * is the process's real stderr, not a captured job log line.
- */
-function logSafe(jobId: number, stream: "stdout" | "stderr", line: string): void {
-  try {
-    appendLogLine(jobId, stream, line);
-  } catch (err) {
-    console.error(`[Worker] failed to append log line for job ${jobId}:`, err);
-  }
-}
 
 export function isWorkerRunning(): boolean {
   const g = globalThis as GlobalWithWorker;
@@ -77,15 +61,15 @@ export async function runWorkerLoop(options?: {
       continue;
     }
 
-    logSafe(job.id, "stdout", `job started (attempt ${job.attempts}/${job.maxAttempts})`);
+    appendLogLine(job.id, "stdout", `job started (attempt ${job.attempts}/${job.maxAttempts})`);
     try {
-      await runWithLogCapture(job.id, () => withTimeout(handler(job), timeoutMs));
-      logSafe(job.id, "stdout", "job completed");
+      await withTimeout(handler(job), timeoutMs);
+      appendLogLine(job.id, "stdout", "job completed");
       complete(job.id);
     } catch (err) {
       const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
       for (const line of detail.split("\n")) {
-        logSafe(job.id, "stderr", line);
+        appendLogLine(job.id, "stderr", line);
       }
       fail(job.id, err instanceof Error ? err : String(err));
     }
