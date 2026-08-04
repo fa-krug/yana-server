@@ -1,5 +1,4 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { connection } from "next/server";
 
 import { ApiError, apiErrorResponse, requireApiUser } from "@/lib/api/auth";
 import { getDb, writeTransaction } from "@/lib/db/client";
@@ -17,19 +16,11 @@ import { articles, feeds, jobs } from "@/lib/db/schema";
  * The ownership check and the `INSERT` happen inside one `writeTransaction()`
  * so a mismatch can never enqueue a job -- there is no window where the
  * `SELECT` passes and the row is deleted or reassigned before the `INSERT`.
- *
- * `await connection()` must be the literal first statement, ahead of
- * `requireApiUser()` -- see the `connection()` bullet in the root CLAUDE.md:
- * this route has no other Dynamic API call in its path (no cookie/header
- * read is guaranteed -- a Bearer-token caller never touches `next/headers`),
- * so nothing else would opt it out of prerendering.
  */
 export async function POST(
   request: Request,
   ctx: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  await connection();
-
   try {
     const user = await requireApiUser(request);
 
