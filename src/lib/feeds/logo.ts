@@ -1,11 +1,9 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import * as cheerio from "cheerio";
 import sharp from "sharp";
 import { eq } from "drizzle-orm";
 
-import { mediaRoot } from "../avatar-storage";
-import { getDb } from "../db/client";
+import { storeImageBytes } from "../aggregators/images/store";
+import { writeTransaction } from "../db/client";
 import { feeds } from "../db/schema";
 
 const WHITE_THRESHOLD = 240;
@@ -253,22 +251,21 @@ export async function storeLogo(feedId: number, bytes: Buffer, sourceUrl: string
     .webp()
     .toBuffer();
 
-  const logosDir = path.join(mediaRoot(), "feed_logos");
-  await fs.mkdir(logosDir, { recursive: true });
+  // `compress: false` because this function has already resized/re-encoded to
+  // a 128x128 WebP itself -- storeImageBytes's own compression path exists for
+  // raw fetched bytes, not for output that has already been through it, and
+  // running it again would double-process the image for no benefit.
+  const contentHash = await storeImageBytes(processed, "image/webp", { compress: false });
+  if (!contentHash) {
+    throw new Error(`storeLogo: storeImageBytes refused feed ${feedId}'s logo bytes`);
+  }
 
-  const filename = `${feedId}.webp`;
-  const filePath = path.join(logosDir, filename);
-  await fs.writeFile(filePath, processed);
+  writeTransaction((tx) => {
+    tx.update(feeds)
+      .set({ logoImageHash: contentHash, logoSourceUrl: sourceUrl })
+      .where(eq(feeds.id, feedId))
+      .run();
+  });
 
-  const relativePath = `feed_logos/${filename}`;
-
-  await getDb()
-    .update(feeds)
-    .set({
-      logo: relativePath,
-      logoSourceUrl: sourceUrl,
-    })
-    .where(eq(feeds.id, feedId));
-
-  return relativePath;
+  return contentHash;
 }
