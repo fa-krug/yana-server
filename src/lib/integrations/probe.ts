@@ -126,3 +126,88 @@ export function transportFailure(
 export async function readJson(response: Response): Promise<unknown> {
   return response.json().catch(() => null);
 }
+
+/**
+ * The OpenAI-compatible `/chat/completions` probe body every provider that
+ * speaks this shape shares — OpenAI itself, plus Mistral, Qwen and DeepSeek.
+ * `endpoint` must already be a validated, trusted URL: only OpenAI has an
+ * operator-supplied one, and that validation (scheme, no userinfo) stays in
+ * `src/lib/ai/openai.ts`, which calls this only once the URL is confirmed.
+ *
+ * One 1-token chat completion, exactly like `testOpenaiKey()`'s original
+ * probe: it proves the key and the model id together, and
+ * `max_completion_tokens` (not the deprecated `max_tokens`) so a reasoning
+ * model is not refused.
+ */
+export async function openaiCompatibleChatProbe({
+  providerName,
+  endpoint,
+  apiKey,
+  model,
+}: {
+  providerName: string;
+  endpoint: string;
+  apiKey: string;
+  model: string;
+}): Promise<ProbeResult> {
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content: "hi" }],
+        max_completion_tokens: 1,
+      }),
+      // See the redirect note on the OpenAI probe this was extracted from:
+      // no real provider endpoint redirects a POST, and following one would
+      // bypass any host validation a caller performed before calling this.
+      redirect: "error",
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    });
+
+    if (response.ok) {
+      const body = (await readJson(response)) as { choices?: unknown } | null;
+      if (Array.isArray(body?.choices) && body.choices.length > 0) {
+        return { ok: true, detail: "Key accepted." };
+      }
+      return { ok: false, cause: "unexpected", detail: "A 200 answer carried no completion." };
+    }
+
+    const body = (await readJson(response)) as { error?: { type?: unknown } } | null;
+    const errorType = typeof body?.error?.type === "string" ? body.error.type : "";
+
+    if (errorType === "insufficient_quota") {
+      return {
+        ok: false,
+        cause: "unauthorized",
+        detail: "The key was accepted but the account is out of credit.",
+      };
+    }
+    if (response.status === 429) {
+      return { ok: false, cause: "quota", detail: "Rate limited before a verdict was reached." };
+    }
+    if (response.status === 401) {
+      return { ok: false, cause: "unauthorized", detail: "The API key was rejected." };
+    }
+    if (response.status === 403) {
+      return { ok: false, cause: "unauthorized", detail: "Access was refused for this API key." };
+    }
+    if (response.status === 404) {
+      return { ok: false, cause: "unexpected", detail: "No such model or endpoint (404)." };
+    }
+    if (response.status === 400) {
+      return {
+        ok: false,
+        cause: "unexpected",
+        detail: "The endpoint rejected the request as malformed (400).",
+      };
+    }
+    return { ok: false, cause: "unexpected", detail: `Unexpected status ${response.status}.` };
+  } catch (error) {
+    return transportFailure(providerName, error, `Could not reach the ${providerName} API.`);
+  }
+}
