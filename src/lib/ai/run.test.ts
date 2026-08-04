@@ -548,6 +548,81 @@ describe("applyAiOptions & AIClient processing", () => {
     });
   });
 
+  describe("test_ai_usage_limits assertions", () => {
+    it("blocks a call once the daily limit is reached, without reaching the network", async () => {
+      const settings = makeSettings({
+        activeAiProvider: "gemini",
+        aiDefaultDailyLimit: 1,
+        aiDefaultMonthlyLimit: 1000,
+      });
+
+      // Pre-seed one request already recorded today directly via
+      // `writeTransaction`, so "test-user" is already at the daily limit of 1
+      // before `generateResponse()` is ever called -- this proves the
+      // short-circuit fires on a call that would otherwise be the *first* of
+      // the test, not just after this test's own prior calls.
+      const { writeTransaction } = await import("@/lib/db/client");
+      const { aiRequests } = await import("@/lib/db/schema");
+      writeTransaction((tx) => {
+        tx.insert(aiRequests).values({ userId: "test-user", createdAt: new Date() }).run();
+      });
+
+      const fetchMock = vi.fn();
+      globalThis.fetch = fetchMock;
+
+      const client = new AIClient(settings);
+      const result = await client.generateResponse("test prompt");
+
+      expect(result).toMatchObject({ ok: false, reason: "dailyLimitExceeded" });
+      // The actual guarantee this task exists to provide: a blocked call
+      // never reaches the provider over the network.
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("blocks a call once the monthly limit is reached, without reaching the network", async () => {
+      const settings = makeSettings({
+        activeAiProvider: "gemini",
+        aiDefaultDailyLimit: 1000,
+        aiDefaultMonthlyLimit: 1,
+      });
+
+      const { writeTransaction } = await import("@/lib/db/client");
+      const { aiRequests } = await import("@/lib/db/schema");
+      writeTransaction((tx) => {
+        tx.insert(aiRequests).values({ userId: "test-user", createdAt: new Date() }).run();
+      });
+
+      const fetchMock = vi.fn();
+      globalThis.fetch = fetchMock;
+
+      const client = new AIClient(settings);
+      const result = await client.generateResponse("test prompt");
+
+      expect(result).toMatchObject({ ok: false, reason: "monthlyLimitExceeded" });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("proceeds unmetered and warns when settings carry no userId", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const settings = makeSettings({ activeAiProvider: "gemini", userId: undefined });
+
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: "hello" }] } }],
+        }),
+      } as Response);
+
+      const client = new AIClient(settings);
+      const result = await client.generateResponse("test prompt");
+
+      // Missing userId does not block the call -- it proceeds unmetered.
+      expect(result).toMatchObject({ ok: true, text: "hello" });
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("usage limit not enforced"));
+    });
+  });
+
   describe("no-op behavior when options or provider disabled", () => {
     it("is a no-op when options are missing or all false", async () => {
       const userSettings = makeSettings();
