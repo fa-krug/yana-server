@@ -101,6 +101,17 @@ const AI_OPTIONS: OptionSpec[] = [
   },
 ];
 
+/**
+ * `content_selectors`/`ignore_selectors` -- for `full_website` only, the one
+ * aggregator with no site of its own and therefore no curated selectors to
+ * fall back on. Every site-specific aggregator (Heise, Merkur, Tagesschau,
+ * The Verge, Ars Technica, ...) hardcodes its own `content_selectors`/
+ * `selectors_to_remove` tuned to that site's markup (or, like Tagesschau,
+ * bypasses selector-based extraction entirely), so exposing these two fields
+ * on their spec would let a user silently override a curated selector with
+ * one that matches nothing -- or, for Tagesschau, a `content_selectors` field
+ * its `extractContent` override never even reads.
+ */
 const WEBSITE_OPTIONS: OptionSpec[] = [
   ...AI_OPTIONS,
   {
@@ -151,7 +162,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       { value: "https://www.heise.de/rss/heise-top.rdf", label: "Top News" },
     ],
     options: [
-      ...WEBSITE_OPTIONS,
+      ...AI_OPTIONS,
       { key: "include_comments", label: "Include Comments", kind: "boolean", default: true },
       { key: "max_comments", label: "Max Comments", kind: "number", default: 5 },
     ],
@@ -198,7 +209,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       { value: "https://www.merkur.de/lokales/schongau/rssfeed.rdf", label: "Schongau" },
     ],
     options: [
-      ...WEBSITE_OPTIONS,
+      ...AI_OPTIONS,
       {
         key: "remove_empty_elements",
         label: "Remove Empty Elements",
@@ -342,7 +353,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       },
     ],
     options: [
-      ...WEBSITE_OPTIONS,
+      ...AI_OPTIONS,
       { key: "skip_livestreams", label: "Skip Livestreams", kind: "boolean", default: true },
       { key: "skip_videos", label: "Skip Videos", kind: "boolean", default: true },
     ],
@@ -357,7 +368,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       { value: "https://explosm.net/rss.xml", label: "Cyanide & Happiness (Main RSS)" },
     ],
     options: [
-      ...WEBSITE_OPTIONS,
+      ...AI_OPTIONS,
       { key: "show_alt_text", label: "Show Alt Text", kind: "boolean", default: true },
     ],
   },
@@ -371,7 +382,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       { value: "https://darklegacycomics.com/feed.xml", label: "Dark Legacy Comics (Main Feed)" },
     ],
     options: [
-      ...WEBSITE_OPTIONS,
+      ...AI_OPTIONS,
       { key: "show_alt_text", label: "Show Alt Text", kind: "boolean", default: true },
     ],
   },
@@ -385,7 +396,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       { value: "https://stadt-bremerhaven.de/feed/", label: "Caschy's Blog (Main Feed)" },
     ],
     options: [
-      ...WEBSITE_OPTIONS,
+      ...AI_OPTIONS,
       { key: "skip_ads", label: "Skip Ads", kind: "boolean", default: true },
     ],
   },
@@ -401,7 +412,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       { value: "https://www.mactechnews.de/Rss/Journals.x", label: "Journals" },
     ],
     options: [
-      ...WEBSITE_OPTIONS,
+      ...AI_OPTIONS,
       { key: "combine_pages", label: "Combine Pages", kind: "boolean", default: true },
       { key: "include_comments", label: "Include Comments", kind: "boolean", default: true },
       { key: "max_comments", label: "Max Comments", kind: "number", default: 5 },
@@ -415,7 +426,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierHelp: "Select Oglaf feed",
     identifierChoices: [{ value: "https://www.oglaf.com/feeds/rss/", label: "Oglaf (Main Feed)" }],
     options: [
-      ...WEBSITE_OPTIONS,
+      ...AI_OPTIONS,
       { key: "show_alt_text", label: "Show Alt Text", kind: "boolean", default: true },
     ],
   },
@@ -427,7 +438,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierHelp: "Select Mein MMO feed",
     identifierChoices: [{ value: "https://mein-mmo.de/feed/", label: "Main Feed (All Articles)" }],
     options: [
-      ...WEBSITE_OPTIONS,
+      ...AI_OPTIONS,
       { key: "combine_pages", label: "Combine Pages", kind: "boolean", default: true },
       { key: "include_comments", label: "Include Comments", kind: "boolean", default: true },
       { key: "max_comments", label: "Max Comments", kind: "number", default: 5 },
@@ -440,7 +451,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierLabel: "Feed",
     identifierHelp: "Select The Verge feed",
     identifierChoices: [{ value: "https://www.theverge.com/rss/index.xml", label: "Main Feed" }],
-    options: WEBSITE_OPTIONS,
+    options: AI_OPTIONS,
   },
   ars_technica: {
     key: "ars_technica",
@@ -454,7 +465,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       { value: "https://arstechnica.com/science/feed/", label: "Science" },
       { value: "https://arstechnica.com/gaming/feed/", label: "Gaming" },
     ],
-    options: WEBSITE_OPTIONS,
+    options: AI_OPTIONS,
   },
   youtube: {
     key: "youtube",
