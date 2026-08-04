@@ -204,6 +204,34 @@ describe("the session helpers", () => {
     });
   });
 
+  describe("currentUserRow", () => {
+    it("returns the signed-in user's row", async () => {
+      requestAs(await signInCookie(auth, ADMIN));
+
+      await expect(session.currentUserRow()).resolves.toMatchObject({ email: ADMIN.email });
+    });
+
+    it("redirects to login instead of crashing when the session names a user who no longer has a row", async () => {
+      // The case this guards is not exotic: a session cookie survives far
+      // longer than a development database does. Wipe or recreate `data/`
+      // (a fresh migration, a branch switch, `rm -rf data/`) while the
+      // browser still holds an old signed cookie, and the *cookie* verifies
+      // fine -- session.cookieCache trusts its own signature, no database
+      // read -- while the id it names has no `users` row in the fresh file.
+      // Simulated here by deleting the row out from under a live session,
+      // which is the same shape for the rarer production case (an account
+      // removed while its session was still live).
+      const member = await seedMember();
+      requestAs(member.cookie);
+
+      client.writeTransaction((tx) => {
+        tx.delete(schema.users).where(eq(schema.users.id, member.id)).run();
+      });
+
+      expect(await digestFrom(session.currentUserRow())).toMatch(REDIRECT);
+    });
+  });
+
   describe("requireAdmin", () => {
     it("returns the administrator", async () => {
       requestAs(await signInCookie(auth, ADMIN));

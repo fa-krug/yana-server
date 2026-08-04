@@ -145,9 +145,20 @@ export const currentUserRow = cache(async (): Promise<User> => {
   const id = (await requireUser()).id;
   const row = getDb().select().from(users).where(eq(users.id, id)).get();
   if (!row) {
-    // The session names a user that no longer exists -- an account deleted
-    // while a session was live. Loud, rather than a half-rendered page.
-    throw new Error(`currentUserRow: no users row for the signed-in id "${id}"`);
+    // The session names a user with no `users` row. In production that is an
+    // account deleted while its session was still live; in development it is
+    // routine -- session.cookieCache verifies a signed cookie's signature
+    // with no database read, so a database wiped or recreated (a fresh
+    // migration, a branch switch) while the browser still holds an old
+    // cookie passes that check and then fails here. Either way the session
+    // is unusable, and the correct response is the same one `requireUser()`
+    // gives an absent session: send the caller to sign in again. `console.error`
+    // keeps this loud for the rarer production case instead of crashing the
+    // render for both.
+    console.error(
+      `currentUserRow: no users row for the signed-in id "${id}" -- redirecting to login`,
+    );
+    redirect(LOGIN_PATH);
   }
   return row;
 });
