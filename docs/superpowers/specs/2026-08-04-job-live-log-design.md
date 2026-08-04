@@ -5,9 +5,20 @@
 
 ## Goal
 
-Let a user open a background job from `/jobs` and see what it's actually doing: its raw captured
-output (console output and, on failure, the full error stack) both as persisted history and as a
-live tail while the job is still running.
+Let a user open a background job from `/jobs` and see what it's actually doing: a curated log of
+its meaningful lifecycle events and outcomes (and, on failure, the full error stack) both as
+persisted history and as a live tail while the job is still running.
+
+**Revision (2026-08-05):** the original approach captured every `console.*` call a handler made,
+verbatim, via an `AsyncLocalStorage`-scoped patch. Reconsidered after implementation: a verbatim
+capture logs everything a handler happens to print, which is noise, not signal — none of the six
+handlers called `console.*` at all before this feature, so "capture everything" really meant
+"capture nothing but lifecycle markers, until someone adds a stray `console.log` later with no
+editorial control over what it says." The revised approach drops the capture mechanism entirely
+and instead has each handler call `appendLogLine()` directly, a small number of times, at points a
+human would actually want to see: what was fetched, what changed, what was skipped and why. The
+storage table, the pub/sub, the SSE route and the UI are all unaffected — only the *source* of log
+lines changes, from "whatever console.* prints" to "what the handler explicitly says."
 
 ## Why
 
@@ -34,50 +45,54 @@ Also rejected: keeping captured output in memory only (no table), published sole
 Cheaper, but a log that vanishes on process restart, or that never existed for a job that finished
 before the viewer opened the page, does not satisfy "open them and see" for a job that already ran.
 
-## Capture: why `AsyncLocalStorage`, not a monkey-patch around the `await`
+## Capture: explicit calls, not console interception
 
-The worker (`src/lib/jobs/worker.ts`) runs jobs strictly one-at-a-time in its own loop, but the
-process also serves HTTP requests concurrently — this is one Node process for both (per this
-repo's "one process" design). Patching `console.log` globally only for the duration of
-`await handler(job)` would still be live during that `await`'s microtask gaps, and any unrelated
-concurrent request logging in that window would incorrectly get attributed to the job's log.
+Handlers call `appendLogLine(job.id, "stdout" | "stderr", line)` (`src/lib/jobs/queue.ts`) directly,
+at a small, fixed number of points chosen per handler — never a blanket capture of arbitrary output.
+`appendLogLine()` itself never throws: a write failure (e.g. the database is busy) is caught inside
+it and reported to the real `console.error`, never allowed to fail the job it's describing or
+propagate to the caller — logging is best-effort, same philosophy `queue.ts`'s
+`publishJobOutcome()` already documents for event publishing. This also means every caller —
+`worker.ts`'s lifecycle markers and each handler's own calls alike — gets that safety for free,
+with no per-call-site try/catch to remember.
 
-Instead, a single module-level `AsyncLocalStorage<{ jobId: number }>` is established once
-(`src/lib/jobs/log-capture.ts`), and `console.log`/`info`/`warn`/`error` are patched once at import to
-**tee**: always call through to the original console method first — so an operator tailing container
-logs loses nothing, whether or not a job happens to be running — then check the current store and,
-when set, additionally persist the line into that job's log. That persist-and-publish step runs with
-the `AsyncLocalStorage` store exited (`als.exit()`), so anything it triggers — including a future log
-bus subscriber that happens to log something itself — falls through to the plain tee path instead of
-recursing back into capture. The worker wraps each handler invocation:
-
-```ts
-await runWithLogCapture(job.id, () => withTimeout(handler(job), timeoutMs));
-```
-
-`AsyncLocalStorage` propagates correctly through that handler's own async call graph regardless of
-what else is happening concurrently elsewhere in the process, which a time-boxed global patch cannot
-guarantee.
-
-Lifecycle markers are appended automatically, so the log reads coherently even though none of the six
-existing handlers (`aggregate`, `feed.logo`, `feed.update`, `feed.restore`, `article.reload`,
-`retention`) call `console.*` today:
+The worker (`src/lib/jobs/worker.ts`) appends three lifecycle markers around every handler
+invocation, unconditionally:
 
 - claim → `"job started (attempt N/M)"` (stdout)
 - success → `"job completed"` (stdout)
 - failure → the error's full `message` **and stack trace**, one line per row (stderr) — strictly more
   than today's single-line `jobs.error`, which is left as-is for the table view's tooltip
 
-A log-write failure (e.g. the database is busy) is caught and `console.error`'d to the real stderr,
-never allowed to fail the job it's trying to describe — logging is best-effort, same philosophy
-`queue.ts`'s `publishJobOutcome()` already documents for event publishing.
+Each handler adds a handful more, chosen to answer "what did this job actually do":
+
+- `aggregate` (and `feed.update`, which just calls it) — how many articles were fetched, and a
+  created/updated split once they're upserted; an early skip (feed missing or disabled) is logged
+  too, since silence there previously meant a job "did nothing" with no way to tell why.
+- `feed.logo` — whether a logo source was configured, whether one was found, and where it came from
+  when stored.
+- `feed.restore` — how many existing articles were removed (tombstoned) before the re-aggregation
+  that follows logs its own lines.
+- `article.reload` — whether the article was found and had stored content to re-parse, and
+  confirmation once it's done.
+- `retention` — per user, how many expired articles were removed; then how many old tombstones were
+  pruned globally.
+
+Every one of these calls happens **outside** any `writeTransaction()` block: `appendLogLine()`
+publishes to the live SSE viewers as soon as it's called, and a line published from inside a
+still-open transaction could describe a delete the transaction then rolls back. Where a handler
+needs a count from inside a transaction (e.g. `retention`'s per-user delete count), the transaction
+callback returns the count and the handler logs it after the transaction has returned — not before.
+
+There is no `AsyncLocalStorage`, no console patching, and therefore no risk of an unrelated
+concurrent request's logging being misattributed to a job (the reason the original design gave for
+choosing `AsyncLocalStorage` over a global patch): a handler never touches global `console` state at
+all, so there's nothing shared to cross-attribute.
 
 ## No cap on log size
 
-A single misbehaving handler could in principle log unboundedly, but no cap is applied — the six
-existing handlers are bounded (a handful of lines per feed/article), and adding a cap now would mean
-designing truncation semantics (keep first N? last N? both ends?) for a problem that doesn't exist
-yet. Revisit if a real handler turns out to be chatty.
+A single handler now logs a small, fixed number of lines per run (not one per item it processes), so
+there is no realistic path to unbounded growth, and no cap is applied.
 
 ## Schema
 
@@ -162,10 +177,10 @@ No new access restriction — this matches today's `/jobs`, gated only on being 
 | File | Change |
 |---|---|
 | `src/lib/db/schema/jobs.ts` | add `jobLogs` table |
-| `src/lib/jobs/log-capture.ts` (new) | `AsyncLocalStorage`, patched console methods, `runWithLogCapture()` |
-| `src/lib/jobs/log-bus.ts` (new) | jobId-keyed publish/subscribe |
-| `src/lib/jobs/queue.ts` | `appendLogLine()`, `listJobLogs()` |
-| `src/lib/jobs/worker.ts` | wrap handler invocation in `runWithLogCapture()`; append failure stack trace |
+| `src/lib/jobs/log-bus.ts` (new) | jobId-keyed publish/subscribe (log lines + terminal transitions) |
+| `src/lib/jobs/queue.ts` | `appendLogLine()` (never throws), `listJobLogs()` |
+| `src/lib/jobs/worker.ts` | append lifecycle markers and the failure stack trace around every handler call |
+| `src/lib/jobs/handlers/aggregate.ts`, `logo.ts`, `restore.ts`, `reload.ts`, `retention.ts` | a handful of `appendLogLine()` calls each, per the list above |
 | `src/app/api/jobs/[id]/log-stream/route.ts` (new) | SSE route, session-authenticated |
 | `src/app/(app)/jobs/[id]/page.tsx` (new) | job detail page |
 | `src/components/jobs/job-log-viewer.tsx` (new) | live log panel |
@@ -174,21 +189,22 @@ No new access restriction — this matches today's `/jobs`, gated only on being 
 
 ## Testing
 
-- Real-database `.test.ts` for `log-capture.ts` (concurrent unrelated `console.log` calls outside the
-  `AsyncLocalStorage` context are not captured; calls inside are, attributed to the right `jobId` even
-  when two contexts are active — simulated directly, not via the worker's real one-at-a-time loop) and
-  for `queue.ts`'s new `appendLogLine()`/`listJobLogs()`.
-- `worker.test.ts` (extend): a fake handler that calls `console.log` produces `job_logs` rows tied to
-  its job id; a throwing handler's stack trace lands as stderr lines.
+- Real-database `.test.ts` for `queue.ts`'s `appendLogLine()` (never throws, even when the
+  underlying write fails) and `listJobLogs()`.
+- `worker.test.ts` (extend): lifecycle markers are appended around a handler call; a throwing
+  handler's stack trace lands as stderr lines.
+- Each handler's own `.test.ts` (extend): the specific `appendLogLine()` calls that handler adds are
+  asserted against a real job row's log, for both its logged branches (found/not-found, skipped/not).
 - Route test for `/api/jobs/[id]/log-stream` (extend the existing `/api/v1/jobs/events` route test's
-  approach): auth-gated, backfill-then-live ordering, immediate close for an already-terminal job.
+  approach): auth-gated, backfill-then-live ordering, immediate close for an already-terminal job, and
+  a stream that closes with an `end` event when the job it's tailing finishes mid-connection.
 - `job-log-viewer.test.tsx` (new): no existing precedent in this repo for testing an `EventSource`-driven
   component — a minimal stub `EventSource` is written for this test rather than reused from elsewhere.
 
 ## Out of scope
 
-- Structured/leveled logging, or asking handlers to emit anything beyond what they already do —
-  capture is verbatim, not a new logging API for handlers to adopt.
+- A generic logging API handlers can call with arbitrary messages — the calls this feature adds are
+  fixed, one per meaningful event, not a facility for future handlers to log freely.
 - Log search or filtering within a job's log.
 - Any change to `jobs.error` or the jobs list table's existing columns.
 - Retention/cleanup policy for `jobs`/`job_logs` beyond the existing cascade — no job-deletion feature
