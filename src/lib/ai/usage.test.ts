@@ -38,6 +38,18 @@ describe("checkAndRecordAiUsage", () => {
     expect(requestCount()).toBe(5);
   });
 
+  it("reports monthlyLimitExceeded, not dailyLimitExceeded, when both are exhausted at once", () => {
+    // Monthly is checked first specifically so that when both limits are
+    // already exhausted simultaneously, the caller is told the true binding
+    // constraint ("try again next month") rather than the narrower one
+    // ("try again tomorrow") that would be technically true of the daily
+    // window alone but wrong advice given the wider monthly cap.
+    for (let i = 0; i < 2; i++) checkAndRecordAiUsage(db, "u1", 2, 2);
+    const result = checkAndRecordAiUsage(db, "u1", 2, 2);
+    expect(result).toBe("monthlyLimitExceeded");
+    expect(requestCount()).toBe(2);
+  });
+
   it("does not count another user's requests", () => {
     db.insert(users).values({ id: "u2", email: "u2@example.com" }).run();
     for (let i = 0; i < 3; i++) checkAndRecordAiUsage(db, "u2", 3, 50);

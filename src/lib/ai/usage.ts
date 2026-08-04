@@ -46,14 +46,12 @@ export function checkAndRecordAiUsage(
     .where(and(eq(aiRequests.userId, userId), lt(aiRequests.createdAt, monthStart)))
     .run();
 
-  const dailyCount =
-    tx
-      .select({ value: count() })
-      .from(aiRequests)
-      .where(and(eq(aiRequests.userId, userId), gte(aiRequests.createdAt, dayStart)))
-      .get()?.value ?? 0;
-  if (dailyCount >= dailyLimit) return "dailyLimitExceeded";
-
+  // Monthly is checked before daily. When both limits are already exhausted
+  // at once, the caller gets `monthlyLimitExceeded` -- "try again next
+  // month" -- rather than `dailyLimitExceeded`'s "try again tomorrow", which
+  // would be true of the daily window alone but misleading advice given the
+  // wider constraint. Checking order changes only which reason is reported
+  // in that simultaneous case; either limit alone still blocks the call.
   const monthlyCount =
     tx
       .select({ value: count() })
@@ -61,6 +59,14 @@ export function checkAndRecordAiUsage(
       .where(and(eq(aiRequests.userId, userId), gte(aiRequests.createdAt, monthStart)))
       .get()?.value ?? 0;
   if (monthlyCount >= monthlyLimit) return "monthlyLimitExceeded";
+
+  const dailyCount =
+    tx
+      .select({ value: count() })
+      .from(aiRequests)
+      .where(and(eq(aiRequests.userId, userId), gte(aiRequests.createdAt, dayStart)))
+      .get()?.value ?? 0;
+  if (dailyCount >= dailyLimit) return "dailyLimitExceeded";
 
   tx.insert(aiRequests).values({ userId, createdAt: now }).run();
   return "ok";
