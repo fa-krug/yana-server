@@ -4,7 +4,7 @@ import { publishUserEvent } from "../api/events";
 import { getDb, writeTransaction } from "../db/client";
 import { articles, feeds, jobLogs, jobs, runs } from "../db/schema";
 import type { Job, JobLog, Run } from "../db/schema";
-import { publishJobLog } from "./log-bus";
+import { publishJobLog, publishJobTerminal } from "./log-bus";
 
 export interface EnqueueOptions {
   runAt?: Date;
@@ -86,7 +86,10 @@ export function complete(id: number): void {
     return current;
   });
 
-  if (job) publishJobOutcome({ ...job, status: "completed", progress: 100 }, "completed");
+  if (job) {
+    publishJobOutcome({ ...job, status: "completed", progress: 100 }, "completed");
+    publishJobTerminal(id, "completed");
+  }
 }
 
 export function fail(id: number, error: string | Error): void {
@@ -132,6 +135,7 @@ export function fail(id: number, error: string | Error): void {
 
   if (outcome?.terminal) {
     publishJobOutcome({ ...outcome.job, status: "failed" }, "failed");
+    publishJobTerminal(id, "failed");
   }
 }
 

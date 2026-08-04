@@ -31,3 +31,31 @@ export function subscribeJobLog(jobId: number, listener: (line: JobLog) => void)
   emitter.on(name, listener);
   return () => emitter.off(name, listener);
 }
+
+function terminalChannel(jobId: number): string {
+  return `job-terminal:${jobId}`;
+}
+
+/**
+ * A second, distinctly-namespaced pub/sub pair on the same emitter, for one
+ * event: "this job just reached a terminal status." Kept separate from the
+ * line-log channel above rather than folded into it (e.g. a line with a
+ * sentinel `stream`) because a subscriber to one has no reason to also
+ * receive the other, and `src/app/api/jobs/[id]/log-stream/route.ts` needs to
+ * tell the two apart to know when to close the stream versus when to forward
+ * a line -- a shared channel would make that a runtime check on every event
+ * instead of a compile-time one on which function was called.
+ */
+export function publishJobTerminal(jobId: number, status: "completed" | "failed"): void {
+  emitter.emit(terminalChannel(jobId), status);
+}
+
+/** Returns an unsubscribe function. */
+export function subscribeJobTerminal(
+  jobId: number,
+  listener: (status: "completed" | "failed") => void,
+): () => void {
+  const name = terminalChannel(jobId);
+  emitter.on(name, listener);
+  return () => emitter.off(name, listener);
+}

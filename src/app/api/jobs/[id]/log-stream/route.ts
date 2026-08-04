@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/auth/session";
 import { getJob, listJobLogs } from "@/lib/jobs/queue";
-import { subscribeJobLog } from "@/lib/jobs/log-bus";
+import { subscribeJobLog, subscribeJobTerminal } from "@/lib/jobs/log-bus";
 
 /**
  * How often a ping comment frame is written so intermediaries don't treat a
@@ -18,10 +18,29 @@ const PING_INTERVAL_MS = 15_000;
  * for the same shape.
  *
  * `?after=<id>` is the cursor: everything persisted after it is sent first
- * (oldest first), then new lines stream live. Both `listJobLogs()` and
- * `subscribeJobLog()` below are synchronous, and nothing awaits between them,
- * so there is no gap in a single-threaded process for a line to be published
- * and missed by both paths.
+ * (oldest first), then new lines stream live. Both `listJobLogs()` and the
+ * terminal-status check below read synchronously off the same `job` row
+ * fetched once at the top of `GET()` (for the 404 check), and nothing awaits
+ * between that read and the subscribe calls in `start()`, so there is no gap
+ * in a single-threaded process for a line -- or a terminal transition -- to
+ * be published and missed. A second `getJob()` call inside `start()` would
+ * actually be wrong here, not just redundant: it could observe a job that
+ * turned terminal *after* the row above was read but before `start()` ran,
+ * in which case both the fresh read *and* `subscribeJobTerminal()` would
+ * report the transition -- once as an immediate close, once as a duplicate
+ * live notification. Reusing the one closure-captured `job` keeps "terminal
+ * already, at connect time" and "terminal notification arrives later"
+ * mutually exclusive.
+ *
+ * If the job is still running when the client connects, this subscribes to
+ * both `subscribeJobLog()` (new lines) and `subscribeJobTerminal()`
+ * (`src/lib/jobs/log-bus.ts`) -- the latter is what lets this route send
+ * `end` and close the stream when the job finishes *while* the client is
+ * still watching, rather than only when it was already finished at connect
+ * time. Without it, a still-open connection for a job that completes mid-tail
+ * would sit forever answering nothing but pings: `logEnded` in
+ * `job-log-viewer.tsx` would never fire, and the listener/interval pair here
+ * would leak for as long as the browser tab stayed open.
  *
  * Not user-scoped: `/jobs` today is visible to any signed-in user
  * (`listJobs()`/`getJob()` apply no ownership filter), so this route applies
@@ -45,7 +64,8 @@ export async function GET(
   const cursor = Number.isInteger(afterParam) && afterParam >= 0 ? afterParam : 0;
 
   const encoder = new TextEncoder();
-  let unsubscribe: (() => void) | undefined;
+  let unsubscribeLog: (() => void) | undefined;
+  let unsubscribeTerminal: (() => void) | undefined;
   let keepAlive: ReturnType<typeof setInterval> | undefined;
   let cleaned = false;
 
@@ -53,7 +73,8 @@ export async function GET(
     if (cleaned) return;
     cleaned = true;
     clearInterval(keepAlive);
-    unsubscribe?.();
+    unsubscribeLog?.();
+    unsubscribeTerminal?.();
   };
 
   const stream = new ReadableStream({
@@ -66,14 +87,22 @@ export async function GET(
         send("line", line);
       }
 
-      const current = getJob(jobId);
-      if (current?.status === "completed" || current?.status === "failed") {
-        send("end", { status: current.status });
+      if (job.status === "completed" || job.status === "failed") {
+        send("end", { status: job.status });
         controller.close();
         return;
       }
 
-      unsubscribe = subscribeJobLog(jobId, (line) => send("line", line));
+      unsubscribeLog = subscribeJobLog(jobId, (line) => send("line", line));
+      unsubscribeTerminal = subscribeJobTerminal(jobId, (status) => {
+        send("end", { status });
+        cleanup();
+        try {
+          controller.close();
+        } catch {
+          // Already closed -- e.g. `cancel()` ran first.
+        }
+      });
 
       keepAlive = setInterval(() => {
         controller.enqueue(encoder.encode(": ping\n\n"));

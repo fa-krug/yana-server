@@ -442,4 +442,48 @@ describe("src/lib/jobs/queue", () => {
       unsubscribe();
     });
   });
+
+  describe("job terminal notifications", () => {
+    it("publishes a completed terminal notification when complete() runs", async () => {
+      const { subscribeJobTerminal } = await import("./log-bus");
+      const id = queue.enqueue("noop", {});
+      queue.claim();
+
+      const heard: unknown[] = [];
+      const unsubscribe = subscribeJobTerminal(id, (status) => heard.push(status));
+
+      queue.complete(id);
+      unsubscribe();
+
+      expect(heard).toEqual(["completed"]);
+    });
+
+    it("publishes a failed terminal notification when fail() exhausts maxAttempts", async () => {
+      const { subscribeJobTerminal } = await import("./log-bus");
+      const id = queue.enqueue("noop", {}, { maxAttempts: 1 });
+      queue.claim();
+
+      const heard: unknown[] = [];
+      const unsubscribe = subscribeJobTerminal(id, (status) => heard.push(status));
+
+      queue.fail(id, "fatal error");
+      unsubscribe();
+
+      expect(heard).toEqual(["failed"]);
+    });
+
+    it("publishes no terminal notification when fail() only backs off for a retry", async () => {
+      const { subscribeJobTerminal } = await import("./log-bus");
+      const id = queue.enqueue("noop", {}, { maxAttempts: 3 });
+      queue.claim();
+
+      const heard: unknown[] = [];
+      const unsubscribe = subscribeJobTerminal(id, (status) => heard.push(status));
+
+      queue.fail(id, "temporary error");
+      unsubscribe();
+
+      expect(heard).toEqual([]);
+    });
+  });
 });

@@ -130,6 +130,51 @@ describe("GET /api/jobs/[id]/log-stream", () => {
     expect(third.done).toBe(true);
   });
 
+  it("sends an end event and closes the stream when a still-running job finishes mid-connection", async () => {
+    const cookie = await signedInCookie();
+    const jobId = queue.enqueue("test.job", {});
+    queue.claim();
+
+    const controller = new AbortController();
+    const response = await get(String(jobId), { cookie, signal: controller.signal });
+    expect(response.status).toBe(200);
+
+    const reader = response.body!.getReader();
+    const readEnd = reader.read();
+    queue.complete(jobId);
+
+    const end = new TextDecoder().decode((await readEnd).value);
+    expect(end).toContain("event: end");
+    expect(end).toContain('"status":"completed"');
+
+    const closed = await reader.read();
+    expect(closed.done).toBe(true);
+
+    controller.abort();
+  });
+
+  it("sends a failed end event and closes the stream when a still-running job fails terminally mid-connection", async () => {
+    const cookie = await signedInCookie();
+    const jobId = queue.enqueue("test.job", {}, { maxAttempts: 1 });
+    queue.claim();
+
+    const controller = new AbortController();
+    const response = await get(String(jobId), { cookie, signal: controller.signal });
+
+    const reader = response.body!.getReader();
+    const readEnd = reader.read();
+    queue.fail(jobId, "boom");
+
+    const end = new TextDecoder().decode((await readEnd).value);
+    expect(end).toContain("event: end");
+    expect(end).toContain('"status":"failed"');
+
+    const closed = await reader.read();
+    expect(closed.done).toBe(true);
+
+    controller.abort();
+  });
+
   it("unsubscribes and clears the keep-alive interval when the client disconnects", async () => {
     const setIntervalSpy = vi.spyOn(global, "setInterval");
     const clearIntervalSpy = vi.spyOn(global, "clearInterval");
