@@ -1,10 +1,12 @@
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 
+import { SetBreadcrumbTitle } from "@/components/breadcrumb-title";
 import { Separator } from "@/components/ui/separator";
 import { DeleteUserSection } from "@/components/users/delete-user-section";
 import { UserForm } from "@/components/users/user-form";
 import { requireAdmin } from "@/lib/auth/session";
+import { displayNameFor } from "@/lib/avatar";
 import { getUser } from "@/lib/users/queries";
 
 export default async function EditUserPage({
@@ -39,6 +41,7 @@ export default async function EditUserPage({
 
   return (
     <div className="max-w-2xl space-y-6">
+      <SetBreadcrumbTitle title={displayNameFor(user)} />
       <h1 className="text-2xl font-semibold">{t("editTitle")}</h1>
 
       {/* The columns each component renders, never the `User` row: it also
