@@ -29,7 +29,7 @@ export function BlockTree({ nodes }: { nodes: BlockNodeType[] }) {
       </div>
 
       {view === "json" ? (
-        <pre className="overflow-x-auto rounded-md bg-muted p-4 font-mono text-xs">
+        <pre className="overflow-x-auto rounded-md bg-muted p-4 font-mono text-xs whitespace-pre-wrap break-all">
           <code>{JSON.stringify(nodes, null, 2)}</code>
         </pre>
       ) : (
