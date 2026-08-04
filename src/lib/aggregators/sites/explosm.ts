@@ -1,17 +1,10 @@
-import crypto from "node:crypto";
 import * as cheerio from "cheerio";
 import { FeedLike, RawArticle } from "../base";
 import { isSafeUrl } from "../blocks/parser";
 import { escapeHtml } from "../extract/format";
 import { HeaderElementData } from "../header/context";
-import { buildImageRef } from "../images/store";
+import { storeImageRefFromUrl } from "../images/store";
 import { FullWebsiteAggregator } from "../website";
-
-export function storeImageRefFromUrlSync(url: string): string | null {
-  if (!url || !isSafeUrl(url)) return null;
-  const hash = crypto.createHash("sha256").update(url).digest("hex");
-  return buildImageRef(hash);
-}
 
 export class ExplosmAggregator extends FullWebsiteAggregator {
   static brandSiteUrl = "https://explosm.net/";
@@ -70,7 +63,7 @@ export class ExplosmAggregator extends FullWebsiteAggregator {
     return null;
   }
 
-  override processContent(htmlContent: string, article: RawArticle): string | Promise<string> {
+  override async processContent(htmlContent: string, article: RawArticle): Promise<string> {
     const options = (this.feed.options as Record<string, unknown> | null) || {};
     const showAltText = options.show_alt_text !== false;
 
@@ -98,7 +91,8 @@ export class ExplosmAggregator extends FullWebsiteAggregator {
     if (comicImgSrc) {
       let imgSrc = comicImgSrc;
       if (isSafeUrl(comicImgSrc)) {
-        imgSrc = storeImageRefFromUrlSync(comicImgSrc) || comicImgSrc;
+        const ref = await storeImageRefFromUrl(comicImgSrc);
+        imgSrc = ref || comicImgSrc;
       }
 
       let builder = "<div>";
