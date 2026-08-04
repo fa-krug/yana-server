@@ -11,7 +11,7 @@ import { BulkActionBar, type BulkAction } from "@/components/crud/bulk-action-ba
 import { DataTable, type Column } from "@/components/crud/data-table";
 import { Pagination } from "@/components/crud/pagination";
 import { Badge } from "@/components/ui/badge";
-import { deleteArticles, setRead, setStarred } from "@/lib/articles/actions";
+import { deleteArticles, reloadArticles, setRead, setStarred } from "@/lib/articles/actions";
 import type { ArticleListRow } from "@/lib/articles/queries";
 import { attempt } from "@/lib/tags/result";
 
@@ -79,7 +79,7 @@ export function ArticlesTable({
       sortable: true,
       cell: (row) => (
         <span className="text-muted-foreground">
-          {format.dateTime(row.date, { dateStyle: "medium" })}
+          {format.dateTime(row.date, { dateStyle: "full" })}
         </span>
       ),
     },
@@ -94,7 +94,7 @@ export function ArticlesTable({
       // whenever the two disagreed (e.g. server "7.6.2026" vs. browser "6/7/2026").
       cell: (row) => (
         <span className="text-muted-foreground">
-          {format.dateTime(row.createdAt, { dateStyle: "medium" })}
+          {format.dateTime(row.createdAt, { dateStyle: "full" })}
         </span>
       ),
     },
@@ -150,6 +150,21 @@ export function ArticlesTable({
     return true;
   }
 
+  async function handleReload(): Promise<boolean> {
+    if (selected.length === 0) return false;
+
+    const result = await attempt(() => reloadArticles(selected));
+
+    if (!result.ok) {
+      toast.error(t("saveFailed"));
+      return false;
+    }
+
+    setSelected([]);
+    toast.success(t("reloadEnqueued", { count: result.enqueued }));
+    return true;
+  }
+
   const count = selected.length;
   const actions: BulkAction[] = [
     {
@@ -175,6 +190,12 @@ export function ArticlesTable({
       label: t("bulkUnstar"),
       destructive: false,
       run: () => handleSetStarred(false),
+    },
+    {
+      key: "reload",
+      label: t("bulkReload"),
+      destructive: false,
+      run: handleReload,
     },
     {
       key: "delete",

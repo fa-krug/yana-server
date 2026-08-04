@@ -37,12 +37,16 @@ export default async function FeedsPage({
     {
       key: "aggregator",
       label: t("columns.aggregator"),
-      options: aggregators,
+      // `""`, not "all": an empty value clears the filter, so "All
+      // aggregators" produces a URL with no `aggregator` at all rather than
+      // `?aggregator=all`.
+      options: [{ value: "", label: t("allAggregators") }, ...aggregators],
     },
     {
       key: "enabled",
       label: t("columns.enabled"),
       options: [
+        { value: "", label: t("allEnabled") },
         { value: "true", label: t("enabledTrue") },
         { value: "false", label: t("enabledFalse") },
       ],

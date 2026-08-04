@@ -46,12 +46,15 @@ export default async function ArticlesPage({
     {
       key: "feed",
       label: t("filters.feed"),
-      options: feedOptions,
+      // `""`, not "all": an empty value clears the filter, so "All feeds"
+      // produces a URL with no `feed` at all rather than `?feed=all`.
+      options: [{ value: "", label: t("filters.allFeeds") }, ...feedOptions],
     },
     {
       key: "read",
       label: t("filters.read"),
       options: [
+        { value: "", label: t("filters.allRead") },
         { value: "true", label: t("filters.readOnly") },
         { value: "false", label: t("filters.unreadOnly") },
       ],
@@ -60,6 +63,7 @@ export default async function ArticlesPage({
       key: "starred",
       label: t("filters.starred"),
       options: [
+        { value: "", label: t("filters.allStarred") },
         { value: "true", label: t("filters.starredOnly") },
         { value: "false", label: t("filters.unstarredOnly") },
       ],
@@ -67,7 +71,7 @@ export default async function ArticlesPage({
     {
       key: "tag",
       label: t("filters.tag"),
-      options: tagOptions,
+      options: [{ value: "", label: t("filters.allTags") }, ...tagOptions],
     },
   ];
 
