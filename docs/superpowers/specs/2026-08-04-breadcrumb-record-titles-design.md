@@ -64,7 +64,7 @@ listing); no other route needs this.
 
 | Route | Title source |
 |---|---|
-| `src/app/(app)/articles/[id]/page.tsx` | `article.title` (from `getArticle()`) |
+| `src/app/(app)/articles/[id]/page.tsx` | `article.name` (from `getArticle()` -- the `articles` table's human-readable title column is named `name`, not `title`) |
 | `src/app/(app)/feeds/[id]/page.tsx` | `feed.name` (from `getFeed()`) |
 | `src/app/(app)/tags/[id]/page.tsx` | `tag.name` (from `getTag()`) |
 | `src/app/(app)/users/[id]/page.tsx` | `displayNameFor(user)` (`src/lib/avatar.ts`, already imported by other user-facing components) |
