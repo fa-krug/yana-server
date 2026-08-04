@@ -10,6 +10,7 @@ import { isSafeUrl } from "../../blocks/parser";
 import { escapeHtml } from "../../extract/format";
 import { storeImageRefFromUrl } from "../../images/store";
 import type { RedditPostData, RedditVideoInfo } from "./types";
+import { decodeHtmlEntitiesInUrl } from "./urls";
 
 export interface RedditVideoSource {
   hlsUrl?: string;
@@ -20,7 +21,10 @@ export interface RedditVideoSource {
  * Best available Reddit-hosted video for a post: `media`/`secure_media`
  * carry it for native `v.redd.it` posts; `preview.reddit_video_preview`
  * carries it for link posts whose target Reddit transcoded into a preview
- * video (e.g. a gfycat/imgur GIF).
+ * video (e.g. a gfycat/imgur GIF). Reddit's JSON HTML-escapes `&` in these
+ * URLs (e.g. `?a=1&amp;v=1`), so they are decoded here -- the same
+ * decode-then-escape convention `images.ts` and `markdown.ts` use -- rather
+ * than left for `buildVideoHeaderHtml()` to re-escape verbatim.
  */
 export function extractRedditVideo(post: RedditPostData): RedditVideoSource | null {
   const info: RedditVideoInfo | undefined =
@@ -28,7 +32,10 @@ export function extractRedditVideo(post: RedditPostData): RedditVideoSource | nu
     post.secure_media?.reddit_video ??
     post.preview?.reddit_video_preview;
   if (!info || (!info.hls_url && !info.fallback_url)) return null;
-  return { hlsUrl: info.hls_url, fallbackUrl: info.fallback_url };
+  return {
+    hlsUrl: info.hls_url ? decodeHtmlEntitiesInUrl(info.hls_url) : undefined,
+    fallbackUrl: info.fallback_url ? decodeHtmlEntitiesInUrl(info.fallback_url) : undefined,
+  };
 }
 
 function sourceType(url: string): string {

@@ -36,6 +36,21 @@ describe("extractRedditVideo", () => {
   it("returns null when the post has no Reddit-hosted video", () => {
     expect(extractRedditVideo(new RedditPostData({}))).toBeNull();
   });
+
+  it("decodes HTML entities Reddit escapes into hls_url/fallback_url", () => {
+    const post = new RedditPostData({
+      media: {
+        reddit_video: {
+          hls_url: "https://v.redd.it/a/HLSPlaylist.m3u8?a=1&amp;v=1",
+          fallback_url: "https://v.redd.it/a/DASH_480.mp4?a=1&amp;v=1",
+        },
+      },
+    });
+    expect(extractRedditVideo(post)).toEqual({
+      hlsUrl: "https://v.redd.it/a/HLSPlaylist.m3u8?a=1&v=1",
+      fallbackUrl: "https://v.redd.it/a/DASH_480.mp4?a=1&v=1",
+    });
+  });
 });
 
 describe("buildVideoHeaderHtml", () => {
@@ -128,5 +143,28 @@ describe("buildVideoHeaderHtml", () => {
   it("returns null when there is no playable source", async () => {
     const html = await buildVideoHeaderHtml({}, "https://preview.redd.it/a/preview.jpg");
     expect(html).toBeNull();
+  });
+
+  it("emits a single, correctly-decoded ampersand for an already-decoded URL", async () => {
+    vi.mocked(storeImageRefFromUrl).mockResolvedValue(null);
+
+    // Mirrors what extractRedditVideo() now hands to this function: decoded
+    // once already, so escapeHtml() must be the only re-encoding step.
+    const html = await buildVideoHeaderHtml(
+      {
+        hlsUrl: "https://v.redd.it/a/HLSPlaylist.m3u8?a=1&v=1",
+        fallbackUrl: "https://v.redd.it/a/DASH_480.mp4?a=1&v=1",
+      },
+      null,
+    );
+
+    expect(html).toContain(
+      '<source src="https://v.redd.it/a/DASH_480.mp4?a=1&amp;v=1" type="video/mp4">',
+    );
+    expect(html).toContain(
+      '<source src="https://v.redd.it/a/HLSPlaylist.m3u8?a=1&amp;v=1" ' +
+        'type="application/vnd.apple.mpegurl">',
+    );
+    expect(html).not.toContain("&amp;amp;");
   });
 });
