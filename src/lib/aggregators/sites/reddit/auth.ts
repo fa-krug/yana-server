@@ -31,7 +31,7 @@ export function getRedditUserSettings(
   };
 }
 
-let cachedAccessToken: { token: string; expiresAt: number } | null = null;
+const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
 export async function getRedditAccessToken(
   clientId: string,
@@ -40,8 +40,10 @@ export async function getRedditAccessToken(
 ): Promise<string | null> {
   if (!clientId || !clientSecret) return null;
 
-  if (cachedAccessToken && Date.now() < cachedAccessToken.expiresAt) {
-    return cachedAccessToken.token;
+  const cacheKey = `${clientId}:${clientSecret}`;
+  const cached = tokenCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.token;
   }
 
   try {
@@ -63,10 +65,7 @@ export async function getRedditAccessToken(
 
     const token = data.access_token;
     const expiresIn = (data.expires_in || 3600) - 60;
-    cachedAccessToken = {
-      token,
-      expiresAt: Date.now() + expiresIn * 1000,
-    };
+    tokenCache.set(cacheKey, { token, expiresAt: Date.now() + expiresIn * 1000 });
     return token;
   } catch {
     return null;
