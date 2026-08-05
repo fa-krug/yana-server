@@ -51,11 +51,4 @@ describe("reportRunOutcome", () => {
     expect(toastError).toHaveBeenCalledTimes(2);
     expect(toastError).toHaveBeenCalledWith("Something went wrong");
   });
-
-  it("reports nothing on a timeout -- the run is still legitimately in progress", () => {
-    reportRunOutcome({ ok: false, reason: "timeout" }, copy);
-    expect(toastSuccess).not.toHaveBeenCalled();
-    expect(toastWarning).not.toHaveBeenCalled();
-    expect(toastError).not.toHaveBeenCalled();
-  });
 });

@@ -9,13 +9,13 @@ export type RunOutcomeCopy = {
 };
 
 /**
- * The one toast a run-tracked action reports, once, at the end. `"timeout"`
- * is deliberately not an error: the run is still going server-side, just
- * slower than this tab was willing to wait -- nothing has failed.
+ * The one toast a run-tracked action reports, once, at the end. Every arm says
+ * something: `waitForRun()` polls until the run really is terminal, so an
+ * `ok: false` here is always a genuine failure (the request never returned, or
+ * the run could not be read back) rather than "this tab stopped waiting".
  */
 export function reportRunOutcome(outcome: RunOutcome, copy: RunOutcomeCopy): void {
   if (!outcome.ok) {
-    if (outcome.reason === "timeout") return;
     toast.error(copy.fallback);
     return;
   }
