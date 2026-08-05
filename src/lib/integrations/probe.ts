@@ -136,20 +136,32 @@ export async function readJson(response: Response): Promise<unknown> {
  * `src/lib/ai/openai.ts`, which calls this only once the URL is confirmed.
  *
  * One 1-token chat completion, exactly like `testOpenaiKey()`'s original
- * probe: it proves the key and the model id together, and
- * `max_completion_tokens` (not the deprecated `max_tokens`) so a reasoning
- * model is not refused.
+ * probe: it proves the key and the model id together.
+ *
+ * **`maxTokensField` defaults to `max_tokens`**, the field `run.ts`'s
+ * `callOpenaiCompatible()` already sends on the real generation call for
+ * every one of these four providers — so the probe and the run path agree by
+ * default, rather than the probe speaking a dialect of its own. `openai.ts`
+ * overrides it to `max_completion_tokens`: OpenAI documents `max_tokens` as
+ * deprecated and refused by its o-series/GPT-5.x reasoning models. Mistral,
+ * Qwen and DeepSeek do not document `max_completion_tokens` at all — sending
+ * it to DeepSeek was confirmed live to draw an error response that this
+ * function's status classification below has no case for, which fell
+ * through to the generic `unexpected` verdict and made every DeepSeek "Test"
+ * report "the provider answered unexpectedly" regardless of the credential.
  */
 export async function openaiCompatibleChatProbe({
   providerName,
   endpoint,
   apiKey,
   model,
+  maxTokensField = "max_tokens",
 }: {
   providerName: string;
   endpoint: string;
   apiKey: string;
   model: string;
+  maxTokensField?: string;
 }): Promise<ProbeResult> {
   try {
     const response = await fetch(endpoint, {
@@ -161,7 +173,7 @@ export async function openaiCompatibleChatProbe({
       body: JSON.stringify({
         model,
         messages: [{ role: "user", content: "hi" }],
-        max_completion_tokens: 1,
+        [maxTokensField]: 1,
       }),
       // **Redirects are refused, not followed.** No real OpenAI-compatible
       // endpoint redirects a POST, so nothing legitimate is lost by refusing
