@@ -10,6 +10,7 @@ import { BaseAggregator, FeedLike, RawArticle } from "../../base";
 import { isSafeUrl } from "../../blocks/parser";
 import { cleanHtml, removeSanitizedAttributes, sanitizeHtmlAttributes } from "../../extract/clean";
 import { createYoutubeEmbedHtml, escapeHtml, formatArticleContent } from "../../extract/format";
+import { ARTICLE_ENRICHMENT_CONCURRENCY, mapWithConcurrency } from "../../concurrency";
 import { buildImageRef, storeImageRefFromUrl } from "../../images/store";
 import {
   YouTubeAPIError,
@@ -243,7 +244,7 @@ export class YouTubeAggregator extends BaseAggregator {
 
     const commentLimit = (this.feed.options?.comment_limit as number) ?? 10;
 
-    for (const article of articles) {
+    await mapWithConcurrency(articles, ARTICLE_ENRICHMENT_CONCURRENCY, async (article) => {
       const videoId = article._youtube_video_id;
       const description = article.content || "";
 
@@ -259,7 +260,7 @@ export class YouTubeAggregator extends BaseAggregator {
       );
       article.content = contentHtml;
       article.raw_content = contentHtml;
-    }
+    });
 
     return articles;
   }
