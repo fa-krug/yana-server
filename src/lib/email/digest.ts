@@ -1,13 +1,13 @@
 import { createTranslator } from "use-intl/core";
 
+import type { AppLocale } from "../../i18n/locale";
+
 export interface ErrorEntry {
   category: "worker" | "scheduler" | "job";
   message: string;
   occurredAt: Date;
   jobKind?: string;
 }
-
-export type Locale = "en" | "de";
 
 /**
  * Renders one recipient's digest of everything bundled into a single
@@ -18,7 +18,7 @@ export type Locale = "en" | "de";
  * (`use-intl/core`) renders against it directly.
  */
 export async function renderDigest(
-  locale: Locale,
+  locale: AppLocale,
   entries: ErrorEntry[],
 ): Promise<{ subject: string; body: string }> {
   const messages = (await import(`../../../messages/${locale}.json`)).default;

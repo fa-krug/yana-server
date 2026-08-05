@@ -3,8 +3,9 @@ import { eq } from "drizzle-orm";
 import { isAdminRole } from "../auth/roles";
 import { getDb } from "../db/client";
 import { users, userSettings } from "../db/schema";
+import type { AppLocale } from "../../i18n/locale";
 import { sendMail } from "./client";
-import { renderDigest, type ErrorEntry, type Locale } from "./digest";
+import { renderDigest, type ErrorEntry } from "./digest";
 
 export type { ErrorEntry } from "./digest";
 
@@ -44,6 +45,11 @@ function schedule(
       });
     }, DEBOUNCE_MS),
   };
+  // A pending notification timer must never hold the Node event loop open --
+  // relevant to graceful shutdown, and to a test runner's teardown closing a
+  // database connection out from under a callback that would otherwise still
+  // be scheduled to fire.
+  bucket.timer.unref?.();
   buckets.set(key, bucket);
 }
 
@@ -61,7 +67,7 @@ export function notifyJobFailure(userId: string | null, entry: ErrorEntry): void
   schedule(userId, entry, (entries) => flushUser(userId, entries));
 }
 
-function recipientLocale(language: string | null | undefined): Locale {
+function recipientLocale(language: string | null | undefined): AppLocale {
   return language === "de" ? "de" : "en";
 }
 
@@ -72,6 +78,13 @@ async function flushAdmins(entries: ErrorEntry[]): Promise<void> {
     .leftJoin(userSettings, eq(users.id, userSettings.userId))
     .all()
     .filter((row) => isAdminRole(row.role));
+
+  if (admins.length === 0) {
+    console.error(
+      `[email] no admin recipient found; dropping ${entries.length} system-error entr${entries.length === 1 ? "y" : "ies"}.`,
+    );
+    return;
+  }
 
   for (const admin of admins) {
     const { subject, body } = await renderDigest(recipientLocale(admin.language), entries);

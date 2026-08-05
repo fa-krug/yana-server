@@ -161,7 +161,7 @@ export function fail(id: number, error: string | Error): void {
   if (outcome?.outcome === "failed") {
     publishJobOutcome({ ...outcome.job, status: "failed" }, "failed");
     publishJobTerminal(id, "failed");
-    notifyJobFailure(resolveJobUserId(outcome.job), {
+    notifyJobFailure(outcome.job.userId ?? resolveJobUserId(outcome.job), {
       category: "job",
       message: errMsg,
       occurredAt: now,

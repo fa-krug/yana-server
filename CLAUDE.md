@@ -621,8 +621,10 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   fires just appends to the same bucket and rides the one send. Without this, a
   crash loop (the worker restarting and immediately re-crashing, or a burst of
   jobs failing for the same root cause) would mail one message per failure
-  instead of one digest listing all of them — the difference between a useful
-  alert and a mail-server DoS against the admin's own inbox. The timer is a
+  instead of one digest listing all of them. This bundles a _burst within one
+  window_ into a single email; it is not cross-window suppression or backoff
+  — a failure recurring every tick still sends one email per debounce window,
+  indefinitely (720/day at the default 2-minute window). The timer is a
   bare `setTimeout` outside any request scope, so `flush` is wrapped in
   `.catch()` at the call site: an unhandled rejection there would be a Node
   warning with no request to attribute it to.
