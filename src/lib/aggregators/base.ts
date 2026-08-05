@@ -205,7 +205,7 @@ export abstract class BaseAggregator {
     return Promise.resolve("");
   }
 
-  extractContent(html: string, _article: RawArticle): string {
+  extractContent(html: string, _article: RawArticle): string | Promise<string> {
     return html;
   }
 

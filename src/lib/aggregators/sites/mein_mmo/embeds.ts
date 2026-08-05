@@ -1,12 +1,14 @@
 import * as cheerio from "cheerio";
 import type { Element } from "domhandler";
-import { isBlueskyUrl } from "../../embeds/bluesky";
-import { buildYoutubeFacadeHtml, escapeHtml } from "../../extract/format";
-import { isSafeUrl } from "../../blocks/parser";
+import { buildBlueskyEmbedHtml, isBlueskyUrl } from "../../embeds/bluesky";
+import { buildYoutubeFacadeHtml } from "../../extract/format";
 
 export interface EmbedProcessorStrategy {
   canHandle(figure: cheerio.Cheerio<Element>, $: cheerio.CheerioAPI): boolean;
-  process(figure: cheerio.Cheerio<Element>, $: cheerio.CheerioAPI): cheerio.Cheerio<Element> | null;
+  process(
+    figure: cheerio.Cheerio<Element>,
+    $: cheerio.CheerioAPI,
+  ): Promise<cheerio.Cheerio<Element> | null> | cheerio.Cheerio<Element> | null;
 }
 
 export class YouTubeEmbedProcessor implements EmbedProcessorStrategy {
@@ -174,16 +176,6 @@ export class RedditEmbedProcessor implements EmbedProcessorStrategy {
   }
 }
 
-function buildBlueskyEmbedHtmlSync(url: string): string | null {
-  const cleanUrl = url.split("?")[0]!;
-  if (!isSafeUrl(cleanUrl)) return null;
-  return (
-    `<blockquote style="border-left: 3px solid #0085ff; padding: 12px 16px; margin: 1em 0; background: #f7f9fa;">\n` +
-    `<p style="margin: 0 0 8px 0;"><strong>View on Bluesky</strong> · <a href="${escapeHtml(cleanUrl)}" target="_blank" rel="noopener">View on Bluesky</a></p>\n` +
-    `</blockquote>`
-  );
-}
-
 export class BlueskyEmbedProcessor implements EmbedProcessorStrategy {
   canHandle(figure: cheerio.Cheerio<Element>, $: cheerio.CheerioAPI): boolean {
     const anchors = figure.find("a[href]").toArray();
@@ -194,10 +186,10 @@ export class BlueskyEmbedProcessor implements EmbedProcessorStrategy {
     return false;
   }
 
-  process(
+  async process(
     figure: cheerio.Cheerio<Element>,
     $: cheerio.CheerioAPI,
-  ): cheerio.Cheerio<Element> | null {
+  ): Promise<cheerio.Cheerio<Element> | null> {
     let blueskyLink: string | null = null;
     const anchors = figure.find("a[href]").toArray();
     for (const a of anchors) {
@@ -210,7 +202,7 @@ export class BlueskyEmbedProcessor implements EmbedProcessorStrategy {
 
     if (!blueskyLink) return null;
 
-    const embedHtml = buildBlueskyEmbedHtmlSync(blueskyLink);
+    const embedHtml = await buildBlueskyEmbedHtml(blueskyLink);
     if (!embedHtml) return null;
 
     const wrapper = ($("<div>") as cheerio.Cheerio<Element>).attr(
@@ -336,7 +328,10 @@ export class YouTubeFallbackProcessor implements EmbedProcessorStrategy {
 /**
  * Process all figure embeds using strategy pattern.
  */
-export function processEmbeds($content: cheerio.Cheerio<Element>, $: cheerio.CheerioAPI): void {
+export async function processEmbeds(
+  $content: cheerio.Cheerio<Element>,
+  $: cheerio.CheerioAPI,
+): Promise<void> {
   const processors: EmbedProcessorStrategy[] = [
     new YouTubeEmbedProcessor(),
     new TwitterEmbedProcessor(),
@@ -346,12 +341,12 @@ export function processEmbeds($content: cheerio.Cheerio<Element>, $: cheerio.Che
     new YouTubeFallbackProcessor(),
   ];
 
-  const figures = $content.find("figure");
-  figures.each((_, figure) => {
+  const figures = $content.find("figure").toArray();
+  for (const figure of figures) {
     const $figure = $(figure);
     for (const processor of processors) {
       if (processor.canHandle($figure, $)) {
-        const replacement = processor.process($figure, $);
+        const replacement = await processor.process($figure, $);
         if (replacement) {
           $figure.replaceWith(replacement);
         } else {
@@ -360,5 +355,5 @@ export function processEmbeds($content: cheerio.Cheerio<Element>, $: cheerio.Che
         break;
       }
     }
-  });
+  }
 }

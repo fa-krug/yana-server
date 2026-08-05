@@ -27,6 +27,14 @@ const SKIP_LIST: string[] = [
   // different title, different URL. No selector or aggregator change can
   // close that gap; the fixture pair needs a matched html capture of the
   // article desired/mein_mmo.json actually describes before this can unskip.
+  // Note for whoever supplies that matched fixture: content.ts's
+  // data-sanitized-class keep-list (see the comment there) now intentionally
+  // produces typed EmbedBlocks for YouTube/TikTok/Bluesky embed figures,
+  // diverging from the Django-era plain-paragraph-with-link fallback the
+  // existing golden JSON may still assume. So a straightforward "just fix the
+  // fixture pairing" pass could still show an unrelated-looking diff on any
+  // such figures in the new fixture -- that's expected, not a regression, and
+  // the golden JSON may need reconciling for those blocks too.
   "mein_mmo/basic",
   "mein_mmo/combined-pages",
   // full_website/basic and rss/basic hit the exact same recover/regenerate
@@ -81,7 +89,7 @@ describe("golden corpus parity", () => {
           rawArticle.header_data = headerData;
         }
 
-        const extracted = agg.extractContent(fixtureContent, rawArticle);
+        const extracted = await agg.extractContent(fixtureContent, rawArticle);
         const processed = await agg.processContent(extracted, rawArticle);
         const blocks = parseBlocks(processed);
         const wireDoc = encodeDocument(blocks);

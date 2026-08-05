@@ -66,11 +66,11 @@ export function processDailymotionBlocks(
  * 7. Clean data attributes
  * 8. Sanitize class names
  */
-export function extractMeinMmoContent(
+export async function extractMeinMmoContent(
   html: string,
   _article: RawArticle,
   selectorsToRemove: string[],
-): string {
+): Promise<string> {
   const $ = cheerio.load(html);
 
   const contentDivs = $("div.entry-content, div.gp-entry-content");
@@ -109,16 +109,33 @@ export function extractMeinMmoContent(
   });
 
   // Process embeds (YouTube, Twitter, Reddit, Bluesky, TikTok, YouTubeFallback)
-  processEmbeds($content, $);
-  // Body `<img>` src values are resolved to real yana-img:// references in
-  // MeinMmoAggregator.processContent() -- that step is async (a real fetch),
-  // and this function runs inside the synchronous extractContent().
+  await processEmbeds($content, $);
+  // Body `<img>` src values -- including any embedded by processEmbeds above,
+  // e.g. a Bluesky post's images -- are resolved to real yana-img:// references
+  // in MeinMmoAggregator.processContent() -- that step does a real fetch, and
+  // runs one stage later, on this function's returned HTML.
 
   // Remove empty paragraphs and divs
   removeEmptyElements($, ["p", "div"]);
 
-  // Clean data attributes (keep data-src and data-srcset for lazy loading)
-  cleanDataAttributes($, ["data-src", "data-srcset"]);
+  // Clean data attributes (keep data-src/data-srcset for lazy loading, and
+  // data-sanitized-class since embed processors set it directly on wrapper
+  // elements rather than via a `class` attribute, so it must survive this
+  // strip step to still be present when sanitizeClassNames() runs below).
+  //
+  // Keeping "data-sanitized-class" is a deliberate divergence from the Python
+  // origin, not a parity fix: old/core/aggregators/mein_mmo/content_extraction.py:101
+  // is `clean_data_attributes(content, keep=["data-src", "data-srcset"])` --
+  // Django does NOT keep this attribute, so Django's own output strips it too,
+  // matching the behavior this TS code had before this fix. The divergence is
+  // worth it because without it, YouTube/Dailymotion/Bluesky wrapper divs lose
+  // the marker before src/lib/aggregators/blocks/parser.ts's embedFacade() runs,
+  // so it can no longer recognize the youtube-embed/dailymotion-embed/
+  // bluesky-embed wrapper and the figure silently degrades to a plain
+  // paragraph-with-link instead of a typed EmbedBlock. See
+  // src/lib/parity/corpus.test.ts's SKIP_LIST comment for the fixture-corpus
+  // consequence of this choice.
+  cleanDataAttributes($, ["data-src", "data-srcset", "data-sanitized-class"]);
 
   // Sanitize class names
   sanitizeClassNames($);
