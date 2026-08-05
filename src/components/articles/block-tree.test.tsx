@@ -305,6 +305,46 @@ describe("BlockNode", () => {
     expect(screen.getByText("Awesome Video")).not.toBeNull();
   });
 
+  it("renders a youtube embed as a real iframe, not a link card", () => {
+    const embedNode = makeBlock({
+      kind: "embed",
+      embedProvider: "youtube",
+      embedExternalUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    });
+
+    const { container } = render(<BlockNodeComponent node={embedNode} />);
+    const iframe = container.querySelector("iframe");
+    expect(iframe?.getAttribute("src")).toBe("https://www.youtube.com/embed/dQw4w9WgXcQ");
+    expect(container.querySelector("a")).toBeNull();
+  });
+
+  it("renders a dailymotion embed as a real iframe, not a link card", () => {
+    const embedNode = makeBlock({
+      kind: "embed",
+      embedProvider: "dailymotion",
+      embedExternalUrl: "https://www.dailymotion.com/video/x123abc",
+    });
+
+    const { container } = render(<BlockNodeComponent node={embedNode} />);
+    const iframe = container.querySelector("iframe");
+    expect(iframe?.getAttribute("src")).toBe("https://www.dailymotion.com/embed/video/x123abc");
+    expect(container.querySelector("a")).toBeNull();
+  });
+
+  it("falls back to the link card when a youtube embed's video id cannot be parsed", () => {
+    const embedNode = makeBlock({
+      kind: "embed",
+      embedProvider: "youtube",
+      embedExternalUrl: "https://www.youtube.com/",
+      embedTitle: "Untitled",
+    });
+
+    const { container } = render(<BlockNodeComponent node={embedNode} />);
+    expect(container.querySelector("iframe")).toBeNull();
+    const link = container.querySelector("a");
+    expect(link?.getAttribute("href")).toBe("https://www.youtube.com/");
+  });
+
   it("renders code_block with language label and raw text", () => {
     const codeNode = makeBlock({
       kind: "code_block",

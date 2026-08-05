@@ -304,16 +304,11 @@ export class YouTubeAggregator extends BaseAggregator {
     const finalized: RawArticle[] = [];
 
     for (const article of processedArticles) {
-      const videoId = article._youtube_video_id;
-
-      let embedHtml = "";
-      if (typeof videoId === "string" && videoId) {
-        embedHtml = createYoutubeEmbedHtml(videoId);
-      }
-
-      const processed = await this.processContent(article.content, article);
-
-      article.content = embedHtml + processed;
+      // processContent() (below) already derives the video id from
+      // article.identifier and prepends its own createYoutubeEmbedHtml()
+      // facade, so building a second one here duplicated the embed in every
+      // aggregated video's content.
+      article.content = await this.processContent(article.content, article);
       delete article._youtube_video_id;
       finalized.push(article);
     }

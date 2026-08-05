@@ -3,6 +3,27 @@ import React from "react";
 import type { BlockNode as BlockNodeType } from "@/lib/blocks/tree";
 import type { ArticleInlineRun } from "@/lib/db/schema/articles";
 
+/**
+ * Video id extraction mirrors the patterns in
+ * `@/lib/aggregators/blocks/parser.ts`, kept standalone rather than imported
+ * from there: that module (and the rest of `@/lib/aggregators/**`) pulls in
+ * cheerio and other server-only dependencies that must not reach the browser
+ * bundle.
+ */
+const YOUTUBE_VIDEO_ID_PATTERN =
+  /(?:youtube\.com\/watch\?(?:.*&)?v=|youtu\.be\/|(?:youtube\.com|youtube-nocookie\.com)\/embed\/)([A-Za-z0-9_-]{6,})/;
+const DAILYMOTION_VIDEO_ID_PATTERN = /dailymotion\.com\/(?:video|embed\/video)\/([A-Za-z0-9]+)/;
+
+function youtubeEmbedSrc(externalUrl: string): string {
+  const match = YOUTUBE_VIDEO_ID_PATTERN.exec(externalUrl);
+  return match ? `https://www.youtube.com/embed/${match[1]}` : "";
+}
+
+function dailymotionEmbedSrc(externalUrl: string): string {
+  const match = DAILYMOTION_VIDEO_ID_PATTERN.exec(externalUrl);
+  return match ? `https://www.dailymotion.com/embed/video/${match[1]}` : "";
+}
+
 export function renderInlineRun(run: ArticleInlineRun, index: number): React.ReactNode {
   let content: React.ReactNode = run.text;
 
@@ -113,6 +134,29 @@ export function BlockNode({ node }: { node: BlockNodeType }) {
     }
 
     case "embed": {
+      const provider = node.embedProvider ?? "";
+      const externalUrl = node.embedExternalUrl ?? "";
+      const embedSrc =
+        provider === "youtube"
+          ? youtubeEmbedSrc(externalUrl)
+          : provider === "dailymotion"
+            ? dailymotionEmbedSrc(externalUrl)
+            : "";
+
+      if (embedSrc) {
+        return (
+          <div className="my-4 aspect-video overflow-hidden rounded-lg border bg-card">
+            <iframe
+              src={embedSrc}
+              title={node.embedTitle || provider}
+              className="h-full w-full"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+            />
+          </div>
+        );
+      }
+
       const thumbnailRef = node.embedThumbnailRef ?? "";
       const thumbnailSrc = thumbnailRef.startsWith("yana-img://")
         ? thumbnailRef.replace("yana-img://", "/media/images/")
