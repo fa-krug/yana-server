@@ -8,6 +8,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { applyMigrationsAt } from "../db/test-support";
 
+const notifyAdminsMock = vi.fn();
+vi.mock("../email/error-notifications", () => ({
+  notifyAdmins: notifyAdminsMock,
+  notifyJobFailure: vi.fn(),
+}));
+
 describe("src/lib/jobs/scheduler", () => {
   let dbPath: string;
   let queue: typeof import("./queue");
@@ -28,6 +34,7 @@ describe("src/lib/jobs/scheduler", () => {
     schema = await import("../db/schema");
     queue = await import("./queue");
     scheduler = await import("./scheduler");
+    notifyAdminsMock.mockClear();
   });
 
   afterEach(() => {
@@ -173,5 +180,18 @@ describe("src/lib/jobs/scheduler", () => {
 
     scheduler.stopScheduler();
     expect(scheduler.isSchedulerRunning()).toBe(false);
+  });
+
+  it("notifies admins when a scheduler tick throws", async () => {
+    vi.spyOn(queue, "enqueue").mockImplementation(() => {
+      throw new Error("enqueue exploded");
+    });
+
+    scheduler.startScheduler({ tickIntervalMs: 60_000 });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(notifyAdminsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ category: "scheduler" }),
+    );
   });
 });

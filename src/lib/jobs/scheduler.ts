@@ -2,6 +2,7 @@ import { and, eq, gte } from "drizzle-orm";
 
 import { writeTransaction } from "../db/client";
 import { feeds, jobs, userSettings } from "../db/schema";
+import { notifyAdmins } from "../email/error-notifications";
 import { enqueue } from "./queue";
 
 const SCHEDULER_STARTED = Symbol.for("yana.scheduler.started");
@@ -35,11 +36,21 @@ export function startScheduler(options?: { tickIntervalMs?: number }): void {
 
   tick().catch((err) => {
     console.error("[Scheduler] Error in scheduler tick:", err);
+    notifyAdmins({
+      category: "scheduler",
+      message: err instanceof Error ? (err.stack ?? err.message) : String(err),
+      occurredAt: new Date(),
+    });
   });
 
   schedulerTimer = setInterval(() => {
     tick().catch((err) => {
       console.error("[Scheduler] Error in scheduler tick:", err);
+      notifyAdmins({
+        category: "scheduler",
+        message: err instanceof Error ? (err.stack ?? err.message) : String(err),
+        occurredAt: new Date(),
+      });
     });
   }, intervalMs);
 }
