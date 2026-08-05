@@ -1,11 +1,10 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useState, useTransition } from "react";
+import { useTransition } from "react";
 
 import { ConfirmDestructive, type ConfirmCopy } from "@/components/crud/confirm-destructive";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 import { attemptCall } from "@/lib/attempt";
 
 /**
@@ -61,7 +60,6 @@ export function BulkActionBar({
 }) {
   const t = useTranslations("crud");
   const [pending, start] = useTransition();
-  const [pendingKey, setPendingKey] = useState<string | null>(null);
 
   function run(action: BulkAction) {
     // Same backstop as <ConfirmDestructive>'s, and now literally the same code:
@@ -75,25 +73,17 @@ export function BulkActionBar({
     // wrapped rather than passed by reference so it is still invoked as a
     // method of its action.
     //
-    // `pendingKey` is a separate piece of state from `pending`: `pending`
-    // keeps disabling every button for the whole transition as it always has,
-    // while `pendingKey` only decides which button renders the spinner.
-    //
-    // Set *before* `start(...)`, not inside its callback: React tags a state
-    // update made inside a transition scope as low-priority background work,
-    // so it would only reach the screen after an extra scheduler tick --
-    // unlike `pending` itself, which React updates at normal priority outside
-    // the transition context. Setting it here keeps the spinner's appearance
-    // synchronous with the click, matching `pending`'s own timing.
-    setPendingKey(action.key);
+    // No local per-button spinner: `pending` disables every button for the
+    // whole transition, which is all the feedback a quick action needs, and a
+    // `run` that only enqueues a background job hands its id to
+    // `useTrackRun()` (`@/components/jobs/active-runs-context`) -- the
+    // header's global indicator is the one place progress and the outcome
+    // toast are shown for those. A button-local spinner duplicated that and,
+    // for a fast enqueue round-trip, flashed on and immediately back off.
     start(async () => {
-      try {
-        await attemptCall(() => action.run(), {
-          label: "A bulk action rejected instead of reporting",
-        });
-      } finally {
-        setPendingKey(null);
-      }
+      await attemptCall(() => action.run(), {
+        label: "A bulk action rejected instead of reporting",
+      });
     });
   }
 
@@ -129,7 +119,6 @@ export function BulkActionBar({
               disabled={pending}
               onClick={() => run(action)}
             >
-              {pendingKey === action.key && <Spinner className="mr-1" />}
               {action.label}
             </Button>
           ),

@@ -27,7 +27,10 @@ beforeEach(() => {
 });
 
 describe("<BulkActionBar>", () => {
-  it("shows a spinner only on the button whose action is still running", async () => {
+  it("disables every button while an action runs, and never renders a spinner", async () => {
+    // No local spinner, ever: a fast action's feedback is the disabled state
+    // alone, and a background-run action (`useTrackRun()`) reports progress
+    // through the header's global indicator instead of a button-local one.
     let resolveRun: (value: boolean) => void = () => {};
     const slowRun = vi.fn(
       () =>
@@ -54,20 +57,20 @@ describe("<BulkActionBar>", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Slow action" }));
 
-    // The clicked button gets a spinner; its sibling stays plain-disabled.
     expect(
       screen.getByRole("button", { name: "Slow action" }).querySelector("svg.animate-spin"),
-    ).toBeTruthy();
+    ).toBeNull();
     expect(
       screen.getByRole("button", { name: "Fast action" }).querySelector("svg.animate-spin"),
     ).toBeNull();
+    expect(screen.getByRole("button", { name: "Slow action" }).hasAttribute("disabled")).toBe(true);
     expect(screen.getByRole("button", { name: "Fast action" }).hasAttribute("disabled")).toBe(true);
 
     resolveRun(true);
     await vi.waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: "Slow action" }).querySelector("svg.animate-spin"),
-      ).toBeNull();
+      expect(screen.getByRole("button", { name: "Slow action" }).hasAttribute("disabled")).toBe(
+        false,
+      );
     });
   });
 
