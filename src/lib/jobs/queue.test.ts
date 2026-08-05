@@ -171,6 +171,31 @@ describe("src/lib/jobs/queue", () => {
       const job = queue.getJob(id);
       expect(job?.progress).toBe(45);
     });
+
+    it("clears a stale error once a job that failed once later completes", () => {
+      // A job that times out, backs off, and then succeeds on retry used to keep displaying
+      // its earlier failure message forever -- a "completed" job that still reads as broken.
+      const id = queue.enqueue("noop", {}, { maxAttempts: 3 });
+      queue.claim();
+      queue.fail(id, "temporary error");
+      expect(queue.getJob(id)?.error).toBe("temporary error");
+
+      // fail() backs the retry off into the future; force it claimable now rather than
+      // asserting through a real minute-long wait.
+      client
+        .getDb()
+        .update(jobs)
+        .set({ runAt: new Date(Date.now() - 1000) })
+        .where(eq(jobs.id, id))
+        .run();
+
+      const reclaimed = queue.claim();
+      expect(reclaimed?.id).toBe(id);
+      expect(reclaimed?.error).toBe("");
+
+      queue.complete(id);
+      expect(queue.getJob(id)?.error).toBe("");
+    });
   });
 
   describe("enqueueRun / run tracking", () => {
