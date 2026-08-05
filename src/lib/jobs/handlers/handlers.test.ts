@@ -33,6 +33,20 @@ describe("src/lib/jobs/handlers", () => {
     process.env.DATABASE_PATH = dbPath;
     applyMigrationsAt(dbPath);
 
+    // Re-registered every test (not a top-level `vi.mock`): `vi.resetModules()`
+    // clears the *module* registry but not the *mocks* registry, so a
+    // `vi.mock` factory that calls `importOriginal()` would resolve once for
+    // the whole file and freeze its `actual` queue functions to this test's
+    // `../db/client` singleton -- which `afterEach` then closes, breaking
+    // every later test's `writeTransaction` calls with "connection is not
+    // open". Re-registering with `vi.doMock` here, after `resetModules()` and
+    // before the imports below, makes `importOriginal()` resolve fresh each
+    // test, against the fresh `../db/client` created for *this* `dbPath`.
+    vi.doMock("../queue", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../queue")>();
+      return { ...actual, isCancelRequested: vi.fn(() => false) };
+    });
+
     client = await import("../../db/client");
     schema = await import("../../db/schema");
     queue = await import("../queue");
@@ -351,6 +365,82 @@ describe("src/lib/jobs/handlers", () => {
     });
   });
 
+  describe("retention cancellation", () => {
+    it("stops processing further users once cancellation is requested", async () => {
+      let userAId = "";
+      let userBId = "";
+      client.writeTransaction((db) => {
+        const a = db
+          .insert(schema.users)
+          .values({ id: "user-a", email: "a@example.com" })
+          .returning({ id: schema.users.id })
+          .get();
+        const b = db
+          .insert(schema.users)
+          .values({ id: "user-b", email: "b@example.com" })
+          .returning({ id: schema.users.id })
+          .get();
+        userAId = a.id;
+        userBId = b.id;
+
+        db.insert(schema.userSettings).values({ userId: userAId, articleRetentionDays: 60 }).run();
+        db.insert(schema.userSettings).values({ userId: userBId, articleRetentionDays: 60 }).run();
+
+        const feedA = db
+          .insert(schema.feeds)
+          .values({ name: "Feed A", userId: userAId })
+          .returning({ id: schema.feeds.id })
+          .get();
+        const feedB = db
+          .insert(schema.feeds)
+          .values({ name: "Feed B", userId: userBId })
+          .returning({ id: schema.feeds.id })
+          .get();
+
+        const eightyDaysAgo = Math.floor((Date.now() - 80 * 24 * 3_600_000) / 1000);
+
+        const a1 = db
+          .insert(schema.articles)
+          .values({
+            name: "Old A",
+            identifier: "a1",
+            feedId: feedA.id,
+            date: new Date("2024-01-01"),
+            starred: false,
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        db.run(sql`UPDATE articles SET created_at = ${eightyDaysAgo} WHERE id = ${a1.id}`);
+
+        const b1 = db
+          .insert(schema.articles)
+          .values({
+            name: "Old B",
+            identifier: "b1",
+            feedId: feedB.id,
+            date: new Date("2024-01-01"),
+            starred: false,
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        db.run(sql`UPDATE articles SET created_at = ${eightyDaysAgo} WHERE id = ${b1.id}`);
+      });
+
+      vi.mocked(queue.isCancelRequested).mockReturnValueOnce(false).mockReturnValueOnce(true);
+
+      const retentionHandler = handlers.getHandler("retention");
+      const job = makeJob("retention");
+
+      const { JobCancelledError } = await import("../errors");
+      await expect(retentionHandler!(job)).rejects.toThrow(JobCancelledError);
+
+      const remaining = client.getDb().select().from(schema.articles).all();
+      const identifiers = remaining.map((a) => a.identifier);
+      expect(identifiers).not.toContain("a1"); // user A's retention already ran
+      expect(identifiers).toContain("b1"); // user B never reached
+    });
+  });
+
   describe("restore", () => {
     it("logs and returns early when the feed row is not found", async () => {
       const restoreHandler = handlers.getHandler("feed.restore");
@@ -628,6 +718,69 @@ describe("src/lib/jobs/handlers", () => {
       const lines = logLines(job.id);
       expect(lines).toContain("fetched 1 articles");
       expect(lines).toContain("upserted articles: 0 created, 1 updated");
+    });
+
+    it("stops the article loop once cancellation is requested, keeping already-processed articles", async () => {
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "Active Feed", userId: user!.id, enabled: true })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedId = feed.id;
+      });
+
+      const rawArticles = [
+        {
+          name: "One",
+          identifier: "art-1",
+          raw_content: "<p>1</p>",
+          content: "<p>1</p>",
+          date: new Date(),
+        },
+        {
+          name: "Two",
+          identifier: "art-2",
+          raw_content: "<p>2</p>",
+          content: "<p>2</p>",
+          date: new Date(),
+        },
+        {
+          name: "Three",
+          identifier: "art-3",
+          raw_content: "<p>3</p>",
+          content: "<p>3</p>",
+          date: new Date(),
+        },
+      ];
+
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => rawArticles,
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      vi.mocked(queue.isCancelRequested).mockReturnValueOnce(false).mockReturnValueOnce(true);
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+      const job = makeJob("aggregate", { feedId });
+
+      const { JobCancelledError } = await import("../errors");
+      await expect(aggregateHandler!(job)).rejects.toThrow(JobCancelledError);
+
+      const inserted = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.feedId, feedId))
+        .all();
+      expect(inserted).toHaveLength(1);
     });
   });
 

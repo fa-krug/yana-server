@@ -6,7 +6,8 @@ import { resolveFeedCredentials } from "@/lib/aggregators/credential-resolution"
 import { createAggregator } from "@/lib/aggregators/factory";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, feeds, type Job } from "@/lib/db/schema";
-import { appendLogLine, progress } from "../queue";
+import { JobCancelledError } from "../errors";
+import { appendLogLine, isCancelRequested, progress } from "../queue";
 
 export async function handleAggregateJob(job: Job): Promise<void> {
   const feedId = Number(job.payload?.feedId);
@@ -38,6 +39,10 @@ export async function handleAggregateJob(job: Job): Promise<void> {
   let updated = 0;
 
   for (let i = 0; i < total; i++) {
+    if (isCancelRequested(job.id)) {
+      throw new JobCancelledError();
+    }
+
     const raw = rawArticles[i];
     if (!raw.identifier) continue;
 
