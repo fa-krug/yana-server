@@ -104,10 +104,9 @@ export type NewJob = typeof jobs.$inferInsert;
  * ordering/cursor key -- `WHERE job_id = ? AND id > ?` is a cheap indexed
  * range scan, so no separate per-job sequence column is needed.
  *
- * Cascades with its job: nothing deletes `jobs` rows today (confirmed --
- * `retention` only touches `articles`/`article_tombstones`), so in practice this
- * persists exactly as long as the job row it describes. A future job-cleanup
- * feature gets its log cleaned up for free.
+ * Cascades with its job (`onDelete: "cascade"` below): `deleteJobs()`
+ * (`src/lib/jobs/actions.ts`) is what deletes `jobs` rows -- a job's log
+ * lines are removed in the same statement, never separately.
  */
 export const jobLogs = sqliteTable(
   "job_logs",

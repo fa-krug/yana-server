@@ -21,7 +21,7 @@ vi.mock("next/headers", async () =>
 
 const PASSWORD = "correct horse battery staple";
 
-describe("getRunStatus", () => {
+describe("src/lib/jobs/actions", () => {
   let dbPath: string;
   let jobsActions: typeof import("./actions");
   let queue: typeof import("./queue");
@@ -54,6 +54,17 @@ describe("getRunStatus", () => {
     cookieJar.clear();
   }
 
+  async function seedAdmin(email: string): Promise<string> {
+    const user = await createUserWithPassword({
+      email,
+      password: PASSWORD,
+      firstName: "",
+      lastName: "",
+      role: "admin",
+    });
+    return user.id;
+  }
+
   beforeEach(async () => {
     vi.resetModules();
     requestHeaders.current = new Headers();
@@ -81,34 +92,164 @@ describe("getRunStatus", () => {
     }
   });
 
-  it("returns the run's status for its owner", async () => {
-    const userId = await seedUser("owner@example.com");
-    await signInAs("owner@example.com");
-    const runId = queue.enqueueRun(userId, "feed.update", [{ feedId: 1 }, { feedId: 2 }]);
+  describe("getRunStatus", () => {
+    it("returns the run's status for its owner", async () => {
+      const userId = await seedUser("owner@example.com");
+      await signInAs("owner@example.com");
+      const runId = queue.enqueueRun(userId, "feed.update", [{ feedId: 1 }, { feedId: 2 }]);
 
-    const status = await jobsActions.getRunStatus(runId);
-    expect(status).toEqual({
-      status: "running",
-      totalJobs: 2,
-      completedJobs: 0,
-      failedJobs: 0,
+      const status = await jobsActions.getRunStatus(runId);
+      expect(status).toEqual({
+        status: "running",
+        totalJobs: 2,
+        completedJobs: 0,
+        failedJobs: 0,
+      });
+    });
+
+    it("returns null for a run owned by another user", async () => {
+      const ownerId = await seedUser("owner@example.com");
+      const runId = queue.enqueueRun(ownerId, "feed.update", [{ feedId: 1 }]);
+
+      await seedUser("other@example.com");
+      await signInAs("other@example.com");
+
+      expect(await jobsActions.getRunStatus(runId)).toBeNull();
+    });
+
+    it("returns null for a nonexistent run id", async () => {
+      await seedUser("owner@example.com");
+      await signInAs("owner@example.com");
+
+      expect(await jobsActions.getRunStatus(999_999)).toBeNull();
     });
   });
 
-  it("returns null for a run owned by another user", async () => {
-    const ownerId = await seedUser("owner@example.com");
-    const runId = queue.enqueueRun(ownerId, "feed.update", [{ feedId: 1 }]);
+  describe("cancelJobs", () => {
+    it("cancels a pending job immediately", async () => {
+      const userId = await seedUser("owner@example.com");
+      await signInAs("owner@example.com");
+      const id = queue.enqueue("noop", {}, { userId });
 
-    await seedUser("other@example.com");
-    await signInAs("other@example.com");
+      const result = await jobsActions.cancelJobs([id]);
+      expect(result).toEqual({ ok: true, affected: 1 });
+      expect(queue.getJob(id)?.status).toBe("cancelled");
+    });
 
-    expect(await jobsActions.getRunStatus(runId)).toBeNull();
+    it("asks a running job to stop", async () => {
+      const userId = await seedUser("owner@example.com");
+      await signInAs("owner@example.com");
+      const id = queue.enqueue("noop", {}, { userId });
+      queue.claim();
+
+      const result = await jobsActions.cancelJobs([id]);
+      expect(result).toEqual({ ok: true, affected: 1 });
+      expect(queue.getJob(id)?.status).toBe("cancelling");
+    });
+
+    it("does not affect another user's job", async () => {
+      const ownerId = await seedUser("owner@example.com");
+      const id = queue.enqueue("noop", {}, { userId: ownerId });
+
+      await seedUser("other@example.com");
+      await signInAs("other@example.com");
+
+      const result = await jobsActions.cancelJobs([id]);
+      expect(result).toEqual({ ok: true, affected: 0 });
+      expect(queue.getJob(id)?.status).toBe("pending");
+    });
+
+    it("lets an admin cancel another user's job", async () => {
+      const ownerId = await seedUser("owner@example.com");
+      const id = queue.enqueue("noop", {}, { userId: ownerId });
+
+      await seedAdmin("admin@example.com");
+      await signInAs("admin@example.com");
+
+      const result = await jobsActions.cancelJobs([id]);
+      expect(result).toEqual({ ok: true, affected: 1 });
+      expect(queue.getJob(id)?.status).toBe("cancelled");
+    });
+
+    it("returns affected: 0 and touches nothing for an empty id list", async () => {
+      await seedUser("owner@example.com");
+      await signInAs("owner@example.com");
+      expect(await jobsActions.cancelJobs([])).toEqual({ ok: true, affected: 0 });
+    });
   });
 
-  it("returns null for a nonexistent run id", async () => {
-    await seedUser("owner@example.com");
-    await signInAs("owner@example.com");
+  describe("deleteJobs", () => {
+    it("deletes a completed job, and cascades its log lines", async () => {
+      const userId = await seedUser("owner@example.com");
+      await signInAs("owner@example.com");
+      const id = queue.enqueue("noop", {}, { userId, maxAttempts: 1 });
+      queue.claim();
+      queue.appendLogLine(id, "stdout", "hello");
+      queue.complete(id);
 
-    expect(await jobsActions.getRunStatus(999_999)).toBeNull();
+      const result = await jobsActions.deleteJobs([id]);
+      expect(result).toEqual({ ok: true, deleted: 1, stopping: [] });
+      expect(queue.getJob(id)).toBeNull();
+      expect(queue.listJobLogs(id)).toEqual([]);
+    });
+
+    it("deletes a pending job outright, without requesting cancellation", async () => {
+      const userId = await seedUser("owner@example.com");
+      await signInAs("owner@example.com");
+      const id = queue.enqueue("noop", {}, { userId });
+
+      const result = await jobsActions.deleteJobs([id]);
+      expect(result).toEqual({ ok: true, deleted: 1, stopping: [] });
+      expect(queue.getJob(id)).toBeNull();
+    });
+
+    it("requests cancellation on a running job instead of deleting it immediately", async () => {
+      const userId = await seedUser("owner@example.com");
+      await signInAs("owner@example.com");
+      const id = queue.enqueue("noop", {}, { userId });
+      queue.claim();
+
+      const result = await jobsActions.deleteJobs([id]);
+      expect(result).toEqual({ ok: true, deleted: 0, stopping: [id] });
+      expect(queue.getJob(id)?.status).toBe("cancelling");
+    });
+
+    it("does not delete another user's job", async () => {
+      const ownerId = await seedUser("owner@example.com");
+      const id = queue.enqueue("noop", {}, { userId: ownerId });
+
+      await seedUser("other@example.com");
+      await signInAs("other@example.com");
+
+      const result = await jobsActions.deleteJobs([id]);
+      expect(result).toEqual({ ok: true, deleted: 0, stopping: [] });
+      expect(queue.getJob(id)).not.toBeNull();
+    });
+
+    it("returns deleted: 0 and touches nothing for an empty id list", async () => {
+      await seedUser("owner@example.com");
+      await signInAs("owner@example.com");
+      expect(await jobsActions.deleteJobs([])).toEqual({ ok: true, deleted: 0, stopping: [] });
+    });
+  });
+
+  describe("getJobsStatus", () => {
+    it("reports the caller's own jobs' current status", async () => {
+      const userId = await seedUser("owner@example.com");
+      await signInAs("owner@example.com");
+      const id = queue.enqueue("noop", {}, { userId });
+
+      expect(await jobsActions.getJobsStatus([id])).toEqual([{ id, status: "pending" }]);
+    });
+
+    it("omits a job owned by another user", async () => {
+      const ownerId = await seedUser("owner@example.com");
+      const id = queue.enqueue("noop", {}, { userId: ownerId });
+
+      await seedUser("other@example.com");
+      await signInAs("other@example.com");
+
+      expect(await jobsActions.getJobsStatus([id])).toEqual([]);
+    });
   });
 });

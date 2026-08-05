@@ -31,7 +31,17 @@
     "logEmpty": "No log output yet.",
     "logEnded": "Job finished — log ended.",
     "detailTitle": "Job #{id}",
-    "activeRuns": "{count, plural, one {# job running} other {# jobs running}}"
+    "activeRuns": "{count, plural, one {# job running} other {# jobs running}}",
+    "bulkCancel": "Cancel",
+    "bulkDelete": "Delete",
+    "bulkDeleteTitle": "{count, plural, one {Delete this job?} other {Delete these # jobs?}}",
+    "bulkDeleteDescription": "{count, plural, one {The job and its log} other {The # jobs and their logs}} will be permanently removed. A still-running job is stopped first.",
+    "deleteConfirm": "Delete",
+    "cancelRequested": "{count, plural, one {Cancellation requested for # job} other {Cancellation requested for # jobs}}",
+    "cancelNone": "Nothing to cancel — those jobs already finished.",
+    "deleted": "{count, plural, one {# job deleted} other {# jobs deleted}}",
+    "sessionEnded": "Your session ended. Sign in again to continue.",
+    "requestFailed": "The server did not answer. Check your connection and try again."
   },
   "auth": {
     "signIn": "Sign in",

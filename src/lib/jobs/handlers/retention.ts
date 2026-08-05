@@ -2,7 +2,8 @@ import { and, eq, inArray, lte } from "drizzle-orm";
 
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articleTombstones, articles, feeds, userSettings, type Job } from "@/lib/db/schema";
-import { appendLogLine } from "../queue";
+import { JobCancelledError } from "../errors";
+import { appendLogLine, isCancelRequested } from "../queue";
 
 /**
  * Tombstones themselves can't usefully outlive the window a sync cursor can
@@ -70,6 +71,10 @@ export async function handleRetentionJob(job: Job): Promise<void> {
     // reintroduce the pre-tombstone hazard this task closes.
   } else {
     for (const settings of settingsList) {
+      if (isCancelRequested(job.id)) {
+        throw new JobCancelledError();
+      }
+
       const retentionDays = settings.articleRetentionDays ?? defaultRetentionDays;
       const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60_000);
 

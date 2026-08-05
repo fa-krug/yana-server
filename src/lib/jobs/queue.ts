@@ -109,6 +109,16 @@ export function fail(id: number, error: string | Error): void {
     const job = db.select().from(jobs).where(eq(jobs.id, id)).get();
     if (!job) return null;
 
+    // A running job that was asked to cancel, then threw a real error (a
+    // network failure, a parse error) before its handler ever reached its own
+    // isCancelRequested() checkpoint. Honor the cancellation instead of
+    // retrying or failing it -- either would silently resume the very work
+    // the user asked to stop. cancelled() does the actual transition, once
+    // this transaction (which has made no writes yet) has committed.
+    if (job.status === "cancelling") {
+      return { job, outcome: "cancelling" as const };
+    }
+
     if (job.attempts >= job.maxAttempts) {
       db.update(jobs)
         .set({
@@ -123,7 +133,7 @@ export function fail(id: number, error: string | Error): void {
         bumpRunCounters(db, job.runId, "failed");
       }
 
-      return { job, terminal: true as const };
+      return { job, outcome: "failed" as const };
     }
 
     const backoffMs = Math.pow(2, Math.max(0, job.attempts - 1)) * 60_000;
@@ -139,10 +149,15 @@ export function fail(id: number, error: string | Error): void {
       .where(eq(jobs.id, id))
       .run();
 
-    return { job, terminal: false as const };
+    return { job, outcome: "retry" as const };
   });
 
-  if (outcome?.terminal) {
+  if (outcome?.outcome === "cancelling") {
+    cancelled(id);
+    return;
+  }
+
+  if (outcome?.outcome === "failed") {
     publishJobOutcome({ ...outcome.job, status: "failed" }, "failed");
     publishJobTerminal(id, "failed");
   }
@@ -155,7 +170,101 @@ export function progress(id: number, percent: number): void {
   });
 }
 
+export type CancelOutcome = "cancelled" | "cancelling" | "unchanged";
+
+/**
+ * Ask a job to stop. A `pending` job is cancelled immediately -- it never
+ * started, so there is nothing to interrupt. A `running` job is only asked:
+ * it becomes `cancelling`, and stays that way until its handler notices
+ * `isCancelRequested()` at one of its own checkpoints and worker.ts calls
+ * `cancelled()`. A job that is already `cancelling` makes no further write
+ * (idempotent), but still reports `"cancelling"` rather than `"unchanged"` --
+ * it has not finished, so telling a caller otherwise would read as "nothing
+ * to cancel" for a job that is actively stopping. Only a job that is already
+ * terminal, or that does not exist, is truly `"unchanged"`.
+ */
+export function requestCancel(id: number): CancelOutcome {
+  const job = getDb().select().from(jobs).where(eq(jobs.id, id)).get();
+  if (!job) return "unchanged";
+
+  if (job.status === "pending") {
+    cancelled(id);
+    return "cancelled";
+  }
+
+  if (job.status === "running") {
+    const result = writeTransaction((db) =>
+      db
+        .update(jobs)
+        .set({ status: "cancelling" })
+        .where(and(eq(jobs.id, id), eq(jobs.status, "running")))
+        .run(),
+    );
+    return result.changes === 1 ? "cancelling" : "unchanged";
+  }
+
+  if (job.status === "cancelling") {
+    return "cancelling";
+  }
+
+  return "unchanged";
+}
+
+/** Cheap indexed read a handler calls at its own checkpoints -- the same
+ * per-item database round trip `progress()` already makes, so this adds no
+ * new cost pattern to a loop that already has one. */
+export function isCancelRequested(id: number): boolean {
+  const row = getDb().select({ status: jobs.status }).from(jobs).where(eq(jobs.id, id)).get();
+  return row?.status === "cancelling";
+}
+
+/**
+ * The terminal transition a cancellation lands on -- reached either
+ * instantly (`requestCancel()` on a still-pending job) or after a running
+ * job's handler notices `isCancelRequested()` and worker.ts calls this
+ * instead of `fail()`. Mirrors `complete()`/`fail()`: sets `finishedAt`,
+ * bumps the parent run's counters into the same bucket `fail()` uses (a
+ * cancelled job is not a run success, and `waitForRun()`'s poll only
+ * recognizes a run as terminal once `completedJobs + failedJobs >=
+ * totalJobs`), and publishes a terminal event so an open SSE viewer closes
+ * out instead of hanging.
+ */
+export function cancelled(id: number): void {
+  const job = writeTransaction((db) => {
+    const current = db.select().from(jobs).where(eq(jobs.id, id)).get();
+    if (!current) return null;
+
+    db.update(jobs)
+      .set({ status: "cancelled", finishedAt: new Date() })
+      .where(eq(jobs.id, id))
+      .run();
+
+    if (current.runId !== null) {
+      bumpRunCounters(db, current.runId, "failed");
+    }
+
+    return current;
+  });
+
+  if (job) {
+    publishJobOutcome({ ...job, status: "cancelled" }, "cancelled");
+    publishJobTerminal(id, "cancelled");
+  }
+}
+
 export function resetOrphaned(before: Date): number {
+  // A job that was mid-cancellation when the previous process died: honor
+  // the cancellation rather than resuming it as a fresh pending attempt,
+  // since a "cancelling" row exists only because a human asked it to stop.
+  const orphanedCancelling = getDb()
+    .select({ id: jobs.id })
+    .from(jobs)
+    .where(and(eq(jobs.status, "cancelling"), lte(jobs.startedAt, before)))
+    .all();
+  for (const { id } of orphanedCancelling) {
+    cancelled(id);
+  }
+
   return writeTransaction((db) => {
     const result = db
       .update(jobs)
@@ -297,7 +406,7 @@ function bumpRunCounters(
  * publishing as best-effort notification, never the source of truth, so a
  * broken listener degrades to "no live update," not "corrupted job state."
  */
-function publishJobOutcome(job: Job, status: "completed" | "failed"): void {
+function publishJobOutcome(job: Job, status: "completed" | "failed" | "cancelled"): void {
   try {
     const userId = resolveJobUserId(job);
     if (!userId) return;

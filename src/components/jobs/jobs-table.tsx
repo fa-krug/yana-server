@@ -2,13 +2,19 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { toast } from "sonner";
 
+import { BulkActionBar, type BulkAction } from "@/components/crud/bulk-action-bar";
 import { DataTable, type Column } from "@/components/crud/data-table";
 import { Pagination } from "@/components/crud/pagination";
 import { Badge } from "@/components/ui/badge";
 import { displayNameFor } from "@/lib/avatar";
+import { cancelJobs, deleteJobs } from "@/lib/jobs/actions";
 import type { JobWithOwner } from "@/lib/jobs/queue";
+import { attempt } from "@/lib/jobs/result";
+import { waitForJobsTerminal } from "@/lib/jobs/wait-for-jobs-terminal";
 
 export function StatusBadge({ status }: { status: string }) {
   switch (status) {
@@ -26,6 +32,24 @@ export function StatusBadge({ status }: { status: string }) {
         <Badge
           variant="outline"
           className="bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200"
+        >
+          {status}
+        </Badge>
+      );
+    case "cancelling":
+      return (
+        <Badge
+          variant="outline"
+          className="bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200"
+        >
+          {status}
+        </Badge>
+      );
+    case "cancelled":
+      return (
+        <Badge
+          variant="outline"
+          className="bg-slate-50 text-slate-600 dark:bg-slate-900 dark:text-slate-400 border-slate-200"
         >
           {status}
         </Badge>
@@ -53,7 +77,8 @@ export function JobsTable({
   showOwner?: boolean;
 }) {
   const t = useTranslations("jobs");
-  const [selected, setSelected] = useState<string[]>([]);
+  const router = useRouter();
+  const [selected, setSelected] = useState<number[]>([]);
 
   const columns: Column<JobWithOwner>[] = [
     {
@@ -124,14 +149,82 @@ export function JobsTable({
     },
   ];
 
+  async function cancelSelected(): Promise<boolean> {
+    if (selected.length === 0) return false;
+
+    const result = await attempt(() => cancelJobs(selected));
+    if (!result.ok) {
+      toast.error(t(result.errorKey));
+      return false;
+    }
+
+    setSelected([]);
+    router.refresh();
+    if (result.affected === 0) toast.info(t("cancelNone"));
+    else toast.success(t("cancelRequested", { count: result.affected }));
+    return true;
+  }
+
+  async function removeSelected(): Promise<boolean> {
+    if (selected.length === 0) return false;
+
+    const result = await attempt(() => deleteJobs(selected));
+    if (!result.ok) {
+      toast.error(t(result.errorKey));
+      return false;
+    }
+
+    let deleted = result.deleted;
+    if (result.stopping.length > 0) {
+      const stopped = await waitForJobsTerminal(result.stopping);
+      if (!stopped) {
+        toast.error(t("requestFailed"));
+        return false;
+      }
+      const second = await attempt(() => deleteJobs(result.stopping));
+      if (!second.ok) {
+        toast.error(t(second.errorKey));
+        return false;
+      }
+      deleted += second.deleted;
+    }
+
+    setSelected([]);
+    router.refresh();
+    toast.success(t("deleted", { count: deleted }));
+    return true;
+  }
+
+  const count = selected.length;
+  const actions: BulkAction[] = [
+    {
+      key: "cancel",
+      label: t("bulkCancel"),
+      destructive: false,
+      run: cancelSelected,
+    },
+    {
+      key: "delete",
+      label: t("bulkDelete"),
+      destructive: true,
+      confirm: {
+        title: t("bulkDeleteTitle", { count }),
+        description: t("bulkDeleteDescription", { count }),
+        confirmLabel: t("deleteConfirm"),
+      },
+      run: removeSelected,
+    },
+  ];
+
   return (
     <div className="space-y-4">
+      <BulkActionBar count={count} actions={actions} onClear={() => setSelected([])} />
       <DataTable
         rows={rows}
         columns={columns}
         rowId={(job) => String(job.id)}
-        selected={selected}
-        onSelectedChange={setSelected}
+        selected={selected.map(String)}
+        onSelectedChange={(ids) => setSelected(ids.map(Number))}
       />
       <Pagination page={page} pageSize={pageSize} total={total} />
     </div>

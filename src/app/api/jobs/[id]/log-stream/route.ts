@@ -95,7 +95,7 @@ export async function GET(
         send("line", line);
       }
 
-      if (job.status === "completed" || job.status === "failed") {
+      if (job.status === "completed" || job.status === "failed" || job.status === "cancelled") {
         send("end", { status: job.status });
         controller.close();
         return;
