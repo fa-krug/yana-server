@@ -82,7 +82,12 @@ file.
 │   │   │                           #   reportOutcomeIn() — phase 7's second consumer
 │   │   ├── user-avatar.tsx         # image, else initials on a colour from the id
 │   │   ├── app-sidebar.tsx         # navigation, from src/lib/nav.ts
-│   │   ├── route-breadcrumbs.tsx   # segment-derived breadcrumbs
+│   │   ├── route-breadcrumbs.tsx   # segment-derived breadcrumbs, overridable
+│   │   │                           #   per-route by breadcrumb-title.tsx
+│   │   ├── breadcrumb-title.tsx    # BreadcrumbTitleProvider/SetBreadcrumbTitle:
+│   │   │                           #   lets a detail page register its record's
+│   │   │                           #   title for the breadcrumb, replacing the
+│   │   │                           #   raw id
 │   │   ├── data-skeleton.tsx       # TableSkeleton, CardSkeleton
 │   │   └── theme-provider.tsx      # next-themes wrapper
 │   ├── hooks/                     # use-mobile.ts (hand-modified — see below)
@@ -1331,8 +1336,11 @@ mock` the moment anything in the tree reaches an export it did not think to
 
   What is covered so far is exactly what phase 3's escaped defects needed: one
   `<main>` landmark, no `li` inside `li`, breadcrumbs translating nav segments
-  while showing record ids verbatim, the Select trigger's translated label, and
-  (phase 4) admin-only navigation hidden from a non-admin.
+  while showing record ids verbatim -- and, since the breadcrumb-title
+  registry, a registered record title overriding that id (truncated, with a
+  tooltip) and never overriding a translated nav segment -- the Select
+  trigger's translated label, and (phase 4) admin-only navigation hidden from
+  a non-admin.
   Assert against `de.json` where English is too close to the raw value to prove
   anything ("Dark" vs. `dark`). New structural assertions are worth checking
   against the defect they describe — reintroduce it, watch the test fail, revert

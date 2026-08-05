@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { setPathname } from "@/test/next-navigation";
 import { renderWithProviders } from "@/test/render";
 
+import { BreadcrumbTitleProvider, SetBreadcrumbTitle } from "./breadcrumb-title";
 import { RouteBreadcrumbs } from "./route-breadcrumbs";
 
 vi.mock("next/navigation", () => import("@/test/next-navigation"));
@@ -44,6 +45,46 @@ describe("RouteBreadcrumbs", () => {
     // through t(). German again -- "New" vs. "new" would prove nothing.
     setPathname("/tags/new");
     const { container } = renderWithProviders(<RouteBreadcrumbs />, { locale: "de" });
+
+    expect(itemTexts(container)).toEqual(["Tags", "Neu"]);
+  });
+
+  it("shows a registered record title instead of the raw id", () => {
+    setPathname("/articles/42");
+    const { container } = renderWithProviders(
+      <BreadcrumbTitleProvider>
+        <SetBreadcrumbTitle title="A very specific article title" />
+        <RouteBreadcrumbs />
+      </BreadcrumbTitleProvider>,
+    );
+
+    expect(itemTexts(container)).toEqual(["Articles", "A very specific article title"]);
+
+    const truncated = container.querySelector('[title="A very specific article title"]');
+    expect(truncated).not.toBeNull();
+    expect(truncated?.classList.contains("truncate")).toBe(true);
+  });
+
+  it("falls back to the raw id when no title is registered", () => {
+    setPathname("/articles/42");
+    const { container } = renderWithProviders(
+      <BreadcrumbTitleProvider>
+        <RouteBreadcrumbs />
+      </BreadcrumbTitleProvider>,
+    );
+
+    expect(itemTexts(container)).toEqual(["Articles", "42"]);
+  });
+
+  it("never lets a registered title override a translated label", () => {
+    setPathname("/tags/new");
+    const { container } = renderWithProviders(
+      <BreadcrumbTitleProvider>
+        <SetBreadcrumbTitle title="hijacked" />
+        <RouteBreadcrumbs />
+      </BreadcrumbTitleProvider>,
+      { locale: "de" },
+    );
 
     expect(itemTexts(container)).toEqual(["Tags", "Neu"]);
   });
