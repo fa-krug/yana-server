@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 
+import { JobActions } from "@/components/jobs/job-actions";
 import { JobLogViewer } from "@/components/jobs/job-log-viewer";
 import { StatusBadge } from "@/components/jobs/jobs-table";
 import { isAdminRole } from "@/lib/auth/roles";
@@ -33,7 +34,10 @@ export default async function JobDetailPage({
 
   return (
     <div className="max-w-3xl space-y-6">
-      <h1 className="text-2xl font-semibold">{t("detailTitle", { id: job.id })}</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">{t("detailTitle", { id: job.id })}</h1>
+        <JobActions job={{ id: job.id, status: job.status }} />
+      </div>
 
       <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
         <div>
