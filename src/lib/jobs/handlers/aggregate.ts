@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 
 import { parseBlocks, plainTextOf } from "@/lib/aggregators/blocks/parser";
 import { writeBlocks } from "@/lib/aggregators/blocks/storage";
+import { resolveFeedCredentials } from "@/lib/aggregators/credential-resolution";
 import { createAggregator } from "@/lib/aggregators/factory";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, feeds, type Job } from "@/lib/db/schema";
@@ -15,7 +16,7 @@ export async function handleAggregateJob(job: Job): Promise<void> {
   const feed = db.select().from(feeds).where(eq(feeds.id, feedId)).get();
   if (!feed || !feed.enabled) return;
 
-  const aggregator = createAggregator(feed);
+  const aggregator = createAggregator(resolveFeedCredentials(feed));
   const rawArticles = await aggregator.aggregate();
 
   if (rawArticles.length === 0) {
@@ -31,7 +32,12 @@ export async function handleAggregateJob(job: Job): Promise<void> {
     const raw = rawArticles[i];
     if (!raw.identifier) continue;
 
-    const htmlContent = raw.raw_content || raw.content || "";
+    // `content` is what extractContent()/processContent() actually distilled
+    // from the page -- `raw_content` is the whole fetched page a full-website
+    // aggregator (Tagesschau, Heise, ...) stashes there unconditionally, nav
+    // and footer included, and is only a fallback for aggregators (plain RSS)
+    // that never populate `content` at all.
+    const htmlContent = raw.content || raw.raw_content || "";
     const blocks = parseBlocks(htmlContent, raw.identifier);
     const plainText = plainTextOf(blocks);
 

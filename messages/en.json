@@ -271,13 +271,15 @@
       "create": "Create feed",
       "save": "Save feed",
       "created": "Feed created",
-      "saved": "Feed saved"
+      "saved": "Feed saved",
+      "updateNow": "Update now"
     },
     "saveFailed": "Could not save feed",
     "logosEnqueued": "{count, plural, one {# logo enqueued} other {# logos enqueued}}",
     "bulkUpdateLogo": "Update logo",
     "bulkRunAggregation": "Run aggregation",
-    "aggregationEnqueued": "{count, plural, one {# feed enqueued} other {# feeds enqueued}}",
+    "aggregationCompleted": "{count, plural, one {# feed updated} other {# feeds updated}}",
+    "aggregationCompletedWithFailures": "{completed} updated, {failed} failed",
     "bulkDelete": "Delete",
     "bulkDeleteTitle": "{count, plural, one {Delete this feed?} other {Delete these # feeds?}}",
     "bulkDeleteDescription": "{count, plural, one {The feed} other {The # feeds}} and all their articles will be permanently removed.",
@@ -422,6 +424,24 @@
       "quota": "The key is valid — Gemini is rate limiting it, or today's quota is used up. It works again once the quota resets.",
       "modelUnknown": "Choose one of the models Yana offers for Gemini."
     },
+    "mistral": {
+      "required": "Enter an API key first.",
+      "rejected": "Mistral would not accept these credentials. Check the API key, that the account still has credit, and that it may use the selected model.",
+      "quota": "The key is valid — Mistral is rate limiting it right now. It works again shortly.",
+      "modelUnknown": "Choose one of the models Yana offers for Mistral."
+    },
+    "qwen": {
+      "required": "Enter an API key first.",
+      "rejected": "Qwen would not accept these credentials. Check the API key, that the account still has credit, and that it may use the selected model.",
+      "quota": "The key is valid — Qwen is rate limiting it right now. It works again shortly.",
+      "modelUnknown": "Choose one of the models Yana offers for Qwen."
+    },
+    "deepseek": {
+      "required": "Enter an API key first.",
+      "rejected": "DeepSeek would not accept these credentials. Check the API key, that the account still has credit, and that it may use the selected model.",
+      "quota": "The key is valid — DeepSeek is rate limiting it right now. It works again shortly.",
+      "modelUnknown": "Choose one of the models Yana offers for DeepSeek."
+    },
     "advanced": {
       "title": "Advanced",
       "description": "How every AI request is shaped. These apply to whichever provider is active, and they are saved together because they depend on one another.",
@@ -437,7 +457,7 @@
       "monthlyLimit": "Monthly request limit",
       "monthlyLimitHelp": "The most AI requests Yana makes in a month. At least as large as the daily limit.",
       "maxPromptLength": "Maximum prompt length",
-      "maxPromptLengthHelp": "The most characters of an article that are sent to the provider.",
+      "maxPromptLengthHelp": "The most characters sent to the provider in a single request — an article being summarized, or a prompt sent from the mobile app.",
       "requestTimeout": "Request timeout (seconds)",
       "requestTimeoutHelp": "How long Yana waits for an answer before it gives up on a request.",
       "maxRetries": "Retries",
@@ -520,7 +540,9 @@
     "bulkStar": "Star",
     "bulkUnstar": "Unstar",
     "bulkReload": "Reload",
-    "reloadEnqueued": "{count, plural, one {# article enqueued} other {# articles enqueued}}",
+    "reloadNow": "Reload content",
+    "reloadCompleted": "{count, plural, one {# article reloaded} other {# articles reloaded}}",
+    "reloadCompletedWithFailures": "{completed} reloaded, {failed} failed",
     "updated": "{count, plural, one {# article updated} other {# articles updated}}",
     "saveFailed": "Could not save article",
     "general": "General",

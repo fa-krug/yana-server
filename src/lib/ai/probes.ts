@@ -1,8 +1,11 @@
 import type { ProbeResult } from "@/lib/integrations/probe";
 
 import { testAnthropicKey } from "./anthropic";
+import { testDeepseekKey } from "./deepseek";
 import { testGeminiKey } from "./gemini";
+import { testMistralKey } from "./mistral";
 import { testOpenaiKey } from "./openai";
+import { testQwenKey } from "./qwen";
 import type { AiProviderKey } from "./providers";
 
 /**
@@ -19,7 +22,7 @@ import type { AiProviderKey } from "./providers";
  * to be structural rather than remembered.
  *
  * The per-provider reasoning -- what each probe requests, whether it inspects a
- * 200 body, and how it reads each status -- lives in the three modules this
+ * 200 body, and how it reads each status -- lives in the six modules this
  * imports, not here. This file is only the wiring.
  */
 
@@ -47,8 +50,11 @@ export type AiProbe = (credentials: AiCredentials) => Promise<ProbeResult>;
  */
 export const AI_PROBES: Record<AiProviderKey, AiProbe> = {
   openai: ({ apiKey, apiUrl, model }) => testOpenaiKey({ apiKey, apiUrl, model }),
-  // Destructured without `apiUrl`: these two have no column for one and cannot
+  // Destructured without `apiUrl`: these five have no column for one and cannot
   // read one they are handed.
   anthropic: ({ apiKey, model }) => testAnthropicKey({ apiKey, model }),
   gemini: ({ apiKey, model }) => testGeminiKey({ apiKey, model }),
+  mistral: ({ apiKey, model }) => testMistralKey({ apiKey, model }),
+  qwen: ({ apiKey, model }) => testQwenKey({ apiKey, model }),
+  deepseek: ({ apiKey, model }) => testDeepseekKey({ apiKey, model }),
 };

@@ -1,6 +1,7 @@
 import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 
+import { SetBreadcrumbTitle } from "@/components/breadcrumb-title";
 import { FeedForm } from "@/components/feeds/feed-form";
 import { requireUser } from "@/lib/auth/session";
 import { getFeed, capabilitiesFor } from "@/lib/feeds/actions";
@@ -30,6 +31,7 @@ export default async function EditFeedPage({ params }: { params: Promise<{ id: s
 
   return (
     <div className="space-y-4">
+      <SetBreadcrumbTitle title={feed.name} />
       <h1 className="text-2xl font-semibold">{t("editTitle", { name: feed.name })}</h1>
       <FeedForm feed={feed} capabilities={capabilities} allTags={allTags.rows} />
     </div>

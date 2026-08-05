@@ -45,6 +45,35 @@ function parseInlineMarkdown(text: string): string {
   return s;
 }
 
+function isTableBlock(lines: string[]): boolean {
+  if (lines.length < 2) return false;
+  if (!lines[0]!.includes("|")) return false;
+  const separator = lines[1]!.trim();
+  return /^\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?$/.test(separator);
+}
+
+function splitTableRow(line: string): string[] {
+  let row = line.trim();
+  if (row.startsWith("|")) row = row.slice(1);
+  if (row.endsWith("|")) row = row.slice(0, -1);
+  return row.split("|").map((cell) => cell.trim());
+}
+
+function tableBlockHtml(lines: string[]): string {
+  const headerCells = splitTableRow(lines[0]!);
+  const bodyRows = lines.slice(2).map((line) => splitTableRow(line));
+
+  const headerHtml = headerCells.map((cell) => `<th>${parseInlineMarkdown(cell)}</th>`).join("");
+  const bodyHtml = bodyRows
+    .map(
+      (cells) =>
+        `<tr>${cells.map((cell) => `<td>${parseInlineMarkdown(cell)}</td>`).join("")}</tr>`,
+    )
+    .join("");
+
+  return `<table><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table>`;
+}
+
 export function markdownToHtml(md: string): string {
   if (!md) return "";
 
@@ -74,6 +103,12 @@ export function markdownToHtml(md: string): string {
       continue;
     }
 
+    const blockLines = trimmed.split("\n");
+    if (isTableBlock(blockLines)) {
+      intermediateBlocks.push({ type: "p", html: tableBlockHtml(blockLines) });
+      continue;
+    }
+
     const headingMatch = trimmed.match(/^(#{1,6})\s+([\s\S]*)$/);
     if (headingMatch && !headingMatch[2]!.includes("\n")) {
       const level = headingMatch[1]!.length;
@@ -97,9 +132,8 @@ export function markdownToHtml(md: string): string {
       continue;
     }
 
-    const lines = trimmed.split("\n");
-    if (lines.every((l) => /^[\*\-]\s+/.test(l.trim()))) {
-      const items = lines.map((l) => parseInlineMarkdown(l.trim().replace(/^[\*\-]\s+/, "")));
+    if (blockLines.every((l) => /^[\*\-]\s+/.test(l.trim()))) {
+      const items = blockLines.map((l) => parseInlineMarkdown(l.trim().replace(/^[\*\-]\s+/, "")));
       intermediateBlocks.push({
         type: "ul",
         html: "",
@@ -108,8 +142,8 @@ export function markdownToHtml(md: string): string {
       continue;
     }
 
-    if (lines.every((l) => /^\d+\.\s+/.test(l.trim()))) {
-      const items = lines.map((l) => parseInlineMarkdown(l.trim().replace(/^\d+\.\s+/, "")));
+    if (blockLines.every((l) => /^\d+\.\s+/.test(l.trim()))) {
+      const items = blockLines.map((l) => parseInlineMarkdown(l.trim().replace(/^\d+\.\s+/, "")));
       intermediateBlocks.push({
         type: "ol",
         html: "",
@@ -118,7 +152,7 @@ export function markdownToHtml(md: string): string {
       continue;
     }
 
-    const formattedLines = lines.map((l) => parseInlineMarkdown(l)).join("<br>\n");
+    const formattedLines = blockLines.map((l) => parseInlineMarkdown(l)).join("<br>\n");
     intermediateBlocks.push({
       type: "p",
       html: formattedLines,
@@ -281,17 +315,17 @@ export function convertRedditMarkdown(text: string): string {
 
   input = input.replace(
     /!\[([^\]]*)\]\(giphy\|([a-z0-9]+)(?:\|[^)]+)?\)/gi,
-    (_, __, id) => `<img src="https://i.giphy.com/${id}.gif" alt="Giphy GIF">`,
+    (_, __, id) => `<img src="https://media.giphy.com/media/${id}/giphy.gif" alt="Giphy GIF">`,
   );
 
   input = input.replace(
     /<img\s+[^>]{0,200}src\s*=\s*["']giphy\|([a-z0-9]{1,50})(?:\|[^"']{0,100})?["'][^>]{0,200}>/gi,
-    (_, id) => `<img src="https://i.giphy.com/${id}.gif" alt="Giphy GIF">`,
+    (_, id) => `<img src="https://media.giphy.com/media/${id}/giphy.gif" alt="Giphy GIF">`,
   );
 
   input = input.replace(
     /(?<!["'])giphy\|([a-z0-9]+)(?!["'])/gi,
-    (_, id) => `<img src="https://i.giphy.com/${id}.gif" alt="Giphy GIF">`,
+    (_, id) => `<img src="https://media.giphy.com/media/${id}/giphy.gif" alt="Giphy GIF">`,
   );
 
   input = input.replace(/\^(\w+)/g, "<sup>$1</sup>");

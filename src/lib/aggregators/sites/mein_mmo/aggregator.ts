@@ -1,8 +1,10 @@
 import * as cheerio from "cheerio";
 import { FeedLike, RawArticle } from "../../base";
+import { isSafeUrl } from "../../blocks/parser";
 import { cleanHtml, removeImageByUrl } from "../../extract/clean";
 import { formatArticleContent } from "../../extract/format";
 import { getHeaderImageRef } from "../../header/context";
+import { storeImageRefFromUrl } from "../../images/store";
 import { FullWebsiteAggregator, proxyYoutubeEmbeds } from "../../website";
 import { extractComments } from "./comments";
 import { extractMeinMmoContent } from "./content";
@@ -118,7 +120,7 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
     return extractMeinMmoContent(html, article, this.getIgnoreSelectors());
   }
 
-  override processContent(html: string, article: RawArticle): string | Promise<string> {
+  override async processContent(html: string, article: RawArticle): Promise<string> {
     const $ = cheerio.load(html);
 
     // Replace YouTube iframes with click-through facades
@@ -128,6 +130,20 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
     const headerData = article.header_data;
     if (headerData?.imageUrl) {
       removeImageByUrl($, headerData.imageUrl);
+    }
+
+    // Resolve body `<img>` sources to real yana-img:// references. A plain
+    // for-of, not `.each()`: cheerio's `.each()` callback cannot be awaited,
+    // and an article can carry more than one image.
+    for (const imgEl of $("img").toArray()) {
+      const $img = $(imgEl);
+      const src = $img.attr("src");
+      if (src && isSafeUrl(src)) {
+        const ref = await storeImageRefFromUrl(src);
+        if (ref) {
+          $img.attr("src", ref);
+        }
+      }
     }
 
     const cleaned = cleanHtml($.html());

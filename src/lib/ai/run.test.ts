@@ -1,11 +1,30 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AIClient, applyAiOptions } from "./run";
+import { applyMigrationsAt } from "@/lib/db/test-support";
+
+import { AI_COLUMNS } from "./columns";
+import {
+  AI_PROVIDERS,
+  DEEPSEEK_API_URL,
+  MISTRAL_API_URL,
+  OPENAI_DEFAULT_API_URL,
+  QWEN_API_URL,
+} from "./providers";
 import type { AiRuntimeSettings } from "./run";
 
 function makeSettings(overrides: Partial<AiRuntimeSettings> = {}): AiRuntimeSettings {
   const provider = overrides.activeAiProvider ?? overrides.active_ai_provider ?? "gemini";
   return {
+    userId: "test-user",
+    // High enough that the daily/monthly usage check added in Task 9 never
+    // interferes with what these tests actually assert -- usage-limit
+    // behavior itself is covered by `src/lib/ai/usage.test.ts`.
+    aiDefaultDailyLimit: 1000,
+    aiDefaultMonthlyLimit: 1000,
+
     activeAiProvider: provider,
     aiMaxRetries: 3,
     aiRetryDelay: 0, // speed up tests by default
@@ -34,12 +53,45 @@ function makeSettings(overrides: Partial<AiRuntimeSettings> = {}): AiRuntimeSett
 describe("applyAiOptions & AIClient processing", () => {
   const originalFetch = globalThis.fetch;
 
-  beforeEach(() => {
+  let dbPath: string;
+  let AIClient: typeof import("./run").AIClient;
+  let applyAiOptions: typeof import("./run").applyAiOptions;
+
+  beforeEach(async () => {
     vi.restoreAllMocks();
+
+    // `generateResponse()` now calls `checkAndRecordAiUsage()` inside
+    // `writeTransaction()`, which reads the process-wide `getDb()` singleton
+    // pointed at `DATABASE_PATH`. `DATABASE_PATH` is captured into a
+    // module-level constant the moment `@/lib/db/client` is first imported,
+    // so a fresh module registry plus a dynamic import of "./run" (after
+    // setting the env var) is required per test -- the same shape as
+    // `src/app/api/v1/aggregate/route.test.ts`'s `beforeEach`. `applyMigrationsAt`
+    // is imported statically above (not dynamically here) because it never
+    // reads `DATABASE_PATH` itself -- it operates on an explicit connection --
+    // so it is safe to call before the env var below is set; a *dynamic*
+    // import of it here would transitively load "@/lib/db/client" too early
+    // (before `DATABASE_PATH` is set) and lock in the wrong `DB_PATH` for the
+    // rest of this test, since the later `import("@/lib/db/client")` below
+    // would just return that same cached module instance.
+    vi.resetModules();
+    const stamp = `${process.pid}-${Math.random().toString(36).slice(2)}`;
+    dbPath = path.join(os.tmpdir(), `yana-ai-run-test-${stamp}.db`);
+    applyMigrationsAt(dbPath);
+    process.env.DATABASE_PATH = dbPath;
+
+    const { writeTransaction } = await import("@/lib/db/client");
+    const { users } = await import("@/lib/db/schema");
+    writeTransaction((tx) => {
+      tx.insert(users).values({ id: "test-user", email: "test-user@example.com" }).run();
+    });
+
+    ({ AIClient, applyAiOptions } = await import("./run"));
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    fs.rmSync(dbPath, { force: true });
   });
 
   describe("test_ai_processing assertions", () => {
@@ -266,7 +318,7 @@ describe("applyAiOptions & AIClient processing", () => {
       const client = new AIClient(settings);
       const result = await client.generateResponse("test prompt");
 
-      expect(result).toBe("hello");
+      expect(result).toMatchObject({ ok: true, text: "hello" });
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
@@ -292,7 +344,7 @@ describe("applyAiOptions & AIClient processing", () => {
       const client = new AIClient(settings);
       const result = await client.generateResponse("test prompt");
 
-      expect(result).toBe("hello");
+      expect(result).toMatchObject({ ok: true, text: "hello" });
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
@@ -318,7 +370,7 @@ describe("applyAiOptions & AIClient processing", () => {
       const client = new AIClient(settings);
       const result = await client.generateResponse("test prompt");
 
-      expect(result).toBe("hello");
+      expect(result).toMatchObject({ ok: true, text: "hello" });
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
@@ -340,7 +392,7 @@ describe("applyAiOptions & AIClient processing", () => {
       const client = new AIClient(settings);
       const result = await client.generateResponse("test prompt");
 
-      expect(result).toBeNull();
+      expect(result).toMatchObject({ ok: false });
       // 1 initial attempt + 3 retries = 4 attempts
       expect(fetchMock).toHaveBeenCalledTimes(4);
     });
@@ -363,7 +415,7 @@ describe("applyAiOptions & AIClient processing", () => {
       const client = new AIClient(settings);
       const result = await client.generateResponse("test prompt");
 
-      expect(result).toBeNull();
+      expect(result).toMatchObject({ ok: false });
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
@@ -385,7 +437,7 @@ describe("applyAiOptions & AIClient processing", () => {
       const client = new AIClient(settings);
       const result = await client.generateResponse("test prompt");
 
-      expect(result).toBeNull();
+      expect(result).toMatchObject({ ok: false });
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
@@ -408,7 +460,7 @@ describe("applyAiOptions & AIClient processing", () => {
       const client = new AIClient(settings);
       const result = await client.generateResponse("test prompt");
 
-      expect(result).toBeNull();
+      expect(result).toMatchObject({ ok: false });
       // Attempt 0: delay 2s, 2s < 3s -> retry
       // Attempt 1: delay 4s, 2s + 4s = 6s > 3s -> budget exceeded, stops retry!
       expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -502,6 +554,164 @@ describe("applyAiOptions & AIClient processing", () => {
         expect(msg).not.toContain("API call failed");
       }
     });
+  });
+
+  describe("test_ai_usage_limits assertions", () => {
+    it("blocks a call once the daily limit is reached, without reaching the network", async () => {
+      const settings = makeSettings({
+        activeAiProvider: "gemini",
+        aiDefaultDailyLimit: 1,
+        aiDefaultMonthlyLimit: 1000,
+      });
+
+      // Pre-seed one request already recorded today directly via
+      // `writeTransaction`, so "test-user" is already at the daily limit of 1
+      // before `generateResponse()` is ever called -- this proves the
+      // short-circuit fires on a call that would otherwise be the *first* of
+      // the test, not just after this test's own prior calls.
+      const { writeTransaction } = await import("@/lib/db/client");
+      const { aiRequests } = await import("@/lib/db/schema");
+      writeTransaction((tx) => {
+        tx.insert(aiRequests).values({ userId: "test-user", createdAt: new Date() }).run();
+      });
+
+      const fetchMock = vi.fn();
+      globalThis.fetch = fetchMock;
+
+      const client = new AIClient(settings);
+      const result = await client.generateResponse("test prompt");
+
+      expect(result).toMatchObject({ ok: false, reason: "dailyLimitExceeded" });
+      // The actual guarantee this task exists to provide: a blocked call
+      // never reaches the provider over the network.
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("blocks a call once the monthly limit is reached, without reaching the network", async () => {
+      const settings = makeSettings({
+        activeAiProvider: "gemini",
+        aiDefaultDailyLimit: 1000,
+        aiDefaultMonthlyLimit: 1,
+      });
+
+      const { writeTransaction } = await import("@/lib/db/client");
+      const { aiRequests } = await import("@/lib/db/schema");
+      writeTransaction((tx) => {
+        tx.insert(aiRequests).values({ userId: "test-user", createdAt: new Date() }).run();
+      });
+
+      const fetchMock = vi.fn();
+      globalThis.fetch = fetchMock;
+
+      const client = new AIClient(settings);
+      const result = await client.generateResponse("test prompt");
+
+      expect(result).toMatchObject({ ok: false, reason: "monthlyLimitExceeded" });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("proceeds unmetered and warns when settings carry no userId", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const settings = makeSettings({ activeAiProvider: "gemini", userId: undefined });
+
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: "hello" }] } }],
+        }),
+      } as Response);
+
+      const client = new AIClient(settings);
+      const result = await client.generateResponse("test prompt");
+
+      // Missing userId does not block the call -- it proceeds unmetered.
+      expect(result).toMatchObject({ ok: true, text: "hello" });
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("usage limit not enforced"));
+    });
+  });
+
+  /**
+   * **Every one of the six registered providers, actually exercised.**
+   *
+   * Nothing before this block ever called `callMistral()`, `callQwen()` or
+   * `callDeepseek()` -- the retry and json-extraction suites above only drive
+   * `openai`/`anthropic`/`gemini`. That gap meant a seventh provider (or a typo
+   * in one of these three's base URL or response parsing) would typecheck and
+   * ship with nothing catching it at runtime. This iterates `AI_PROVIDERS`
+   * itself (not a hand-written list of six keys) so a future provider is
+   * included automatically, stubs `fetch` with *that provider's own* response
+   * shape, and asserts both the parsed text and the exact outbound URL --
+   * against the exported `*_API_URL` constants in `./providers`, never a
+   * hard-coded string, so a change to one of them is a single edit rather than
+   * a test left asserting a stale value.
+   */
+  describe("generateResponse across every registered provider", () => {
+    const responseShapeFor = (key: (typeof AI_PROVIDERS)[number]["key"], text: string): unknown => {
+      switch (key) {
+        case "anthropic":
+          return { content: [{ type: "text", text }] };
+        case "gemini":
+          return { candidates: [{ content: { parts: [{ text }] } }] };
+        default:
+          // openai, mistral, qwen, deepseek: the shared OpenAI-compatible shape.
+          return { choices: [{ message: { content: text } }] };
+      }
+    };
+
+    const expectedUrlFor = (
+      key: (typeof AI_PROVIDERS)[number]["key"],
+      provider: (typeof AI_PROVIDERS)[number],
+      apiKey: string,
+    ): string => {
+      switch (key) {
+        case "openai":
+          return `${OPENAI_DEFAULT_API_URL}/chat/completions`;
+        case "anthropic":
+          return "https://api.anthropic.com/v1/messages";
+        case "gemini":
+          return `https://generativelanguage.googleapis.com/v1beta/models/${provider.defaultModel}:generateContent?key=${apiKey}`;
+        case "mistral":
+          return `${MISTRAL_API_URL}/chat/completions`;
+        case "qwen":
+          return `${QWEN_API_URL}/chat/completions`;
+        case "deepseek":
+          return `${DEEPSEEK_API_URL}/chat/completions`;
+      }
+    };
+
+    it.each(AI_PROVIDERS.map((provider) => provider.key))(
+      "calls %s with its own request shape and parses its own response shape",
+      async (key) => {
+        const provider = AI_PROVIDERS.find((p) => p.key === key);
+        if (!provider) throw new Error(`no AI_PROVIDERS entry for "${key}"`);
+        const columns = AI_COLUMNS[key];
+        const apiKey = `test-${key}-key`;
+        const text = `${key} reply`;
+
+        const settings = makeSettings({
+          activeAiProvider: key,
+          [columns.enabled]: true,
+          [columns.apiKey]: apiKey,
+          [columns.model]: provider.defaultModel,
+        } as Partial<AiRuntimeSettings>);
+
+        const fetchMock = vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: async () => responseShapeFor(key, text),
+        } as Response);
+        globalThis.fetch = fetchMock;
+
+        const client = new AIClient(settings);
+        const result = await client.generateResponse("test prompt");
+
+        expect(result).toEqual({ ok: true, text });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const calledUrl = fetchMock.mock.calls[0]?.[0] as string;
+        expect(calledUrl).toBe(expectedUrlFor(key, provider, apiKey));
+      },
+    );
   });
 
   describe("no-op behavior when options or provider disabled", () => {

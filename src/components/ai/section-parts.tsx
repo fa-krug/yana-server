@@ -43,7 +43,7 @@ function useAiTranslate(): Translate<AiKey> {
  * the one the AI features run on. The badge answers only the first, and
  * `active_ai_provider` -- shown as the hint under the picker in
  * `./provider-section` -- answers the second. Sharing the integrations wording
- * would have put "Active" on all three providers at once.
+ * would have put "Active" on all six providers at once.
  */
 export const StatusBadge = statusBadgeIn(useAiTranslate, {
   active: "verified",

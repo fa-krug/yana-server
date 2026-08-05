@@ -1,6 +1,10 @@
 import * as cheerio from "cheerio";
 
+import { writeTransaction } from "@/lib/db/client";
 import type { UserSettings } from "@/lib/db/schema";
+
+import { DEEPSEEK_API_URL, MISTRAL_API_URL, QWEN_API_URL } from "./providers";
+import { checkAndRecordAiUsage } from "./usage";
 
 export interface ArticleInput {
   name?: string;
@@ -44,10 +48,26 @@ export type AiRuntimeSettings = Partial<UserSettings> & {
   gemini_enabled?: boolean;
   gemini_api_key?: string;
   gemini_model?: string;
+  mistral_enabled?: boolean;
+  mistral_api_key?: string;
+  mistral_model?: string;
+  qwen_enabled?: boolean;
+  qwen_api_key?: string;
+  qwen_model?: string;
+  deepseek_enabled?: boolean;
+  deepseek_api_key?: string;
+  deepseek_model?: string;
 };
 
 /** The JSON body an AI provider's chat/completion endpoint is POSTed. */
 export type AiRequestBody = Record<string, unknown>;
+
+export type AiGenerationResult =
+  | { ok: true; text: string }
+  | {
+      ok: false;
+      reason: "noProvider" | "dailyLimitExceeded" | "monthlyLimitExceeded" | "providerError";
+    };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -176,52 +196,85 @@ export class AIClient {
     prompt: string,
     jsonMode = false,
     jsonSchema?: Record<string, unknown>,
-  ): Promise<string | null> {
+  ): Promise<AiGenerationResult> {
     if (!this.provider) {
       console.warn("No AI provider selected.");
-      return null;
+      return { ok: false, reason: "noProvider" };
+    }
+
+    const userId = this.settings.userId;
+    if (userId) {
+      const dailyLimit = this.settings.aiDefaultDailyLimit ?? 200;
+      const monthlyLimit = this.settings.aiDefaultMonthlyLimit ?? 2000;
+      let usage: ReturnType<typeof checkAndRecordAiUsage>;
+      try {
+        usage = writeTransaction((tx) =>
+          checkAndRecordAiUsage(tx, userId, dailyLimit, monthlyLimit),
+        );
+      } catch (error) {
+        console.warn(`AI usage check failed: ${describeError(error)}`);
+        return { ok: false, reason: "providerError" };
+      }
+      if (usage === "dailyLimitExceeded" || usage === "monthlyLimitExceeded") {
+        return { ok: false, reason: usage };
+      }
+    } else {
+      // No settings row carried a userId (nothing in production hits this
+      // today -- both real call sites read a full `user_settings` row --
+      // but a caller that omits one gets the call through unmetered rather
+      // than a thrown error, matching this class's warn-and-continue style
+      // for misconfiguration elsewhere).
+      console.warn("No user id on AI settings; usage limit not enforced for this call.");
     }
 
     try {
+      let text: string | null;
       if (this.provider === "openai") {
-        return await this.callOpenai(prompt, jsonMode);
+        text = await this.callOpenai(prompt, jsonMode);
       } else if (this.provider === "anthropic") {
-        return await this.callAnthropic(prompt);
+        text = await this.callAnthropic(prompt);
       } else if (this.provider === "gemini") {
-        return await this.callGemini(prompt, jsonMode, jsonSchema);
+        text = await this.callGemini(prompt, jsonMode, jsonSchema);
+      } else if (this.provider === "mistral") {
+        text = await this.callMistral(prompt, jsonMode);
+      } else if (this.provider === "qwen") {
+        text = await this.callQwen(prompt, jsonMode);
+      } else if (this.provider === "deepseek") {
+        text = await this.callDeepseek(prompt, jsonMode);
       } else {
         console.warn(`Unknown AI provider: ${this.provider}`);
-        return null;
+        return { ok: false, reason: "providerError" };
       }
+      return text === null ? { ok: false, reason: "providerError" } : { ok: true, text };
     } catch (e: unknown) {
       console.warn(`AI API call failed: ${describeError(e)}`);
-      return null;
+      return { ok: false, reason: "providerError" };
     }
   }
 
-  private async callOpenai(prompt: string, jsonMode: boolean): Promise<string | null> {
-    const enabled = this.settings.openaiEnabled ?? this.settings.openai_enabled;
-    const apiKey = this.settings.openaiApiKey ?? this.settings.openai_api_key;
-    if (!enabled || !apiKey) {
-      console.warn("OpenAI is not enabled or configured.");
-      return null;
-    }
-
-    const baseUrl = (
-      this.settings.openaiApiUrl ??
-      this.settings.openai_api_url ??
-      "https://api.openai.com/v1"
-    ).replace(/\/+$/, "");
-    const url = `${baseUrl}/chat/completions`;
+  /**
+   * The `/chat/completions` request/response shape every OpenAI-compatible
+   * provider shares. `callOpenai()` and the Mistral/Qwen/DeepSeek branches
+   * all call this with their own resolved base URL, key and model — only
+   * OpenAI's base URL is an operator setting, so only `callOpenai()` needs
+   * to resolve one before calling in.
+   */
+  private async callOpenaiCompatible(
+    baseUrl: string,
+    apiKey: string,
+    model: string,
+    prompt: string,
+    jsonMode: boolean,
+    timeout: number,
+  ): Promise<string | null> {
+    const url = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
     const headers = {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     };
 
-    const model = this.settings.openaiModel ?? this.settings.openai_model ?? "gpt-4o-mini";
     const temperature = this.settings.aiTemperature ?? this.settings.ai_temperature ?? 0.7;
     const maxTokens = this.settings.aiMaxTokens ?? this.settings.ai_max_tokens ?? 1000;
-    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
 
     const data: AiRequestBody = {
       model,
@@ -237,6 +290,22 @@ export class AIClient {
     if (!response) return null;
     const result = await response.json();
     return result?.choices?.[0]?.message?.content ?? null;
+  }
+
+  private async callOpenai(prompt: string, jsonMode: boolean): Promise<string | null> {
+    const enabled = this.settings.openaiEnabled ?? this.settings.openai_enabled;
+    const apiKey = this.settings.openaiApiKey ?? this.settings.openai_api_key;
+    if (!enabled || !apiKey) {
+      console.warn("OpenAI is not enabled or configured.");
+      return null;
+    }
+
+    const baseUrl =
+      this.settings.openaiApiUrl ?? this.settings.openai_api_url ?? "https://api.openai.com/v1";
+    const model = this.settings.openaiModel ?? this.settings.openai_model ?? "gpt-4o-mini";
+    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
+
+    return this.callOpenaiCompatible(baseUrl, apiKey, model, prompt, jsonMode, timeout);
   }
 
   private async callAnthropic(prompt: string): Promise<string | null> {
@@ -322,6 +391,44 @@ export class AIClient {
       return null;
     }
     return text;
+  }
+
+  private async callMistral(prompt: string, jsonMode: boolean): Promise<string | null> {
+    const enabled = this.settings.mistralEnabled ?? this.settings.mistral_enabled;
+    const apiKey = this.settings.mistralApiKey ?? this.settings.mistral_api_key;
+    if (!enabled || !apiKey) {
+      console.warn("Mistral is not enabled or configured.");
+      return null;
+    }
+    const model =
+      this.settings.mistralModel ?? this.settings.mistral_model ?? "mistral-small-latest";
+    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
+    return this.callOpenaiCompatible(MISTRAL_API_URL, apiKey, model, prompt, jsonMode, timeout);
+  }
+
+  private async callQwen(prompt: string, jsonMode: boolean): Promise<string | null> {
+    const enabled = this.settings.qwenEnabled ?? this.settings.qwen_enabled;
+    const apiKey = this.settings.qwenApiKey ?? this.settings.qwen_api_key;
+    if (!enabled || !apiKey) {
+      console.warn("Qwen is not enabled or configured.");
+      return null;
+    }
+    const model = this.settings.qwenModel ?? this.settings.qwen_model ?? "qwen3.5-flash";
+    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
+    return this.callOpenaiCompatible(QWEN_API_URL, apiKey, model, prompt, jsonMode, timeout);
+  }
+
+  private async callDeepseek(prompt: string, jsonMode: boolean): Promise<string | null> {
+    const enabled = this.settings.deepseekEnabled ?? this.settings.deepseek_enabled;
+    const apiKey = this.settings.deepseekApiKey ?? this.settings.deepseek_api_key;
+    if (!enabled || !apiKey) {
+      console.warn("DeepSeek is not enabled or configured.");
+      return null;
+    }
+    const model =
+      this.settings.deepseekModel ?? this.settings.deepseek_model ?? "deepseek-v4-flash";
+    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
+    return this.callOpenaiCompatible(DEEPSEEK_API_URL, apiKey, model, prompt, jsonMode, timeout);
   }
 }
 
@@ -413,9 +520,10 @@ export async function applyAiOptions(
     required: ["title", "content"],
   };
 
-  const result = await client.generateResponse(fullPrompt, true, jsonSchema);
+  const generation = await client.generateResponse(fullPrompt, true, jsonSchema);
 
-  if (result) {
+  if (generation.ok) {
+    const result = generation.text;
     let parsedResult: { title?: string; content?: string } | null = null;
     try {
       parsedResult = JSON.parse(result);

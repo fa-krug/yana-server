@@ -27,9 +27,21 @@ export interface RedditPreviewImage {
   variants?: RedditPreviewVariants;
 }
 
+/** `media`/`secure_media`/`preview.reddit_video_preview` -- Reddit's hosted-video payload. */
+export interface RedditVideoInfo {
+  hls_url?: string;
+  fallback_url?: string;
+  is_gif?: boolean;
+}
+
+export interface RedditMedia {
+  reddit_video?: RedditVideoInfo;
+}
+
 /** `post.preview` -- Reddit's preview-image payload. */
 export interface RedditPreview {
   images?: RedditPreviewImage[];
+  reddit_video_preview?: RedditVideoInfo;
 }
 
 /** One entry of `media_metadata`, keyed by media id. */
@@ -80,7 +92,8 @@ export interface RedditPostRaw {
   is_gallery?: boolean;
   is_self?: boolean;
   is_video?: boolean;
-  media?: Record<string, unknown> | null;
+  media?: RedditMedia | null;
+  secure_media?: RedditMedia | null;
   crosspost_parent_list?: RedditPostRaw[] | null;
   subreddit?: string;
 }
@@ -104,7 +117,8 @@ export interface RedditPostDataDict {
   is_gallery: boolean;
   is_self: boolean;
   is_video: boolean;
-  media: Record<string, unknown> | null;
+  media: RedditMedia | null;
+  secure_media: RedditMedia | null;
   crosspost_parent_list: RedditPostRaw[] | null;
 }
 
@@ -144,7 +158,8 @@ export class RedditPostData {
   is_gallery: boolean;
   is_self: boolean;
   is_video: boolean;
-  media: Record<string, unknown> | null;
+  media: RedditMedia | null;
+  secure_media: RedditMedia | null;
   crosspost_parent_list: RedditPostRaw[] | null;
 
   constructor(data: RedditPostRaw = {}) {
@@ -166,6 +181,7 @@ export class RedditPostData {
     this.is_self = data.is_self ?? false;
     this.is_video = data.is_video ?? false;
     this.media = data.media ?? null;
+    this.secure_media = data.secure_media ?? null;
     this.crosspost_parent_list = data.crosspost_parent_list ?? null;
   }
 
@@ -189,6 +205,7 @@ export class RedditPostData {
       is_self: this.is_self,
       is_video: this.is_video,
       media: this.media,
+      secure_media: this.secure_media,
       crosspost_parent_list: this.crosspost_parent_list,
     };
   }

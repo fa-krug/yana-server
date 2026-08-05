@@ -4,6 +4,7 @@
  * Ported from old/core/aggregators/reddit/comments.py.
  */
 
+import { ArticleSkipError } from "../../errors";
 import { convertRedditMarkdown, escapeHtml, safeLinkHtml } from "./markdown";
 import { RedditComment, RedditCommentRaw, RedditListing, RedditPostRaw } from "./types";
 
@@ -46,24 +47,29 @@ export async function fetchPostComments(
 ): Promise<RedditComment[]> {
   if (!postId || commentLimit <= 0) return [];
 
+  const url = accessToken
+    ? `https://oauth.reddit.com/r/${subreddit || "all"}/comments/${postId}?sort=best&limit=${commentLimit}`
+    : `https://www.reddit.com/r/${subreddit || "all"}/comments/${postId}.json?sort=best&limit=${commentLimit}`;
+
+  const headers: Record<string, string> = { "User-Agent": "Yana/1.0" };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  let res: Response;
   try {
-    const url = accessToken
-      ? `https://oauth.reddit.com/r/${subreddit || "all"}/comments/${postId}?sort=best&limit=${commentLimit}`
-      : `https://www.reddit.com/r/${subreddit || "all"}/comments/${postId}.json?sort=best&limit=${commentLimit}`;
+    res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
+  } catch {
+    return [];
+  }
 
-    const headers: Record<string, string> = {
-      "User-Agent": "Yana/1.0",
-    };
-    if (accessToken) {
-      headers["Authorization"] = `Bearer ${accessToken}`;
-    }
+  if (res.status === 403) {
+    throw new ArticleSkipError("Post is private or removed", 403);
+  }
+  if (res.status === 404) {
+    throw new ArticleSkipError("Post not found", 404);
+  }
+  if (!res.ok) return [];
 
-    const res = await fetch(url, {
-      headers,
-      signal: AbortSignal.timeout(10_000),
-    });
-
-    if (!res.ok) return [];
+  try {
     const data: unknown = await res.json();
     if (!Array.isArray(data) || data.length < 2) return [];
 

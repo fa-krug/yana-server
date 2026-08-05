@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
 
+import { useBreadcrumbTitles } from "@/components/breadcrumb-title";
 import { breadcrumbsFor } from "@/lib/nav";
 import {
   Breadcrumb,
@@ -18,6 +19,7 @@ import {
 export function RouteBreadcrumbs() {
   const pathname = usePathname();
   const t = useTranslations();
+  const titles = useBreadcrumbTitles();
   const crumbs = breadcrumbsFor(pathname);
 
   return (
@@ -30,7 +32,19 @@ export function RouteBreadcrumbs() {
           // Discriminating on the field name rather than on "does the string
           // contain a dot?" is both typecheckable and correct for an id that
           // happens to contain one.
-          const label = "labelKey" in crumb ? t(crumb.labelKey) : crumb.label;
+          const isRecordSegment = !("labelKey" in crumb);
+          // A detail page may have registered the record's own title for this
+          // href (see SetBreadcrumbTitle in breadcrumb-title.tsx); fall back
+          // to the raw segment (the id) when nothing was registered.
+          const registeredTitle = isRecordSegment ? titles[crumb.href] : undefined;
+          const label = "labelKey" in crumb ? t(crumb.labelKey) : registeredTitle || crumb.label;
+          const content = isRecordSegment ? (
+            <span className="inline-block max-w-40 truncate align-bottom" title={label}>
+              {label}
+            </span>
+          ) : (
+            label
+          );
           return (
             // BreadcrumbSeparator is a sibling of BreadcrumbItem here, not a
             // child of it -- both render an <li>, and nesting one inside the
@@ -40,10 +54,10 @@ export function RouteBreadcrumbs() {
             <React.Fragment key={crumb.href}>
               <BreadcrumbItem>
                 {isLast ? (
-                  <BreadcrumbPage>{label}</BreadcrumbPage>
+                  <BreadcrumbPage>{content}</BreadcrumbPage>
                 ) : (
                   // Base UI's render prop, not Radix's asChild -- see app-sidebar.tsx.
-                  <BreadcrumbLink render={<Link href={crumb.href} />}>{label}</BreadcrumbLink>
+                  <BreadcrumbLink render={<Link href={crumb.href} />}>{content}</BreadcrumbLink>
                 )}
               </BreadcrumbItem>
               {!isLast && <BreadcrumbSeparator />}

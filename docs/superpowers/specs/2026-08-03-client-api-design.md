@@ -185,6 +185,7 @@ many-per-feed relationship; only the serializer changes (§3).
 | `/api/v1/feeds` | GET | feed list, incl. `tagIds`, `logoImageHash` (unpaginated — per-user feed counts are small) |
 | `/api/v1/tags` | GET | this user's tags (unpaginated, same reasoning) |
 | `/api/v1/images/:hash` | GET | content-addressed image/logo bytes |
+| `/api/v1/ai/prompt` | POST | run a free-form prompt against the caller's active AI provider, `{ response, provider, model }` (added 2026-08-04 by the AI provider expansion plan; not part of this design) |
 
 **Sync is one endpoint, not two.** `GET /api/v1/articles/sync?cursor=<opaque>&limit=200`.
 No cursor (first call) returns everything from the beginning, paginated — this

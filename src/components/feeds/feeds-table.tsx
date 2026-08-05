@@ -14,6 +14,8 @@ import { TagBadge } from "@/components/tags/tag-badge";
 import { CheckIcon, XIcon } from "lucide-react";
 import { attempt } from "@/lib/tags/result";
 import { deleteFeeds, refreshLogos, updateFeedsBulk } from "@/lib/feeds/actions";
+import { reportRunOutcome } from "@/lib/jobs/report-run-outcome";
+import { waitForRun } from "@/lib/jobs/wait-for-run";
 import { AGGREGATOR_SPECS } from "@/lib/aggregators/specs";
 import type { Feed, Tag } from "@/lib/db/schema";
 
@@ -143,14 +145,24 @@ export function FeedsTable({
     if (selected.length === 0) return false;
 
     const result = await attempt(() => updateFeedsBulk(selected));
-
     if (!result.ok) {
       toast.error(t("saveFailed"));
       return false;
     }
 
+    // The selection is cleared *after* the outcome is reported, not before the
+    // poll: `count` below is `selected.length` and <BulkActionBar> renders
+    // nothing at all once it hits 0, so clearing it here took the bar -- and
+    // with it the spinner this feature exists to show -- off the screen for the
+    // entire run, leaving no feedback until the final toast.
+    const outcome = await waitForRun(result.runId);
+    reportRunOutcome(outcome, {
+      completed: (n) => t("aggregationCompleted", { count: n }),
+      partial: (ok, failed) => t("aggregationCompletedWithFailures", { completed: ok, failed }),
+      fallback: t("saveFailed"),
+    });
     setSelected([]);
-    toast.success(t("aggregationEnqueued", { count: result.enqueued }));
+    router.refresh();
     return true;
   }
 

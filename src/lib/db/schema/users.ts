@@ -116,7 +116,8 @@ export const userSettings = sqliteTable(
     activeAiProvider: text("active_ai_provider").notNull().default(""),
 
     /**
-     * **The four defaults below are hand-maintained duplicates of
+     * **The seven defaults below (one base URL plus each of the six providers'
+     * default model) are hand-maintained duplicates of
      * `src/lib/ai/providers.ts`**, and `src/lib/ai/defaults.test.ts` is what
      * keeps them honest: it migrates a real database, inserts a bare row, and
      * compares what SQLite filled in against `OPENAI_DEFAULT_API_URL` and each
@@ -151,6 +152,18 @@ export const userSettings = sqliteTable(
     geminiEnabled: integer("gemini_enabled", { mode: "boolean" }).notNull().default(false),
     geminiApiKey: text("gemini_api_key").notNull().default(""),
     geminiModel: text("gemini_model").notNull().default("gemini-3.5-flash-lite"),
+
+    mistralEnabled: integer("mistral_enabled", { mode: "boolean" }).notNull().default(false),
+    mistralApiKey: text("mistral_api_key").notNull().default(""),
+    mistralModel: text("mistral_model").notNull().default("mistral-small-latest"),
+
+    qwenEnabled: integer("qwen_enabled", { mode: "boolean" }).notNull().default(false),
+    qwenApiKey: text("qwen_api_key").notNull().default(""),
+    qwenModel: text("qwen_model").notNull().default("qwen3.5-flash"),
+
+    deepseekEnabled: integer("deepseek_enabled", { mode: "boolean" }).notNull().default(false),
+    deepseekApiKey: text("deepseek_api_key").notNull().default(""),
+    deepseekModel: text("deepseek_model").notNull().default("deepseek-v4-flash"),
 
     // --- Global AI tuning (phase 7's advanced section) ---
     aiTemperature: real("ai_temperature").notNull().default(0.3),

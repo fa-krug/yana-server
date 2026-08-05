@@ -1,10 +1,11 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 
 import { ConfirmDestructive, type ConfirmCopy } from "@/components/crud/confirm-destructive";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { attemptCall } from "@/lib/attempt";
 
 /**
@@ -60,6 +61,7 @@ export function BulkActionBar({
 }) {
   const t = useTranslations("crud");
   const [pending, start] = useTransition();
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
 
   function run(action: BulkAction) {
     // Same backstop as <ConfirmDestructive>'s, and now literally the same code:
@@ -72,10 +74,26 @@ export function BulkActionBar({
     // and reporting the failure was the caller's job either way. `run` is
     // wrapped rather than passed by reference so it is still invoked as a
     // method of its action.
+    //
+    // `pendingKey` is a separate piece of state from `pending`: `pending`
+    // keeps disabling every button for the whole transition as it always has,
+    // while `pendingKey` only decides which button renders the spinner.
+    //
+    // Set *before* `start(...)`, not inside its callback: React tags a state
+    // update made inside a transition scope as low-priority background work,
+    // so it would only reach the screen after an extra scheduler tick --
+    // unlike `pending` itself, which React updates at normal priority outside
+    // the transition context. Setting it here keeps the spinner's appearance
+    // synchronous with the click, matching `pending`'s own timing.
+    setPendingKey(action.key);
     start(async () => {
-      await attemptCall(() => action.run(), {
-        label: "A bulk action rejected instead of reporting",
-      });
+      try {
+        await attemptCall(() => action.run(), {
+          label: "A bulk action rejected instead of reporting",
+        });
+      } finally {
+        setPendingKey(null);
+      }
     });
   }
 
@@ -111,6 +129,7 @@ export function BulkActionBar({
               disabled={pending}
               onClick={() => run(action)}
             >
+              {pendingKey === action.key && <Spinner className="mr-1" />}
               {action.label}
             </Button>
           ),

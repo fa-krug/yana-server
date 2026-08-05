@@ -21,14 +21,14 @@ import {
 import type { AiKey, AiResult, AiSaveResult } from "./result";
 
 /**
- * Everything `/ai` writes: three provider credentials, which provider is
+ * Everything `/ai` writes: six provider credentials, which provider is
  * active, and the nine global tuning values.
  *
- * **The three providers are a table, not three sequences.** Parse, load the row,
+ * **The six providers are a table, not six sequences.** Parse, load the row,
  * resolve each secret, guard the empty case, probe, log, judge, write -- all of
  * that lives once in `@/lib/integrations/define`, extracted in task R2 for
  * exactly this moment. What a provider *is* lives here as a declaration. Phase
- * 6's two credential cards plus these three is five, and the risk in five
+ * 6's two credential cards plus these six is eight, and the risk in eight
  * near-twin sequences is not their length but the drift *between* them, which no
  * test of any one of them can see.
  *
@@ -36,11 +36,13 @@ import type { AiKey, AiResult, AiSaveResult } from "./result";
  * that file's header for them -- plus two this page adds:
  *
  * 1. **`quotaMeansVerified` is read from the registry, never typed in here.**
- *    The three providers genuinely disagree (`false`, `true`, `true`) and the
- *    reasoning lives beside the field in `./providers` and, duplicated on
- *    purpose, at each probe's 429 branch. A literal in this file would be a
- *    fourth copy able to drift from all three, which is the precise failure the
- *    field was made required to prevent.
+ *    The six providers do not all give the same answer -- `false` for OpenAI,
+ *    `true` for the other five, each for its own reason -- and the reasoning
+ *    lives beside the field in `./providers` and, duplicated on purpose for
+ *    the three whose probes classify a 429 themselves, at each probe's 429
+ *    branch. A literal in this file would be a copy able to drift from any of
+ *    the six, which is the precise failure the field was made required to
+ *    prevent.
  * 2. **`active_ai_provider` is a preference; the `*Enabled` flag is the
  *    permission.** Nothing here erases the preference when a flag goes false --
  *    which provider is *actually* active is derived on the read side by
@@ -174,7 +176,7 @@ function isStorableBaseUrl(value: string): boolean {
  * The registry entry for a provider key that is already known to be one.
  *
  * Unreachable in practice -- `providers.test.ts` pins `AI_PROVIDERS` to exactly
- * these three keys -- and it throws rather than substituting a default because
+ * these six keys -- and it throws rather than substituting a default because
  * inventing a `quotaMeansVerified` here is precisely the inheritance the
  * required field exists to prevent.
  */
@@ -188,14 +190,15 @@ function registryEntry(key: AiProviderKey): AiProvider {
  * The two per-provider catalog keys `judge()` reaches for, plus the one for an
  * empty credential and the one for an unlisted model.
  *
- * **`quota` is named per its arm, not per its cause**, which is why the three
- * spellings differ. For Anthropic and Gemini a rate limit is a *notice on a
- * success* -- the key was accepted, only the budget is gone -- so the key reads
- * "the key is valid, and…". For OpenAI the same cause lands in the arm that
- * writes nothing, because its base URL is an operator setting and a gateway can
- * shed load before reading the `Authorization` header, so the key reads "could
- * not be verified". Which arm each one lands in is `quotaMeansVerified` below,
- * read from the registry.
+ * **`quota` is named per its arm, not per its cause**, which is why the wording
+ * splits in two rather than six ways. For Anthropic, Gemini, Mistral, Qwen and
+ * DeepSeek -- every `quotaMeansVerified: true` provider -- a rate limit is a
+ * *notice on a success* -- the key was accepted, only the budget is gone -- so
+ * the key reads "the key is valid, and…". For OpenAI, the one `false`, the same
+ * cause lands in the arm that writes nothing, because its base URL is an
+ * operator setting and a gateway can shed load before reading the
+ * `Authorization` header, so the key reads "could not be verified". Which arm
+ * each one lands in is `quotaMeansVerified` below, read from the registry.
  *
  * **`rejected` is worded broadly on purpose.** Three quite different answers
  * reach it: a key the provider does not know, OpenAI's `insufficient_quota` and
@@ -224,6 +227,24 @@ const PROVIDER_KEYS = {
     rejected: "gemini.rejected",
     quota: "gemini.quota",
     modelUnknown: "gemini.modelUnknown",
+  },
+  mistral: {
+    required: "mistral.required",
+    rejected: "mistral.rejected",
+    quota: "mistral.quota",
+    modelUnknown: "mistral.modelUnknown",
+  },
+  qwen: {
+    required: "qwen.required",
+    rejected: "qwen.rejected",
+    quota: "qwen.quota",
+    modelUnknown: "qwen.modelUnknown",
+  },
+  deepseek: {
+    required: "deepseek.required",
+    rejected: "deepseek.rejected",
+    quota: "deepseek.quota",
+    modelUnknown: "deepseek.modelUnknown",
   },
 } satisfies Record<
   AiProviderKey,
@@ -315,10 +336,67 @@ const gemini = defineIntegration({
   },
 });
 
+const mistral = defineIntegration({
+  provider: "mistral",
+  schema: z.object({ apiKey: secretField, model: modelField(registryEntry("mistral")) }),
+  fields: {
+    apiKey: { column: AI_COLUMNS.mistral.apiKey, secret: true },
+    model: { column: AI_COLUMNS.mistral.model, secret: false },
+  },
+  flagColumn: AI_COLUMNS.mistral.enabled,
+  requiredKey: PROVIDER_KEYS.mistral.required,
+  fieldErrorKeys: { "model:custom": PROVIDER_KEYS.mistral.modelUnknown },
+  probe: AI_PROBES.mistral,
+  keys: {
+    rejected: PROVIDER_KEYS.mistral.rejected,
+    quota: PROVIDER_KEYS.mistral.quota,
+    quotaMeansVerified: registryEntry("mistral").quotaMeansVerified,
+  },
+});
+
+const qwen = defineIntegration({
+  provider: "qwen",
+  schema: z.object({ apiKey: secretField, model: modelField(registryEntry("qwen")) }),
+  fields: {
+    apiKey: { column: AI_COLUMNS.qwen.apiKey, secret: true },
+    model: { column: AI_COLUMNS.qwen.model, secret: false },
+  },
+  flagColumn: AI_COLUMNS.qwen.enabled,
+  requiredKey: PROVIDER_KEYS.qwen.required,
+  fieldErrorKeys: { "model:custom": PROVIDER_KEYS.qwen.modelUnknown },
+  probe: AI_PROBES.qwen,
+  keys: {
+    rejected: PROVIDER_KEYS.qwen.rejected,
+    quota: PROVIDER_KEYS.qwen.quota,
+    quotaMeansVerified: registryEntry("qwen").quotaMeansVerified,
+  },
+});
+
+const deepseek = defineIntegration({
+  provider: "deepseek",
+  schema: z.object({ apiKey: secretField, model: modelField(registryEntry("deepseek")) }),
+  fields: {
+    apiKey: { column: AI_COLUMNS.deepseek.apiKey, secret: true },
+    model: { column: AI_COLUMNS.deepseek.model, secret: false },
+  },
+  flagColumn: AI_COLUMNS.deepseek.enabled,
+  requiredKey: PROVIDER_KEYS.deepseek.required,
+  fieldErrorKeys: { "model:custom": PROVIDER_KEYS.deepseek.modelUnknown },
+  probe: AI_PROBES.deepseek,
+  keys: {
+    rejected: PROVIDER_KEYS.deepseek.rejected,
+    quota: PROVIDER_KEYS.deepseek.quota,
+    quotaMeansVerified: registryEntry("deepseek").quotaMeansVerified,
+  },
+});
+
 const PROVIDER_ACTIONS: Record<AiProviderKey, IntegrationActions<AiKey>> = {
   openai,
   anthropic,
   gemini,
+  mistral,
+  qwen,
+  deepseek,
 };
 
 /**

@@ -309,8 +309,8 @@ describe("the AI actions", () => {
     });
 
     /**
-     * **The three providers do not share one answer to "is a 429 a pass?", and
-     * this pair is where that stops being a comment.**
+     * **The six providers do not all share one answer to "is a 429 a pass?",
+     * and this pair is where that stops being a comment for two of them.**
      *
      * Anthropic resolves rate limits from the key, so a 429 proves it was
      * accepted; OpenAI's base URL is an operator setting, so a gateway can shed
@@ -520,7 +520,7 @@ describe("the AI actions", () => {
     });
 
     it("refuses a provider key Yana does not support, and touches nothing", async () => {
-      const result = await actions.saveProvider("mistral", { apiKey: "x", model: "y" });
+      const result = await actions.saveProvider("unknown", { apiKey: "x", model: "y" });
 
       expect(result).toEqual({ ok: false, errorKey: "unknownProvider" });
       expect(failureMessage(result)).toBeTypeOf("string");
@@ -601,7 +601,7 @@ describe("the AI actions", () => {
     });
 
     it("refuses an unsupported provider key", async () => {
-      expect(await actions.testProvider("mistral", {})).toEqual({
+      expect(await actions.testProvider("unknown", {})).toEqual({
         ok: false,
         errorKey: "unknownProvider",
       });
@@ -634,7 +634,7 @@ describe("the AI actions", () => {
     });
 
     it("refuses an unsupported provider key", async () => {
-      expect(await actions.removeProvider("mistral")).toEqual({
+      expect(await actions.removeProvider("unknown")).toEqual({
         ok: false,
         errorKey: "unknownProvider",
       });
@@ -689,7 +689,7 @@ describe("the AI actions", () => {
     });
 
     it("refuses an unknown provider key", async () => {
-      const result = await actions.setActiveProvider("mistral");
+      const result = await actions.setActiveProvider("unknown");
 
       expect(result).toEqual({ ok: false, errorKey: "unknownProvider" });
       expect(failureMessage(result)).toBeTypeOf("string");
