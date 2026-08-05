@@ -136,6 +136,21 @@ function runsForNode(blockId: number, node: StorageNode) {
   }));
 }
 
+// Keeps a single bulk INSERT well under SQLite's SQLITE_MAX_VARIABLE_NUMBER (32766 by default,
+// but as low as 999 on an older/differently-compiled SQLite). A long-form scraped article can
+// produce thousands of blocks/inline runs -- one bulk insert per level (or for all inline runs)
+// would otherwise blow the variable limit and fail the whole job with "too many SQL variables".
+// Each row here has at most 8 columns, so 100 rows/batch stays far under either limit.
+const INSERT_BATCH_SIZE = 100;
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
 export async function writeBlocks(articleId: number, blocks: Block[]): Promise<number> {
   return writeTransaction((tx) => {
     tx.delete(articleBlocks).where(eq(articleBlocks.articleId, articleId)).run();
@@ -161,11 +176,12 @@ export async function writeBlocks(articleId: number, blocks: Block[]): Promise<n
         rowForNode(articleId, node, parentId, position),
       );
 
-      const insertedRows = tx
-        .insert(articleBlocks)
-        .values(rowsToInsert)
-        .returning({ id: articleBlocks.id })
-        .all();
+      const insertedRows: Array<{ id: number }> = [];
+      for (const batch of chunk(rowsToInsert, INSERT_BATCH_SIZE)) {
+        insertedRows.push(
+          ...tx.insert(articleBlocks).values(batch).returning({ id: articleBlocks.id }).all(),
+        );
+      }
 
       written += insertedRows.length;
 
@@ -187,8 +203,8 @@ export async function writeBlocks(articleId: number, blocks: Block[]): Promise<n
       level = nextLevel;
     }
 
-    if (pendingRuns.length > 0) {
-      tx.insert(articleInlineRuns).values(pendingRuns).run();
+    for (const batch of chunk(pendingRuns, INSERT_BATCH_SIZE)) {
+      tx.insert(articleInlineRuns).values(batch).run();
     }
 
     return written;
