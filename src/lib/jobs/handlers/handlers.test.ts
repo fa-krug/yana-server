@@ -665,6 +665,10 @@ describe("src/lib/jobs/handlers", () => {
       });
 
       const logoModule = await import("@/lib/feeds/logo");
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        getSourceUrl: () => "",
+      } as unknown as ReturnType<typeof factory.createAggregator>);
 
       const logoHandler = handlers.getHandler("feed.logo");
       expect(logoHandler).toBeDefined();
@@ -702,6 +706,10 @@ describe("src/lib/jobs/handlers", () => {
 
       const logoModule = await import("@/lib/feeds/logo");
       vi.mocked(logoModule.discoverLogo).mockResolvedValue(null);
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        getSourceUrl: () => "https://example.com",
+      } as unknown as ReturnType<typeof factory.createAggregator>);
 
       const logoHandler = handlers.getHandler("feed.logo");
       const job = makeJob("feed.logo", { feedId });
@@ -742,6 +750,10 @@ describe("src/lib/jobs/handlers", () => {
         bytes: Buffer.from("fake-bytes"),
       });
       vi.mocked(logoModule.storeLogo).mockResolvedValue("some-content-hash");
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        getSourceUrl: () => "https://example.com",
+      } as unknown as ReturnType<typeof factory.createAggregator>);
 
       const logoHandler = handlers.getHandler("feed.logo");
       const job = makeJob("feed.logo", { feedId });
