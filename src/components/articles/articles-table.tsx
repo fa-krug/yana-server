@@ -13,6 +13,8 @@ import { Pagination } from "@/components/crud/pagination";
 import { Badge } from "@/components/ui/badge";
 import { deleteArticles, reloadArticles, setRead, setStarred } from "@/lib/articles/actions";
 import type { ArticleListRow } from "@/lib/articles/queries";
+import { reportRunOutcome } from "@/lib/jobs/report-run-outcome";
+import { waitForRun } from "@/lib/jobs/wait-for-run";
 import { attempt } from "@/lib/tags/result";
 
 export function ArticlesTable({
@@ -154,14 +156,20 @@ export function ArticlesTable({
     if (selected.length === 0) return false;
 
     const result = await attempt(() => reloadArticles(selected));
-
     if (!result.ok) {
       toast.error(t("saveFailed"));
       return false;
     }
 
     setSelected([]);
-    toast.success(t("reloadEnqueued", { count: result.enqueued }));
+
+    const outcome = await waitForRun(result.runId);
+    reportRunOutcome(outcome, {
+      completed: (n) => t("reloadCompleted", { count: n }),
+      partial: (ok, failed) => t("reloadCompletedWithFailures", { completed: ok, failed }),
+      fallback: t("saveFailed"),
+    });
+    router.refresh();
     return true;
   }
 
