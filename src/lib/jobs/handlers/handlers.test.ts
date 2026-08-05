@@ -15,6 +15,7 @@ vi.mock("@/lib/aggregators/factory", () => ({
 vi.mock("@/lib/feeds/logo", () => ({
   discoverLogo: vi.fn(),
   storeLogo: vi.fn(),
+  fetchIconBytes: vi.fn(),
 }));
 
 describe("src/lib/jobs/handlers", () => {
@@ -823,6 +824,7 @@ describe("src/lib/jobs/handlers", () => {
       const factory = await import("@/lib/aggregators/factory");
       vi.mocked(factory.createAggregator).mockReturnValue({
         getSourceUrl: () => "",
+        logoImageUrl: async () => null,
       } as unknown as ReturnType<typeof factory.createAggregator>);
 
       const logoHandler = handlers.getHandler("feed.logo");
@@ -864,6 +866,7 @@ describe("src/lib/jobs/handlers", () => {
       const factory = await import("@/lib/aggregators/factory");
       vi.mocked(factory.createAggregator).mockReturnValue({
         getSourceUrl: () => "https://example.com",
+        logoImageUrl: async () => null,
       } as unknown as ReturnType<typeof factory.createAggregator>);
 
       const logoHandler = handlers.getHandler("feed.logo");
@@ -908,6 +911,7 @@ describe("src/lib/jobs/handlers", () => {
       const factory = await import("@/lib/aggregators/factory");
       vi.mocked(factory.createAggregator).mockReturnValue({
         getSourceUrl: () => "https://example.com",
+        logoImageUrl: async () => null,
       } as unknown as ReturnType<typeof factory.createAggregator>);
 
       const logoHandler = handlers.getHandler("feed.logo");
@@ -918,6 +922,97 @@ describe("src/lib/jobs/handlers", () => {
       expect(logoModule.storeLogo).toHaveBeenCalledWith(feedId, expect.any(Buffer), logoUrl);
       const lines = logLines(job.id);
       expect(lines).toContain(`stored logo from ${logoUrl}`);
+    });
+
+    it("prefers the aggregator's own logo image over favicon discovery", async () => {
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({
+            name: "Reddit Feed",
+            userId: user!.id,
+            identifier: "test",
+            aggregator: "reddit",
+            logoSourceUrl: "",
+          })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedId = feed.id;
+      });
+
+      const apiImageUrl = "https://styles.redditmedia.com/t5_x/icon.png";
+      const logoModule = await import("@/lib/feeds/logo");
+      vi.mocked(logoModule.fetchIconBytes).mockResolvedValue(Buffer.from("fake-bytes"));
+      vi.mocked(logoModule.storeLogo).mockResolvedValue("some-content-hash");
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        getSourceUrl: () => "https://www.reddit.com/r/test",
+        logoImageUrl: async () => apiImageUrl,
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      const logoHandler = handlers.getHandler("feed.logo");
+      const job = makeJob("feed.logo", { feedId });
+
+      await logoHandler!(job);
+
+      expect(logoModule.discoverLogo).not.toHaveBeenCalled();
+      expect(logoModule.fetchIconBytes).toHaveBeenCalledWith(apiImageUrl);
+      expect(logoModule.storeLogo).toHaveBeenCalledWith(feedId, expect.any(Buffer), apiImageUrl);
+      const lines = logLines(job.id);
+      expect(lines).toContain(`stored logo from ${apiImageUrl}`);
+    });
+
+    it("falls back to favicon discovery when the aggregator's own logo image can't be fetched", async () => {
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({
+            name: "Reddit Feed",
+            userId: user!.id,
+            identifier: "test",
+            aggregator: "reddit",
+            logoSourceUrl: "",
+          })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedId = feed.id;
+      });
+
+      const favUrl = "https://www.reddit.com/favicon.ico";
+      const logoModule = await import("@/lib/feeds/logo");
+      vi.mocked(logoModule.fetchIconBytes).mockResolvedValue(null);
+      vi.mocked(logoModule.discoverLogo).mockResolvedValue({
+        url: favUrl,
+        bytes: Buffer.from("fake-bytes"),
+      });
+      vi.mocked(logoModule.storeLogo).mockResolvedValue("some-content-hash");
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        getSourceUrl: () => "https://www.reddit.com/r/test",
+        logoImageUrl: async () => "https://styles.redditmedia.com/t5_x/icon.png",
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      const logoHandler = handlers.getHandler("feed.logo");
+      const job = makeJob("feed.logo", { feedId });
+
+      await logoHandler!(job);
+
+      expect(logoModule.discoverLogo).toHaveBeenCalledWith("https://www.reddit.com/r/test");
+      expect(logoModule.storeLogo).toHaveBeenCalledWith(feedId, expect.any(Buffer), favUrl);
     });
   });
 

@@ -57,6 +57,40 @@ function postData(id: string): RedditPostDataDict {
   };
 }
 
+describe("RedditAggregator.logoImageUrl", () => {
+  it("returns the subreddit's icon from Reddit's about.json, with no client credentials configured", async () => {
+    const agg = aggregatorFor({});
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { icon_img: "https://styles.redditmedia.com/t5_x/icon.png" } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(agg.logoImageUrl()).resolves.toBe("https://styles.redditmedia.com/t5_x/icon.png");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://www.reddit.com/r/test/about.json",
+      expect.anything(),
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("returns null when the identifier has no subreddit", async () => {
+    const feed: FeedLike = { identifier: "", dailyLimit: 20, options: {} };
+    const agg = new RedditAggregator(feed);
+    await expect(agg.logoImageUrl()).resolves.toBeNull();
+  });
+
+  it("returns null rather than throwing when the about.json request fails", async () => {
+    const agg = aggregatorFor({});
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+
+    await expect(agg.logoImageUrl()).resolves.toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+});
+
 describe("RedditAggregator.finalizeArticles header gating", () => {
   it("emits no video header when include_header_image is false", async () => {
     const agg = aggregatorFor({ include_header_image: false });
