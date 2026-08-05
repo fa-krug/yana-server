@@ -1,8 +1,7 @@
-# NOT what is deployed today. Production still runs the last image the Django
-# pipeline published, and the live stack file lives in Portainer. This file is
-# the target shape for when this app replaces it -- see the header of
-# .github/workflows/ci.yml for why nothing publishes or deploys yet. The Django
-# version of this file is kept at old/docker-compose.production.yml.
+# The target production shape -- a single service behind Traefik with named
+# volumes. The live stack file is managed in Portainer; this file documents
+# what it should look like and is what `.github/workflows/ci.yml`'s `deploy`
+# job redeploys against on every push to `main`.
 #
 # No `qcluster` service: the job worker runs in-process, so a second container
 # would run every job twice.
@@ -69,9 +68,8 @@ services:
     #      `http://` the origin check fails and WebAuthn refuses.
     # If `web` is the plain-HTTP entrypoint, point this at the TLS one (commonly
     # `websecure`) and add a certresolver. Not changed blind: the live stack
-    # file is in Portainer and `old/docker-compose.production.yml` -- the only
-    # precedent in this repo -- says `web` too while serving `https://`, so the
-    # entrypoint names in that traefik install cannot be inferred from here.
+    # file is in Portainer, and the entrypoint names in that traefik install
+    # cannot be inferred from here.
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.yana.rule=Host(`${YANA_DOMAIN:-yana.fa-krug.de}`)"

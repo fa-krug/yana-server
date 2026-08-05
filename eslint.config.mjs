@@ -170,10 +170,7 @@ const eslintConfig = defineConfig([
     // Project-specific:
     "node_modules/**",
     "drizzle/**",
-    // Not app code. The folder swap put these inside `eslint .`'s scope for
-    // the first time; `old/` in particular contains vendored admin JS and an
-    // untracked .venv with thousands of JS files.
-    "old/**",
+    // Not app code.
     "docs/**",
     "data/**",
     "media/**",

@@ -5,10 +5,6 @@ node_modules
 data
 media
 
-# The retired Django tree and its untracked `.venv` -- reference only, never
-# part of an image. Without this the build context grows by hundreds of MB.
-old
-
 # Reference material and tooling that no build stage reads.
 parity
 docs
