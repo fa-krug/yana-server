@@ -175,7 +175,6 @@ const eslintConfig = defineConfig([
     // untracked .venv with thousands of JS files.
     "old/**",
     "docs/**",
-    "parity/**",
     "data/**",
     "media/**",
     ".venv/**",

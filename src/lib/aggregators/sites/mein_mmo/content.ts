@@ -132,9 +132,7 @@ export async function extractMeinMmoContent(
   // the marker before src/lib/aggregators/blocks/parser.ts's embedFacade() runs,
   // so it can no longer recognize the youtube-embed/dailymotion-embed/
   // bluesky-embed wrapper and the figure silently degrades to a plain
-  // paragraph-with-link instead of a typed EmbedBlock. See
-  // src/lib/parity/corpus.test.ts's SKIP_LIST comment for the fixture-corpus
-  // consequence of this choice.
+  // paragraph-with-link instead of a typed EmbedBlock.
   cleanDataAttributes($, ["data-src", "data-srcset", "data-sanitized-class"]);
 
   // Sanitize class names

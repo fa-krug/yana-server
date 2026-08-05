@@ -16,9 +16,7 @@ runs in-process, so there is no Redis and no separate worker container.
 > administrator created on first start, an account page and per-user avatars.
 > The feeds, articles and tags UI, the aggregators, the scheduler and the
 > client API are still being ported phase by phase. The retired Django implementation
-> is kept in [`old/`](old/) as a read-only behavior reference, and the frozen
-> golden corpus in [`parity/`](parity/) is what proves each ported aggregator
-> matches it. See
+> is kept in [`old/`](old/) as a read-only behavior reference. See
 > [`docs/superpowers/specs/2026-07-30-nextjs-migration-direction.md`](docs/superpowers/specs/2026-07-30-nextjs-migration-direction.md).
 >
 > **Existing installs:** the deployed Docker image is still the Django one, and
@@ -153,8 +151,8 @@ a live SQLite file unattended, and nothing here takes a backup for you. Copying
 the directory while the server is stopped is enough.
 
 [`CLAUDE.md`](CLAUDE.md) has the full contributor and AI-assistant guide:
-conventions, the database access rules, how `old/` and `parity/` are used, and
-where each migration phase is planned.
+conventions, the database access rules, how `old/` is used, and where each
+migration phase is planned.
 
 ## License
 
