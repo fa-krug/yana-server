@@ -81,7 +81,14 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
   ];
   protected selectorsToRemove = [...MeinMmoAggregator.selectorsToRemove];
 
-  private firstPageHtml: string | null = null;
+  // Keyed by article URL rather than a single instance field: enrichArticles()
+  // now runs up to ARTICLE_ENRICHMENT_CONCURRENCY articles concurrently, so a
+  // single `firstPageHtml` field could be overwritten by a sibling article's
+  // fetchArticleContent() while this article's processContent() was still
+  // awaiting its img-resolution loop. Each entry is deleted once read, since
+  // one aggregator instance processes one feed's articles in one run -- this
+  // is a bounded per-run scratch space, not a cache.
+  private firstPageHtmlByUrl = new Map<string, string>();
 
   constructor(feed: FeedLike) {
     super(feed);
@@ -95,7 +102,7 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
     const combinePages = options.combine_pages !== false;
 
     const firstPageHtml = await super.fetchArticleContent(url);
-    this.firstPageHtml = firstPageHtml;
+    this.firstPageHtmlByUrl.set(url, firstPageHtml);
 
     if (!combinePages) {
       return firstPageHtml;
@@ -149,6 +156,13 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
     const cleaned = cleanHtml($.html());
     const headerImageUrl = headerData ? getHeaderImageRef(headerData) : null;
 
+    // Retrieve and clear this article's entry unconditionally -- fetchArticleContent()
+    // always records one regardless of the include_comments option, so leaving the read
+    // gated behind that option would leak an entry per article on every run with
+    // comments disabled.
+    const firstPageHtml = this.firstPageHtmlByUrl.get(article.identifier);
+    this.firstPageHtmlByUrl.delete(article.identifier);
+
     let commentsHtml: string | null = null;
     const options = (this.feed.options as Record<string, unknown> | null) || {};
     const includeComments = options.include_comments !== false;
@@ -156,7 +170,7 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
 
     if (includeComments) {
       try {
-        const commentSource = this.firstPageHtml || article.raw_content || "";
+        const commentSource = firstPageHtml || article.raw_content || "";
         if (commentSource) {
           commentsHtml = extractComments(commentSource, article.identifier, maxComments);
         }
