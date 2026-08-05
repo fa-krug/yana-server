@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -141,12 +141,9 @@ export function ProfileSection({ user }: { user: AvatarUser & { image: string | 
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("profile.title")}</CardTitle>
-        <CardDescription>{t("profile.description")}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
+    <ProfileSectionShell
+      onSubmit={saveProfile}
+      avatarControl={
         <div className="flex flex-wrap items-center gap-4">
           {preview ? (
             /* A plain <Avatar> and not <UserAvatar>: this src is a blob: URL
@@ -199,6 +196,78 @@ export function ProfileSection({ user }: { user: AvatarUser & { image: string | 
             onChange={pickFile}
           />
         </div>
+      }
+      emailControl={
+        <Input
+          id="account-email"
+          type="email"
+          required
+          autoComplete="email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+        />
+      }
+      firstNameControl={
+        <Input
+          id="account-first-name"
+          autoComplete="given-name"
+          value={firstName}
+          onChange={(event) => setFirstName(event.target.value)}
+        />
+      }
+      lastNameControl={
+        <Input
+          id="account-last-name"
+          autoComplete="family-name"
+          value={lastName}
+          onChange={(event) => setLastName(event.target.value)}
+        />
+      }
+      saveControl={
+        <Button type="submit" disabled={pending}>
+          {t("profile.save")}
+        </Button>
+      }
+    />
+  );
+}
+
+/**
+ * The section's chrome alone: the card heading, the avatar-limits help text
+ * and the three field labels, with no dependency on `user` or any pending
+ * state -- see the doc comment on `GeneralSectionShell` in
+ * `../settings/general-section.tsx` for why `account/page.tsx` renders this
+ * directly as its own `<Suspense>` fallback (with skeletons standing in for
+ * the avatar area and each field) instead of a generic skeleton block. The
+ * avatar block is one slot rather than several: every piece of it (the image,
+ * the choose/remove buttons, the hidden input) depends on `user` or local
+ * state, so there is no static chrome left to split out of it.
+ */
+export function ProfileSectionShell({
+  avatarControl,
+  emailControl,
+  firstNameControl,
+  lastNameControl,
+  saveControl,
+  onSubmit,
+}: {
+  avatarControl: ReactNode;
+  emailControl: ReactNode;
+  firstNameControl: ReactNode;
+  lastNameControl: ReactNode;
+  saveControl: ReactNode;
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+}) {
+  const t = useTranslations("account");
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("profile.title")}</CardTitle>
+        <CardDescription>{t("profile.description")}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {avatarControl}
 
         <p className="text-sm text-muted-foreground">
           {t("avatar.help", {
@@ -208,43 +277,24 @@ export function ProfileSection({ user }: { user: AvatarUser & { image: string | 
           })}
         </p>
 
-        <form onSubmit={saveProfile} className="space-y-4">
+        <form onSubmit={onSubmit} className="space-y-4">
           <div className="grid gap-2">
             <Label htmlFor="account-email">{t("profile.email")}</Label>
-            <Input
-              id="account-email"
-              type="email"
-              required
-              autoComplete="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
+            {emailControl}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
               <Label htmlFor="account-first-name">{t("profile.firstName")}</Label>
-              <Input
-                id="account-first-name"
-                autoComplete="given-name"
-                value={firstName}
-                onChange={(event) => setFirstName(event.target.value)}
-              />
+              {firstNameControl}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="account-last-name">{t("profile.lastName")}</Label>
-              <Input
-                id="account-last-name"
-                autoComplete="family-name"
-                value={lastName}
-                onChange={(event) => setLastName(event.target.value)}
-              />
+              {lastNameControl}
             </div>
           </div>
 
-          <Button type="submit" disabled={pending}>
-            {t("profile.save")}
-          </Button>
+          {saveControl}
         </form>
       </CardContent>
     </Card>

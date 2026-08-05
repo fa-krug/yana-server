@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -95,6 +95,62 @@ export function AdvancedSection({ advanced }: { advanced: AiAdvanced }) {
     });
   }
 
+  const controls = Object.fromEntries(
+    AI_ADVANCED_FIELDS.map((name) => [
+      name,
+      <Input
+        key={name}
+        id={`ai-${name}`}
+        type="number"
+        inputMode="decimal"
+        min={AI_ADVANCED_BOUNDS[name].min}
+        max={AI_ADVANCED_BOUNDS[name].max}
+        step={stepFor(name)}
+        value={draft[name]}
+        onChange={(event) => setDraft((current) => ({ ...current, [name]: event.target.value }))}
+      />,
+    ]),
+  ) as Record<AiAdvancedField, ReactNode>;
+
+  return (
+    <AdvancedSectionShell
+      controls={controls}
+      saveControl={
+        <Button type="submit" disabled={pending} className="w-full sm:w-auto">
+          {pending ? t("advanced.saving") : t("advanced.save")}
+        </Button>
+      }
+      onSubmit={save}
+    />
+  );
+}
+
+/**
+ * The card's chrome alone: the heading, every field's label and help text, and
+ * the grid they sit in -- with no dependency on `advanced`, so
+ * `src/app/(app)/ai/page.tsx` can render this directly as its own `<Suspense>`
+ * fallback (with a skeleton bar standing in for each of the nine inputs and the
+ * Save button) instead of an anonymous skeleton block. See the doc comment on
+ * `GeneralSectionShell` in `../settings/general-section.tsx` for why this split
+ * exists.
+ *
+ * The `<form>` lives here rather than in `<AdvancedSection>`, exactly as in
+ * `<ProviderSectionShell>` below its sibling file: `onSubmit` is just a
+ * callback the shell forwards, so keeping the element here is what lets the
+ * fallback lay out identically to the resolved render without a form of its
+ * own ever being submitted.
+ */
+export function AdvancedSectionShell({
+  controls,
+  saveControl,
+  onSubmit,
+}: {
+  controls: Record<AiAdvancedField, ReactNode>;
+  saveControl: ReactNode;
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+}) {
+  const t = useTranslations("ai");
+
   return (
     <Card>
       <CardHeader>
@@ -102,7 +158,7 @@ export function AdvancedSection({ advanced }: { advanced: AiAdvanced }) {
         <CardDescription>{t("advanced.description")}</CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={save} className="space-y-4">
+        <form onSubmit={onSubmit} className="space-y-4">
           {/* One column on a phone, two from `sm:` -- nine labelled numbers in
               one column is a long scroll, and two columns of a 100000-wide
               number do not fit a narrow viewport. */}
@@ -110,25 +166,12 @@ export function AdvancedSection({ advanced }: { advanced: AiAdvanced }) {
             {AI_ADVANCED_FIELDS.map((name) => (
               <div key={name} className="grid gap-2">
                 <Label htmlFor={`ai-${name}`}>{t(`advanced.${name}`)}</Label>
-                <Input
-                  id={`ai-${name}`}
-                  type="number"
-                  inputMode="decimal"
-                  min={AI_ADVANCED_BOUNDS[name].min}
-                  max={AI_ADVANCED_BOUNDS[name].max}
-                  step={stepFor(name)}
-                  value={draft[name]}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, [name]: event.target.value }))
-                  }
-                />
+                {controls[name]}
                 <p className="text-sm text-muted-foreground">{t(`advanced.${name}Help`)}</p>
               </div>
             ))}
           </div>
-          <Button type="submit" disabled={pending} className="w-full sm:w-auto">
-            {pending ? t("advanced.saving") : t("advanced.save")}
-          </Button>
+          {saveControl}
         </form>
       </CardContent>
     </Card>

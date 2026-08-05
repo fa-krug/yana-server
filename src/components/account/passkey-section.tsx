@@ -3,7 +3,7 @@
 import { KeyRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useFormatter, useTranslations } from "next-intl";
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import {
@@ -140,13 +140,9 @@ export function PasskeySection({
   const busy = adding || pending;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("passkeys.title")}</CardTitle>
-        <CardDescription>{t("passkeys.description")}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {passkeys.length === 0 ? (
+    <PasskeySectionShell
+      listControl={
+        passkeys.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("passkeys.none")}</p>
         ) : (
           <ul className="divide-y rounded-md border">
@@ -215,12 +211,46 @@ export function PasskeySection({
               </li>
             ))}
           </ul>
-        )}
-
+        )
+      }
+      addControl={
         <Button type="button" onClick={add} disabled={busy}>
           <KeyRound aria-hidden="true" />
           {adding ? t("passkeys.adding") : t("passkeys.add")}
         </Button>
+      }
+    />
+  );
+}
+
+/**
+ * The section's chrome alone: the card heading, with no dependency on
+ * `passkeys`/`hasPassword` -- see the doc comment on `GeneralSectionShell` in
+ * `../settings/general-section.tsx` for why `account/page.tsx` renders this
+ * directly as its own `<Suspense>` fallback (with skeletons standing in for
+ * the list and the add button). Both slots are whole blocks rather than
+ * finer-grained ones: the list's shape (empty message vs. rows, each with its
+ * own delete-guard branch) and the add button's `disabled`/label both depend
+ * on data or local state, so there is no static chrome left inside either.
+ */
+export function PasskeySectionShell({
+  listControl,
+  addControl,
+}: {
+  listControl: ReactNode;
+  addControl: ReactNode;
+}) {
+  const t = useTranslations("account");
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("passkeys.title")}</CardTitle>
+        <CardDescription>{t("passkeys.description")}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {listControl}
+        {addControl}
       </CardContent>
     </Card>
   );

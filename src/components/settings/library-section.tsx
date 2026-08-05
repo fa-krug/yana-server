@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { updateLibrarySettings } from "@/lib/settings/actions";
@@ -46,21 +46,65 @@ export function LibrarySection({
   }
 
   return (
+    <LibrarySectionShell
+      retentionControl={
+        <Input
+          id="retention"
+          type="number"
+          min={1}
+          max={3650}
+          value={retention}
+          onChange={(event) => setRetention(event.target.value)}
+          className="w-24"
+        />
+      }
+      intervalControl={
+        <Input
+          id="interval"
+          type="number"
+          min={0}
+          max={1440}
+          value={updateInterval}
+          onChange={(event) => setUpdateInterval(event.target.value)}
+          className="w-24"
+        />
+      }
+      saveControl={
+        <Button onClick={save} disabled={pending} className="w-full sm:w-auto">
+          {tCommon("save")}
+        </Button>
+      }
+    />
+  );
+}
+
+/**
+ * The section's chrome alone: the heading, both field labels and their help
+ * text, with no dependency on `articleRetentionDays`/`updateIntervalMinutes`
+ * -- see the doc comment on `GeneralSectionShell` in `./general-section.tsx`
+ * for why `settings/page.tsx` renders this directly as its own `<Suspense>`
+ * fallback (with skeleton bars for the three control slots) instead of a
+ * generic skeleton block.
+ */
+export function LibrarySectionShell({
+  retentionControl,
+  intervalControl,
+  saveControl,
+}: {
+  retentionControl: ReactNode;
+  intervalControl: ReactNode;
+  saveControl: ReactNode;
+}) {
+  const t = useTranslations("settings");
+
+  return (
     <section className="space-y-4">
       <h2 className="text-lg font-medium">{t("library.title")}</h2>
 
       <div className="grid gap-2">
         <Label htmlFor="retention">{t("library.retention")}</Label>
         <div className="flex items-center gap-2">
-          <Input
-            id="retention"
-            type="number"
-            min={1}
-            max={3650}
-            value={retention}
-            onChange={(event) => setRetention(event.target.value)}
-            className="w-24"
-          />
+          {retentionControl}
           <span className="text-sm text-muted-foreground">{t("library.days")}</span>
         </div>
         <p className="text-sm text-muted-foreground">{t("library.retentionHelp")}</p>
@@ -69,23 +113,13 @@ export function LibrarySection({
       <div className="grid gap-2">
         <Label htmlFor="interval">{t("library.interval")}</Label>
         <div className="flex items-center gap-2">
-          <Input
-            id="interval"
-            type="number"
-            min={0}
-            max={1440}
-            value={updateInterval}
-            onChange={(event) => setUpdateInterval(event.target.value)}
-            className="w-24"
-          />
+          {intervalControl}
           <span className="text-sm text-muted-foreground">{t("library.minutes")}</span>
         </div>
         <p className="text-sm text-muted-foreground">{t("library.intervalHelp")}</p>
       </div>
 
-      <Button onClick={save} disabled={pending} className="w-full sm:w-auto">
-        {tCommon("save")}
-      </Button>
+      {saveControl}
     </section>
   );
 }

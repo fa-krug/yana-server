@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -72,61 +72,89 @@ export function PasswordSection({ hasPassword }: { hasPassword: boolean }) {
   }
 
   return (
+    <PasswordSectionShell
+      description={hasPassword ? t("password.description") : t("password.none")}
+      formControl={
+        hasPassword ? (
+          <CardContent>
+            <form onSubmit={submit} className="space-y-4">
+              {/* autoComplete matters here: without current-password /
+                  new-password a password manager neither fills the first field
+                  nor offers to store the new one, and on a self-hosted install
+                  the manager is most people's only copy. */}
+              <div className="grid gap-2">
+                <Label htmlFor="current-password">{t("password.current")}</Label>
+                <Input
+                  id="current-password"
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  value={current}
+                  onChange={(event) => setCurrent(event.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="new-password">{t("password.new")}</Label>
+                <Input
+                  id="new-password"
+                  type="password"
+                  required
+                  minLength={MIN_PASSWORD_LENGTH}
+                  autoComplete="new-password"
+                  value={next}
+                  onChange={(event) => setNext(event.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="confirm-password">{t("password.confirm")}</Label>
+                <Input
+                  id="confirm-password"
+                  type="password"
+                  required
+                  minLength={MIN_PASSWORD_LENGTH}
+                  autoComplete="new-password"
+                  value={confirm}
+                  onChange={(event) => setConfirm(event.target.value)}
+                />
+              </div>
+              <Button type="submit" disabled={pending}>
+                {pending ? t("password.changing") : t("password.submit")}
+              </Button>
+            </form>
+          </CardContent>
+        ) : null
+      }
+    />
+  );
+}
+
+/**
+ * The section's chrome alone: the card heading, with no dependency on
+ * `hasPassword` -- see the doc comment on `GeneralSectionShell` in
+ * `../settings/general-section.tsx` for why `account/page.tsx` renders this
+ * directly as its own `<Suspense>` fallback. `description` and `formControl`
+ * stay slots rather than static chrome because `hasPassword` decides between
+ * two different UIs, not just a value inside one -- the whole form is absent,
+ * not merely loading, when the account has no password credential -- so there
+ * are no field labels to hold constant across that branch. The fallback picks
+ * the common case (a password exists) as its best guess for what to skeleton.
+ */
+export function PasswordSectionShell({
+  description,
+  formControl,
+}: {
+  description: ReactNode;
+  formControl: ReactNode;
+}) {
+  const t = useTranslations("account");
+
+  return (
     <Card>
       <CardHeader>
         <CardTitle>{t("password.title")}</CardTitle>
-        <CardDescription>
-          {hasPassword ? t("password.description") : t("password.none")}
-        </CardDescription>
+        <CardDescription>{description}</CardDescription>
       </CardHeader>
-      {hasPassword ? (
-        <CardContent>
-          <form onSubmit={submit} className="space-y-4">
-            {/* autoComplete matters here: without current-password /
-                new-password a password manager neither fills the first field
-                nor offers to store the new one, and on a self-hosted install
-                the manager is most people's only copy. */}
-            <div className="grid gap-2">
-              <Label htmlFor="current-password">{t("password.current")}</Label>
-              <Input
-                id="current-password"
-                type="password"
-                required
-                autoComplete="current-password"
-                value={current}
-                onChange={(event) => setCurrent(event.target.value)}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="new-password">{t("password.new")}</Label>
-              <Input
-                id="new-password"
-                type="password"
-                required
-                minLength={MIN_PASSWORD_LENGTH}
-                autoComplete="new-password"
-                value={next}
-                onChange={(event) => setNext(event.target.value)}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="confirm-password">{t("password.confirm")}</Label>
-              <Input
-                id="confirm-password"
-                type="password"
-                required
-                minLength={MIN_PASSWORD_LENGTH}
-                autoComplete="new-password"
-                value={confirm}
-                onChange={(event) => setConfirm(event.target.value)}
-              />
-            </div>
-            <Button type="submit" disabled={pending}>
-              {pending ? t("password.changing") : t("password.submit")}
-            </Button>
-          </form>
-        </CardContent>
-      ) : null}
+      {formControl}
     </Card>
   );
 }

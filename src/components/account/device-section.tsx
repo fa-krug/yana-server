@@ -3,7 +3,7 @@
 import { Smartphone } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useFormatter, useTranslations } from "next-intl";
-import { useTransition } from "react";
+import { useTransition, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -59,13 +59,9 @@ export function DeviceSection({ devices }: { devices: DeviceSummary[] }) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("devices.title")}</CardTitle>
-        <CardDescription>{t("devices.description")}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {devices.length === 0 ? (
+    <DeviceSectionShell
+      listControl={
+        devices.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("devices.empty")}</p>
         ) : (
           <ul className="divide-y rounded-md border">
@@ -95,8 +91,31 @@ export function DeviceSection({ devices }: { devices: DeviceSummary[] }) {
               </li>
             ))}
           </ul>
-        )}
-      </CardContent>
+        )
+      }
+    />
+  );
+}
+
+/**
+ * The section's chrome alone: the card heading, with no dependency on
+ * `devices` -- see the doc comment on `GeneralSectionShell` in
+ * `../settings/general-section.tsx` for why `account/page.tsx` renders this
+ * directly as its own `<Suspense>` fallback (with a skeleton standing in for
+ * the list). One slot, because the list's shape -- an empty message or rows
+ * each with their own revoke button -- depends on `devices` all the way
+ * through; there is no static chrome left inside it to split out.
+ */
+export function DeviceSectionShell({ listControl }: { listControl: ReactNode }) {
+  const t = useTranslations("account");
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("devices.title")}</CardTitle>
+        <CardDescription>{t("devices.description")}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">{listControl}</CardContent>
     </Card>
   );
 }

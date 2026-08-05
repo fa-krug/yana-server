@@ -2,7 +2,7 @@
 
 import { useTheme } from "next-themes";
 import { useTranslations } from "next-intl";
-import { useState, useSyncExternalStore, useTransition } from "react";
+import { useState, useSyncExternalStore, useTransition, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { updateGeneralSettings } from "@/lib/settings/actions";
@@ -128,11 +128,8 @@ export function GeneralSection({ theme, language }: { theme: string; language: s
   }
 
   return (
-    <section className="space-y-4">
-      <h2 className="text-lg font-medium">{t("general.title")}</h2>
-
-      <div className="grid gap-2">
-        <Label htmlFor="theme">{t("general.theme")}</Label>
+    <GeneralSectionShell
+      themeControl={
         <Select
           items={themeItems}
           value={themeValue}
@@ -161,10 +158,8 @@ export function GeneralSection({ theme, language }: { theme: string; language: s
             ))}
           </SelectContent>
         </Select>
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="language">{t("general.language")}</Label>
+      }
+      languageControl={
         <Select
           items={languageItems}
           value={languageValue}
@@ -186,6 +181,43 @@ export function GeneralSection({ theme, language }: { theme: string; language: s
             ))}
           </SelectContent>
         </Select>
+      }
+    />
+  );
+}
+
+/**
+ * The section's chrome alone: the heading and both field labels, with no
+ * dependency on `theme`/`language` -- `settings/page.tsx` renders this as its
+ * own `<Suspense>` fallback (with skeleton bars for `themeControl`/
+ * `languageControl`) so the heading and labels never disappear while the
+ * database read resolves, matching what `<GeneralSection>` above renders once
+ * it has. A plain presentational split, not a state-sharing one: unlike the
+ * CRUD tables' `<DataTableHeader>`/`<DataTableBody>`, nothing here needs to
+ * survive the `<Suspense>` boundary, so the fallback and the resolved render
+ * are just two independent calls to this same component.
+ */
+export function GeneralSectionShell({
+  themeControl,
+  languageControl,
+}: {
+  themeControl: ReactNode;
+  languageControl: ReactNode;
+}) {
+  const t = useTranslations("settings");
+
+  return (
+    <section className="space-y-4">
+      <h2 className="text-lg font-medium">{t("general.title")}</h2>
+
+      <div className="grid gap-2">
+        <Label htmlFor="theme">{t("general.theme")}</Label>
+        {themeControl}
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="language">{t("general.language")}</Label>
+        {languageControl}
       </div>
     </section>
   );
