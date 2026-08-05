@@ -9,6 +9,7 @@ import { publishJobLog, publishJobTerminal } from "./log-bus";
 export interface EnqueueOptions {
   runAt?: Date;
   maxAttempts?: number;
+  userId?: string;
 }
 
 export function enqueue(
@@ -25,6 +26,7 @@ export function enqueue(
         status: "pending",
         runAt: options?.runAt ?? new Date(),
         maxAttempts: options?.maxAttempts ?? 3,
+        userId: options?.userId,
       })
       .returning({ id: jobs.id })
       .get();
@@ -193,7 +195,7 @@ export function enqueueRun(
 
     if (!isEmpty) {
       db.insert(jobs)
-        .values(payloads.map((payload) => ({ kind, payload, runId: run.id })))
+        .values(payloads.map((payload) => ({ kind, payload, runId: run.id, userId })))
         .run();
     }
 
@@ -333,6 +335,7 @@ export function getJob(id: number): Job | null {
 export interface ListJobsOptions {
   kind?: string;
   status?: string;
+  userId?: string;
   limit?: number;
   offset?: number;
 }
@@ -348,6 +351,9 @@ export function listJobs(options: ListJobsOptions = {}): { jobs: Job[]; total: n
     }
     if (options.status) {
       conditions.push(eq(jobs.status, options.status));
+    }
+    if (options.userId) {
+      conditions.push(eq(jobs.userId, options.userId));
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;

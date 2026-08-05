@@ -54,6 +54,7 @@ export async function tick(): Promise<void> {
     const activeFeeds = db
       .select({
         feedId: feeds.id,
+        userId: feeds.userId,
         updatedAt: feeds.updatedAt,
         updateIntervalMinutes: userSettings.updateIntervalMinutes,
       })
@@ -91,7 +92,7 @@ export async function tick(): Promise<void> {
       }
 
       if (now.getTime() - lastRunTime >= intervalMs) {
-        enqueue("aggregate", { feedId: item.feedId });
+        enqueue("aggregate", { feedId: item.feedId }, { userId: item.userId });
         pendingFeedIds.add(item.feedId);
       }
     }

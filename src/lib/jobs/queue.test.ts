@@ -394,6 +394,50 @@ describe("src/lib/jobs/queue", () => {
     });
   });
 
+  describe("job ownership", () => {
+    it("enqueue() stores an explicit userId when given one", () => {
+      const userId = seedUserAndReturnId();
+      const id = queue.enqueue("test.job", {}, { userId });
+      expect(queue.getJob(id)?.userId).toBe(userId);
+    });
+
+    it("enqueue() leaves userId null when none is given", () => {
+      const id = queue.enqueue("test.job", {});
+      expect(queue.getJob(id)?.userId).toBeNull();
+    });
+
+    it("enqueueRun() stamps every job it creates with the run's userId", () => {
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(userId, "aggregate", [{ feedId: 1 }, { feedId: 2 }]);
+      const { jobs: jobList } = queue.listJobs({});
+      const runJobs = jobList.filter((j) => j.runId === runId);
+      expect(runJobs).toHaveLength(2);
+      expect(runJobs.every((j) => j.userId === userId)).toBe(true);
+    });
+
+    it("listJobs() filters by userId when given one", () => {
+      const userId1 = seedUserAndReturnId();
+      const userId2 = seedUserAndReturnId();
+      queue.enqueue("test.job", {}, { userId: userId1 });
+      queue.enqueue("test.job", {}, { userId: userId2 });
+      queue.enqueue("test.job", {}); // no owner
+
+      const forUser1 = queue.listJobs({ userId: userId1 });
+      expect(forUser1.total).toBe(1);
+      expect(forUser1.jobs[0]!.userId).toBe(userId1);
+    });
+
+    it("listJobs() with no userId returns every job regardless of owner", () => {
+      const userId1 = seedUserAndReturnId();
+      const userId2 = seedUserAndReturnId();
+      queue.enqueue("test.job", {}, { userId: userId1 });
+      queue.enqueue("test.job", {}, { userId: userId2 });
+      queue.enqueue("test.job", {});
+
+      expect(queue.listJobs({}).total).toBe(3);
+    });
+  });
+
   describe("appendLogLine / listJobLogs", () => {
     it("persists a line and returns it back from listJobLogs", () => {
       const jobId = queue.enqueue("test.job", {});
