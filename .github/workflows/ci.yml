@@ -53,9 +53,6 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Golden corpus check
-        run: npm test -- corpus
-
       # Nothing above this line ever *runs* the application, and this phase
       # produced two bundler-class regressions that only a running server
       # catches: the edge compilation of the instrumentation hook, which made
