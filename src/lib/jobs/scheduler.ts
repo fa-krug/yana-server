@@ -6,6 +6,12 @@ import { enqueue } from "./queue";
 
 const SCHEDULER_STARTED = Symbol.for("yana.scheduler.started");
 
+// A due check is jittered by up to this fraction of the configured interval in
+// either direction, so a 30-minute setting fires sometime in roughly
+// [27, 33] minutes rather than at exactly the same offset every time --
+// otherwise every feed on the same interval would poll in lockstep forever.
+const INTERVAL_JITTER_FRACTION = 0.1;
+
 interface GlobalWithScheduler {
   [SCHEDULER_STARTED]?: boolean;
 }
@@ -82,7 +88,13 @@ export async function tick(): Promise<void> {
       }
 
       const intervalMinutes = item.updateIntervalMinutes ?? 30;
-      const intervalMs = intervalMinutes * 60_000;
+      if (intervalMinutes <= 0) {
+        // 0 (or, defensively, negative) disables automatic updates for this feed.
+        continue;
+      }
+      const baseIntervalMs = intervalMinutes * 60_000;
+      const jitter = 1 + (Math.random() * 2 - 1) * INTERVAL_JITTER_FRACTION;
+      const intervalMs = baseIntervalMs * jitter;
 
       let lastRunTime = 0;
       if (item.updatedAt instanceof Date) {

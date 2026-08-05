@@ -317,11 +317,11 @@
       "retention": "Aufbewahrung",
       "retentionHelp": "Ältere Artikel werden entfernt. Markierte Artikel bleiben erhalten.",
       "interval": "Aktualisierungsintervall",
-      "intervalHelp": "Wie oft Feeds auf neue Artikel geprüft werden.",
+      "intervalHelp": "Wie oft Feeds auf neue Artikel geprüft werden. Der genaue Zeitpunkt variiert leicht, damit nicht alle Feeds gleichzeitig abgefragt werden. Mit 0 werden automatische Aktualisierungen deaktiviert.",
       "days": "Tage",
       "minutes": "Minuten",
       "retentionRange": "Die Aufbewahrung muss zwischen 1 und 3650 Tagen liegen.",
-      "intervalRange": "Das Aktualisierungsintervall muss zwischen 1 und 1440 Minuten liegen."
+      "intervalRange": "Das Aktualisierungsintervall muss zwischen 0 und 1440 Minuten liegen."
     },
     "about": { "title": "Über", "source": "Quellcode", "issues": "Problem melden" },
     "sessionEnded": "Deine Sitzung ist beendet. Melde dich erneut an, um fortzufahren.",

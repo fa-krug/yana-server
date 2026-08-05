@@ -113,6 +113,46 @@ describe("src/lib/jobs/scheduler", () => {
     expect(enqueued?.userId).toBe(userId);
   });
 
+  it("never enqueues an aggregate job when updateIntervalMinutes is 0", async () => {
+    let feedId = 0;
+    client.writeTransaction((db) => {
+      let user = db.select().from(schema.users).limit(1).get();
+      if (!user) {
+        db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+        user = db.select().from(schema.users).limit(1).get();
+      }
+
+      db.insert(schema.userSettings)
+        .values({ userId: user!.id, updateIntervalMinutes: 0 })
+        .onConflictDoUpdate({
+          target: schema.userSettings.userId,
+          set: { updateIntervalMinutes: 0 },
+        })
+        .run();
+
+      const inserted = db
+        .insert(schema.feeds)
+        .values({
+          name: "Test Feed",
+          aggregator: "full_website",
+          userId: user!.id,
+          enabled: true,
+        })
+        .returning({ id: schema.feeds.id })
+        .get();
+      feedId = inserted.id;
+
+      // Long overdue by any positive interval -- still must not fire.
+      const longAgoSec = Math.floor((Date.now() - 30 * 24 * 3_600_000) / 1000);
+      db.run(sql`UPDATE feeds SET updated_at = ${longAgoSec} WHERE id = ${feedId}`);
+    });
+
+    await scheduler.tick();
+
+    const { jobs: jobList } = queue.listJobs({ kind: "aggregate" });
+    expect(jobList.length).toBe(0);
+  });
+
   it("enqueues daily retention job and deduplicates", async () => {
     await scheduler.tick();
 

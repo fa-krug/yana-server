@@ -137,15 +137,26 @@ describe("settings", () => {
       expect(message).not.toBe("");
     });
 
-    it("rejects an update interval below one minute with a real catalog key", async () => {
+    it("rejects a negative update interval with a real catalog key", async () => {
       const result = await actions.updateLibrarySettings({
         articleRetentionDays: 60,
-        updateIntervalMinutes: 0,
+        updateIntervalMinutes: -1,
       });
       expect(result.ok).toBe(false);
       const message = settingsMessage(result.errorKey);
       expect(typeof message).toBe("string");
       expect(message).not.toBe("");
+    });
+
+    it("accepts 0 to disable automatic updates", async () => {
+      const result = await actions.updateLibrarySettings({
+        articleRetentionDays: 60,
+        updateIntervalMinutes: 0,
+      });
+      expect(result.ok).toBe(true);
+
+      const settings = await queries.getSettings();
+      expect(settings.updateIntervalMinutes).toBe(0);
     });
 
     it("accepts sane values and persists them", async () => {

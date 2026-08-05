@@ -72,7 +72,7 @@ export function LibrarySection({
           <Input
             id="interval"
             type="number"
-            min={1}
+            min={0}
             max={1440}
             value={updateInterval}
             onChange={(event) => setUpdateInterval(event.target.value)}

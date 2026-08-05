@@ -23,7 +23,9 @@ const general = z.object({
 
 const library = z.object({
   articleRetentionDays: z.number().int().min(1).max(3650),
-  updateIntervalMinutes: z.number().int().min(1).max(1440),
+  // 0 disables automatic updates for the feed entirely (see scheduler.ts's
+  // tick()); everything above that is a whole number of minutes.
+  updateIntervalMinutes: z.number().int().min(0).max(1440),
 });
 
 // `errorKey`, when present, is a key under the `settings` catalog namespace
