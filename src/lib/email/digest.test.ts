@@ -20,7 +20,11 @@ describe("src/lib/email/digest", () => {
 
   it("renders a scheduler entry", async () => {
     const { body } = await renderDigest("en", [
-      { category: "scheduler", message: "tick failed", occurredAt: new Date("2026-08-05T00:00:00.000Z") },
+      {
+        category: "scheduler",
+        message: "tick failed",
+        occurredAt: new Date("2026-08-05T00:00:00.000Z"),
+      },
     ]);
     expect(body).toContain("Scheduler error: tick failed");
   });
