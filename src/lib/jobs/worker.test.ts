@@ -165,4 +165,26 @@ describe("src/lib/jobs/worker", () => {
     worker.stopWorker();
     expect(worker.isWorkerRunning()).toBe(false);
   });
+
+  it("cancels the job, without retrying, when a handler throws JobCancelledError", async () => {
+    const { JobCancelledError } = await import("./errors");
+    handlers.registerHandler("cancelling.job", async () => {
+      throw new JobCancelledError();
+    });
+
+    const id = queue.enqueue("cancelling.job", {}, { maxAttempts: 3 });
+
+    const loopPromise = worker.runWorkerLoop({ pollIntervalMs: 50 });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    worker.stopWorker();
+    await loopPromise;
+
+    const job = queue.getJob(id);
+    expect(job?.status).toBe("cancelled");
+    expect(job?.attempts).toBe(1);
+    expect(job?.error).toBe("");
+
+    const lines = queue.listJobLogs(id).map((l) => l.line);
+    expect(lines).toEqual(["job started (attempt 1/3)", "job cancelled"]);
+  });
 });

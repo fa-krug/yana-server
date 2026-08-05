@@ -1,4 +1,5 @@
-import { appendLogLine, claim, complete, fail, resetOrphaned } from "./queue";
+import { appendLogLine, cancelled, claim, complete, fail, resetOrphaned } from "./queue";
+import { JobCancelledError } from "./errors";
 import { getHandler } from "./handlers";
 
 const WORKER_STARTED = Symbol.for("yana.worker.started");
@@ -67,6 +68,12 @@ export async function runWorkerLoop(options?: {
       appendLogLine(job.id, "stdout", "job completed");
       complete(job.id);
     } catch (err) {
+      if (err instanceof JobCancelledError) {
+        appendLogLine(job.id, "stdout", "job cancelled");
+        cancelled(job.id);
+        continue;
+      }
+
       const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
       for (const line of detail.split("\n")) {
         appendLogLine(job.id, "stderr", line);
