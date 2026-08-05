@@ -141,6 +141,36 @@ export async function removeWhiteBackground(buffer: Buffer): Promise<Buffer> {
   }
 }
 
+const MAX_ICON_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Fetches `url` directly, capped at {@link MAX_ICON_BYTES}. Used for both the generic
+ * favicon discovery's final download and an aggregator-provided image URL (a subreddit
+ * icon, a YouTube channel avatar) that is already a direct image link -- no HTML/manifest
+ * discovery makes sense there, unlike a bare site homepage.
+ */
+export async function fetchIconBytes(url: string): Promise<Buffer | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) return null;
+    const contentLength = response.headers.get("content-length");
+    if (contentLength && parseInt(contentLength) > MAX_ICON_BYTES) {
+      return null;
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    if (arrayBuffer.byteLength > MAX_ICON_BYTES) {
+      return null;
+    }
+    return Buffer.from(arrayBuffer);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function discoverLogo(
   siteUrl: string,
 ): Promise<{ url: string; bytes: Buffer } | null> {
@@ -214,33 +244,11 @@ export async function discoverLogo(
     }
 
     const iconUrl = declaredUrl || new URL("/favicon.ico", siteUrl).href;
-
-    const iconController = new AbortController();
-    const iconTimeout = setTimeout(() => iconController.abort(), 10000);
-    try {
-      const response = await fetch(iconUrl, { signal: iconController.signal });
-      if (response.ok) {
-        const contentLength = response.headers.get("content-length");
-        if (contentLength && parseInt(contentLength) > 2 * 1024 * 1024) {
-          return null;
-        }
-        const arrayBuffer = await response.arrayBuffer();
-        if (arrayBuffer.byteLength > 2 * 1024 * 1024) {
-          // 2MB cap
-          return null;
-        }
-        return { url: iconUrl, bytes: Buffer.from(arrayBuffer) };
-      }
-    } catch {
-      return null;
-    } finally {
-      clearTimeout(iconTimeout);
-    }
+    const bytes = await fetchIconBytes(iconUrl);
+    return bytes ? { url: iconUrl, bytes } : null;
   } catch {
     return null;
   }
-
-  return null;
 }
 
 export async function storeLogo(

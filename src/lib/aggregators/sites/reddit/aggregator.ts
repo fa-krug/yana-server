@@ -113,8 +113,6 @@ export class RedditAggregator extends BaseAggregator {
     };
   }
 
-  private _subredditIconUrl: string | null = null;
-
   constructor(feed: FeedLike) {
     super(feed);
   }
@@ -131,8 +129,21 @@ export class RedditAggregator extends BaseAggregator {
     return "https://www.reddit.com";
   }
 
-  override logoImageUrl(): string | null {
-    return this._subredditIconUrl;
+  override async logoImageUrl(): Promise<string | null> {
+    const subreddit = normalizeSubreddit(this.identifier);
+    if (!subreddit) return null;
+    try {
+      const settings = getRedditUserSettings(this.feed.options);
+      const accessToken = await getRedditAccessToken(
+        settings.reddit_client_id,
+        settings.reddit_client_secret,
+        settings.reddit_user_agent,
+      );
+      const info = await fetchSubredditInfo(subreddit, this.feed.userId, accessToken);
+      return info.iconUrl;
+    } catch {
+      return null;
+    }
   }
 
   override validate(): void {
@@ -178,9 +189,6 @@ export class RedditAggregator extends BaseAggregator {
       settings.reddit_client_secret,
       settings.reddit_user_agent,
     );
-
-    const info = await fetchSubredditInfo(subreddit, this.feed.userId, accessToken);
-    this._subredditIconUrl = info.iconUrl;
 
     const sort = (this.feed.options?.subreddit_sort as string) || "hot";
     const fetchLimit = Math.min((limit || 25) * 3, 100);

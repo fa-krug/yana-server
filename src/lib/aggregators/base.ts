@@ -75,8 +75,8 @@ export abstract class BaseAggregator {
     this.dailyLimit = feed.dailyLimit ?? 20;
   }
 
-  logoImageUrl(): string | null {
-    return null;
+  logoImageUrl(): Promise<string | null> {
+    return Promise.resolve(null);
   }
 
   validate(): void {

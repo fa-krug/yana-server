@@ -95,6 +95,59 @@ describe("YouTubeAggregator.finalizeArticles", () => {
   });
 });
 
+describe("YouTubeAggregator.logoImageUrl", () => {
+  function aggregatorWithFakeClient(
+    identifier: string,
+    fns: Partial<Pick<YouTubeClient, "resolveChannelId" | "fetchChannelsData">>,
+  ): YouTubeAggregator {
+    const feed: FeedLike = { identifier, dailyLimit: 20, options: { youtube_api_key: "key" } };
+
+    class FakeClientAggregator extends YouTubeAggregator {
+      protected getClient(): YouTubeClient {
+        return fns as unknown as YouTubeClient;
+      }
+    }
+
+    return new FakeClientAggregator(feed);
+  }
+
+  it("resolves the handle to a channel id and returns its avatar", async () => {
+    const agg = aggregatorWithFakeClient("@mkbhd", {
+      resolveChannelId: async () => ["UCBJycsmduvYEL83R_U4JriQ", null],
+      fetchChannelsData: async (ids) => {
+        expect(ids).toEqual(["UCBJycsmduvYEL83R_U4JriQ"]);
+        return [
+          {
+            channel_id: ids[0],
+            title: "MKBHD",
+            custom_url: "@mkbhd",
+            uploads_playlist_id: "UUtest",
+            channel_icon_url: "https://yt3.googleusercontent.com/avatar.jpg",
+          },
+        ];
+      },
+    });
+
+    await expect(agg.logoImageUrl()).resolves.toBe("https://yt3.googleusercontent.com/avatar.jpg");
+  });
+
+  it("returns null when there is no API key configured", async () => {
+    const feed: FeedLike = { identifier: "UCtest", dailyLimit: 20, options: {} };
+    const agg = new YouTubeAggregator(feed);
+
+    await expect(agg.logoImageUrl()).resolves.toBeNull();
+  });
+
+  it("returns null when the channel lookup fails", async () => {
+    const agg = aggregatorWithFakeClient("@mkbhd", {
+      resolveChannelId: async () => [null, "not found"],
+      fetchChannelsData: async () => [],
+    });
+
+    await expect(agg.logoImageUrl()).resolves.toBeNull();
+  });
+});
+
 describe("YouTubeAggregator.enrichArticles concurrency", () => {
   function aggregatorWithFakeClient(
     fetchVideoComments: YouTubeClient["fetchVideoComments"],

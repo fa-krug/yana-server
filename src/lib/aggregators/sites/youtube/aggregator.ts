@@ -134,8 +134,26 @@ export class YouTubeAggregator extends BaseAggregator {
     return this._client;
   }
 
-  override logoImageUrl(): string | null {
-    return null;
+  override async logoImageUrl(): Promise<string | null> {
+    if (!this.identifier) return null;
+    let client: YouTubeClient;
+    try {
+      client = this.getClient();
+    } catch {
+      return null;
+    }
+
+    try {
+      let channelId = this._channel_id;
+      if (!channelId) {
+        const [resolvedId] = await client.resolveChannelId(this.identifier);
+        channelId = resolvedId || this.identifier;
+      }
+      const channels = await client.fetchChannelsData([channelId]);
+      return channels[0]?.channel_icon_url ?? null;
+    } catch {
+      return null;
+    }
   }
 
   override validate(): void {
