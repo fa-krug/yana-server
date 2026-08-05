@@ -26,7 +26,17 @@
     "log": "Protokoll",
     "logEmpty": "Noch keine Protokollausgabe.",
     "logEnded": "Auftrag beendet — Protokoll beendet.",
-    "detailTitle": "Auftrag #{id}"
+    "detailTitle": "Auftrag #{id}",
+    "bulkCancel": "Abbrechen",
+    "bulkDelete": "Löschen",
+    "bulkDeleteTitle": "{count, plural, one {Diesen Auftrag löschen?} other {Diese # Aufträge löschen?}}",
+    "bulkDeleteDescription": "{count, plural, one {Der Auftrag und sein Protokoll werden} other {Die # Aufträge und ihre Protokolle werden}} dauerhaft entfernt. Ein noch laufender Auftrag wird zuerst gestoppt.",
+    "deleteConfirm": "Löschen",
+    "cancelRequested": "{count, plural, one {Abbruch für # Auftrag angefordert} other {Abbruch für # Aufträge angefordert}}",
+    "cancelNone": "Nichts abzubrechen — diese Aufträge sind bereits beendet.",
+    "deleted": "{count, plural, one {# Auftrag gelöscht} other {# Aufträge gelöscht}}",
+    "sessionEnded": "Deine Sitzung ist beendet. Melde dich erneut an, um fortzufahren.",
+    "requestFailed": "Der Server hat nicht geantwortet. Prüfe deine Verbindung und versuche es erneut."
   },
   "auth": {
     "signIn": "Anmelden",
