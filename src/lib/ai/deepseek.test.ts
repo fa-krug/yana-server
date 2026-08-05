@@ -65,4 +65,22 @@ describe("testDeepseekKey", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     expect(await testDeepseekKey(credentials)).toMatchObject({ ok: false, cause: "network" });
   });
+
+  it("sends max_tokens, not max_completion_tokens", async () => {
+    // DeepSeek does not document `max_completion_tokens` and rejects it,
+    // which previously fell through openaiCompatibleChatProbe's status
+    // classification into a generic "unexpected" verdict on every DeepSeek
+    // test, regardless of the credential. `run.ts`'s real generation call
+    // already uses `max_tokens` for this provider; the probe must agree.
+    const fetchMock = stubFetch(
+      new Response(JSON.stringify({ choices: [{ message: { content: "hi" } }] }), {
+        status: 200,
+      }),
+    );
+    await testDeepseekKey(credentials);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body).toMatchObject({ max_tokens: 1 });
+    expect(body).not.toHaveProperty("max_completion_tokens");
+  });
 });

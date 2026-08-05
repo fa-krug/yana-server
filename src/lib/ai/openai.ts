@@ -103,5 +103,11 @@ export async function testOpenaiKey({
   // rarer than a plain bad key, and storing the credential with the
   // integration off makes a typo visible instead of silently producing empty
   // summaries. Do not re-derive this as a defect.
-  return openaiCompatibleChatProbe({ providerName: "openai", endpoint: target, apiKey, model });
+  return openaiCompatibleChatProbe({
+    providerName: "openai",
+    endpoint: target,
+    apiKey,
+    model,
+    maxTokensField: "max_completion_tokens",
+  });
 }
