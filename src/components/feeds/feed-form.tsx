@@ -20,7 +20,10 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 
-import { createFeed, updateFeed } from "@/lib/feeds/actions";
+import { createFeed, updateFeed, updateFeedsBulk } from "@/lib/feeds/actions";
+import { reportRunOutcome } from "@/lib/jobs/report-run-outcome";
+import { waitForRun } from "@/lib/jobs/wait-for-run";
+import { Spinner } from "@/components/ui/spinner";
 import {
   AGGREGATOR_SPECS,
   defaultIdentifierFor,
@@ -50,6 +53,20 @@ export function FeedForm({
   const router = useRouter();
 
   const [pending, start] = useTransition();
+  const [updating, startUpdate] = useTransition();
+
+  function runUpdate() {
+    startUpdate(async () => {
+      const result = await updateFeedsBulk([feed!.id]);
+      const outcome = await waitForRun(result.runId);
+      reportRunOutcome(outcome, {
+        completed: () => t("aggregationCompleted", { count: 1 }),
+        partial: (ok, failed) => t("aggregationCompletedWithFailures", { completed: ok, failed }),
+        fallback: t("saveFailed"),
+      });
+      router.refresh();
+    });
+  }
 
   const [aggregator, setAggregator] = useState<keyof typeof AGGREGATOR_SPECS>(
     (feed?.aggregator as keyof typeof AGGREGATOR_SPECS) || "full_website",
@@ -429,6 +446,17 @@ export function FeedForm({
         <Button type="submit" disabled={pending}>
           {feed ? t("form.save") : t("form.create")}
         </Button>
+        {feed && (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={pending || updating}
+            onClick={runUpdate}
+          >
+            {updating && <Spinner className="mr-1" />}
+            {t("form.updateNow")}
+          </Button>
+        )}
         <Link href="/feeds" className={buttonVariants({ variant: "outline" })}>
           {c("cancel")}
         </Link>
