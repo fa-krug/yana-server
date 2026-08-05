@@ -7,6 +7,12 @@ import type { Job } from "@/lib/db/schema";
 
 import { JobsTable } from "./jobs-table";
 
+// The shared router stub, never an inline factory -- see the comment at the
+// top of src/test/next-navigation.ts. jobs-table.tsx calls useRouter() for
+// router.refresh(), and DataTable's useListParams() calls
+// usePathname()/useSearchParams() unconditionally, so a hand-rolled
+// `{ useRouter }` mock would break the moment either reaches an export it
+// didn't declare.
 vi.mock("next/navigation", () => import("@/test/next-navigation"));
 
 const { cancelJobs, deleteJobs, getJobsStatus } = vi.hoisted(() => ({

@@ -161,6 +161,22 @@ describe("src/lib/jobs/queue", () => {
       expect(job?.status).toBe("failed");
       expect(job?.error).toBe("fatal error");
     });
+
+    it("finalizes a cancelling job as cancelled instead of retrying it, even below maxAttempts", () => {
+      // A running job asked to cancel, whose handler then throws some other
+      // real error before it ever reaches its own isCancelRequested()
+      // checkpoint. The old code overwrote "cancelling" back to "pending"
+      // and rescheduled it, silently losing the cancellation request.
+      const id = queue.enqueue("noop", {}, { maxAttempts: 3 });
+      queue.claim();
+      queue.requestCancel(id); // -> "cancelling"
+
+      queue.fail(id, "some real error");
+
+      const job = queue.getJob(id);
+      expect(job?.status).toBe("cancelled");
+      expect(job?.finishedAt).not.toBeNull();
+    });
   });
 
   describe("complete & progress", () => {
@@ -680,6 +696,20 @@ describe("src/lib/jobs/queue", () => {
 
     it("is a no-op for a job id that does not exist", () => {
       expect(queue.requestCancel(999_999)).toBe("unchanged");
+    });
+
+    it("reports a second request against an already-cancelling job as still cancelling, not unchanged", () => {
+      const id = queue.enqueue("noop", {});
+      queue.claim();
+      expect(queue.requestCancel(id)).toBe("cancelling");
+
+      const second = queue.requestCancel(id);
+      expect(second).toBe("cancelling");
+
+      // No double-transition: still cancelling, not finalized by the second call.
+      const job = queue.getJob(id);
+      expect(job?.status).toBe("cancelling");
+      expect(job?.finishedAt).toBeNull();
     });
   });
 

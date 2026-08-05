@@ -109,6 +109,16 @@ export function fail(id: number, error: string | Error): void {
     const job = db.select().from(jobs).where(eq(jobs.id, id)).get();
     if (!job) return null;
 
+    // A running job that was asked to cancel, then threw a real error (a
+    // network failure, a parse error) before its handler ever reached its own
+    // isCancelRequested() checkpoint. Honor the cancellation instead of
+    // retrying or failing it -- either would silently resume the very work
+    // the user asked to stop. cancelled() does the actual transition, once
+    // this transaction (which has made no writes yet) has committed.
+    if (job.status === "cancelling") {
+      return { job, outcome: "cancelling" as const };
+    }
+
     if (job.attempts >= job.maxAttempts) {
       db.update(jobs)
         .set({
@@ -123,7 +133,7 @@ export function fail(id: number, error: string | Error): void {
         bumpRunCounters(db, job.runId, "failed");
       }
 
-      return { job, terminal: true as const };
+      return { job, outcome: "failed" as const };
     }
 
     const backoffMs = Math.pow(2, Math.max(0, job.attempts - 1)) * 60_000;
@@ -139,10 +149,15 @@ export function fail(id: number, error: string | Error): void {
       .where(eq(jobs.id, id))
       .run();
 
-    return { job, terminal: false as const };
+    return { job, outcome: "retry" as const };
   });
 
-  if (outcome?.terminal) {
+  if (outcome?.outcome === "cancelling") {
+    cancelled(id);
+    return;
+  }
+
+  if (outcome?.outcome === "failed") {
     publishJobOutcome({ ...outcome.job, status: "failed" }, "failed");
     publishJobTerminal(id, "failed");
   }
@@ -162,8 +177,11 @@ export type CancelOutcome = "cancelled" | "cancelling" | "unchanged";
  * started, so there is nothing to interrupt. A `running` job is only asked:
  * it becomes `cancelling`, and stays that way until its handler notices
  * `isCancelRequested()` at one of its own checkpoints and worker.ts calls
- * `cancelled()`. Anything already terminal, or already `cancelling`, is left
- * alone.
+ * `cancelled()`. A job that is already `cancelling` makes no further write
+ * (idempotent), but still reports `"cancelling"` rather than `"unchanged"` --
+ * it has not finished, so telling a caller otherwise would read as "nothing
+ * to cancel" for a job that is actively stopping. Only a job that is already
+ * terminal, or that does not exist, is truly `"unchanged"`.
  */
 export function requestCancel(id: number): CancelOutcome {
   const job = getDb().select().from(jobs).where(eq(jobs.id, id)).get();
@@ -183,6 +201,10 @@ export function requestCancel(id: number): CancelOutcome {
         .run(),
     );
     return result.changes === 1 ? "cancelling" : "unchanged";
+  }
+
+  if (job.status === "cancelling") {
+    return "cancelling";
   }
 
   return "unchanged";
