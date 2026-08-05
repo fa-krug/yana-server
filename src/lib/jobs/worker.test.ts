@@ -7,6 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { applyMigrationsAt } from "../db/test-support";
 
+const notifyAdminsMock = vi.fn();
+vi.mock("../email/error-notifications", () => ({
+  notifyAdmins: notifyAdminsMock,
+  notifyJobFailure: vi.fn(),
+}));
+
 describe("src/lib/jobs/worker", () => {
   let dbPath: string;
   let queue: typeof import("./queue");
@@ -29,6 +35,7 @@ describe("src/lib/jobs/worker", () => {
     worker = await import("./worker");
 
     handlers.clearHandlers();
+    notifyAdminsMock.mockClear();
   });
 
   afterEach(() => {
@@ -163,6 +170,18 @@ describe("src/lib/jobs/worker", () => {
     expect(worker.isWorkerRunning()).toBe(true);
 
     worker.stopWorker();
+    expect(worker.isWorkerRunning()).toBe(false);
+  });
+
+  it("notifies admins when the worker loop crashes fatally", async () => {
+    vi.spyOn(queue, "claim").mockImplementation(() => {
+      throw new Error("claim exploded");
+    });
+
+    worker.startWorker();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(notifyAdminsMock).toHaveBeenCalledWith(expect.objectContaining({ category: "worker" }));
     expect(worker.isWorkerRunning()).toBe(false);
   });
 
