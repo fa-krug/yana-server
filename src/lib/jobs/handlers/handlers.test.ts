@@ -8,6 +8,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { applyMigrationsAt } from "../../db/test-support";
 
+vi.mock("@/lib/aggregators/factory", () => ({
+  createAggregator: vi.fn(),
+}));
+
+vi.mock("@/lib/feeds/logo", () => ({
+  discoverLogo: vi.fn(),
+  storeLogo: vi.fn(),
+}));
+
 describe("src/lib/jobs/handlers", () => {
   let dbPath: string;
   let client: typeof import("../../db/client");
@@ -31,6 +40,7 @@ describe("src/lib/jobs/handlers", () => {
   });
 
   afterEach(() => {
+    vi.clearAllMocks();
     delete process.env.DATABASE_PATH;
     const connection = (client.getDb() as unknown as { $client: Database.Database }).$client;
     if (connection.open) connection.close();
@@ -38,6 +48,26 @@ describe("src/lib/jobs/handlers", () => {
       fs.rmSync(`${dbPath}${suffix}`, { force: true });
     }
   });
+
+  /** Builds a real `jobs` row (via the queue) so `appendLogLine`'s FK holds. */
+  function makeJob(kind: string, payload: Record<string, unknown> = {}) {
+    const id = queue.enqueue(kind, payload);
+    return queue.getJob(id)!;
+  }
+
+  function logLines(jobId: number): string[] {
+    return queue.listJobLogs(jobId).map((l) => l.line);
+  }
+
+  function seedUser(id: string, email: string): void {
+    let user = client.getDb().select().from(schema.users).where(eq(schema.users.id, id)).get();
+    if (!user) {
+      client.writeTransaction((db) => {
+        db.insert(schema.users).values({ id, email }).run();
+      });
+      user = client.getDb().select().from(schema.users).where(eq(schema.users.id, id)).get();
+    }
+  }
 
   describe("retention", () => {
     it("deletes unstarred articles older than articleRetentionDays by createdAt, excluding starred articles", async () => {
@@ -114,23 +144,9 @@ describe("src/lib/jobs/handlers", () => {
       const retentionHandler = handlers.getHandler("retention");
       expect(retentionHandler).toBeDefined();
 
-      const dummyJob = {
-        id: 1,
-        runId: null,
-        kind: "retention",
-        payload: {},
-        status: "running",
-        attempts: 1,
-        maxAttempts: 3,
-        runAt: new Date(),
-        startedAt: new Date(),
-        finishedAt: null,
-        progress: 0,
-        error: "",
-        createdAt: new Date(),
-      };
+      const job = makeJob("retention");
 
-      await retentionHandler!(dummyJob);
+      await retentionHandler!(job);
 
       const remainingArticles = client.getDb().select().from(schema.articles).all();
       expect(remainingArticles.length).toBe(2);
@@ -197,23 +213,9 @@ describe("src/lib/jobs/handlers", () => {
       const retentionHandler = handlers.getHandler("retention");
       expect(retentionHandler).toBeDefined();
 
-      const dummyJob = {
-        id: 1,
-        runId: null,
-        kind: "retention",
-        payload: {},
-        status: "running",
-        attempts: 1,
-        maxAttempts: 3,
-        runAt: new Date(),
-        startedAt: new Date(),
-        finishedAt: null,
-        progress: 0,
-        error: "",
-        createdAt: new Date(),
-      };
+      const job = makeJob("retention");
 
-      await retentionHandler!(dummyJob);
+      await retentionHandler!(job);
 
       const tombstones = client.getDb().select().from(schema.articleTombstones).all();
       expect(tombstones).toHaveLength(1);
@@ -235,6 +237,9 @@ describe("src/lib/jobs/handlers", () => {
         .where(eq(schema.articles.id, freshArticleId))
         .all();
       expect(survivor).toHaveLength(1);
+
+      const lines = logLines(job.id);
+      expect(lines).toContain(`user ${userId}: removed 1 expired articles`);
     });
 
     it("prunes tombstones older than the retention window but keeps recent ones", async () => {
@@ -268,28 +273,81 @@ describe("src/lib/jobs/handlers", () => {
       const retentionHandler = handlers.getHandler("retention");
       expect(retentionHandler).toBeDefined();
 
-      const dummyJob = {
-        id: 1,
-        runId: null,
-        kind: "retention",
-        payload: {},
-        status: "running",
-        attempts: 1,
-        maxAttempts: 3,
-        runAt: new Date(),
-        startedAt: new Date(),
-        finishedAt: null,
-        progress: 0,
-        error: "",
-        createdAt: new Date(),
-      };
+      const job = makeJob("retention");
 
-      await retentionHandler!(dummyJob);
+      await retentionHandler!(job);
 
       const remaining = client.getDb().select().from(schema.articleTombstones).all();
       const remainingArticleIds = remaining.map((t) => t.articleId);
       expect(remainingArticleIds).not.toContain(999);
       expect(remainingArticleIds).toContain(1000);
+
+      // Nothing to remove per-user (no feeds for this user), but pruning
+      // always logs its own line, deleted count included.
+      const lines = logLines(job.id);
+      expect(lines).toContain("pruned 1 expired tombstones");
+      expect(lines.some((l) => l.startsWith("user "))).toBe(false);
+    });
+
+    it("logs a per-user removal line only for the user with expired articles", async () => {
+      seedUser("retention-user-a", "retention-a@example.com");
+      seedUser("retention-user-b", "retention-b@example.com");
+
+      let feedAId = 0;
+      let feedBId = 0;
+
+      client.writeTransaction((db) => {
+        db.insert(schema.userSettings)
+          .values({ userId: "retention-user-a", articleRetentionDays: 60 })
+          .run();
+        db.insert(schema.userSettings)
+          .values({ userId: "retention-user-b", articleRetentionDays: 60 })
+          .run();
+
+        const feedA = db
+          .insert(schema.feeds)
+          .values({ name: "Feed A", userId: "retention-user-a" })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedAId = feedA.id;
+
+        const feedB = db
+          .insert(schema.feeds)
+          .values({ name: "Feed B", userId: "retention-user-b" })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedBId = feedB.id;
+
+        // User A: one expired, unstarred article -> gets removed.
+        const old = db
+          .insert(schema.articles)
+          .values({
+            name: "Old",
+            identifier: "old-a",
+            feedId: feedAId,
+            date: new Date("2024-01-01"),
+            starred: false,
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        const eightyDaysAgo = Math.floor((Date.now() - 80 * 24 * 60 * 60_000) / 1000);
+        db.run(sql`UPDATE articles SET created_at = ${eightyDaysAgo} WHERE id = ${old.id}`);
+
+        // User B: a fresh article -> nothing expires, no removal line for B.
+        db.insert(schema.articles)
+          .values({ name: "Fresh", identifier: "fresh-b", feedId: feedBId, date: new Date() })
+          .run();
+      });
+
+      const retentionHandler = handlers.getHandler("retention");
+      const job = makeJob("retention");
+
+      await retentionHandler!(job);
+
+      const lines = logLines(job.id);
+      expect(lines).toContain("user retention-user-a: removed 1 expired articles");
+      expect(lines.some((l) => l.startsWith("user retention-user-b:"))).toBe(false);
+      expect(lines.some((l) => /^pruned \d+ expired tombstones$/.test(l))).toBe(true);
     });
   });
 
@@ -335,23 +393,9 @@ describe("src/lib/jobs/handlers", () => {
       const restoreHandler = handlers.getHandler("feed.restore");
       expect(restoreHandler).toBeDefined();
 
-      const dummyJob = {
-        id: 1,
-        runId: null,
-        kind: "feed.restore",
-        payload: { feedId },
-        status: "running",
-        attempts: 1,
-        maxAttempts: 3,
-        runAt: new Date(),
-        startedAt: new Date(),
-        finishedAt: null,
-        progress: 0,
-        error: "",
-        createdAt: new Date(),
-      };
+      const job = makeJob("feed.restore", { feedId });
 
-      await restoreHandler!(dummyJob);
+      await restoreHandler!(job);
 
       const remainingArticles = client
         .getDb()
@@ -365,6 +409,12 @@ describe("src/lib/jobs/handlers", () => {
       expect(tombstones).toHaveLength(2);
       expect(tombstones.every((t) => t.userId === userId)).toBe(true);
       expect(tombstones.map((t) => t.articleId).sort()).toEqual([articleAId, articleBId].sort());
+
+      const lines = logLines(job.id);
+      expect(lines).toContain("removed 2 existing articles before re-aggregating");
+      // The feed is disabled, so handleAggregateJob's own early-return line
+      // should follow -- proving the re-aggregate step really ran afterward.
+      expect(lines).toContain("feed not found or disabled, skipping");
     });
 
     it("wipes no articles and writes no tombstones for a feed with none", async () => {
@@ -388,26 +438,363 @@ describe("src/lib/jobs/handlers", () => {
       const restoreHandler = handlers.getHandler("feed.restore");
       expect(restoreHandler).toBeDefined();
 
-      const dummyJob = {
-        id: 1,
-        runId: null,
-        kind: "feed.restore",
-        payload: { feedId },
-        status: "running",
-        attempts: 1,
-        maxAttempts: 3,
-        runAt: new Date(),
-        startedAt: new Date(),
-        finishedAt: null,
-        progress: 0,
-        error: "",
-        createdAt: new Date(),
-      };
+      const job = makeJob("feed.restore", { feedId });
 
-      await restoreHandler!(dummyJob);
+      await restoreHandler!(job);
 
       const tombstones = client.getDb().select().from(schema.articleTombstones).all();
       expect(tombstones).toHaveLength(0);
+
+      const lines = logLines(job.id);
+      expect(lines).toContain("removed 0 existing articles before re-aggregating");
+    });
+  });
+
+  describe("aggregate", () => {
+    it("logs and returns early for a feed that is disabled", async () => {
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "Disabled Feed", userId: user!.id, enabled: false })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedId = feed.id;
+      });
+
+      const factory = await import("@/lib/aggregators/factory");
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+      expect(aggregateHandler).toBeDefined();
+
+      const job = makeJob("aggregate", { feedId });
+
+      await aggregateHandler!(job);
+
+      expect(factory.createAggregator).not.toHaveBeenCalled();
+      const lines = logLines(job.id);
+      expect(lines).toEqual(["feed not found or disabled, skipping"]);
+    });
+
+    it("logs fetched and created counts for newly seen articles", async () => {
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "Active Feed", userId: user!.id, enabled: true })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedId = feed.id;
+      });
+
+      const rawArticles = [
+        {
+          name: "Article One",
+          identifier: "art-1",
+          raw_content: "<p>one</p>",
+          content: "<p>one</p>",
+          date: new Date(),
+        },
+        {
+          name: "Article Two",
+          identifier: "art-2",
+          raw_content: "<p>two</p>",
+          content: "<p>two</p>",
+          date: new Date(),
+        },
+      ];
+
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => rawArticles,
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+      const job = makeJob("aggregate", { feedId });
+
+      await aggregateHandler!(job);
+
+      const inserted = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.feedId, feedId))
+        .all();
+      expect(inserted).toHaveLength(2);
+
+      const lines = logLines(job.id);
+      expect(lines).toContain("fetched 2 articles");
+      expect(lines).toContain("upserted articles: 2 created, 0 updated");
+    });
+
+    it("logs an updated count when re-aggregating an already-seen article", async () => {
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "Active Feed", userId: user!.id, enabled: true })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedId = feed.id;
+
+        db.insert(schema.articles)
+          .values({
+            name: "Stale Title",
+            identifier: "art-1",
+            feedId,
+            rawContent: "<p>stale</p>",
+            date: new Date("2024-01-01"),
+          })
+          .run();
+      });
+
+      const rawArticles = [
+        {
+          name: "Article One Updated",
+          identifier: "art-1",
+          raw_content: "<p>fresh</p>",
+          content: "<p>fresh</p>",
+          date: new Date(),
+        },
+      ];
+
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => rawArticles,
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+      const job = makeJob("aggregate", { feedId });
+
+      await aggregateHandler!(job);
+
+      const stillOne = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.feedId, feedId))
+        .all();
+      expect(stillOne).toHaveLength(1);
+      expect(stillOne[0].name).toBe("Article One Updated");
+
+      const lines = logLines(job.id);
+      expect(lines).toContain("fetched 1 articles");
+      expect(lines).toContain("upserted articles: 0 created, 1 updated");
+    });
+  });
+
+  describe("logo", () => {
+    it("logs and returns when no logo source is configured", async () => {
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "No Source Feed", userId: user!.id, identifier: "", logoSourceUrl: "" })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedId = feed.id;
+      });
+
+      const logoModule = await import("@/lib/feeds/logo");
+
+      const logoHandler = handlers.getHandler("feed.logo");
+      expect(logoHandler).toBeDefined();
+
+      const job = makeJob("feed.logo", { feedId });
+
+      await logoHandler!(job);
+
+      expect(logoModule.discoverLogo).not.toHaveBeenCalled();
+      const lines = logLines(job.id);
+      expect(lines).toEqual(["no logo source configured, skipping"]);
+    });
+
+    it("logs when no logo is found", async () => {
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({
+            name: "Feed",
+            userId: user!.id,
+            identifier: "https://example.com",
+            logoSourceUrl: "",
+          })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedId = feed.id;
+      });
+
+      const logoModule = await import("@/lib/feeds/logo");
+      vi.mocked(logoModule.discoverLogo).mockResolvedValue(null);
+
+      const logoHandler = handlers.getHandler("feed.logo");
+      const job = makeJob("feed.logo", { feedId });
+
+      await logoHandler!(job);
+
+      expect(logoModule.storeLogo).not.toHaveBeenCalled();
+      const lines = logLines(job.id);
+      expect(lines).toContain("no logo found");
+    });
+
+    it("logs the source url when a logo is stored", async () => {
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({
+            name: "Feed",
+            userId: user!.id,
+            identifier: "https://example.com",
+            logoSourceUrl: "",
+          })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedId = feed.id;
+      });
+
+      const logoUrl = "https://example.com/favicon.ico";
+      const logoModule = await import("@/lib/feeds/logo");
+      vi.mocked(logoModule.discoverLogo).mockResolvedValue({
+        url: logoUrl,
+        bytes: Buffer.from("fake-bytes"),
+      });
+      vi.mocked(logoModule.storeLogo).mockResolvedValue("some-content-hash");
+
+      const logoHandler = handlers.getHandler("feed.logo");
+      const job = makeJob("feed.logo", { feedId });
+
+      await logoHandler!(job);
+
+      expect(logoModule.storeLogo).toHaveBeenCalledWith(feedId, expect.any(Buffer), logoUrl);
+      const lines = logLines(job.id);
+      expect(lines).toContain(`stored logo from ${logoUrl}`);
+    });
+  });
+
+  describe("reload", () => {
+    it("logs and returns when the article is not found or has no stored content", async () => {
+      let articleId = 0;
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "Feed", userId: user!.id })
+          .returning({ id: schema.feeds.id })
+          .get();
+
+        const article = db
+          .insert(schema.articles)
+          .values({
+            name: "No Content",
+            identifier: "art-1",
+            feedId: feed.id,
+            rawContent: "",
+            date: new Date(),
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        articleId = article.id;
+      });
+
+      const reloadHandler = handlers.getHandler("article.reload");
+      expect(reloadHandler).toBeDefined();
+
+      const job = makeJob("article.reload", { articleId });
+
+      await reloadHandler!(job);
+
+      const lines = logLines(job.id);
+      expect(lines).toEqual(["article not found or has no stored content, skipping"]);
+    });
+
+    it("logs after reloading article content", async () => {
+      let articleId = 0;
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "Feed", userId: user!.id })
+          .returning({ id: schema.feeds.id })
+          .get();
+
+        const article = db
+          .insert(schema.articles)
+          .values({
+            name: "Has Content",
+            identifier: "art-1",
+            feedId: feed.id,
+            rawContent: "<p>Hello world</p>",
+            plainText: "",
+            date: new Date(),
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        articleId = article.id;
+      });
+
+      const reloadHandler = handlers.getHandler("article.reload");
+      const job = makeJob("article.reload", { articleId });
+
+      await reloadHandler!(job);
+
+      const reloaded = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, articleId))
+        .get();
+      expect(reloaded?.plainText).toContain("Hello world");
+
+      const lines = logLines(job.id);
+      expect(lines).toContain("reloaded article content");
     });
   });
 });

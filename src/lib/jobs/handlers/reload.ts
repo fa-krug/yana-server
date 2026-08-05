@@ -4,6 +4,7 @@ import { parseBlocks, plainTextOf } from "@/lib/aggregators/blocks/parser";
 import { writeBlocks } from "@/lib/aggregators/blocks/storage";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, type Job } from "@/lib/db/schema";
+import { appendLogLine } from "../queue";
 
 export async function handleReloadJob(job: Job): Promise<void> {
   const articleId = Number(job.payload?.articleId);
@@ -11,7 +12,10 @@ export async function handleReloadJob(job: Job): Promise<void> {
 
   const db = getDb();
   const article = db.select().from(articles).where(eq(articles.id, articleId)).get();
-  if (!article || !article.rawContent) return;
+  if (!article || !article.rawContent) {
+    appendLogLine(job.id, "stdout", "article not found or has no stored content, skipping");
+    return;
+  }
 
   const blocks = parseBlocks(article.rawContent, article.identifier);
   const plainText = plainTextOf(blocks);
@@ -24,4 +28,6 @@ export async function handleReloadJob(job: Job): Promise<void> {
       .where(eq(articles.id, article.id))
       .run();
   });
+
+  appendLogLine(job.id, "stdout", "reloaded article content");
 }

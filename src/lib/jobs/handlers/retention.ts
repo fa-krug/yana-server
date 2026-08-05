@@ -2,6 +2,7 @@ import { and, eq, inArray, lte } from "drizzle-orm";
 
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articleTombstones, articles, feeds, userSettings, type Job } from "@/lib/db/schema";
+import { appendLogLine } from "../queue";
 
 /**
  * Tombstones themselves can't usefully outlive the window a sync cursor can
@@ -28,7 +29,7 @@ function deleteWithTombstones(
   userId: string,
   feedIds: number[],
   cutoff: Date,
-): void {
+): number {
   const doomed = tx
     .select({ id: articles.id })
     .from(articles)
@@ -41,7 +42,7 @@ function deleteWithTombstones(
     )
     .all();
 
-  if (doomed.length === 0) return;
+  if (doomed.length === 0) return 0;
 
   const doomedIds = doomed.map((a) => a.id);
 
@@ -50,9 +51,11 @@ function deleteWithTombstones(
     .run();
 
   tx.delete(articles).where(inArray(articles.id, doomedIds)).run();
+
+  return doomedIds.length;
 }
 
-export async function handleRetentionJob(_job: Job): Promise<void> {
+export async function handleRetentionJob(job: Job): Promise<void> {
   const db = getDb();
   const settingsList = db.select().from(userSettings).all();
 
@@ -79,13 +82,27 @@ export async function handleRetentionJob(_job: Job): Promise<void> {
       const feedIds = userFeeds.map((f) => f.id);
       if (feedIds.length === 0) continue;
 
-      writeTransaction((tx) => deleteWithTombstones(tx, settings.userId, feedIds, cutoff));
+      const removed = writeTransaction((tx) =>
+        deleteWithTombstones(tx, settings.userId, feedIds, cutoff),
+      );
+      if (removed > 0) {
+        appendLogLine(
+          job.id,
+          "stdout",
+          `user ${settings.userId}: removed ${removed} expired articles`,
+        );
+      }
     }
   }
 
   // Prune tombstones a sync cursor could no longer trust anyway.
   const tombstoneCutoff = new Date(Date.now() - RETENTION_TOMBSTONE_DAYS * 24 * 60 * 60_000);
-  writeTransaction((tx) => {
-    tx.delete(articleTombstones).where(lte(articleTombstones.deletedAt, tombstoneCutoff)).run();
+  const pruned = writeTransaction((tx) => {
+    const result = tx
+      .delete(articleTombstones)
+      .where(lte(articleTombstones.deletedAt, tombstoneCutoff))
+      .run();
+    return result.changes;
   });
+  appendLogLine(job.id, "stdout", `pruned ${pruned} expired tombstones`);
 }

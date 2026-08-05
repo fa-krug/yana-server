@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articleTombstones, articles, feeds, type Job } from "@/lib/db/schema";
+import { appendLogLine } from "../queue";
 import { handleAggregateJob } from "./aggregate";
 
 export async function handleRestoreJob(job: Job): Promise<void> {
@@ -16,7 +17,7 @@ export async function handleRestoreJob(job: Job): Promise<void> {
   // before this runs (or was offline for it) needs a tombstone per article to
   // learn it's gone -- see deleteWithTombstones() in retention.ts for the
   // sibling path.
-  writeTransaction((tx) => {
+  const removed = writeTransaction((tx) => {
     const doomed = tx
       .select({ id: articles.id })
       .from(articles)
@@ -30,7 +31,11 @@ export async function handleRestoreJob(job: Job): Promise<void> {
     }
 
     tx.delete(articles).where(eq(articles.feedId, feedId)).run();
+
+    return doomed.length;
   });
+
+  appendLogLine(job.id, "stdout", `removed ${removed} existing articles before re-aggregating`);
 
   // Re-aggregate with full allowance
   await handleAggregateJob(job);

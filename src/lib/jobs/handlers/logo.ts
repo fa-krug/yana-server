@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { feeds, type Job } from "@/lib/db/schema";
 import { discoverLogo, storeLogo } from "@/lib/feeds/logo";
+import { appendLogLine } from "../queue";
 
 export async function handleLogoJob(job: Job): Promise<void> {
   const feedId = Number(job.payload?.feedId);
@@ -13,10 +14,16 @@ export async function handleLogoJob(job: Job): Promise<void> {
   if (!feed) return;
 
   const targetUrl = feed.logoSourceUrl || feed.identifier;
-  if (!targetUrl) return;
+  if (!targetUrl) {
+    appendLogLine(job.id, "stdout", "no logo source configured, skipping");
+    return;
+  }
 
   const logoResult = await discoverLogo(targetUrl);
   if (logoResult) {
     await storeLogo(feed.id, logoResult.bytes, logoResult.url);
+    appendLogLine(job.id, "stdout", `stored logo from ${logoResult.url}`);
+  } else {
+    appendLogLine(job.id, "stdout", "no logo found");
   }
 }

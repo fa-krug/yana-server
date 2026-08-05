@@ -5,7 +5,7 @@ import { writeBlocks } from "@/lib/aggregators/blocks/storage";
 import { createAggregator } from "@/lib/aggregators/factory";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, feeds, type Job } from "@/lib/db/schema";
-import { progress } from "../queue";
+import { appendLogLine, progress } from "../queue";
 
 export async function handleAggregateJob(job: Job): Promise<void> {
   const feedId = Number(job.payload?.feedId);
@@ -13,10 +13,14 @@ export async function handleAggregateJob(job: Job): Promise<void> {
 
   const db = getDb();
   const feed = db.select().from(feeds).where(eq(feeds.id, feedId)).get();
-  if (!feed || !feed.enabled) return;
+  if (!feed || !feed.enabled) {
+    appendLogLine(job.id, "stdout", "feed not found or disabled, skipping");
+    return;
+  }
 
   const aggregator = createAggregator(feed);
   const rawArticles = await aggregator.aggregate();
+  appendLogLine(job.id, "stdout", `fetched ${rawArticles.length} articles`);
 
   if (rawArticles.length === 0) {
     writeTransaction((tx) => {
@@ -26,6 +30,8 @@ export async function handleAggregateJob(job: Job): Promise<void> {
   }
 
   const total = rawArticles.length;
+  let created = 0;
+  let updated = 0;
 
   for (let i = 0; i < total; i++) {
     const raw = rawArticles[i];
@@ -46,6 +52,7 @@ export async function handleAggregateJob(job: Job): Promise<void> {
 
       if (existing) {
         articleId = existing.id;
+        updated++;
         tx.update(articles)
           .set({
             name: raw.name || "Untitled",
@@ -73,6 +80,7 @@ export async function handleAggregateJob(job: Job): Promise<void> {
           .returning({ id: articles.id })
           .get();
         articleId = inserted.id;
+        created++;
       }
     });
 
@@ -86,4 +94,6 @@ export async function handleAggregateJob(job: Job): Promise<void> {
   writeTransaction((tx) => {
     tx.update(feeds).set({ updatedAt: new Date() }).where(eq(feeds.id, feedId)).run();
   });
+
+  appendLogLine(job.id, "stdout", `upserted articles: ${created} created, ${updated} updated`);
 }
