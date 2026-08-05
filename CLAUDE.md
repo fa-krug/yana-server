@@ -12,24 +12,11 @@ Drizzle + better-sqlite3.** One language, one toolchain, one process.
 This file is the only agent-instruction file in the repository. There is no
 `AGENTS.md` and no per-directory `CLAUDE.md` — everything goes here.
 
-## `old/` is reference only — never edit it, never import from it
-
-`old/` is the retired Django 6.0 implementation, kept in the tree so its
-behavior can be read while it is ported. It is:
-
-- **Read-only.** No fixes, no formatting, no dependency bumps. It is not built,
-  linted, typechecked, tested, containerized or deployed by anything.
-- **Not runnable as configured.** Its paths, its CI workflow (`old/ci.yml`) and
-  its compose files assume it sits at the repository root. That is expected and
-  is not a bug to fix.
-- **Undocumented on purpose.** Its Django-era `CLAUDE.md` was deleted rather than
-  moved: tools auto-load a `CLAUDE.md` next to the files you open, and one
-  describing `manage.py`, ruff/mypy/pytest and the `/admin/` surface would be
-  read as instructions for this repository. `old/README.md` still describes the
-  Django setup; read it as history. Do not add an instruction file under `old/`.
-
-Behavior questions ("what does the Heise scraper strip?") are answered by
-reading `old/core/`. Structure questions are answered by this file.
+The retired Django implementation that used to live at `old/` has been removed
+from the tree entirely — the migration to Next.js is complete (all fifteen
+phases; see "Where the work is planned" below) and there is nothing left to
+port or cross-check against it. Its history is still in `git log` if a past
+behavior ever needs to be reconstructed.
 
 ## Layout
 
@@ -165,13 +152,10 @@ reading `old/core/`. Structure questions are answered by this file.
 ├── public/                        # static assets served at /
 ├── Dockerfile                     # multi-stage, standalone output, runs as uid 1001
 ├── docker-compose.yml             # dev container (prod build; use `npm run dev` to work)
-├── docker-compose.production.yml  # target production shape — not yet deployed
+├── docker-compose.production.yml  # target production shape — what CI redeploys against
 ├── data/                          # SQLite lives here (gitignored, starts empty)
 ├── media/                         # article images and feed logos (gitignored, starts empty)
-├── docs/superpowers/              # direction records (specs/) and phase plans (plans/)
-└── old/                           # retired Django implementation — reference only
-    ├── data/                      # its SQLite file (db.sqlite3) — never read from here
-    └── media/                     # its article images and feed logos — likewise
+└── docs/superpowers/              # direction records (specs/) and phase plans (plans/)
 ```
 
 ## Commands
@@ -1566,7 +1550,9 @@ live probes reusing phase 6's `defineIntegration()` descriptor, the
 (a–c: extraction core, embeds/media, and the per-site aggregators), phase 12
 (scheduling and the `jobs` table's in-process worker), phase 13 (the
 `/api/v1` client API — Bearer auth, sync, aggregation, SSE job/run events),
-the folder swap (phase 14, reworked to keep `old/`), and phase 15 (the
+the folder swap (phase 14, which at the time kept the retired Django app
+around as `old/` — since removed entirely, see the top of this file), and
+phase 15 (the
 installable `@fa-krug/yana` npm package). The direction record's last sections carry the
 decisions phases 2's, 3's, 4's, 5's, 6's and 7's reviews left to those phases;
 **"Carried forward from phase 6's review" is the one a phase-7 agent has to

@@ -1,9 +1,4 @@
-# The only pipeline. The Django one was moved to `old/ci.yml` in the folder
-# swap, where GitHub does not look for workflows, so it no longer runs.
-#
-# This app now replaces the Django one: `publish-manifest` and `deploy` are
-# restored (copied from `old/ci.yml`, whose tag rules and Portainer redeploy
-# are the ones production expects), so a push to `main` builds, pushes
+# The only pipeline. A push to `main` builds, pushes
 # `${{ secrets.DOCKERHUB_USERNAME }}/yana:latest`, and redeploys the shared
 # Portainer stack. A pull request still only builds (`push: false`), so the
 # Dockerfile is exercised without publishing anything.
