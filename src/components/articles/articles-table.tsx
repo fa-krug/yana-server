@@ -69,6 +69,10 @@ export function ArticlesTable({
       key: "feed",
       header: t("columns.feed"),
       sortable: true,
+      // Lower priority than title/status/date on a phone -- hidden rather than
+      // forcing the table into a horizontal scroll for every row just to show
+      // the source feed.
+      className: "hidden sm:table-cell",
       cell: (row) => (
         <Link href={`/feeds/${row.feedId}`} className="text-muted-foreground hover:underline">
           {row.feedName}
@@ -89,6 +93,9 @@ export function ArticlesTable({
       key: "createdAt",
       header: t("columns.added"),
       sortable: true,
+      // The least essential of the two dates -- hidden until there is room
+      // for both, same reasoning as the "feed" column above.
+      className: "hidden lg:table-cell",
       // next-intl's formatter, not toLocaleDateString(): the locale is the one
       // this request resolved and the time zone is the one configured in
       // src/i18n/request.ts, so the server and the browser print the same day
