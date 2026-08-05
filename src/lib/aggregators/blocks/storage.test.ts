@@ -417,6 +417,42 @@ describe("block storage", () => {
     expect(loaded).toEqual([]);
   });
 
+  it("writes a tree spanning many insert batches without exceeding SQLite's variable limit", async () => {
+    // A long-form scraped article can produce thousands of paragraphs/runs; writeBlocks batches
+    // its bulk inserts (INSERT_BATCH_SIZE = 100) so this never hits "too many SQL variables".
+    const PARAGRAPH_COUNT = 6000;
+    const tree: Block[] = Array.from({ length: PARAGRAPH_COUNT }, (_, i) => ({
+      kind: "paragraph",
+      runs: [
+        {
+          text: `p${i}`,
+          bold: false,
+          italic: false,
+          code: false,
+          strikethrough: false,
+          link: "",
+        },
+      ],
+    }));
+
+    const written = await storage.writeBlocks(articleId, tree);
+    expect(written).toBe(PARAGRAPH_COUNT);
+
+    const loaded = await storage.readBlocks(articleId);
+    expect(loaded).toEqual(tree);
+
+    const db = client.getDb();
+    const roots = db
+      .select()
+      .from(schema.articleBlocks)
+      .where(eq(schema.articleBlocks.articleId, articleId))
+      .all()
+      .sort((a, b) => a.position - b.position);
+    expect(roots.map((r) => r.position)).toEqual(
+      Array.from({ length: PARAGRAPH_COUNT }, (_, i) => i),
+    );
+  });
+
   it("preserves empty list items", async () => {
     const tree: Block[] = [
       {

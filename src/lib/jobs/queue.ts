@@ -56,6 +56,9 @@ export function claim(): Job | null {
         status: "running",
         startedAt: now,
         attempts: sql`${jobs.attempts} + 1`,
+        // Clear a previous attempt's error -- otherwise a job retrying after a failed attempt
+        // shows "running" alongside a stale failure message, reading as a job stuck mid-error.
+        error: "",
       })
       .where(and(eq(jobs.id, candidate.id), eq(jobs.status, "pending")))
       .run();
@@ -77,6 +80,10 @@ export function complete(id: number): void {
         status: "completed",
         finishedAt: new Date(),
         progress: 100,
+        // Clear a stale error from an earlier failed attempt -- neither claim() nor complete()
+        // touched it before, so a job that failed once and then succeeded on retry kept showing
+        // its old timeout/error message forever, reading as a completed job stuck in a bad state.
+        error: "",
       })
       .where(eq(jobs.id, id))
       .run();

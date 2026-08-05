@@ -150,6 +150,7 @@ describe("storeLogo", () => {
   it("stores the logo content-addressed and sets logoImageHash", async () => {
     const bytes = await solidWhitePng();
     const hash = await logo.storeLogo(feedId, bytes, "https://example.com/favicon.ico");
+    if (!hash) throw new Error("expected storeLogo to resolve a hash for a valid PNG");
 
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
     const feed = client
@@ -192,6 +193,7 @@ describe("storeLogo", () => {
     const bytes = await solidWhitePng();
     const hashA = await logo.storeLogo(feedId, bytes, "https://a.example.com/favicon.ico");
     const hashB = await logo.storeLogo(otherFeed.id, bytes, "https://b.example.com/favicon.ico");
+    if (!hashA) throw new Error("expected storeLogo to resolve a hash for a valid PNG");
 
     expect(hashA).toBe(hashB);
     const rows = client
@@ -201,5 +203,21 @@ describe("storeLogo", () => {
       .where(eq(schema.articleImages.contentHash, hashA))
       .all();
     expect(rows).toHaveLength(1);
+  });
+
+  it("returns null instead of throwing when the icon isn't a format sharp can decode", async () => {
+    // A real Windows .ico: sharp/libvips has no ICO codec, which is exactly what a bare
+    // `/favicon.ico` fallback (see jobs/handlers/logo.ts) can hand storeLogo.
+    const fakeIco = Buffer.from([0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x10, 0x10, 0x00, 0x00]);
+    const hash = await logo.storeLogo(feedId, fakeIco, "https://example.com/favicon.ico");
+    expect(hash).toBeNull();
+
+    const feed = client
+      .getDb()
+      .select()
+      .from(schema.feeds)
+      .where(eq(schema.feeds.id, feedId))
+      .get();
+    expect(feed?.logoImageHash).toBeNull();
   });
 });

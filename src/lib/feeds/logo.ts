@@ -243,13 +243,25 @@ export async function discoverLogo(
   return null;
 }
 
-export async function storeLogo(feedId: number, bytes: Buffer, sourceUrl: string): Promise<string> {
-  let processed = await removeWhiteBackground(bytes);
+export async function storeLogo(
+  feedId: number,
+  bytes: Buffer,
+  sourceUrl: string,
+): Promise<string | null> {
+  const backgroundRemoved = await removeWhiteBackground(bytes);
 
-  processed = await sharp(processed)
-    .resize(128, 128, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
-    .webp()
-    .toBuffer();
+  let processed: Buffer;
+  try {
+    processed = await sharp(backgroundRemoved)
+      .resize(128, 128, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .webp()
+      .toBuffer();
+  } catch {
+    // A discovered icon is not guaranteed to be a format sharp/libvips can decode -- a bare
+    // `/favicon.ico` fallback is the common case, since libvips has no ICO codec. Skip storing a
+    // logo rather than failing the job: the feed just keeps none.
+    return null;
+  }
 
   // `compress: false` because this function has already resized/re-encoded to
   // a 128x128 WebP itself -- storeImageBytes's own compression path exists for
