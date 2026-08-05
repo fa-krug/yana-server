@@ -70,7 +70,10 @@ function terminalChannel(jobId: number): string {
  * can always re-fetch, the same best-effort guarantee the line-log channel
  * relies on.
  */
-export function publishJobTerminal(jobId: number, status: "completed" | "failed"): void {
+export function publishJobTerminal(
+  jobId: number,
+  status: "completed" | "failed" | "cancelled",
+): void {
   try {
     emitter.emit(terminalChannel(jobId), status);
   } catch (err) {
@@ -81,7 +84,7 @@ export function publishJobTerminal(jobId: number, status: "completed" | "failed"
 /** Returns an unsubscribe function. */
 export function subscribeJobTerminal(
   jobId: number,
-  listener: (status: "completed" | "failed") => void,
+  listener: (status: "completed" | "failed" | "cancelled") => void,
 ): () => void {
   const name = terminalChannel(jobId);
   emitter.on(name, listener);

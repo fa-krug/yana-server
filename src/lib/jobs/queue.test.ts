@@ -121,6 +121,20 @@ describe("src/lib/jobs/queue", () => {
       const reclaimed = queue.claim();
       expect(reclaimed?.id).toBe(id);
     });
+
+    it("finalizes an orphaned cancelling job as cancelled, rather than resuming it as pending", () => {
+      const id = queue.enqueue("noop", {});
+      queue.claim();
+      queue.requestCancel(id); // -> "cancelling"
+
+      const resetCount = queue.resetOrphaned(new Date(Date.now() + 1000));
+
+      // The return value keeps counting only the running -> pending branch,
+      // unchanged from before this task -- src/lib/jobs/integration.test.ts
+      // depends on that exact count.
+      expect(resetCount).toBe(0);
+      expect(queue.getJob(id)?.status).toBe("cancelled");
+    });
   });
 
   describe("fail", () => {
@@ -627,6 +641,80 @@ describe("src/lib/jobs/queue", () => {
       const job = queue.getJob(id);
       expect(job?.status).toBe("failed");
       expect(job?.error).toBe("fatal error");
+    });
+  });
+
+  describe("requestCancel", () => {
+    it("cancels a pending job immediately, without claiming it first", () => {
+      const id = queue.enqueue("noop", {});
+
+      const outcome = queue.requestCancel(id);
+      expect(outcome).toBe("cancelled");
+
+      const job = queue.getJob(id);
+      expect(job?.status).toBe("cancelled");
+      expect(job?.finishedAt).not.toBeNull();
+    });
+
+    it("asks a running job to stop, without marking it cancelled yet", () => {
+      const id = queue.enqueue("noop", {});
+      queue.claim();
+
+      const outcome = queue.requestCancel(id);
+      expect(outcome).toBe("cancelling");
+
+      const job = queue.getJob(id);
+      expect(job?.status).toBe("cancelling");
+      expect(job?.finishedAt).toBeNull();
+    });
+
+    it("is a no-op against an already-terminal job", () => {
+      const id = queue.enqueue("noop", {});
+      queue.claim();
+      queue.complete(id);
+
+      const outcome = queue.requestCancel(id);
+      expect(outcome).toBe("unchanged");
+      expect(queue.getJob(id)?.status).toBe("completed");
+    });
+
+    it("is a no-op for a job id that does not exist", () => {
+      expect(queue.requestCancel(999_999)).toBe("unchanged");
+    });
+  });
+
+  describe("isCancelRequested", () => {
+    it("is true only once a running job has been asked to stop", () => {
+      const id = queue.enqueue("noop", {});
+      queue.claim();
+      expect(queue.isCancelRequested(id)).toBe(false);
+
+      queue.requestCancel(id);
+      expect(queue.isCancelRequested(id)).toBe(true);
+    });
+  });
+
+  describe("cancelled", () => {
+    it("marks a job cancelled, bumps its run's failedJobs counter, and publishes a terminal event", async () => {
+      const { subscribeJobTerminal } = await import("./log-bus");
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(userId, "noop", [{}]);
+      const [job] = client.getDb().select().from(jobs).where(eq(jobs.runId, runId)).all();
+      queue.claim();
+
+      const heard: unknown[] = [];
+      const unsubscribe = subscribeJobTerminal(job!.id, (status) => heard.push(status));
+
+      queue.cancelled(job!.id);
+      unsubscribe();
+
+      const updated = queue.getJob(job!.id);
+      expect(updated?.status).toBe("cancelled");
+      expect(updated?.finishedAt).not.toBeNull();
+
+      const run = queue.getRun(runId);
+      expect(run?.failedJobs).toBe(1);
+      expect(heard).toEqual(["cancelled"]);
     });
   });
 });
