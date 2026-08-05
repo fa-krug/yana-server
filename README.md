@@ -104,8 +104,11 @@ openssl rand -base64 32
 Changing it later signs everyone out. The rest are optional:
 `DATABASE_PATH` and `MEDIA_PATH` for where data lives, `PASSKEY_RP_ID` and
 `PUBLIC_URL` for WebAuthn behind a real hostname (a mismatch there is the most
-common passkey misconfiguration), `TZ` for how dates are formatted, and the
-`PORT` / `HOSTNAME` / `NEXT_TELEMETRY_DISABLED` that Next's own server reads.
+common passkey misconfiguration), `TZ` for how dates are formatted, the
+`PORT` / `HOSTNAME` / `NEXT_TELEMETRY_DISABLED` that Next's own server reads,
+and `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASSWORD` /
+`EMAIL_FROM` / `ERROR_EMAIL_DEBOUNCE_MS` for error-notification email (unset
+`SMTP_HOST` disables the feature; see `.env.example`).
 
 ## Data on disk
 

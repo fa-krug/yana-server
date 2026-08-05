@@ -2,6 +2,7 @@ import { and, asc, count, desc, eq, gt, lte, sql } from "drizzle-orm";
 
 import { publishUserEvent } from "../api/events";
 import { getDb, writeTransaction } from "../db/client";
+import { notifyJobFailure } from "../email/error-notifications";
 import { articles, feeds, jobLogs, jobs, runs, users } from "../db/schema";
 import type { Job, JobLog, Run } from "../db/schema";
 import { publishJobLog, publishJobTerminal } from "./log-bus";
@@ -160,6 +161,12 @@ export function fail(id: number, error: string | Error): void {
   if (outcome?.outcome === "failed") {
     publishJobOutcome({ ...outcome.job, status: "failed" }, "failed");
     publishJobTerminal(id, "failed");
+    notifyJobFailure(outcome.job.userId ?? resolveJobUserId(outcome.job), {
+      category: "job",
+      message: errMsg,
+      occurredAt: now,
+      jobKind: outcome.job.kind,
+    });
   }
 }
 

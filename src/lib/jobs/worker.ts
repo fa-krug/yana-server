@@ -1,6 +1,7 @@
 import { appendLogLine, cancelled, claim, complete, fail, resetOrphaned } from "./queue";
 import { JobCancelledError } from "./errors";
 import { getHandler } from "./handlers";
+import { notifyAdmins } from "../email/error-notifications";
 
 const WORKER_STARTED = Symbol.for("yana.worker.started");
 
@@ -29,6 +30,11 @@ export function startWorker(options?: { pollIntervalMs?: number; timeoutMs?: num
 
   runWorkerLoop(options).catch((err) => {
     console.error("[Worker] Fatal error in worker loop:", err);
+    notifyAdmins({
+      category: "worker",
+      message: err instanceof Error ? (err.stack ?? err.message) : String(err),
+      occurredAt: new Date(),
+    });
     g[WORKER_STARTED] = false;
     isLoopActive = false;
   });

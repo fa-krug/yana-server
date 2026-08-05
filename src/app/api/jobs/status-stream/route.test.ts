@@ -18,6 +18,14 @@ vi.mock("next/headers", async () =>
   (await import("@/test/next-headers")).nextHeadersStub(requestHeaders),
 );
 
+// This test calls queue.fail() on a terminal job; without this the real
+// notification engine would run, starting a 120s debounce timer against a
+// database connection this file closes and deletes in afterEach.
+vi.mock("@/lib/email/error-notifications", () => ({
+  notifyAdmins: vi.fn(),
+  notifyJobFailure: vi.fn(),
+}));
+
 /** The real digest `redirect()` throws; not stubbed. */
 const REDIRECT = /^NEXT_REDIRECT/;
 

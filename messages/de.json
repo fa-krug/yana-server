@@ -505,6 +505,13 @@
     "fatalTitle": "Yana konnte nicht starten",
     "fatalDescription": "Die Anwendung ist vor dem Rendern fehlgeschlagen. Prüfe das Server-Log und lade die Seite neu."
   },
+  "email": {
+    "subject": "Yana: {count, plural, one {1 Fehler} other {# Fehler}}",
+    "intro": "Die folgenden Fehler sind aufgetreten:",
+    "workerEntry": "[{time}] Worker abgestürzt: {message}",
+    "schedulerEntry": "[{time}] Scheduler-Fehler: {message}",
+    "jobEntry": "[{time}] Job \"{jobKind}\" fehlgeschlagen: {message}"
+  },
   "crud": {
     "selectAll": "Alle Zeilen auf dieser Seite auswählen",
     "selectRow": "Diese Zeile auswählen",

@@ -594,6 +594,54 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   jobId-keyed, not user-keyed, and enforces no ownership of its own (see its
   module doc comment) — the filtering above is what stands between it and a
   non-admin subscribing to a job id that isn't theirs.
+- **Error-notification email has two channels, and they answer different
+  questions.** `notifyAdmins()` (`src/lib/email/error-notifications.ts`) is "is
+  this instance healthy" — it fires from `src/lib/jobs/worker.ts` on a fatal
+  worker-loop crash and from `src/lib/jobs/scheduler.ts` on a tick failure, and
+  it mails **every user whose role satisfies `isAdminRole()`** — `flushAdmins()`
+  filters on role alone and never reads `users.banned`/`banExpires`, so a
+  banned admin still gets mailed, unlike `isUsableAdmin()` in
+  `src/lib/auth/bootstrap.ts`'s admin-bootstrap check, a different path this
+  feature does not call — because those failures have no single owner and
+  every admin needs to know the whole instance may be stuck.
+  `notifyJobFailure(userId, entry)`
+  (called from `src/lib/jobs/queue.ts` on a job's terminal `failed` outcome) is
+  "did my job fail" — it mails the **job's own owner** at `jobs.userId`, not
+  the admin list, because a feed-aggregation or article-reload failure is that
+  user's problem, not an instance-health signal; only when `userId` is `null`
+  (an ownerless job, e.g. `retention`) does it fall back to the admin channel,
+  for the same "no single owner" reason `notifyAdmins()` exists. Each recipient
+  gets one locale-rendered digest via `renderDigest()`
+  (`src/lib/email/digest.ts`), read from their own `userSettings.language`, not
+  the caller's.
+  **Every channel debounces and bundles for two minutes** (`ERROR_EMAIL_DEBOUNCE_MS`,
+  default `120_000`) **before sending anything**, keyed per admin-vs-per-user
+  channel (`"__admin__"` or the job owner's id) — a `setTimeout` starts only
+  when an entry lands in an empty bucket; every entry that arrives before it
+  fires just appends to the same bucket and rides the one send. Without this, a
+  crash loop (the worker restarting and immediately re-crashing, or a burst of
+  jobs failing for the same root cause) would mail one message per failure
+  instead of one digest listing all of them. This bundles a _burst within one
+  window_ into a single email; it is not cross-window suppression or backoff
+  — a failure recurring every tick still sends one email per debounce window,
+  indefinitely (720/day at the default 2-minute window). The timer is a
+  bare `setTimeout` outside any request scope, so `flush` is wrapped in
+  `.catch()` at the call site: an unhandled rejection there would be a Node
+  warning with no request to attribute it to.
+  **`SMTP_HOST` unset is the default, and it disables the feature rather than
+  erroring** — `sendMail()` (`src/lib/email/client.ts`) logs
+  `[email] SMTP not configured; would have sent to …` and returns instead of
+  throwing, because this repo has no mail transport by default (see the
+  self-registration bullet above) and a self-hosted instance that never set
+  one up must keep running exactly as before, not fail its worker loop trying
+  to report that the worker loop failed. The full env var list, all optional
+  except the one that turns the feature on:
+  `SMTP_HOST` (unset = feature off), `SMTP_PORT` (default `587`), `SMTP_SECURE`
+  (`"true"` string check, default `false`), `SMTP_USER`/`SMTP_PASSWORD` (auth
+  omitted entirely when `SMTP_USER` is unset, rather than sent empty),
+  `EMAIL_FROM` (default `yana@localhost`), and `ERROR_EMAIL_DEBOUNCE_MS`
+  (default `120000`, above). Design record:
+  `docs/superpowers/specs/2026-08-05-error-notification-emails-design.md`.
 - **`nextCookies()` is registered last in the plugin array, and removing it
   breaks a feature silently.** Better Auth writes its cookies into
   `ctx.context.responseHeaders`; the `/api/auth/*` route turns those into a real

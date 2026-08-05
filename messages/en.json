@@ -505,6 +505,13 @@
     "fatalTitle": "Yana could not start",
     "fatalDescription": "The application failed before it could render. Check the server log, then reload."
   },
+  "email": {
+    "subject": "Yana: {count, plural, one {1 error} other {# errors}}",
+    "intro": "The following errors occurred:",
+    "workerEntry": "[{time}] Worker crashed: {message}",
+    "schedulerEntry": "[{time}] Scheduler error: {message}",
+    "jobEntry": "[{time}] Job \"{jobKind}\" failed: {message}"
+  },
   "crud": {
     "selectAll": "Select every row on this page",
     "selectRow": "Select this row",

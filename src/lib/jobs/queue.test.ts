@@ -9,6 +9,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { articles, feeds, jobs, users } from "../db/schema";
 import { applyMigrationsAt } from "../db/test-support";
 
+const notifyJobFailureMock = vi.fn();
+vi.mock("../email/error-notifications", () => ({
+  notifyAdmins: vi.fn(),
+  notifyJobFailure: notifyJobFailureMock,
+}));
+
 describe("src/lib/jobs/queue", () => {
   let dbPath: string;
   let queue: typeof import("./queue");
@@ -53,6 +59,7 @@ describe("src/lib/jobs/queue", () => {
     client = await import("../db/client");
     events = await import("../api/events");
     queue = await import("./queue");
+    notifyJobFailureMock.mockClear();
   });
 
   afterEach(() => {
@@ -176,6 +183,74 @@ describe("src/lib/jobs/queue", () => {
       const job = queue.getJob(id);
       expect(job?.status).toBe("cancelled");
       expect(job?.finishedAt).not.toBeNull();
+    });
+
+    it("notifies the run's owner on terminal failure", () => {
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(userId, "aggregate", [{ feedId: 1 }]);
+      const job = client.getDb().select().from(jobs).where(eq(jobs.runId, runId)).get()!;
+      queue.claim();
+
+      client.getDb().update(jobs).set({ attempts: 3 }).where(eq(jobs.id, job.id)).run();
+
+      queue.fail(job.id, "feed unreachable");
+
+      expect(notifyJobFailureMock).toHaveBeenCalledWith(
+        userId,
+        expect.objectContaining({
+          category: "job",
+          message: "feed unreachable",
+          jobKind: "aggregate",
+        }),
+      );
+    });
+
+    it("notifies the job's own owner on terminal failure when it has no run", () => {
+      // Regression test: scheduler.ts's most frequent job kind is enqueued via
+      // plain enqueue() with a userId but no runId (see
+      // enqueue("aggregate", { feedId }, { userId })) -- resolveJobUserId()
+      // alone returns null for that shape, since it only resolves via
+      // runs.userId or an article.reload job's feed owner. fail() must prefer
+      // the job's own jobs.userId column before falling back to it.
+      const userId = seedUserAndReturnId();
+      const id = queue.enqueue("aggregate", { feedId: 1 }, { userId, maxAttempts: 1 });
+      queue.claim();
+
+      queue.fail(id, "feed unreachable");
+
+      expect(notifyJobFailureMock).toHaveBeenCalledWith(
+        userId,
+        expect.objectContaining({
+          category: "job",
+          message: "feed unreachable",
+          jobKind: "aggregate",
+        }),
+      );
+    });
+
+    it("notifies admins instead of a user for an ownerless job's terminal failure", () => {
+      const id = queue.enqueue("retention", {}, { maxAttempts: 1 });
+      queue.claim();
+
+      queue.fail(id, "cleanup failed");
+
+      expect(notifyJobFailureMock).toHaveBeenCalledWith(
+        null,
+        expect.objectContaining({
+          category: "job",
+          message: "cleanup failed",
+          jobKind: "retention",
+        }),
+      );
+    });
+
+    it("does not notify on a retry, only on terminal failure", () => {
+      const id = queue.enqueue("noop", {}, { maxAttempts: 3 });
+      queue.claim();
+
+      queue.fail(id, "temporary error");
+
+      expect(notifyJobFailureMock).not.toHaveBeenCalled();
     });
   });
 
