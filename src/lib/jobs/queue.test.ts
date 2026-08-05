@@ -495,6 +495,24 @@ describe("src/lib/jobs/queue", () => {
       expect(received).toEqual(["boom"]);
       unsubscribe();
     });
+
+    it("still returns the persisted row when a publishJobLog subscriber throws", async () => {
+      const { subscribeJobLog } = await import("./log-bus");
+      const jobId = queue.enqueue("test.job", {});
+      const unsubscribe = subscribeJobLog(jobId, () => {
+        throw new Error("simulated subscriber failure");
+      });
+
+      // The insert already succeeded by the time the subscriber throws, so a
+      // broken live-update listener must not turn a real write into a false
+      // "the write failed" signal (null) for the caller.
+      const row = queue.appendLogLine(jobId, "stdout", "line one");
+      unsubscribe();
+
+      expect(row).not.toBeNull();
+      expect(row!.line).toBe("line one");
+      expect(queue.listJobLogs(jobId).map((l) => l.line)).toEqual(["line one"]);
+    });
   });
 
   describe("job terminal notifications", () => {
@@ -538,6 +556,52 @@ describe("src/lib/jobs/queue", () => {
       unsubscribe();
 
       expect(heard).toEqual([]);
+    });
+
+    it("survives a throwing terminal subscriber without corrupting the job it just completed", async () => {
+      const { subscribeJobTerminal } = await import("./log-bus");
+      const id = queue.enqueue("noop", {});
+      queue.claim();
+
+      // Simulates the SSE route's real failure mode: its terminal subscriber
+      // calls send(), which does controller.enqueue() -- and enqueue() throws
+      // once the controller is already closed.
+      const unsubscribe = subscribeJobTerminal(id, () => {
+        throw new Error("controller is already closed");
+      });
+
+      // Mirrors runWorkerLoop's own try/catch shape: if complete() let this
+      // escape, the worker loop's catch would call fail() on the very job
+      // that just succeeded, flipping "completed" back to "failed" and
+      // double-counting its parent run's counters.
+      try {
+        queue.complete(id);
+      } catch (err) {
+        queue.fail(id, err instanceof Error ? err : String(err));
+      }
+
+      unsubscribe();
+
+      const job = queue.getJob(id);
+      expect(job?.status).toBe("completed");
+      expect(job?.progress).toBe(100);
+    });
+
+    it("survives a throwing terminal subscriber without corrupting a job that just failed terminally", async () => {
+      const { subscribeJobTerminal } = await import("./log-bus");
+      const id = queue.enqueue("noop", {}, { maxAttempts: 1 });
+      queue.claim();
+
+      const unsubscribe = subscribeJobTerminal(id, () => {
+        throw new Error("controller is already closed");
+      });
+
+      expect(() => queue.fail(id, "fatal error")).not.toThrow();
+      unsubscribe();
+
+      const job = queue.getJob(id);
+      expect(job?.status).toBe("failed");
+      expect(job?.error).toBe("fatal error");
     });
   });
 });
