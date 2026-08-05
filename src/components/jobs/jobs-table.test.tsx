@@ -16,6 +16,7 @@ function job(overrides: Partial<Job> = {}): Job {
   return {
     id: 1,
     runId: null,
+    userId: null,
     kind: "aggregate",
     payload: {},
     status: "completed",

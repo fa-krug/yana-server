@@ -45,6 +45,14 @@ export const jobs = sqliteTable(
     id: integer("id").primaryKey({ autoIncrement: true }),
     /** Set when this job was enqueued as part of a run (phase 13's aggregate trigger). */
     runId: integer("run_id").references(() => runs.id, { onDelete: "set null" }),
+    /**
+     * The job's owning user, for restricting `/jobs`/`/jobs/[id]` to a user's
+     * own jobs (admins see all -- see `isAdminRole()`). Nullable: `retention`
+     * runs once per tick and processes every user internally, so it has no
+     * single owner. `onDelete: "set null"`, not cascade -- matches `runId`'s
+     * precedent of letting a job row outlive the thing that created it.
+     */
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
     kind: text("kind").notNull(),
     payload: text("payload", { mode: "json" })
       .notNull()
@@ -71,6 +79,7 @@ export const jobs = sqliteTable(
     index("jobs_claim_idx").on(table.status, table.runAt),
     index("jobs_kind_idx").on(table.kind),
     index("jobs_run_idx").on(table.runId),
+    index("jobs_user_idx").on(table.userId),
     /**
      * No Django precedent -- this table is new -- but the same hazard as
      * `feeds.options`: a malformed JSON write that the database accepts turns

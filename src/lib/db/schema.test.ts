@@ -335,6 +335,42 @@ describe("job logs", () => {
   });
 });
 
+describe("job ownership", () => {
+  it("adds a nullable user_id column to jobs, with an index", () => {
+    const connection = freshDatabase();
+    const cols = connection.pragma("table_info(jobs)") as { name: string; notnull: number }[];
+    const userIdCol = cols.find((c) => c.name === "user_id");
+    expect(userIdCol).toBeDefined();
+    expect(userIdCol!.notnull).toBe(0);
+
+    const indexNames = connection
+      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='jobs'")
+      .all()
+      .map((row) => (row as { name: string }).name);
+    expect(indexNames).toContain("jobs_user_idx");
+    connection.close();
+  });
+
+  it("sets a job's user_id to null (not deleting the row) when the owning user is deleted", () => {
+    const connection = freshDatabase();
+    connection.exec(`
+      INSERT INTO users (id, email) VALUES ('u1', 'a@b.c');
+      INSERT INTO jobs (id, kind, user_id) VALUES (1, 'aggregate', 'u1');
+    `);
+
+    connection.exec("DELETE FROM users WHERE id = 'u1'");
+
+    const job = connection.prepare("SELECT user_id FROM jobs WHERE id = 1").get() as
+      | {
+          user_id: string | null;
+        }
+      | undefined;
+    expect(job).toBeDefined();
+    expect(job!.user_id).toBeNull();
+    connection.close();
+  });
+});
+
 describe("updatedAt", () => {
   // `DEFAULT (unixepoch())` only covers the insert; Django's `auto_now=True`
   // rewrote the column on every save. `$onUpdate` is the port of that, and it
