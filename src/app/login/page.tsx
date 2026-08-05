@@ -3,7 +3,7 @@ import { connection } from "next/server";
 
 import { LoginForm } from "@/components/auth/login-form";
 import { safeNextPath } from "@/lib/auth/next-path";
-import { currentUser } from "@/lib/auth/session";
+import { currentUserFresh } from "@/lib/auth/session";
 
 /**
  * The sign-in page. Deliberately outside the `(app)` route group: that group's
@@ -35,10 +35,15 @@ export default async function LoginPage({
   // screen to a user who is already authenticated. Sending them to `next`
   // rather than always to "/" makes /login?next=/settings idempotent.
   //
-  // `currentUser()`, not `requireUser()`: the whole point here is that no
-  // session is the *normal* case, and requireUser() would redirect it back to
-  // this page.
-  if (await currentUser()) redirect(next);
+  // `currentUserFresh()`, not `currentUser()` or `requireUser()`:
+  // requireUser() would redirect a no-session visitor back to this page, and
+  // currentUser()'s cookie-cached read cannot tell a stale cookie (naming a
+  // user whose row -- and cascade-deleted session row -- is already gone)
+  // from a real one. The (app) layout's currentUserRow() redirects here on
+  // exactly that staleness, and trusting the cache here would bounce straight
+  // back to "/" and loop forever instead of showing the sign-in form. See the
+  // comment on currentUserFresh().
+  if (await currentUserFresh()) redirect(next);
 
   return (
     <main className="flex min-h-svh items-center justify-center p-6">

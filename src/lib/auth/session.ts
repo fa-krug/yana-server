@@ -55,6 +55,31 @@ export const currentUser = cache(async (): Promise<User | null> => {
   return session ? asUser(session.user) : null;
 });
 
+/**
+ * Like `currentUser()`, but never served from the stale cookie cache.
+ *
+ * `currentUser()` trusts `session.cookieCache`'s signature alone, so a stale
+ * cookie -- naming an id whose `users` row (and `sessions` row, cascade-
+ * deleted along with it) is already gone -- still reads as "signed in" for
+ * up to five minutes. `/login`'s "already signed in, skip the form" check is
+ * the one place that staleness turns into a loop rather than a stale value:
+ * `currentUserRow()` on the (app) layout catches the missing row with a real
+ * database read and redirects here, and this page trusting the same cache
+ * would see the same stale "signed in" and bounce straight back to `/` --
+ * which fails the same check and redirects here again, forever, until the
+ * cookie cache's own five-minute window finally expires. Measured, not
+ * theoretical: this is what produced an actual `/` <-> `/login` loop. A fresh
+ * read forces the database lookup Better Auth's session endpoint does, which
+ * answers null immediately because the underlying `sessions` row is gone too.
+ */
+export async function currentUserFresh(): Promise<User | null> {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+    query: { disableCookieCache: true },
+  });
+  return session ? asUser(session.user) : null;
+}
+
 /** The signed-in user, or a redirect to the login page. */
 export async function requireUser(): Promise<User> {
   const user = await currentUser();

@@ -124,6 +124,44 @@ describe("the session helpers", () => {
     });
   });
 
+  describe("currentUserFresh", () => {
+    it("returns the signed-in user", async () => {
+      requestAs(await signInCookie(auth, ADMIN));
+
+      await expect(session.currentUserFresh()).resolves.toMatchObject({ email: ADMIN.email });
+    });
+
+    it("is null when there is no session", async () => {
+      await expect(session.currentUserFresh()).resolves.toBe(null);
+    });
+
+    it("is null once the user's row (and their cascade-deleted session row) is gone, unlike the cached currentUser()", async () => {
+      // This is the loop /login used to have with the (app) layout's
+      // currentUserRow(): that redirects here on a real database miss, and if
+      // this page trusted the same signature-only cookie cache as
+      // currentUser(), it would see the same stale "signed in" and bounce
+      // straight back -- forever, until the cache's own five-minute window
+      // expired.
+      const member = await seedMember();
+      requestAs(member.cookie);
+
+      client.writeTransaction((tx) => {
+        tx.delete(schema.users).where(eq(schema.users.id, member.id)).run();
+      });
+
+      // The cached read still reports a signed-in user -- session.cookieCache
+      // trusts its own signature alone, with no database read. Asserted, not
+      // assumed: if the cookie cache were off, the check below would pass for
+      // the wrong reason and this test would prove nothing.
+      await expect(session.currentUser()).resolves.toMatchObject({ email: MEMBER.email });
+
+      // currentUserFresh() forces the database read Better Auth's session
+      // endpoint does; the sessions row was cascade-deleted with the user, so
+      // it correctly answers null instead of reporting a signed-in user.
+      await expect(session.currentUserFresh()).resolves.toBe(null);
+    });
+  });
+
   describe("currentUserId", () => {
     it("resolves whoever is signed in, not the oldest administrator", async () => {
       // The interim body this replaced returned the first admin regardless of
