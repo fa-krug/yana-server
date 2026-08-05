@@ -40,7 +40,7 @@ export function Pagination({
   const to = Math.min(page * pageSize, total);
 
   return (
-    <nav aria-label={t("pagination")} className="flex items-center justify-between gap-2">
+    <nav aria-label={t("pagination")} className="flex flex-wrap items-center justify-between gap-2">
       <p className="text-sm text-muted-foreground">{t("range", { from, to, total })}</p>
       <div className="flex items-center gap-2">
         <PageLink

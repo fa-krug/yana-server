@@ -25,6 +25,13 @@ export type Column<T> = {
   header: string;
   cell: (row: T) => React.ReactNode;
   sortable?: boolean;
+  /**
+   * Applied to both the header and body cell -- a caller's escape hatch for
+   * hiding a lower-priority column below a breakpoint (`"hidden sm:table-cell"`)
+   * rather than letting every column force the table into a horizontal scroll
+   * on a phone. Optional: a column with none behaves exactly as before.
+   */
+  className?: string;
 };
 
 /**
@@ -85,6 +92,7 @@ export function DataTable<T>({
           {columns.map((column) => (
             <TableHead
               key={column.key}
+              className={column.className}
               // Announced by screen readers, and the only machine-readable
               // record of which column the list is ordered by. Only on columns
               // that can actually be sorted: `aria-sort="none"` on a fixed
@@ -139,7 +147,9 @@ export function DataTable<T>({
                   />
                 </TableCell>
                 {columns.map((column) => (
-                  <TableCell key={column.key}>{column.cell(row)}</TableCell>
+                  <TableCell key={column.key} className={column.className}>
+                    {column.cell(row)}
+                  </TableCell>
                 ))}
               </TableRow>
             );
