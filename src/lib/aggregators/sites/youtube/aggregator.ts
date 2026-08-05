@@ -265,7 +265,10 @@ export class YouTubeAggregator extends BaseAggregator {
   }
 
   buildContentHtml(description: string, comments: YouTubeCommentThread[], videoId: string): string {
-    const formattedDescription = description.replace(/\n/g, "<br>");
+    // The description is plain text from the API and channel-owner-controlled, so it must be
+    // escaped before splicing it into HTML -- a raw `<script>`/`onerror=` payload here would be
+    // a stored XSS served verbatim through GET /api/v1/articles/[id]/content.
+    const formattedDescription = escapeHtml(description).replace(/\n/g, "<br>");
     let htmlContent = `<div class="youtube-description">${formattedDescription}</div>`;
 
     if (comments && comments.length > 0) {
