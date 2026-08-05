@@ -111,6 +111,49 @@ describe("src/lib/jobs/worker", () => {
     expect(job?.error).toContain("timed out");
   });
 
+  it("logs lifecycle markers around a handler's execution, without capturing its console output", async () => {
+    handlers.registerHandler("logging.job", async () => {
+      console.log("this should not appear in the job's log");
+    });
+
+    const id = queue.enqueue("logging.job", {}, { maxAttempts: 1 });
+
+    const loopPromise = worker.runWorkerLoop({ pollIntervalMs: 50 });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    worker.stopWorker();
+    await loopPromise;
+
+    const lines = queue.listJobLogs(id).map((l) => ({ stream: l.stream, line: l.line }));
+    expect(lines).toEqual([
+      { stream: "stdout", line: "job started (attempt 1/1)" },
+      { stream: "stdout", line: "job completed" },
+    ]);
+  });
+
+  it("logs a failed handler's full stack trace as stderr lines", async () => {
+    handlers.registerHandler("failing.logged.job", async () => {
+      throw new Error("kaboom");
+    });
+
+    const id = queue.enqueue("failing.logged.job", {}, { maxAttempts: 1 });
+
+    const loopPromise = worker.runWorkerLoop({ pollIntervalMs: 50 });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    worker.stopWorker();
+    await loopPromise;
+
+    const lines = queue.listJobLogs(id);
+    expect(lines[0]).toMatchObject({
+      stream: "stdout",
+      line: "job started (attempt 1/1)",
+    });
+    const stderrLines = lines.slice(1);
+    expect(stderrLines.every((l) => l.stream === "stderr")).toBe(true);
+    expect(stderrLines[0]!.line).toContain("kaboom");
+    // A real Error's .stack includes a "at ..." frame beneath the message.
+    expect(stderrLines.some((l) => l.line.includes("at "))).toBe(true);
+  });
+
   it("guards against starting multiple worker loops", () => {
     worker.startWorker();
     expect(worker.isWorkerRunning()).toBe(true);

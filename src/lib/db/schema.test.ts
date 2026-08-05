@@ -301,6 +301,76 @@ describe("phase 13 additive schema", () => {
   });
 });
 
+describe("job logs", () => {
+  it("creates job_logs as a selectable table", () => {
+    const { connection, db } = freshDrizzle();
+    expect(() => db.select().from(schema.jobLogs).all()).not.toThrow();
+    connection.close();
+  });
+
+  it("rejects a stream value outside stdout/stderr", () => {
+    const connection = freshDatabase();
+    connection.exec("INSERT INTO jobs (kind) VALUES ('k')");
+
+    expect(() =>
+      connection.exec("INSERT INTO job_logs (job_id, stream, line) VALUES (1, 'bogus', 'x')"),
+    ).toThrow(/CHECK constraint failed/);
+    expect(() =>
+      connection.exec("INSERT INTO job_logs (job_id, stream, line) VALUES (1, 'stdout', 'ok')"),
+    ).not.toThrow();
+    connection.close();
+  });
+
+  it("cascades a deleted job's log lines away", () => {
+    const connection = freshDatabase();
+    connection.exec(`
+      INSERT INTO jobs (kind) VALUES ('k');
+      INSERT INTO job_logs (job_id, stream, line) VALUES (1, 'stdout', 'hello');
+      INSERT INTO job_logs (job_id, stream, line) VALUES (1, 'stderr', 'world');
+    `);
+
+    connection.exec("DELETE FROM jobs WHERE id = 1");
+    expect(count(connection, "job_logs")).toBe(0);
+    connection.close();
+  });
+});
+
+describe("job ownership", () => {
+  it("adds a nullable user_id column to jobs, with an index", () => {
+    const connection = freshDatabase();
+    const cols = connection.pragma("table_info(jobs)") as { name: string; notnull: number }[];
+    const userIdCol = cols.find((c) => c.name === "user_id");
+    expect(userIdCol).toBeDefined();
+    expect(userIdCol!.notnull).toBe(0);
+
+    const indexNames = connection
+      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='jobs'")
+      .all()
+      .map((row) => (row as { name: string }).name);
+    expect(indexNames).toContain("jobs_user_idx");
+    connection.close();
+  });
+
+  it("sets a job's user_id to null (not deleting the row) when the owning user is deleted", () => {
+    const connection = freshDatabase();
+    connection.exec(`
+      INSERT INTO users (id, email) VALUES ('u1', 'a@b.c');
+      INSERT INTO jobs (id, kind, user_id) VALUES (1, 'aggregate', 'u1');
+    `);
+
+    connection.exec("DELETE FROM users WHERE id = 'u1'");
+
+    const job = connection.prepare("SELECT user_id FROM jobs WHERE id = 1").get() as
+      | {
+          user_id: string | null;
+        }
+      | undefined;
+    expect(job).toBeDefined();
+    expect(job!.user_id).toBeNull();
+    connection.close();
+  });
+});
+
 describe("updatedAt", () => {
   // `DEFAULT (unixepoch())` only covers the insert; Django's `auto_now=True`
   // rewrote the column on every save. `$onUpdate` is the port of that, and it

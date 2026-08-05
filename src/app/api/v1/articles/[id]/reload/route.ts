@@ -41,7 +41,7 @@ export async function POST(
 
       const inserted = tx
         .insert(jobs)
-        .values({ kind: "article.reload", payload: { articleId } })
+        .values({ kind: "article.reload", payload: { articleId }, userId: user.id })
         .returning({ id: jobs.id })
         .get();
       return inserted.id;

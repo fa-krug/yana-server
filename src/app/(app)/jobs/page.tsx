@@ -4,14 +4,16 @@ import { getTranslations } from "next-intl/server";
 import { SearchFilterBar } from "@/components/crud/search-filter-bar";
 import { TableSkeleton } from "@/components/data-skeleton";
 import { JobsTable } from "@/components/jobs/jobs-table";
-import { requireUser } from "@/lib/auth/session";
+import { isAdminRole } from "@/lib/auth/roles";
+import { requireUserFreshRole } from "@/lib/auth/session";
 import { parseListParams, type ListParams } from "@/lib/crud/params";
 import { listJobs } from "@/lib/jobs/queue";
 
-async function JobsData({ params }: { params: ListParams }) {
+async function JobsData({ params, userId }: { params: ListParams; userId?: string }) {
   const { jobs, total } = listJobs({
     kind: params.filters.kind,
     status: params.filters.status,
+    userId,
     limit: params.pageSize,
     offset: (params.page - 1) * params.pageSize,
   });
@@ -24,7 +26,8 @@ export default async function JobsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireUser();
+  const user = await requireUserFreshRole();
+  const admin = isAdminRole(user.role);
 
   const params = parseListParams(await searchParams);
   const t = await getTranslations("jobs");
@@ -38,7 +41,7 @@ export default async function JobsPage({
       <SearchFilterBar placeholder={t("filterKind")} />
 
       <Suspense key={JSON.stringify(params)} fallback={<TableSkeleton columns={6} />}>
-        <JobsData params={params} />
+        <JobsData params={params} userId={admin ? undefined : user.id} />
       </Suspense>
     </div>
   );

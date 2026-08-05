@@ -79,6 +79,40 @@ describe("src/lib/jobs/scheduler", () => {
     expect(jobList2.length).toBe(1);
   });
 
+  it("stamps a scheduled aggregate job with its feed's userId", async () => {
+    let feedId = 0;
+    let userId = "";
+    client.writeTransaction((db) => {
+      let user = db.select().from(schema.users).limit(1).get();
+      if (!user) {
+        db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+        user = db.select().from(schema.users).limit(1).get();
+      }
+      userId = user!.id;
+
+      const inserted = db
+        .insert(schema.feeds)
+        .values({
+          name: "Test Feed",
+          aggregator: "full_website",
+          userId,
+          enabled: true,
+        })
+        .returning({ id: schema.feeds.id })
+        .get();
+      feedId = inserted.id;
+
+      const oneHourAgoSec = Math.floor((Date.now() - 3_600_000) / 1000);
+      db.run(sql`UPDATE feeds SET updated_at = ${oneHourAgoSec} WHERE id = ${feedId}`);
+    });
+
+    await scheduler.tick();
+
+    const enqueued = queue.listJobs({ kind: "aggregate" }).jobs[0];
+    expect(enqueued?.payload).toEqual({ feedId });
+    expect(enqueued?.userId).toBe(userId);
+  });
+
   it("enqueues daily retention job and deduplicates", async () => {
     await scheduler.tick();
 

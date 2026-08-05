@@ -393,4 +393,215 @@ describe("src/lib/jobs/queue", () => {
       expect(heard).toHaveLength(0);
     });
   });
+
+  describe("job ownership", () => {
+    it("enqueue() stores an explicit userId when given one", () => {
+      const userId = seedUserAndReturnId();
+      const id = queue.enqueue("test.job", {}, { userId });
+      expect(queue.getJob(id)?.userId).toBe(userId);
+    });
+
+    it("enqueue() leaves userId null when none is given", () => {
+      const id = queue.enqueue("test.job", {});
+      expect(queue.getJob(id)?.userId).toBeNull();
+    });
+
+    it("enqueueRun() stamps every job it creates with the run's userId", () => {
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(userId, "aggregate", [{ feedId: 1 }, { feedId: 2 }]);
+      const { jobs: jobList } = queue.listJobs({});
+      const runJobs = jobList.filter((j) => j.runId === runId);
+      expect(runJobs).toHaveLength(2);
+      expect(runJobs.every((j) => j.userId === userId)).toBe(true);
+    });
+
+    it("listJobs() filters by userId when given one", () => {
+      const userId1 = seedUserAndReturnId();
+      const userId2 = seedUserAndReturnId();
+      queue.enqueue("test.job", {}, { userId: userId1 });
+      queue.enqueue("test.job", {}, { userId: userId2 });
+      queue.enqueue("test.job", {}); // no owner
+
+      const forUser1 = queue.listJobs({ userId: userId1 });
+      expect(forUser1.total).toBe(1);
+      expect(forUser1.jobs[0]!.userId).toBe(userId1);
+    });
+
+    it("listJobs() with no userId returns every job regardless of owner", () => {
+      const userId1 = seedUserAndReturnId();
+      const userId2 = seedUserAndReturnId();
+      queue.enqueue("test.job", {}, { userId: userId1 });
+      queue.enqueue("test.job", {}, { userId: userId2 });
+      queue.enqueue("test.job", {});
+
+      expect(queue.listJobs({}).total).toBe(3);
+    });
+  });
+
+  describe("appendLogLine / listJobLogs", () => {
+    it("persists a line and returns it back from listJobLogs", () => {
+      const jobId = queue.enqueue("test.job", {});
+
+      const row = queue.appendLogLine(jobId, "stdout", "hello");
+
+      expect(row).not.toBeNull();
+      expect(row!.jobId).toBe(jobId);
+      expect(row!.stream).toBe("stdout");
+      expect(row!.line).toBe("hello");
+
+      const lines = queue.listJobLogs(jobId);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toEqual(row);
+    });
+
+    it("does not throw when the underlying write fails, and returns null", () => {
+      const jobId = queue.enqueue("test.job", {});
+      const connection = (client.getDb() as unknown as { $client: Database.Database }).$client;
+      connection.close();
+
+      expect(() => queue.appendLogLine(jobId, "stdout", "should not throw")).not.toThrow();
+      expect(queue.appendLogLine(jobId, "stdout", "still should not throw")).toBeNull();
+    });
+
+    it("orders lines by id and respects the afterId cursor", () => {
+      const jobId = queue.enqueue("test.job", {});
+      const first = queue.appendLogLine(jobId, "stdout", "one");
+      queue.appendLogLine(jobId, "stdout", "two");
+      const third = queue.appendLogLine(jobId, "stdout", "three");
+
+      expect(queue.listJobLogs(jobId).map((l) => l.line)).toEqual(["one", "two", "three"]);
+      expect(queue.listJobLogs(jobId, first!.id).map((l) => l.line)).toEqual(["two", "three"]);
+      expect(queue.listJobLogs(jobId, third!.id)).toEqual([]);
+    });
+
+    it("keeps different jobs' lines apart", () => {
+      const jobA = queue.enqueue("test.job", {});
+      const jobB = queue.enqueue("test.job", {});
+      queue.appendLogLine(jobA, "stdout", "a-line");
+      queue.appendLogLine(jobB, "stdout", "b-line");
+
+      expect(queue.listJobLogs(jobA).map((l) => l.line)).toEqual(["a-line"]);
+      expect(queue.listJobLogs(jobB).map((l) => l.line)).toEqual(["b-line"]);
+    });
+
+    it("publishes on the job log bus when a line is appended", async () => {
+      const { subscribeJobLog } = await import("./log-bus");
+      const jobId = queue.enqueue("test.job", {});
+      const received: string[] = [];
+      const unsubscribe = subscribeJobLog(jobId, (line) => received.push(line.line));
+
+      queue.appendLogLine(jobId, "stderr", "boom");
+
+      expect(received).toEqual(["boom"]);
+      unsubscribe();
+    });
+
+    it("still returns the persisted row when a publishJobLog subscriber throws", async () => {
+      const { subscribeJobLog } = await import("./log-bus");
+      const jobId = queue.enqueue("test.job", {});
+      const unsubscribe = subscribeJobLog(jobId, () => {
+        throw new Error("simulated subscriber failure");
+      });
+
+      // The insert already succeeded by the time the subscriber throws, so a
+      // broken live-update listener must not turn a real write into a false
+      // "the write failed" signal (null) for the caller.
+      const row = queue.appendLogLine(jobId, "stdout", "line one");
+      unsubscribe();
+
+      expect(row).not.toBeNull();
+      expect(row!.line).toBe("line one");
+      expect(queue.listJobLogs(jobId).map((l) => l.line)).toEqual(["line one"]);
+    });
+  });
+
+  describe("job terminal notifications", () => {
+    it("publishes a completed terminal notification when complete() runs", async () => {
+      const { subscribeJobTerminal } = await import("./log-bus");
+      const id = queue.enqueue("noop", {});
+      queue.claim();
+
+      const heard: unknown[] = [];
+      const unsubscribe = subscribeJobTerminal(id, (status) => heard.push(status));
+
+      queue.complete(id);
+      unsubscribe();
+
+      expect(heard).toEqual(["completed"]);
+    });
+
+    it("publishes a failed terminal notification when fail() exhausts maxAttempts", async () => {
+      const { subscribeJobTerminal } = await import("./log-bus");
+      const id = queue.enqueue("noop", {}, { maxAttempts: 1 });
+      queue.claim();
+
+      const heard: unknown[] = [];
+      const unsubscribe = subscribeJobTerminal(id, (status) => heard.push(status));
+
+      queue.fail(id, "fatal error");
+      unsubscribe();
+
+      expect(heard).toEqual(["failed"]);
+    });
+
+    it("publishes no terminal notification when fail() only backs off for a retry", async () => {
+      const { subscribeJobTerminal } = await import("./log-bus");
+      const id = queue.enqueue("noop", {}, { maxAttempts: 3 });
+      queue.claim();
+
+      const heard: unknown[] = [];
+      const unsubscribe = subscribeJobTerminal(id, (status) => heard.push(status));
+
+      queue.fail(id, "temporary error");
+      unsubscribe();
+
+      expect(heard).toEqual([]);
+    });
+
+    it("survives a throwing terminal subscriber without corrupting the job it just completed", async () => {
+      const { subscribeJobTerminal } = await import("./log-bus");
+      const id = queue.enqueue("noop", {});
+      queue.claim();
+
+      // Simulates the SSE route's real failure mode: its terminal subscriber
+      // calls send(), which does controller.enqueue() -- and enqueue() throws
+      // once the controller is already closed.
+      const unsubscribe = subscribeJobTerminal(id, () => {
+        throw new Error("controller is already closed");
+      });
+
+      // Mirrors runWorkerLoop's own try/catch shape: if complete() let this
+      // escape, the worker loop's catch would call fail() on the very job
+      // that just succeeded, flipping "completed" back to "failed" and
+      // double-counting its parent run's counters.
+      try {
+        queue.complete(id);
+      } catch (err) {
+        queue.fail(id, err instanceof Error ? err : String(err));
+      }
+
+      unsubscribe();
+
+      const job = queue.getJob(id);
+      expect(job?.status).toBe("completed");
+      expect(job?.progress).toBe(100);
+    });
+
+    it("survives a throwing terminal subscriber without corrupting a job that just failed terminally", async () => {
+      const { subscribeJobTerminal } = await import("./log-bus");
+      const id = queue.enqueue("noop", {}, { maxAttempts: 1 });
+      queue.claim();
+
+      const unsubscribe = subscribeJobTerminal(id, () => {
+        throw new Error("controller is already closed");
+      });
+
+      expect(() => queue.fail(id, "fatal error")).not.toThrow();
+      unsubscribe();
+
+      const job = queue.getJob(id);
+      expect(job?.status).toBe("failed");
+      expect(job?.error).toBe("fatal error");
+    });
+  });
 });

@@ -6,6 +6,7 @@ import { writeBlocks } from "@/lib/aggregators/blocks/storage";
 import { createAggregator } from "@/lib/aggregators/factory";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, feeds, type Job } from "@/lib/db/schema";
+import { appendLogLine } from "../queue";
 
 /**
  * `article.rawContent` is the whole fetched page for a full-website
@@ -18,14 +19,23 @@ import { articles, feeds, type Job } from "@/lib/db/schema";
  */
 export async function handleReloadJob(job: Job): Promise<void> {
   const articleId = Number(job.payload?.articleId);
-  if (!articleId) return;
+  if (!articleId) {
+    appendLogLine(job.id, "stdout", "no articleId in payload, skipping");
+    return;
+  }
 
   const db = getDb();
   const article = db.select().from(articles).where(eq(articles.id, articleId)).get();
-  if (!article || !article.rawContent) return;
+  if (!article || !article.rawContent) {
+    appendLogLine(job.id, "stdout", "article not found or has no stored content, skipping");
+    return;
+  }
 
   const feed = db.select().from(feeds).where(eq(feeds.id, article.feedId)).get();
-  if (!feed) return;
+  if (!feed) {
+    appendLogLine(job.id, "stdout", "article's feed not found, skipping");
+    return;
+  }
 
   const aggregator = createAggregator(feed);
   const rawArticle: RawArticle = {
@@ -54,4 +64,6 @@ export async function handleReloadJob(job: Job): Promise<void> {
       .where(eq(articles.id, article.id))
       .run();
   });
+
+  appendLogLine(job.id, "stdout", "reloaded article content");
 }

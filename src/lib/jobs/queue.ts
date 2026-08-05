@@ -1,13 +1,15 @@
-import { and, asc, count, desc, eq, lte, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, lte, sql } from "drizzle-orm";
 
 import { publishUserEvent } from "../api/events";
 import { getDb, writeTransaction } from "../db/client";
-import { articles, feeds, jobs, runs } from "../db/schema";
-import type { Job, Run } from "../db/schema";
+import { articles, feeds, jobLogs, jobs, runs } from "../db/schema";
+import type { Job, JobLog, Run } from "../db/schema";
+import { publishJobLog, publishJobTerminal } from "./log-bus";
 
 export interface EnqueueOptions {
   runAt?: Date;
   maxAttempts?: number;
+  userId?: string;
 }
 
 export function enqueue(
@@ -24,6 +26,7 @@ export function enqueue(
         status: "pending",
         runAt: options?.runAt ?? new Date(),
         maxAttempts: options?.maxAttempts ?? 3,
+        userId: options?.userId,
       })
       .returning({ id: jobs.id })
       .get();
@@ -85,7 +88,10 @@ export function complete(id: number): void {
     return current;
   });
 
-  if (job) publishJobOutcome({ ...job, status: "completed", progress: 100 }, "completed");
+  if (job) {
+    publishJobOutcome({ ...job, status: "completed", progress: 100 }, "completed");
+    publishJobTerminal(id, "completed");
+  }
 }
 
 export function fail(id: number, error: string | Error): void {
@@ -131,6 +137,7 @@ export function fail(id: number, error: string | Error): void {
 
   if (outcome?.terminal) {
     publishJobOutcome({ ...outcome.job, status: "failed" }, "failed");
+    publishJobTerminal(id, "failed");
   }
 }
 
@@ -188,7 +195,7 @@ export function enqueueRun(
 
     if (!isEmpty) {
       db.insert(jobs)
-        .values(payloads.map((payload) => ({ kind, payload, runId: run.id })))
+        .values(payloads.map((payload) => ({ kind, payload, runId: run.id, userId })))
         .run();
     }
 
@@ -328,6 +335,7 @@ export function getJob(id: number): Job | null {
 export interface ListJobsOptions {
   kind?: string;
   status?: string;
+  userId?: string;
   limit?: number;
   offset?: number;
 }
@@ -343,6 +351,9 @@ export function listJobs(options: ListJobsOptions = {}): { jobs: Job[]; total: n
     }
     if (options.status) {
       conditions.push(eq(jobs.status, options.status));
+    }
+    if (options.userId) {
+      conditions.push(eq(jobs.userId, options.userId));
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -363,4 +374,52 @@ export function listJobs(options: ListJobsOptions = {}): { jobs: Job[]; total: n
       total: countResult?.value ?? 0,
     };
   });
+}
+
+export type JobLogStream = "stdout" | "stderr";
+
+/**
+ * Appends one log line to `jobId`'s log and publishes it on the job log bus for
+ * any live SSE viewer. Never throws: a write failure (e.g. the database is busy)
+ * is caught and reported to the real `console.error`, never allowed to fail the
+ * job it's describing. Every caller -- `worker.ts`'s lifecycle markers and each
+ * handler's own calls alike -- gets this safety for free, with nothing to
+ * remember at the call site.
+ *
+ * The insert and the publish are deliberately two separate `try` blocks, not
+ * one spanning both: by the time `publishJobLog()` runs, the write has already
+ * committed, so a throwing subscriber (a closed SSE controller, say) must not
+ * turn a successful write into a false "the write failed" signal -- a `null`
+ * return -- for this function's caller. Catching it separately means the row
+ * is still handed back, and it means a broken subscriber can never make this
+ * function's *return value* lie about whether the log line was persisted.
+ */
+export function appendLogLine(jobId: number, stream: JobLogStream, line: string): JobLog | null {
+  let row: JobLog;
+  try {
+    row = writeTransaction((db) => {
+      return db.insert(jobLogs).values({ jobId, stream, line }).returning().get();
+    });
+  } catch (err) {
+    console.error(`[queue] failed to append log line for job ${jobId}:`, err);
+    return null;
+  }
+
+  try {
+    publishJobLog(jobId, row);
+  } catch (err) {
+    console.error(`[queue] failed to publish log line for job ${jobId}:`, err);
+  }
+
+  return row;
+}
+
+/** Every log line for `jobId`, ordered oldest first, after `afterId` (exclusive). */
+export function listJobLogs(jobId: number, afterId = 0): JobLog[] {
+  return getDb()
+    .select()
+    .from(jobLogs)
+    .where(and(eq(jobLogs.jobId, jobId), gt(jobLogs.id, afterId)))
+    .orderBy(asc(jobLogs.id))
+    .all();
 }

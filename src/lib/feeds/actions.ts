@@ -243,6 +243,7 @@ export async function createFeed(
         .values({
           kind: "feed.logo",
           payload: { feedId: feed.id },
+          userId,
         })
         .run();
 
@@ -428,6 +429,7 @@ export async function refreshLogos(ids: number[]): Promise<{ ok: boolean; enqueu
           validFeeds.map((f) => ({
             kind: "feed.logo",
             payload: { feedId: f.id },
+            userId,
           })),
         )
         .run();
@@ -475,6 +477,7 @@ export async function restoreFeedsBulk(ids: number[]): Promise<{ ok: boolean; en
           validFeeds.map((f) => ({
             kind: "feed.restore",
             payload: { feedId: f.id },
+            userId,
           })),
         )
         .run();

@@ -22,7 +22,11 @@
     "filterStatus": "Status filtern",
     "filterKind": "Art filtern",
     "all": "Alle",
-    "noJobs": "Keine Aufgaben gefunden."
+    "noJobs": "Keine Aufgaben gefunden.",
+    "log": "Protokoll",
+    "logEmpty": "Noch keine Protokollausgabe.",
+    "logEnded": "Auftrag beendet — Protokoll beendet.",
+    "detailTitle": "Auftrag #{id}"
   },
   "auth": {
     "signIn": "Anmelden",

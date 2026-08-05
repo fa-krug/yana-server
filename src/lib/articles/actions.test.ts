@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import Database from "better-sqlite3";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { signInCookie } from "@/lib/auth/test-support";
@@ -205,6 +206,25 @@ describe("articles actions", () => {
 
       expect(await queries.getArticle(art1.id)).toBeNull();
       expect(await queries.getArticle(art2.id)).toBeNull();
+    });
+  });
+
+  describe("reloadArticles", () => {
+    it("records the acting user on the article.reload job it enqueues", async () => {
+      const userId = await currentUserId();
+      const feedId = seedFeed();
+      const art = seedArticle(feedId);
+
+      const result = await actions.reloadArticles([art.id]);
+      expect(result).toEqual({ ok: true, enqueued: 1, runId: expect.any(Number) });
+
+      const job = client
+        .getDb()
+        .select({ userId: schema.jobs.userId })
+        .from(schema.jobs)
+        .where(eq(schema.jobs.kind, "article.reload"))
+        .get();
+      expect(job?.userId).toBe(userId);
     });
   });
 

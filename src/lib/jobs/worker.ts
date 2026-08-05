@@ -1,4 +1,4 @@
-import { claim, complete, fail, resetOrphaned } from "./queue";
+import { appendLogLine, claim, complete, fail, resetOrphaned } from "./queue";
 import { getHandler } from "./handlers";
 
 const WORKER_STARTED = Symbol.for("yana.worker.started");
@@ -61,10 +61,16 @@ export async function runWorkerLoop(options?: {
       continue;
     }
 
+    appendLogLine(job.id, "stdout", `job started (attempt ${job.attempts}/${job.maxAttempts})`);
     try {
       await withTimeout(handler(job), timeoutMs);
+      appendLogLine(job.id, "stdout", "job completed");
       complete(job.id);
     } catch (err) {
+      const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+      for (const line of detail.split("\n")) {
+        appendLogLine(job.id, "stderr", line);
+      }
       fail(job.id, err instanceof Error ? err : String(err));
     }
   }

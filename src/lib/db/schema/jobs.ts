@@ -45,6 +45,14 @@ export const jobs = sqliteTable(
     id: integer("id").primaryKey({ autoIncrement: true }),
     /** Set when this job was enqueued as part of a run (phase 13's aggregate trigger). */
     runId: integer("run_id").references(() => runs.id, { onDelete: "set null" }),
+    /**
+     * The job's owning user, for restricting `/jobs`/`/jobs/[id]` to a user's
+     * own jobs (admins see all -- see `isAdminRole()`). Nullable: `retention`
+     * runs once per tick and processes every user internally, so it has no
+     * single owner. `onDelete: "set null"`, not cascade -- matches `runId`'s
+     * precedent of letting a job row outlive the thing that created it.
+     */
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
     kind: text("kind").notNull(),
     payload: text("payload", { mode: "json" })
       .notNull()
@@ -71,6 +79,7 @@ export const jobs = sqliteTable(
     index("jobs_claim_idx").on(table.status, table.runAt),
     index("jobs_kind_idx").on(table.kind),
     index("jobs_run_idx").on(table.runId),
+    index("jobs_user_idx").on(table.userId),
     /**
      * No Django precedent -- this table is new -- but the same hazard as
      * `feeds.options`: a malformed JSON write that the database accepts turns
@@ -84,3 +93,40 @@ export const jobs = sqliteTable(
 
 export type Job = typeof jobs.$inferSelect;
 export type NewJob = typeof jobs.$inferInsert;
+
+/**
+ * One row per log line for a job's run, appended via `appendLogLine()`
+ * (`src/lib/jobs/queue.ts`) -- `src/lib/jobs/worker.ts`'s own lifecycle markers
+ * (job started/completed, and a failed handler's stack trace) and, starting
+ * with the next task in this plan, explicit calls each job handler makes at a
+ * few meaningful points in its own execution. Console output is deliberately
+ * *not* captured. `id` (globally auto-incrementing) doubles as the per-job
+ * ordering/cursor key -- `WHERE job_id = ? AND id > ?` is a cheap indexed
+ * range scan, so no separate per-job sequence column is needed.
+ *
+ * Cascades with its job: nothing deletes `jobs` rows today (confirmed --
+ * `retention` only touches `articles`/`article_tombstones`), so in practice this
+ * persists exactly as long as the job row it describes. A future job-cleanup
+ * feature gets its log cleaned up for free.
+ */
+export const jobLogs = sqliteTable(
+  "job_logs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    jobId: integer("job_id")
+      .notNull()
+      .references(() => jobs.id, { onDelete: "cascade" }),
+    stream: text("stream").notNull(),
+    line: text("line").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [
+    index("job_logs_job_idx").on(table.jobId, table.id),
+    check("job_logs_stream_check", sql`"stream" in ('stdout', 'stderr')`),
+  ],
+);
+
+export type JobLog = typeof jobLogs.$inferSelect;
+export type NewJobLog = typeof jobLogs.$inferInsert;
