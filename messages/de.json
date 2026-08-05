@@ -28,7 +28,8 @@
     "log": "Protokoll",
     "logEmpty": "Noch keine Protokollausgabe.",
     "logEnded": "Auftrag beendet — Protokoll beendet.",
-    "detailTitle": "Auftrag #{id}"
+    "detailTitle": "Auftrag #{id}",
+    "activeRuns": "{count, plural, one {# Auftrag läuft} other {# Aufträge laufen}}"
   },
   "auth": {
     "signIn": "Anmelden",

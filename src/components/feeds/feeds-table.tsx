@@ -14,8 +14,7 @@ import { TagBadge } from "@/components/tags/tag-badge";
 import { CheckIcon, XIcon } from "lucide-react";
 import { attempt } from "@/lib/tags/result";
 import { deleteFeeds, refreshLogos, updateFeedsBulk } from "@/lib/feeds/actions";
-import { reportRunOutcome } from "@/lib/jobs/report-run-outcome";
-import { waitForRun } from "@/lib/jobs/wait-for-run";
+import { useTrackRun } from "@/components/jobs/active-runs-context";
 import { AGGREGATOR_SPECS } from "@/lib/aggregators/specs";
 import type { Feed, Tag } from "@/lib/db/schema";
 
@@ -34,6 +33,7 @@ export function FeedsTable({
 }) {
   const t = useTranslations("feeds");
   const router = useRouter();
+  const trackRun = useTrackRun();
   const [selected, setSelected] = useState<number[]>([]);
 
   const columns: Column<FeedListRow>[] = [
@@ -135,14 +135,16 @@ export function FeedsTable({
       return false;
     }
 
-    const outcome = await waitForRun(result.runId);
-    reportRunOutcome(outcome, {
+    // Progress and the outcome toast are the floating indicator's job now
+    // (`useTrackRun()`, mounted app-wide in `(app)/layout.tsx`) -- it outlives
+    // this component, so the selection can clear right away instead of
+    // staying around only to keep a spinner on screen.
+    trackRun(result.runId, {
       completed: (n) => t("logoUpdateCompleted", { count: n }),
       partial: (ok, failed) => t("logoUpdateCompletedWithFailures", { completed: ok, failed }),
       fallback: t("saveFailed"),
     });
     setSelected([]);
-    router.refresh();
     return true;
   }
 
@@ -155,19 +157,12 @@ export function FeedsTable({
       return false;
     }
 
-    // The selection is cleared *after* the outcome is reported, not before the
-    // poll: `count` below is `selected.length` and <BulkActionBar> renders
-    // nothing at all once it hits 0, so clearing it here took the bar -- and
-    // with it the spinner this feature exists to show -- off the screen for the
-    // entire run, leaving no feedback until the final toast.
-    const outcome = await waitForRun(result.runId);
-    reportRunOutcome(outcome, {
+    trackRun(result.runId, {
       completed: (n) => t("aggregationCompleted", { count: n }),
       partial: (ok, failed) => t("aggregationCompletedWithFailures", { completed: ok, failed }),
       fallback: t("saveFailed"),
     });
     setSelected([]);
-    router.refresh();
     return true;
   }
 

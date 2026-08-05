@@ -1,0 +1,92 @@
+"use client";
+
+import * as React from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
+
+import { Spinner } from "@/components/ui/spinner";
+import { reportRunOutcome, type RunOutcomeCopy } from "@/lib/jobs/report-run-outcome";
+import { waitForRun } from "@/lib/jobs/wait-for-run";
+
+type ActiveRunsContextValue = {
+  trackRun: (runId: number, copy: RunOutcomeCopy) => void;
+  runIds: number[];
+};
+
+const noop = () => {};
+
+/**
+ * The default (no provider mounted) is a stable, inert value -- same reason
+ * `breadcrumb-title.tsx` uses one -- so a component calling `useTrackRun()` or
+ * rendering `<ActiveRunsIndicator>` in isolation (a future test with no
+ * provider wrapped around it) gets a no-op/empty state rather than a throw.
+ */
+const DEFAULT_VALUE: ActiveRunsContextValue = { trackRun: noop, runIds: [] };
+
+const ActiveRunsContext = React.createContext<ActiveRunsContextValue>(DEFAULT_VALUE);
+
+/**
+ * Tracks background runs app-wide, mounted once in `(app)/layout.tsx` so it
+ * survives client-side navigation between routes -- a run started from
+ * /feeds keeps polling and reporting its outcome even after the user has
+ * moved on to /articles. Each caller hands its `runId` off via
+ * `useTrackRun()` right after enqueuing, instead of awaiting `waitForRun()`
+ * itself the way the pre-existing per-page callers (`feed-form.tsx`,
+ * `articles-table.tsx`) still do; this component owns that wait instead, once
+ * per tracked run, and outlives the component that started it.
+ *
+ * Renders nothing itself -- `<ActiveRunsIndicator>` is the visible half, kept
+ * separate so it can be placed inside the header's own flex row rather than
+ * floating over page content. A `position: fixed` badge in a page corner
+ * collided with exactly the control a fixed corner is most likely to hold: the
+ * "New feed"/"New user"/etc. button every CRUD list page already puts at its
+ * own top-right, clipping it under the badge's `z-50`. The header has no such
+ * control on its right side on any route, so docking it there instead cannot
+ * collide with anything a page renders.
+ */
+export function ActiveRunsProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const [runIds, setRunIds] = React.useState<number[]>([]);
+
+  const trackRun = React.useCallback(
+    (runId: number, copy: RunOutcomeCopy) => {
+      setRunIds((prev) => (prev.includes(runId) ? prev : [...prev, runId]));
+
+      void (async () => {
+        const outcome = await waitForRun(runId);
+        reportRunOutcome(outcome, copy);
+        setRunIds((prev) => prev.filter((id) => id !== runId));
+        router.refresh();
+      })();
+    },
+    [router],
+  );
+
+  const value = React.useMemo(() => ({ trackRun, runIds }), [trackRun, runIds]);
+
+  return <ActiveRunsContext.Provider value={value}>{children}</ActiveRunsContext.Provider>;
+}
+
+/** Registers a background run to be polled to completion and reported, from anywhere in the app. */
+export function useTrackRun(): (runId: number, copy: RunOutcomeCopy) => void {
+  return React.useContext(ActiveRunsContext).trackRun;
+}
+
+/** The pill shown in the header's own right-aligned slot while any run is active. Nothing while idle. */
+export function ActiveRunsIndicator() {
+  const t = useTranslations("jobs");
+  const { runIds } = React.useContext(ActiveRunsContext);
+
+  if (runIds.length === 0) return null;
+
+  return (
+    <Link
+      href="/jobs"
+      className="ml-auto flex items-center gap-2 rounded-full border bg-background/95 px-3.5 py-1.5 text-sm font-medium shadow-lg ring-1 ring-foreground/10 backdrop-blur-sm animate-in fade-in-0 zoom-in-95 hover:bg-muted"
+    >
+      <Spinner className="text-primary" />
+      {t("activeRuns", { count: runIds.length })}
+    </Link>
+  );
+}
