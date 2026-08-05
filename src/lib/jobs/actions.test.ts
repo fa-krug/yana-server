@@ -232,24 +232,4 @@ describe("src/lib/jobs/actions", () => {
       expect(await jobsActions.deleteJobs([])).toEqual({ ok: true, deleted: 0, stopping: [] });
     });
   });
-
-  describe("getJobsStatus", () => {
-    it("reports the caller's own jobs' current status", async () => {
-      const userId = await seedUser("owner@example.com");
-      await signInAs("owner@example.com");
-      const id = queue.enqueue("noop", {}, { userId });
-
-      expect(await jobsActions.getJobsStatus([id])).toEqual([{ id, status: "pending" }]);
-    });
-
-    it("omits a job owned by another user", async () => {
-      const ownerId = await seedUser("owner@example.com");
-      const id = queue.enqueue("noop", {}, { userId: ownerId });
-
-      await seedUser("other@example.com");
-      await signInAs("other@example.com");
-
-      expect(await jobsActions.getJobsStatus([id])).toEqual([]);
-    });
-  });
 });

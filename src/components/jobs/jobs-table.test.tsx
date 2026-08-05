@@ -15,12 +15,18 @@ import { JobsTable } from "./jobs-table";
 // didn't declare.
 vi.mock("next/navigation", () => import("@/test/next-navigation"));
 
-const { cancelJobs, deleteJobs, getJobsStatus } = vi.hoisted(() => ({
+const { cancelJobs, deleteJobs } = vi.hoisted(() => ({
   cancelJobs: vi.fn(),
   deleteJobs: vi.fn(),
-  getJobsStatus: vi.fn(),
 }));
-vi.mock("@/lib/jobs/actions", () => ({ cancelJobs, deleteJobs, getJobsStatus }));
+vi.mock("@/lib/jobs/actions", () => ({ cancelJobs, deleteJobs }));
+
+// `waitForJobsTerminal()` now opens a real `EventSource` (`/api/jobs/status-stream`);
+// this file is testing `<JobsTable>`'s own orchestration around it (wait, then
+// delete again, then toast), not that transport -- which has its own tests
+// (`src/lib/jobs/wait-for-jobs-terminal.test.tsx` and the route's own test).
+const { waitForJobsTerminal } = vi.hoisted(() => ({ waitForJobsTerminal: vi.fn() }));
+vi.mock("@/lib/jobs/wait-for-jobs-terminal", () => ({ waitForJobsTerminal }));
 
 const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
 setRouter({ refresh });
@@ -73,6 +79,7 @@ beforeEach(() => {
   setSearchParams("");
   cancelJobs.mockResolvedValue({ ok: true, affected: 1 });
   deleteJobs.mockResolvedValue({ ok: true, deleted: 1, stopping: [] });
+  waitForJobsTerminal.mockResolvedValue(true);
 });
 
 describe("JobsTable", () => {
@@ -161,14 +168,19 @@ describe("JobsTable", () => {
 
     await waitFor(() => expect(deleteJobs).toHaveBeenCalledWith([9]));
     await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("1 job deleted"));
-    expect(getJobsStatus).not.toHaveBeenCalled();
+    expect(waitForJobsTerminal).not.toHaveBeenCalled();
   });
 
-  it("waits for a running job to stop before it is actually deleted", async () => {
+  it("closes the confirmation immediately for a running job, finishing the deletion in the background", async () => {
     deleteJobs
       .mockResolvedValueOnce({ ok: true, deleted: 0, stopping: [9] })
       .mockResolvedValueOnce({ ok: true, deleted: 1, stopping: [] });
-    getJobsStatus.mockResolvedValue([{ id: 9, status: "cancelled" }]);
+    let resolveWait: (stopped: boolean) => void = () => {};
+    waitForJobsTerminal.mockReturnValue(
+      new Promise((resolve) => {
+        resolveWait = resolve;
+      }),
+    );
 
     renderWithProviders(
       <JobsTable rows={[job({ id: 9, status: "running" })]} page={1} pageSize={50} total={1} />,
@@ -177,7 +189,16 @@ describe("JobsTable", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     fireEvent.click(within(dialog()).getByRole("button", { name: "Delete" }));
 
-    await waitFor(() => expect(getJobsStatus).toHaveBeenCalledWith([9]));
+    await waitFor(() => expect(waitForJobsTerminal).toHaveBeenCalledWith([9]));
+    // The dialog closes right away -- it does not stay open for however long
+    // the running job actually takes to stop.
+    await waitFor(() =>
+      expect(document.querySelector('[data-slot="alert-dialog-content"]')).toBeNull(),
+    );
+    expect(deleteJobs).toHaveBeenCalledTimes(1);
+    expect(toastSuccess).not.toHaveBeenCalled();
+
+    resolveWait(true);
     await waitFor(() => expect(deleteJobs).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("1 job deleted"));
   });

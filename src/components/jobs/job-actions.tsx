@@ -6,6 +6,7 @@ import { useTransition } from "react";
 import { toast } from "sonner";
 
 import { ConfirmDestructive } from "@/components/crud/confirm-destructive";
+import { useTrackBackgroundTask } from "@/components/jobs/active-runs-context";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cancelJobs, deleteJobs } from "@/lib/jobs/actions";
@@ -20,6 +21,7 @@ const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
 export function JobActions({ job }: { job: { id: number; status: string } }) {
   const t = useTranslations("jobs");
   const router = useRouter();
+  const trackBackgroundTask = useTrackBackgroundTask();
   const [cancelling, startCancel] = useTransition();
 
   function cancelThisJob(): void {
@@ -36,6 +38,27 @@ export function JobActions({ job }: { job: { id: number; status: string } }) {
     });
   }
 
+  /**
+   * The follow-up for a job `deleteJobs()` could only ask to stop --
+   * tracked via `trackBackgroundTask()` (see `jobs-table.tsx`'s copy of this
+   * same comment) so the confirmation dialog closes and this page navigates
+   * away immediately rather than waiting for the job to actually stop.
+   */
+  async function finishStoppingDeletion(jobId: number): Promise<void> {
+    const stopped = await waitForJobsTerminal([jobId]);
+    if (!stopped) {
+      toast.error(t("requestFailed"));
+      return;
+    }
+    const second = await attempt(() => deleteJobs([jobId]));
+    if (!second.ok) {
+      toast.error(t(second.errorKey));
+      return;
+    }
+    router.refresh();
+    toast.success(t("deleted", { count: second.deleted }));
+  }
+
   async function deleteThisJob(): Promise<boolean> {
     const result = await attempt(() => deleteJobs([job.id]));
     if (!result.ok) {
@@ -43,22 +66,11 @@ export function JobActions({ job }: { job: { id: number; status: string } }) {
       return false;
     }
 
-    let deleted = result.deleted;
     if (result.stopping.length > 0) {
-      const stopped = await waitForJobsTerminal(result.stopping);
-      if (!stopped) {
-        toast.error(t("requestFailed"));
-        return false;
-      }
-      const second = await attempt(() => deleteJobs(result.stopping));
-      if (!second.ok) {
-        toast.error(t(second.errorKey));
-        return false;
-      }
-      deleted += second.deleted;
+      trackBackgroundTask(finishStoppingDeletion(job.id));
+    } else {
+      toast.success(t("deleted", { count: result.deleted }));
     }
-
-    toast.success(t("deleted", { count: deleted }));
     router.push("/jobs");
     return true;
   }

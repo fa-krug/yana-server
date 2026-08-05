@@ -10,6 +10,7 @@ import { BulkActionBar, type BulkAction } from "@/components/crud/bulk-action-ba
 import { DataTable, type Column } from "@/components/crud/data-table";
 import { Pagination } from "@/components/crud/pagination";
 import { Badge } from "@/components/ui/badge";
+import { useTrackBackgroundTask } from "@/components/jobs/active-runs-context";
 import { displayNameFor } from "@/lib/avatar";
 import { cancelJobs, deleteJobs } from "@/lib/jobs/actions";
 import type { JobWithOwner } from "@/lib/jobs/queue";
@@ -78,6 +79,7 @@ export function JobsTable({
 }) {
   const t = useTranslations("jobs");
   const router = useRouter();
+  const trackBackgroundTask = useTrackBackgroundTask();
   const [selected, setSelected] = useState<number[]>([]);
 
   const columns: Column<JobWithOwner>[] = [
@@ -165,6 +167,31 @@ export function JobsTable({
     return true;
   }
 
+  /**
+   * The follow-up for jobs `deleteJobs()` could only ask to stop (`stopping`)
+   * -- run detached from `removeSelected()`'s own promise, tracked via
+   * `trackBackgroundTask()` so the header's spinner shows it the same way it
+   * shows a reload or aggregation run, rather than the confirmation dialog
+   * staying open for as long as the slowest job takes to actually stop.
+   */
+  async function finishStoppingDeletion(
+    stoppingIds: number[],
+    alreadyDeleted: number,
+  ): Promise<void> {
+    const stopped = await waitForJobsTerminal(stoppingIds);
+    if (!stopped) {
+      toast.error(t("requestFailed"));
+      return;
+    }
+    const second = await attempt(() => deleteJobs(stoppingIds));
+    if (!second.ok) {
+      toast.error(t(second.errorKey));
+      return;
+    }
+    router.refresh();
+    toast.success(t("deleted", { count: alreadyDeleted + second.deleted }));
+  }
+
   async function removeSelected(): Promise<boolean> {
     if (selected.length === 0) return false;
 
@@ -174,24 +201,14 @@ export function JobsTable({
       return false;
     }
 
-    let deleted = result.deleted;
-    if (result.stopping.length > 0) {
-      const stopped = await waitForJobsTerminal(result.stopping);
-      if (!stopped) {
-        toast.error(t("requestFailed"));
-        return false;
-      }
-      const second = await attempt(() => deleteJobs(result.stopping));
-      if (!second.ok) {
-        toast.error(t(second.errorKey));
-        return false;
-      }
-      deleted += second.deleted;
-    }
-
     setSelected([]);
     router.refresh();
-    toast.success(t("deleted", { count: deleted }));
+
+    if (result.stopping.length > 0) {
+      trackBackgroundTask(finishStoppingDeletion(result.stopping, result.deleted));
+    } else {
+      toast.success(t("deleted", { count: result.deleted }));
+    }
     return true;
   }
 

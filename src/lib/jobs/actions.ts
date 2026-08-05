@@ -133,22 +133,3 @@ export async function deleteJobs(
     return { ok: true, deleted: result?.changes ?? 0, stopping };
   });
 }
-
-/** Ownership-scoped read used only to poll whether a `deleteJobs()` call's
- * `stopping` set has gone terminal (`@/lib/jobs/wait-for-jobs-terminal`). An
- * id the caller doesn't own, or that no longer exists, is simply absent from
- * the result. */
-export async function getJobsStatus(ids: number[]): Promise<{ id: number; status: string }[]> {
-  if (ids.length === 0) return [];
-
-  const user = await requireUserFreshRole();
-  const admin = isAdminRole(user.role);
-  const ownedIds = ownedJobIds(ids, user.id, admin);
-  if (ownedIds.length === 0) return [];
-
-  return getDb()
-    .select({ id: jobs.id, status: jobs.status })
-    .from(jobs)
-    .where(inArray(jobs.id, ownedIds))
-    .all();
-}
