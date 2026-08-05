@@ -18,10 +18,11 @@ export async function handleAggregateJob(job: Job): Promise<void> {
   const db = getDb();
   const feed = db.select().from(feeds).where(eq(feeds.id, feedId)).get();
   if (!feed || !feed.enabled) {
-    appendLogLine(job.id, "stdout", "feed not found or disabled, skipping");
+    appendLogLine(job.id, "stdout", `feed ${feedId} not found or disabled, skipping`);
     return;
   }
 
+  appendLogLine(job.id, "stdout", `aggregating feed "${feed.name}" (${feed.aggregator})`);
   const aggregator = createAggregator(resolveFeedCredentials(feed));
   const rawArticles = await aggregator.aggregate();
   appendLogLine(job.id, "stdout", `fetched ${rawArticles.length} articles`);

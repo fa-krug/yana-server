@@ -13,6 +13,8 @@
   "jobs": {
     "title": "Aufgaben",
     "kind": "Art",
+    "feed": "Feed",
+    "feedGone": "Feed Nr. {id} (existiert nicht mehr)",
     "status": "Status",
     "attempts": "Versuche",
     "progress": "Fortschritt",

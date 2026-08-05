@@ -13,6 +13,8 @@
   "jobs": {
     "title": "Jobs",
     "kind": "Kind",
+    "feed": "Feed",
+    "feedGone": "Feed #{id} (no longer exists)",
     "status": "Status",
     "attempts": "Attempts",
     "progress": "Progress",
