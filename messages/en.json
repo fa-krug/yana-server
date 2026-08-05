@@ -13,6 +13,8 @@
   "jobs": {
     "title": "Jobs",
     "kind": "Kind",
+    "owner": "User",
+    "systemOwner": "System",
     "feed": "Feed",
     "feedGone": "Feed #{id} (no longer exists)",
     "status": "Status",

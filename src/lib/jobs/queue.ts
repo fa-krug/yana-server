@@ -2,7 +2,7 @@ import { and, asc, count, desc, eq, gt, lte, sql } from "drizzle-orm";
 
 import { publishUserEvent } from "../api/events";
 import { getDb, writeTransaction } from "../db/client";
-import { articles, feeds, jobLogs, jobs, runs } from "../db/schema";
+import { articles, feeds, jobLogs, jobs, runs, users } from "../db/schema";
 import type { Job, JobLog, Run } from "../db/schema";
 import { publishJobLog, publishJobTerminal } from "./log-bus";
 
@@ -347,7 +347,20 @@ export interface ListJobsOptions {
   offset?: number;
 }
 
-export function listJobs(options: ListJobsOptions = {}): { jobs: Job[]; total: number } {
+/**
+ * A job row plus its owner's display fields, for the admin-only owner column
+ * on `/jobs` -- `null` when the job has no owner (the `retention` kind, which
+ * runs once per boot across every user -- see `schema/jobs.ts`) or when the
+ * owning user has since been deleted (`jobs.userId` is `ON DELETE SET NULL`,
+ * not cascade, so a removed user's jobs outlive them rather than vanishing).
+ */
+export interface JobWithOwner extends Job {
+  ownerEmail: string | null;
+  ownerFirstName: string | null;
+  ownerLastName: string | null;
+}
+
+export function listJobs(options: ListJobsOptions = {}): { jobs: JobWithOwner[]; total: number } {
   const limit = options.limit ?? 50;
   const offset = options.offset ?? 0;
 
@@ -365,9 +378,30 @@ export function listJobs(options: ListJobsOptions = {}): { jobs: Job[]; total: n
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
+    // Explicit column list rather than `db.select()`: the two tables both have
+    // an `id` column, which a wildcard select would collide on.
     const items = db
-      .select()
+      .select({
+        id: jobs.id,
+        runId: jobs.runId,
+        userId: jobs.userId,
+        kind: jobs.kind,
+        payload: jobs.payload,
+        status: jobs.status,
+        attempts: jobs.attempts,
+        maxAttempts: jobs.maxAttempts,
+        runAt: jobs.runAt,
+        startedAt: jobs.startedAt,
+        finishedAt: jobs.finishedAt,
+        progress: jobs.progress,
+        error: jobs.error,
+        createdAt: jobs.createdAt,
+        ownerEmail: users.email,
+        ownerFirstName: users.firstName,
+        ownerLastName: users.lastName,
+      })
       .from(jobs)
+      .leftJoin(users, eq(jobs.userId, users.id))
       .where(whereClause)
       .orderBy(desc(jobs.createdAt), desc(jobs.id))
       .limit(limit)

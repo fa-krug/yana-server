@@ -7,7 +7,8 @@ import { useTranslations } from "next-intl";
 import { DataTable, type Column } from "@/components/crud/data-table";
 import { Pagination } from "@/components/crud/pagination";
 import { Badge } from "@/components/ui/badge";
-import type { Job } from "@/lib/db/schema";
+import { displayNameFor } from "@/lib/avatar";
+import type { JobWithOwner } from "@/lib/jobs/queue";
 
 export function StatusBadge({ status }: { status: string }) {
   switch (status) {
@@ -42,16 +43,19 @@ export function JobsTable({
   page,
   pageSize,
   total,
+  showOwner = false,
 }: {
-  rows: Job[];
+  rows: JobWithOwner[];
   page: number;
   pageSize: number;
   total: number;
+  /** Only an admin sees jobs across every user, so only an admin needs the column that says whose. */
+  showOwner?: boolean;
 }) {
   const t = useTranslations("jobs");
   const [selected, setSelected] = useState<string[]>([]);
 
-  const columns: Column<Job>[] = [
+  const columns: Column<JobWithOwner>[] = [
     {
       key: "kind",
       header: t("kind"),
@@ -61,6 +65,26 @@ export function JobsTable({
         </Link>
       ),
     },
+    ...(showOwner
+      ? [
+          {
+            key: "owner",
+            header: t("owner"),
+            cell: (job: JobWithOwner) =>
+              job.ownerEmail ? (
+                <span className="text-sm">
+                  {displayNameFor({
+                    firstName: job.ownerFirstName ?? "",
+                    lastName: job.ownerLastName ?? "",
+                    email: job.ownerEmail,
+                  })}
+                </span>
+              ) : (
+                <span className="text-sm text-muted-foreground">{t("systemOwner")}</span>
+              ),
+          },
+        ]
+      : []),
     {
       key: "status",
       header: t("status"),

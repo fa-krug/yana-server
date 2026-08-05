@@ -9,7 +9,15 @@ import { requireUserFreshRole } from "@/lib/auth/session";
 import { parseListParams, type ListParams } from "@/lib/crud/params";
 import { listJobs } from "@/lib/jobs/queue";
 
-async function JobsData({ params, userId }: { params: ListParams; userId?: string }) {
+async function JobsData({
+  params,
+  userId,
+  admin,
+}: {
+  params: ListParams;
+  userId?: string;
+  admin: boolean;
+}) {
   const { jobs, total } = listJobs({
     kind: params.filters.kind,
     status: params.filters.status,
@@ -18,7 +26,15 @@ async function JobsData({ params, userId }: { params: ListParams; userId?: strin
     offset: (params.page - 1) * params.pageSize,
   });
 
-  return <JobsTable rows={jobs} page={params.page} pageSize={params.pageSize} total={total} />;
+  return (
+    <JobsTable
+      rows={jobs}
+      page={params.page}
+      pageSize={params.pageSize}
+      total={total}
+      showOwner={admin}
+    />
+  );
 }
 
 export default async function JobsPage({
@@ -41,7 +57,7 @@ export default async function JobsPage({
       <SearchFilterBar placeholder={t("filterKind")} />
 
       <Suspense key={JSON.stringify(params)} fallback={<TableSkeleton columns={6} />}>
-        <JobsData params={params} userId={admin ? undefined : user.id} />
+        <JobsData params={params} userId={admin ? undefined : user.id} admin={admin} />
       </Suspense>
     </div>
   );
