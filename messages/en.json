@@ -521,6 +521,7 @@
       "date": "Date",
       "added": "Added",
       "read": "Read",
+      "unread": "Unread",
       "starred": "Starred"
     },
     "filters": {

@@ -521,6 +521,7 @@
       "date": "Datum",
       "added": "Hinzugefügt",
       "read": "Gelesen",
+      "unread": "Ungelesen",
       "starred": "Markiert"
     },
     "filters": {
