@@ -29,8 +29,7 @@ behavior can be read while it is ported. It is:
   Django setup; read it as history. Do not add an instruction file under `old/`.
 
 Behavior questions ("what does the Heise scraper strip?") are answered by
-reading `old/core/` and by `parity/`. Structure questions are answered by this
-file.
+reading `old/core/`. Structure questions are answered by this file.
 
 ## Layout
 
@@ -169,7 +168,6 @@ file.
 ├── docker-compose.production.yml  # target production shape — not yet deployed
 ├── data/                          # SQLite lives here (gitignored, starts empty)
 ├── media/                         # article images and feed logos (gitignored, starts empty)
-├── parity/                        # frozen golden corpus — the porting oracle
 ├── docs/superpowers/              # direction records (specs/) and phase plans (plans/)
 └── old/                           # retired Django implementation — reference only
     ├── data/                      # its SQLite file (db.sqlite3) — never read from here
@@ -1494,22 +1492,6 @@ mock` the moment anything in the tree reaches an export it did not think to
   against the defect they describe — reintroduce it, watch the test fail, revert
   — because a `.tsx` test used to be ignored outright and a green test proves
   nothing on its own.
-
-## Porting: `parity/` is the oracle
-
-`parity/` holds frozen golden JSON generated from the Django pipeline before it
-was retired. It is how a ported aggregator is proven correct.
-
-- The fixtures are **deliberately stale**. A golden only requires both
-  implementations to receive identical bytes; whether the HTML still matches the
-  live site is a different question with different tests. Never refresh them to
-  match production.
-- Image content hashes are **not** compared — Pillow and sharp/libvips emit
-  different bytes for identical input. Records carry normalized refs
-  (`yana-img://{img:N}`) plus a manifest asserting content type and dimensions
-  exactly and byte size within a tolerance.
-- Regenerating a golden needs the Django tree in `old/`, which no longer runs
-  as-is. Treat the corpus as frozen; see `parity/README.md`.
 
 ## Where the work is planned
 
