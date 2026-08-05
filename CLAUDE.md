@@ -598,9 +598,13 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   questions.** `notifyAdmins()` (`src/lib/email/error-notifications.ts`) is "is
   this instance healthy" — it fires from `src/lib/jobs/worker.ts` on a fatal
   worker-loop crash and from `src/lib/jobs/scheduler.ts` on a tick failure, and
-  it mails **every usable, non-banned admin** (`isAdminRole()`), because those
-  failures have no single owner and every admin needs to know the whole
-  instance may be stuck. `notifyJobFailure(userId, entry)`
+  it mails **every user whose role satisfies `isAdminRole()`** — `flushAdmins()`
+  filters on role alone and never reads `users.banned`/`banExpires`, so a
+  banned admin still gets mailed, unlike `isUsableAdmin()` in
+  `src/lib/auth/bootstrap.ts`'s admin-bootstrap check, a different path this
+  feature does not call — because those failures have no single owner and
+  every admin needs to know the whole instance may be stuck.
+  `notifyJobFailure(userId, entry)`
   (called from `src/lib/jobs/queue.ts` on a job's terminal `failed` outcome) is
   "did my job fail" — it mails the **job's own owner** at `jobs.userId`, not
   the admin list, because a feed-aggregation or article-reload failure is that
