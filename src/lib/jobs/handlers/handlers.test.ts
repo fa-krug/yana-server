@@ -352,6 +352,21 @@ describe("src/lib/jobs/handlers", () => {
   });
 
   describe("restore", () => {
+    it("logs and returns early when the feed row is not found", async () => {
+      const restoreHandler = handlers.getHandler("feed.restore");
+      expect(restoreHandler).toBeDefined();
+
+      const job = makeJob("feed.restore", { feedId: 999_999 });
+
+      await restoreHandler!(job);
+
+      const tombstones = client.getDb().select().from(schema.articleTombstones).all();
+      expect(tombstones).toHaveLength(0);
+
+      const lines = logLines(job.id);
+      expect(lines).toEqual(["feed not found, skipping"]);
+    });
+
     it("writes a tombstone for every article it wipes before re-aggregating", async () => {
       let userId = "";
       let feedId = 0;
@@ -451,6 +466,21 @@ describe("src/lib/jobs/handlers", () => {
   });
 
   describe("aggregate", () => {
+    it("logs and returns early when the payload has no feedId", async () => {
+      const factory = await import("@/lib/aggregators/factory");
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+      expect(aggregateHandler).toBeDefined();
+
+      const job = makeJob("aggregate", {});
+
+      await aggregateHandler!(job);
+
+      expect(factory.createAggregator).not.toHaveBeenCalled();
+      const lines = logLines(job.id);
+      expect(lines).toEqual(["no feedId in payload, skipping"]);
+    });
+
     it("logs and returns early for a feed that is disabled", async () => {
       let feedId = 0;
       client.writeTransaction((db) => {
@@ -602,6 +632,21 @@ describe("src/lib/jobs/handlers", () => {
   });
 
   describe("logo", () => {
+    it("logs and returns when the feed row is not found", async () => {
+      const logoModule = await import("@/lib/feeds/logo");
+
+      const logoHandler = handlers.getHandler("feed.logo");
+      expect(logoHandler).toBeDefined();
+
+      const job = makeJob("feed.logo", { feedId: 999_999 });
+
+      await logoHandler!(job);
+
+      expect(logoModule.discoverLogo).not.toHaveBeenCalled();
+      const lines = logLines(job.id);
+      expect(lines).toEqual(["feed not found, skipping"]);
+    });
+
     it("logs and returns when no logo source is configured", async () => {
       let feedId = 0;
       client.writeTransaction((db) => {
@@ -710,6 +755,18 @@ describe("src/lib/jobs/handlers", () => {
   });
 
   describe("reload", () => {
+    it("logs and returns early when the payload has no articleId", async () => {
+      const reloadHandler = handlers.getHandler("article.reload");
+      expect(reloadHandler).toBeDefined();
+
+      const job = makeJob("article.reload", {});
+
+      await reloadHandler!(job);
+
+      const lines = logLines(job.id);
+      expect(lines).toEqual(["no articleId in payload, skipping"]);
+    });
+
     it("logs and returns when the article is not found or has no stored content", async () => {
       let articleId = 0;
       client.writeTransaction((db) => {

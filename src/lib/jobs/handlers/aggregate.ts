@@ -9,7 +9,10 @@ import { appendLogLine, progress } from "../queue";
 
 export async function handleAggregateJob(job: Job): Promise<void> {
   const feedId = Number(job.payload?.feedId);
-  if (!feedId) return;
+  if (!feedId) {
+    appendLogLine(job.id, "stdout", "no feedId in payload, skipping");
+    return;
+  }
 
   const db = getDb();
   const feed = db.select().from(feeds).where(eq(feeds.id, feedId)).get();

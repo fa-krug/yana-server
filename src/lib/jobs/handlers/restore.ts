@@ -11,7 +11,10 @@ export async function handleRestoreJob(job: Job): Promise<void> {
 
   const db = getDb();
   const feed = db.select().from(feeds).where(eq(feeds.id, feedId)).get();
-  if (!feed) return;
+  if (!feed) {
+    appendLogLine(job.id, "stdout", "feed not found, skipping");
+    return;
+  }
 
   // Destructive: clear feed's existing articles first. A client that synced
   // before this runs (or was offline for it) needs a tombstone per article to

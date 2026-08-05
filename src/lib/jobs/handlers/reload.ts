@@ -8,7 +8,10 @@ import { appendLogLine } from "../queue";
 
 export async function handleReloadJob(job: Job): Promise<void> {
   const articleId = Number(job.payload?.articleId);
-  if (!articleId) return;
+  if (!articleId) {
+    appendLogLine(job.id, "stdout", "no articleId in payload, skipping");
+    return;
+  }
 
   const db = getDb();
   const article = db.select().from(articles).where(eq(articles.id, articleId)).get();

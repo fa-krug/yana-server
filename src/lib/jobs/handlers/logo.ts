@@ -11,7 +11,10 @@ export async function handleLogoJob(job: Job): Promise<void> {
 
   const db = getDb();
   const feed = db.select().from(feeds).where(eq(feeds.id, feedId)).get();
-  if (!feed) return;
+  if (!feed) {
+    appendLogLine(job.id, "stdout", "feed not found, skipping");
+    return;
+  }
 
   const targetUrl = feed.logoSourceUrl || feed.identifier;
   if (!targetUrl) {
