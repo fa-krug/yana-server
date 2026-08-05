@@ -3,6 +3,7 @@ import { getTranslations } from "next-intl/server";
 
 import { JobLogViewer } from "@/components/jobs/job-log-viewer";
 import { StatusBadge } from "@/components/jobs/jobs-table";
+import { isAdminRole } from "@/lib/auth/roles";
 import { requireUser } from "@/lib/auth/session";
 import { getJob, listJobLogs } from "@/lib/jobs/queue";
 
@@ -16,12 +17,13 @@ export default async function JobDetailPage({
   /** The gate, first -- `requireUser()` awaits `headers()`, opting this route
    *  out of static prerendering the same way src/app/(app)/users/[id]/page.tsx
    *  does with requireAdmin(); see the connection() bullet in CLAUDE.md. */
-  await requireUser();
+  const user = await requireUser();
+  const admin = isAdminRole(user.role);
 
   const { id } = await params;
-  const jobId = Number(id);
-  const job = Number.isInteger(jobId) ? getJob(jobId) : null;
-  if (!job) notFound();
+  const jobId = Number.isInteger(Number(id)) ? Number(id) : null;
+  const job = jobId !== null ? getJob(jobId) : null;
+  if (!job || (!admin && job.userId !== user.id)) notFound();
 
   const logs = listJobLogs(job.id);
   const t = await getTranslations("jobs");

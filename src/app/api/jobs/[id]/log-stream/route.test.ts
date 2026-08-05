@@ -54,9 +54,15 @@ describe("GET /api/jobs/[id]/log-stream", () => {
     }
   });
 
-  async function signedInCookie(): Promise<string> {
-    await createUserWithPassword({ ...CREDENTIALS, firstName: "A", lastName: "B" });
-    return signInCookie(auth, CREDENTIALS);
+  /**
+   * Signs in the one non-admin user these mechanics-focused tests share, and
+   * returns its id alongside the cookie: every job they enqueue must be owned
+   * by this id, or the ownership check added for "404s for a job owned by a
+   * different, non-admin user" below would 404 them too.
+   */
+  async function signedInCookie(): Promise<{ id: string; cookie: string }> {
+    const user = await createUserWithPassword({ ...CREDENTIALS, firstName: "A", lastName: "B" });
+    return { id: user.id, cookie: await signInCookie(auth, CREDENTIALS) };
   }
 
   function get(
@@ -77,14 +83,14 @@ describe("GET /api/jobs/[id]/log-stream", () => {
   });
 
   it("404s for a job id that does not exist", async () => {
-    const cookie = await signedInCookie();
+    const { cookie } = await signedInCookie();
     const response = await get("999999", { cookie });
     expect(response.status).toBe(404);
   });
 
   it("streams persisted lines after the given cursor, then a live line", async () => {
-    const cookie = await signedInCookie();
-    const jobId = queue.enqueue("test.job", {});
+    const { id: userId, cookie } = await signedInCookie();
+    const jobId = queue.enqueue("test.job", {}, { userId });
     const first = queue.appendLogLine(jobId, "stdout", "one");
     queue.appendLogLine(jobId, "stdout", "two");
 
@@ -112,8 +118,8 @@ describe("GET /api/jobs/[id]/log-stream", () => {
   });
 
   it("sends an end event and closes immediately for an already-terminal job", async () => {
-    const cookie = await signedInCookie();
-    const jobId = queue.enqueue("test.job", {}, { maxAttempts: 1 });
+    const { id: userId, cookie } = await signedInCookie();
+    const jobId = queue.enqueue("test.job", {}, { maxAttempts: 1, userId });
     queue.appendLogLine(jobId, "stdout", "done thing");
     queue.complete(jobId);
 
@@ -131,8 +137,8 @@ describe("GET /api/jobs/[id]/log-stream", () => {
   });
 
   it("sends an end event and closes the stream when a still-running job finishes mid-connection", async () => {
-    const cookie = await signedInCookie();
-    const jobId = queue.enqueue("test.job", {});
+    const { id: userId, cookie } = await signedInCookie();
+    const jobId = queue.enqueue("test.job", {}, { userId });
     queue.claim();
 
     const controller = new AbortController();
@@ -154,8 +160,8 @@ describe("GET /api/jobs/[id]/log-stream", () => {
   });
 
   it("sends a failed end event and closes the stream when a still-running job fails terminally mid-connection", async () => {
-    const cookie = await signedInCookie();
-    const jobId = queue.enqueue("test.job", {}, { maxAttempts: 1 });
+    const { id: userId, cookie } = await signedInCookie();
+    const jobId = queue.enqueue("test.job", {}, { maxAttempts: 1, userId });
     queue.claim();
 
     const controller = new AbortController();
@@ -175,11 +181,51 @@ describe("GET /api/jobs/[id]/log-stream", () => {
     controller.abort();
   });
 
+  it("404s for a job owned by a different, non-admin user", async () => {
+    await createUserWithPassword({ ...CREDENTIALS, firstName: "A", lastName: "B" });
+    const cookie = await signInCookie(auth, CREDENTIALS);
+    const other = await createUserWithPassword({
+      email: "owner@example.com",
+      password: "correct horse battery staple",
+      firstName: "O",
+      lastName: "W",
+    });
+    const jobId = queue.enqueue("test.job", {}, { userId: other.id });
+
+    const response = await get(String(jobId), { cookie });
+    expect(response.status).toBe(404);
+  });
+
+  it("streams a job's own log for its owner", async () => {
+    const user = await createUserWithPassword({ ...CREDENTIALS, firstName: "A", lastName: "B" });
+    const cookie = await signInCookie(auth, CREDENTIALS);
+    const jobId = queue.enqueue("test.job", {}, { userId: user.id });
+
+    const response = await get(String(jobId), { cookie });
+    expect(response.status).toBe(200);
+  });
+
+  it("streams any job's log for an admin, regardless of owner", async () => {
+    const ADMIN = { email: "admin@example.com", password: "correct horse battery staple" };
+    await createUserWithPassword({ ...ADMIN, firstName: "A", lastName: "D", role: "admin" });
+    const adminCookie = await signInCookie(auth, ADMIN);
+    const other = await createUserWithPassword({
+      email: "someoneelse@example.com",
+      password: "correct horse battery staple",
+      firstName: "S",
+      lastName: "E",
+    });
+    const jobId = queue.enqueue("test.job", {}, { userId: other.id });
+
+    const response = await get(String(jobId), { cookie: adminCookie });
+    expect(response.status).toBe(200);
+  });
+
   it("unsubscribes and clears the keep-alive interval when the client disconnects", async () => {
     const setIntervalSpy = vi.spyOn(global, "setInterval");
     const clearIntervalSpy = vi.spyOn(global, "clearInterval");
-    const cookie = await signedInCookie();
-    const jobId = queue.enqueue("test.job", {});
+    const { id: userId, cookie } = await signedInCookie();
+    const jobId = queue.enqueue("test.job", {}, { userId });
 
     const controller = new AbortController();
     const response = await get(String(jobId), { cookie, signal: controller.signal });

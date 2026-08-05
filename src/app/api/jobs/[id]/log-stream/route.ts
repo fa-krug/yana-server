@@ -1,3 +1,4 @@
+import { isAdminRole } from "@/lib/auth/roles";
 import { requireUser } from "@/lib/auth/session";
 import { getJob, listJobLogs } from "@/lib/jobs/queue";
 import { subscribeJobLog, subscribeJobTerminal } from "@/lib/jobs/log-bus";
@@ -42,20 +43,23 @@ const PING_INTERVAL_MS = 15_000;
  * `job-log-viewer.tsx` would never fire, and the listener/interval pair here
  * would leak for as long as the browser tab stayed open.
  *
- * Not user-scoped: `/jobs` today is visible to any signed-in user
- * (`listJobs()`/`getJob()` apply no ownership filter), so this route applies
- * none either.
+ * User-scoped: a non-admin may only stream a job's log if they own it
+ * (`job.userId === user.id`); an admin (`isAdminRole()`) may stream any job's
+ * log, ownerless jobs included. Same check as `/jobs/[id]`
+ * (`src/app/(app)/jobs/[id]/page.tsx`), adapted to answer 404 instead of
+ * calling `notFound()`.
  */
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  await requireUser();
+  const user = await requireUser();
+  const admin = isAdminRole(user.role);
 
   const { id } = await params;
   const jobId = Number(id);
   const job = Number.isInteger(jobId) ? getJob(jobId) : null;
-  if (!job) {
+  if (!job || (!admin && job.userId !== user.id)) {
     return new Response(null, { status: 404 });
   }
 
