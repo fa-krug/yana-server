@@ -46,6 +46,28 @@ describe("src/lib/jobs/log-bus", () => {
     expect(() => publishJobLog(999, line({ jobId: 999 }))).not.toThrow();
   });
 
+  /**
+   * See the identical test in `src/lib/api/events.test.ts` for why this
+   * matters: Next puts the instrumentation-started worker (the publisher)
+   * and route handlers (the subscribers) in separate webpack chunks, each
+   * re-evaluating this module rather than sharing one loaded copy.
+   * `vi.resetModules()` plus a fresh `import()` stands in for that. Before
+   * the `globalThis`/`Symbol.for()` fix, each instance had its own
+   * `EventEmitter` and a publish through one was invisible to a subscriber
+   * registered through the other.
+   */
+  it("delivers a published line across separate module instantiations", async () => {
+    const first = await import("./log-bus");
+    const heard = vi.fn();
+    first.subscribeJobLog(5, heard);
+
+    vi.resetModules();
+    const second = await import("./log-bus");
+    second.publishJobLog(5, line({ jobId: 5 }));
+
+    expect(heard).toHaveBeenCalledTimes(1);
+  });
+
   describe("job terminal channel", () => {
     it("delivers a published terminal status only to subscribers of that job id", () => {
       const forJob1 = vi.fn();

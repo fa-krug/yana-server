@@ -18,8 +18,23 @@ import type { JobLog } from "../db/schema";
  * `/jobs`, `/jobs/[id]` and `src/app/api/jobs/[id]/log-stream/route.ts` all
  * filter a non-admin to their own rows (`jobs.userId`, via
  * `requireUserFreshRole()`) before ever reaching a `subscribe*` call here.
+ *
+ * Stashed on `globalThis` behind a `Symbol.for()` for the same reason
+ * `src/lib/api/events.ts`'s bus is -- see that module's doc comment. This
+ * module is imported from both the instrumentation-started worker (the
+ * publisher) and route handlers (the subscribers), which Next puts in
+ * separate webpack chunks; a plain module-level `const emitter = new
+ * EventEmitter()` would give each chunk its own, disconnected instance.
  */
-const emitter = new EventEmitter();
+const LOG_BUS_KEY = Symbol.for("yana.jobs.log-bus");
+
+interface GlobalWithLogBus {
+  [LOG_BUS_KEY]?: EventEmitter;
+}
+
+const g = globalThis as GlobalWithLogBus;
+const emitter = g[LOG_BUS_KEY] ?? new EventEmitter();
+g[LOG_BUS_KEY] = emitter;
 // A job's log stream is one listener at a time in the common case, but
 // nothing prevents two browser tabs watching the same job -- the default
 // limit of 10 would log a spurious warning under ordinary use, not a leak.
