@@ -31,9 +31,9 @@ container.
 
 ## Approach
 
-**Persisted per-job log table, `AsyncLocalStorage`-scoped console capture in the worker, and SSE
-push to a new job detail page** — reusing the SSE convention phase 13 already established for
-`/api/v1/jobs/events`, but as a separate, session-authenticated endpoint for the web UI.
+**Persisted per-job log table, explicit `appendLogLine()` calls from the worker and each handler,
+and SSE push to a new job detail page** — reusing the SSE convention phase 13 already established
+for `/api/v1/jobs/events`, but as a separate, session-authenticated endpoint for the web UI.
 
 Rejected alternative: append to a single growing `jobs.log` TEXT column, viewed via client-side
 polling. Simpler (no new table, no pub/sub, no SSE route), but a TEXT column is rewritten in full on
@@ -130,17 +130,19 @@ cleans up with it for free.
 
 Two small in-process, **jobId-keyed** pub/sub channels in `src/lib/jobs/log-bus.ts` — deliberately not
 the existing per-user bus in `src/lib/api/events.ts`, since jobs aren't uniformly user-owned
-(`retention`, `feed.logo`, etc. have no resolvable owner) and `/jobs` today is visible to any
-signed-in user, not just a job's owner (`listJobs()`/`getJob()` apply no ownership filter, and the
-page's only gate is `requireUser()`). One channel carries log lines
-(`publishJobLog`/`subscribeJobLog`, as originally designed); a second, distinctly-namespaced channel
-carries a job's terminal transition (`publishJobTerminal`/`subscribeJobTerminal`), so the route below
-can close a still-open stream the moment the job it's tailing finishes, not only when the job was
-already finished at connect time. Both are documented as best-effort/non-durable, same as `events.ts`.
+(`retention` runs once per boot across every user in a single execution; `feed.logo`/`feed.update`/
+`feed.restore` are feed-scoped maintenance) — there is no single owning user to key a per-user channel
+on for those. One channel carries log lines (`publishJobLog`/`subscribeJobLog`, as originally
+designed); a second, distinctly-namespaced channel carries a job's terminal transition
+(`publishJobTerminal`/`subscribeJobTerminal`), so the route below can close a still-open stream the
+moment the job it's tailing finishes, not only when the job was already finished at connect time.
+Both are documented as best-effort/non-durable, same as `events.ts`. The bus itself enforces no
+ownership — it delivers to whatever subscribes to a job id, full stop. Ownership is enforced one
+layer up, by the callers that decide *who* gets to subscribe (see "UI" below).
 
-New route, `src/app/api/jobs/[id]/log-stream/route.ts`: session-authenticated via `requireUser()`
-(not the Bearer-auth `/api/v1` style — this is for the web UI only), same `ReadableStream` /
-`event:`/`data:` framing / ping-keepalive / abort-safe-cleanup shape as
+New route, `src/app/api/jobs/[id]/log-stream/route.ts`: session-authenticated via
+`requireUserFreshRole()` (not the Bearer-auth `/api/v1` style — this is for the web UI only), same
+`ReadableStream` / `event:`/`data:` framing / ping-keepalive / abort-safe-cleanup shape as
 `src/app/api/v1/jobs/events/route.ts`. Takes `?after=<id>` and does, simpler than originally planned
 here:
 
@@ -170,21 +172,29 @@ missed by every path that's supposed to catch it.
 - `src/components/jobs/jobs-table.tsx`: each row links to `/jobs/[id]` (same pattern as
   `users-table.tsx` linking to `/users/[id]`).
 
-No new access restriction — this matches today's `/jobs`, gated only on being signed in.
+**Revision (2026-08-05):** `/jobs` is no longer visible to every signed-in user. A non-admin sees
+only jobs they own (`jobs.userId`); an admin sees everything, including the ownerless `retention`
+job. Both `/jobs` and `/jobs/[id]` gate on `requireUserFreshRole()` — a *fresh*, non-cookie-cached
+role read — rather than `requireUser()` + the five-minute-cached `role`, so an administrator demoted
+through `/users` loses cross-user job visibility on their very next request instead of up to five
+minutes later. The log-stream route applies the identical check and answers 404 for a job it
+refuses, the same "don't confirm the row exists" reasoning `requireAdmin()` already uses elsewhere.
 
 ## Touch points
 
 | File | Change |
 |---|---|
-| `src/lib/db/schema/jobs.ts` | add `jobLogs` table |
+| `src/lib/db/schema/jobs.ts` | add `jobLogs` table; separately, add a nullable `jobs.userId` column (FK to `users`, `onDelete: set null`) — null means ownerless (`retention` only) |
 | `src/lib/jobs/log-bus.ts` (new) | jobId-keyed publish/subscribe (log lines + terminal transitions) |
-| `src/lib/jobs/queue.ts` | `appendLogLine()` (never throws), `listJobLogs()` |
+| `src/lib/jobs/queue.ts` | `appendLogLine()` (never throws), `listJobLogs()`; `enqueue()`/`enqueueRun()`/`listJobs()` gain `userId` |
 | `src/lib/jobs/worker.ts` | append lifecycle markers and the failure stack trace around every handler call |
 | `src/lib/jobs/handlers/aggregate.ts`, `logo.ts`, `restore.ts`, `reload.ts`, `retention.ts` | a handful of `appendLogLine()` calls each, per the list above |
-| `src/app/api/jobs/[id]/log-stream/route.ts` (new) | SSE route, session-authenticated |
-| `src/app/(app)/jobs/[id]/page.tsx` (new) | job detail page |
+| `src/lib/auth/session.ts` | add `requireUserFreshRole()` — a fresh, non-cookie-cached role read for callers that must keep serving a non-admin, filtered to their own rows, rather than answering 404 |
+| `src/app/api/jobs/[id]/log-stream/route.ts` (new) | SSE route, session-authenticated via `requireUserFreshRole()`; 404s for a job the caller does not own |
+| `src/app/(app)/jobs/page.tsx` | filter to `user.id` for a non-admin, via `requireUserFreshRole()` |
+| `src/app/(app)/jobs/[id]/page.tsx` (new) | job detail page; same ownership filter as `/jobs` |
 | `src/components/jobs/job-log-viewer.tsx` (new) | live log panel |
-| `src/components/jobs/jobs-table.tsx` | link rows to detail page |
+| `src/components/jobs/jobs-table.tsx`, `jobs-table.test.tsx` | link rows to detail page; the test's mock `Job` object literal gained the required `userId` field once the column landed |
 | `messages/en.json`, `messages/de.json` | job detail page strings (labels, empty-log state, stream-ended state) |
 
 ## Testing

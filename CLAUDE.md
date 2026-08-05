@@ -422,8 +422,9 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   `src/app/media/avatars/[userId]/route.ts`, for the same reason;
   `src/app/(app)/jobs/[id]/page.tsx` and
   `src/app/api/jobs/[id]/log-stream/route.ts`, likewise (the job live-log
-  feature's detail page and its SSE route, both gated by `requireUser()`
-  before anything else); and phase 5's three `/users` routes —
+  feature's detail page and its SSE route, both gated by
+  `requireUserFreshRole()` before anything else); and phase 5's three
+  `/users` routes —
   `src/app/(app)/users/page.tsx`, `src/app/(app)/users/new/page.tsx`,
   `src/app/(app)/users/[id]/page.tsx` — where `requireAdmin()` does it. That
   exemption is only worth as much as the
@@ -539,7 +540,8 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   lists it.
 
 - **Identity comes from the session: `currentUser()`, `requireUser()`,
-  `requireAdmin()` and `currentUserId()` in `src/lib/auth/session.ts`.**
+  `requireAdmin()`, `requireUserFreshRole()` and `currentUserId()` in
+  `src/lib/auth/session.ts`.**
   `currentUserId()` keeps the signature phase 3 gave it and is re-exported from
   `src/lib/settings/queries.ts`, which is why closing the seam changed no
   consumer. **Never memoize an identity across requests** — the per-process memo
@@ -555,6 +557,39 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     read on every render); authorization may not.
   - **`requireAdmin()` answers 404, not 403.** A 403 confirms the route exists,
     which a non-admin has no reason to learn.
+
+  **`requireUserFreshRole()` is a third category the rule above doesn't name on
+  its own: fresh role, no admin-only gate.** `requireAdmin()` answers "is this
+  an admin, yes or no, and refuse everyone else" — but `/jobs`, `/jobs/[id]` and
+  the log-stream route need to keep serving a non-admin (filtered to their own
+  rows) while still telling admin from non-admin correctly, right now, to decide
+  _what_ to show. Reaching for `requireUser()` and then checking `isAdminRole()`
+  on its result would silently reintroduce the exact bug `requireAdmin()`'s
+  `disableCookieCache: true` already exists to prevent, because `requireUser()`
+  answers from the five-minute session cookie cache: an administrator demoted
+  through `/users` would keep cross-user job visibility for up to five minutes
+  afterward. `requireUserFreshRole()` reads the session the same way
+  `requireAdmin()` does — `disableCookieCache: true` — but returns the user
+  instead of gating on their role, so a caller can branch on a role that is
+  never stale. Use `requireUser()` for pure identity where staleness is
+  harmless, `requireAdmin()` when a non-admin should be flatly refused (404),
+  and `requireUserFreshRole()` when a non-admin is still owed a (filtered)
+  response but the admin/non-admin distinction itself must be current.
+
+- **`jobs.userId` is the ownership model for background jobs, and it is
+  nullable on purpose.** Most jobs belong to the user who triggered them
+  (`aggregate`, `feed.logo`, `feed.restore`, `article.reload`), but `retention`
+  runs once per boot across every user in a single execution and owns none of
+  them individually — for that kind, and that kind alone, `userId` is `null`.
+  `/jobs`, `/jobs/[id]` and `src/app/api/jobs/[id]/log-stream/route.ts` all
+  filter a non-admin to `jobs.userId = user.id` (via `requireUserFreshRole()`,
+  above); an admin sees every row, ownerless ones included. `null` is not "no
+  filter" from a non-admin's perspective — a non-admin who owns nothing simply
+  sees an empty list, never someone else's job and never the ownerless one.
+  `src/lib/jobs/log-bus.ts`'s pub/sub is deliberately not part of this: it is
+  jobId-keyed, not user-keyed, and enforces no ownership of its own (see its
+  module doc comment) — the filtering above is what stands between it and a
+  non-admin subscribing to a job id that isn't theirs.
 - **`nextCookies()` is registered last in the plugin array, and removing it
   breaks a feature silently.** Better Auth writes its cookies into
   `ctx.context.responseHeaders`; the `/api/auth/*` route turns those into a real
