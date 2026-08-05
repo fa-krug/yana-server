@@ -166,6 +166,7 @@ export async function reloadArticles(ids: number[]): Promise<{ ok: boolean; enqu
           validArticles.map((a) => ({
             kind: "article.reload",
             payload: { articleId: a.id },
+            userId,
           })),
         )
         .run();

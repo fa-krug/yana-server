@@ -94,6 +94,7 @@ describe("POST /api/v1/articles/[id]/reload", () => {
       .get();
     expect(job?.kind).toBe("article.reload");
     expect(job?.payload).toMatchObject({ articleId });
+    expect(job?.userId).toBe(owner.id);
   });
 
   it("404s for another user's article and enqueues no job", async () => {

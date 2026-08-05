@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import Database from "better-sqlite3";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { signInCookie } from "@/lib/auth/test-support";
@@ -178,6 +179,16 @@ describe("createFeed", () => {
     await currentUserId();
     mockLogoDiscoveryToThrow();
     expect((await actions.createFeed({ name: "X", aggregator: "heise" })).ok).toBe(true);
+  });
+
+  it("records the acting user on the feed.logo job it creates", async () => {
+    const userId = await currentUserId();
+    await actions.createFeed({ name: "X", aggregator: "heise" });
+
+    const job = raw(client.getDb())
+      .prepare("SELECT user_id FROM jobs WHERE kind = 'feed.logo'")
+      .get() as { user_id: string } | undefined;
+    expect(job?.user_id).toBe(userId);
   });
 
   it("attaches multiple tags", async () => {
@@ -458,5 +469,114 @@ describe("deleteFeeds", () => {
     await currentUserId();
     const result = await actions.deleteFeeds([]);
     expect(result).toEqual({ ok: true, deleted: 0 });
+  });
+});
+
+describe("bulk job enqueue actions", () => {
+  let dbPath: string;
+  let actions: typeof import("./actions");
+  let auth: typeof import("@/lib/auth/server").auth;
+  let createUserWithPassword: typeof import("@/lib/auth/server").createUserWithPassword;
+  let client: typeof import("@/lib/db/client");
+  let schema: typeof import("@/lib/db/schema");
+  let userId: string;
+
+  function raw(db: unknown): Database.Database {
+    return (db as { $client: Database.Database }).$client;
+  }
+
+  function seedFeed(): number {
+    return client.writeTransaction((tx) =>
+      tx
+        .insert(schema.feeds)
+        .values({ name: "F", userId })
+        .returning({ id: schema.feeds.id })
+        .get(),
+    ).id;
+  }
+
+  beforeEach(async () => {
+    vi.resetModules();
+    requestHeaders.current = new Headers();
+    cookieJar.clear();
+
+    const stamp = `${process.pid}-${Math.random().toString(36).slice(2)}`;
+    dbPath = path.join(os.tmpdir(), `yana-feeds-bulk-${stamp}.db`);
+    applyMigrationsAt(dbPath);
+    process.env.DATABASE_PATH = dbPath;
+    process.env.BETTER_AUTH_SECRET = "test-secret-not-used-outside-this-file-0123456789";
+
+    ({ auth, createUserWithPassword } = await import("@/lib/auth/server"));
+    actions = await import("./actions");
+    client = await import("@/lib/db/client");
+    schema = await import("@/lib/db/schema");
+
+    const user = await createUserWithPassword({
+      email: "user@example.com",
+      password: PASSWORD,
+      firstName: "",
+      lastName: "",
+      role: "user",
+    });
+    userId = user.id;
+    raw(client.getDb()).exec(`INSERT INTO user_settings (user_id) VALUES ('${user.id}')`);
+    const cookie = await signInCookie(auth, { email: "user@example.com", password: PASSWORD });
+    requestHeaders.current = new Headers({ cookie });
+    cookieJar.clear();
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_PATH;
+    delete process.env.BETTER_AUTH_SECRET;
+    const connection = raw(client.getDb());
+    if (connection.open) connection.close();
+    for (const suffix of ["", "-shm", "-wal"]) {
+      fs.rmSync(`${dbPath}${suffix}`, { force: true });
+    }
+  });
+
+  it("records the acting user on the feed.logo job refreshLogos enqueues", async () => {
+    const feedId = seedFeed();
+
+    const result = await actions.refreshLogos([feedId]);
+    expect(result).toEqual({ ok: true, enqueued: 1 });
+
+    const job = client
+      .getDb()
+      .select({ userId: schema.jobs.userId })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.kind, "feed.logo"))
+      .get();
+    expect(job?.userId).toBe(userId);
+  });
+
+  it("records the acting user on the feed.update job updateFeedsBulk enqueues", async () => {
+    const feedId = seedFeed();
+
+    const result = await actions.updateFeedsBulk([feedId]);
+    expect(result).toEqual({ ok: true, enqueued: 1 });
+
+    const job = client
+      .getDb()
+      .select({ userId: schema.jobs.userId })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.kind, "feed.update"))
+      .get();
+    expect(job?.userId).toBe(userId);
+  });
+
+  it("records the acting user on the feed.restore job restoreFeedsBulk enqueues", async () => {
+    const feedId = seedFeed();
+
+    const result = await actions.restoreFeedsBulk([feedId]);
+    expect(result).toEqual({ ok: true, enqueued: 1 });
+
+    const job = client
+      .getDb()
+      .select({ userId: schema.jobs.userId })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.kind, "feed.restore"))
+      .get();
+    expect(job?.userId).toBe(userId);
   });
 });
