@@ -120,6 +120,38 @@ export async function requireAdmin(): Promise<User> {
 }
 
 /**
+ * Like `requireUser()`, but the `role` it reports is never stale.
+ *
+ * `requireUser()` (via `currentUser()`) is served from `session.cookieCache`
+ * for five minutes with no database read, which is the right trade for
+ * *identity* -- see the comment on `currentUser()` -- but wrong the moment a
+ * caller uses the result to decide what an admin, specifically, gets to see.
+ * `requireAdmin()` already carries this exact fix (`disableCookieCache: true`)
+ * for its own "is this an admin" gate; this function is the same read without
+ * that gate, for callers that must keep serving a non-admin -- just filtered
+ * to their own rows -- rather than answering 404.
+ *
+ * Concretely, this is `/jobs`, `/jobs/[id]` and the log-stream route: whether
+ * a caller may see and stream every *other* user's job payloads and logs is an
+ * authority decision, not a cosmetic one (unlike, say, `(app)/layout.tsx`'s
+ * use of the cached `role` purely to decide which sidebar items to render). An
+ * administrator demoted through `/users` must not keep cross-user job
+ * visibility for up to five minutes afterward.
+ *
+ * Not `requireUser()` + a second lookup: that would still start from the
+ * cached read this exists to not trust, the same reason `requireAdmin()`
+ * reads the session directly instead of layering a check on `requireUser()`.
+ */
+export async function requireUserFreshRole(): Promise<User> {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+    query: { disableCookieCache: true },
+  });
+  if (!session) redirect(LOGIN_PATH);
+  return asUser(session.user);
+}
+
+/**
  * The signed-in user's **row**, read from `users` rather than from the session.
  *
  * `currentUser()` above answers out of a signed cookie for five minutes, and

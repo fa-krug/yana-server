@@ -4,7 +4,7 @@ import { getTranslations } from "next-intl/server";
 import { JobLogViewer } from "@/components/jobs/job-log-viewer";
 import { StatusBadge } from "@/components/jobs/jobs-table";
 import { isAdminRole } from "@/lib/auth/roles";
-import { requireUser } from "@/lib/auth/session";
+import { requireUserFreshRole } from "@/lib/auth/session";
 import { getJob, listJobLogs } from "@/lib/jobs/queue";
 
 export default async function JobDetailPage({
@@ -14,10 +14,13 @@ export default async function JobDetailPage({
   // src/app/(app)/users/[id]/page.tsx for why.
   params: Promise<{ id: string }>;
 }) {
-  /** The gate, first -- `requireUser()` awaits `headers()`, opting this route
-   *  out of static prerendering the same way src/app/(app)/users/[id]/page.tsx
-   *  does with requireAdmin(); see the connection() bullet in CLAUDE.md. */
-  const user = await requireUser();
+  /** The gate, first -- `requireUserFreshRole()` awaits `headers()`, opting this
+   *  route out of static prerendering the same way src/app/(app)/users/[id]/page.tsx
+   *  does with requireAdmin(); see the connection() bullet in CLAUDE.md. It reads
+   *  `role` fresh rather than from the session cookie cache, because whether this
+   *  page shows someone else's job is an authority decision -- see the doc
+   *  comment on `requireUserFreshRole()` in src/lib/auth/session.ts. */
+  const user = await requireUserFreshRole();
   const admin = isAdminRole(user.role);
 
   const { id } = await params;

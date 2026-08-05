@@ -248,4 +248,59 @@ describe("the session helpers", () => {
       expect(await digestFrom(session.requireAdmin())).toMatch(NOT_FOUND);
     });
   });
+
+  describe("requireUserFreshRole", () => {
+    it("returns the signed-in user", async () => {
+      requestAs(await signInCookie(auth, ADMIN));
+
+      const user = await session.requireUserFreshRole();
+
+      expect(user.email).toBe(ADMIN.email);
+      expect(user.role).toBe("admin");
+    });
+
+    it("redirects to the login page when there is no session", async () => {
+      expect(await digestFrom(session.requireUserFreshRole())).toMatch(REDIRECT);
+    });
+
+    it("does not gate a non-admin -- unlike requireAdmin(), it still returns them", async () => {
+      const member = await seedMember();
+      requestAs(member.cookie);
+
+      await expect(session.requireUserFreshRole()).resolves.toMatchObject({
+        email: MEMBER.email,
+        role: "user",
+      });
+    });
+
+    it("reflects a demoted admin's role immediately, unlike the cached currentUser()", async () => {
+      // The correctness heart of this fix, mirroring requireAdmin()'s own
+      // "refuses a demoted admin whose cookie cache still says admin" test:
+      // session.cookieCache serves the whole user object -- role included --
+      // out of a signed cookie for five minutes with no database read, so an
+      // admin demoted a moment ago would still read as an admin to any caller
+      // trusting that cache.
+      requestAs(await signInCookie(auth, ADMIN));
+      const admin = await session.requireUserFreshRole();
+      expect(admin.role).toBe("admin");
+
+      client.writeTransaction((tx) => {
+        tx.update(schema.users).set({ role: "user" }).where(eq(schema.users.id, admin.id)).run();
+      });
+
+      // The cached read still reports the stale role. Asserted, not assumed:
+      // if the cookie cache were off (or not populated by sign-in), the check
+      // below would pass for the wrong reason and this test would prove
+      // nothing.
+      await expect(session.currentUser()).resolves.toMatchObject({ role: "admin" });
+
+      // requireUserFreshRole() passes disableCookieCache, so it sees the
+      // demotion -- and, unlike requireAdmin(), still returns the user rather
+      // than 404ing, because its callers must keep serving a non-admin.
+      await expect(session.requireUserFreshRole()).resolves.toMatchObject({
+        id: admin.id,
+        role: "user",
+      });
+    });
+  });
 });

@@ -5,7 +5,7 @@ import { SearchFilterBar } from "@/components/crud/search-filter-bar";
 import { TableSkeleton } from "@/components/data-skeleton";
 import { JobsTable } from "@/components/jobs/jobs-table";
 import { isAdminRole } from "@/lib/auth/roles";
-import { requireUser } from "@/lib/auth/session";
+import { requireUserFreshRole } from "@/lib/auth/session";
 import { parseListParams, type ListParams } from "@/lib/crud/params";
 import { listJobs } from "@/lib/jobs/queue";
 
@@ -26,7 +26,7 @@ export default async function JobsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const user = await requireUser();
+  const user = await requireUserFreshRole();
   const admin = isAdminRole(user.role);
 
   const params = parseListParams(await searchParams);

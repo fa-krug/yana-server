@@ -221,6 +221,43 @@ describe("GET /api/jobs/[id]/log-stream", () => {
     expect(response.status).toBe(200);
   });
 
+  it("404s a demoted admin's still-cached session, rather than trusting the stale role", async () => {
+    // Whether this route may stream another user's log is an authority
+    // decision, so it must read `role` fresh (`requireUserFreshRole()`) rather
+    // than from the five-minute session cookie cache -- see the doc comment
+    // on `requireUserFreshRole()` in src/lib/auth/session.ts and its own
+    // "reflects a demoted admin's role immediately" test in
+    // src/lib/auth/session.test.ts. Demoting the admin directly in the
+    // database (bypassing any application code) and then reusing the same
+    // sign-in cookie proves the route does not merely happen to work because
+    // some other layer refreshed it.
+    const ADMIN = { email: "admin2@example.com", password: "correct horse battery staple" };
+    const admin = await createUserWithPassword({
+      ...ADMIN,
+      firstName: "A",
+      lastName: "D",
+      role: "admin",
+    });
+    const adminCookie = await signInCookie(auth, ADMIN);
+    const other = await createUserWithPassword({
+      email: "someoneelse2@example.com",
+      password: "correct horse battery staple",
+      firstName: "S",
+      lastName: "E",
+    });
+    const jobId = queue.enqueue("test.job", {}, { userId: other.id });
+
+    const { writeTransaction } = await import("@/lib/db/client");
+    const { users } = await import("@/lib/db/schema");
+    const { eq } = await import("drizzle-orm");
+    writeTransaction((db) => {
+      db.update(users).set({ role: "user" }).where(eq(users.id, admin.id)).run();
+    });
+
+    const response = await get(String(jobId), { cookie: adminCookie });
+    expect(response.status).toBe(404);
+  });
+
   it("unsubscribes and clears the keep-alive interval when the client disconnects", async () => {
     const setIntervalSpy = vi.spyOn(global, "setInterval");
     const clearIntervalSpy = vi.spyOn(global, "clearInterval");

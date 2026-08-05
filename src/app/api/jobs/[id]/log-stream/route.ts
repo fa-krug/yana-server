@@ -1,5 +1,5 @@
 import { isAdminRole } from "@/lib/auth/roles";
-import { requireUser } from "@/lib/auth/session";
+import { requireUserFreshRole } from "@/lib/auth/session";
 import { getJob, listJobLogs } from "@/lib/jobs/queue";
 import { subscribeJobLog, subscribeJobTerminal } from "@/lib/jobs/log-bus";
 
@@ -12,11 +12,11 @@ const PING_INTERVAL_MS = 15_000;
 
 /**
  * The web UI's live tail for one job's log (`src/components/jobs/job-log-viewer.tsx`).
- * Session-authenticated (`requireUser()`), unlike the Bearer-auth
- * `/api/v1/jobs/events` -- `requireUser()` awaits `headers()` as its first
- * action, which is what opts this route out of static prerendering; see the
- * `connection()` bullet in CLAUDE.md and `src/app/media/avatars/[userId]/route.ts`
- * for the same shape.
+ * Session-authenticated (`requireUserFreshRole()`), unlike the Bearer-auth
+ * `/api/v1/jobs/events` -- `requireUserFreshRole()` awaits `headers()` as its
+ * first action, which is what opts this route out of static prerendering; see
+ * the `connection()` bullet in CLAUDE.md and
+ * `src/app/media/avatars/[userId]/route.ts` for the same shape.
  *
  * `?after=<id>` is the cursor: everything persisted after it is sent first
  * (oldest first), then new lines stream live. Both `listJobLogs()` and the
@@ -47,13 +47,17 @@ const PING_INTERVAL_MS = 15_000;
  * (`job.userId === user.id`); an admin (`isAdminRole()`) may stream any job's
  * log, ownerless jobs included. Same check as `/jobs/[id]`
  * (`src/app/(app)/jobs/[id]/page.tsx`), adapted to answer 404 instead of
- * calling `notFound()`.
+ * calling `notFound()`. Uses `requireUserFreshRole()`, not `requireUser()`:
+ * whether a caller may stream every other user's log is an authority
+ * decision, so `role` must not be read from the five-minute session cookie
+ * cache -- see the doc comment on `requireUserFreshRole()` in
+ * `src/lib/auth/session.ts`.
  */
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  const user = await requireUser();
+  const user = await requireUserFreshRole();
   const admin = isAdminRole(user.role);
 
   const { id } = await params;
