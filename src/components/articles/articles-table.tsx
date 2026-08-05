@@ -49,7 +49,7 @@ export function ArticlesTable({
             </Badge>
           ) : (
             <Badge variant="default" className="text-xs font-medium">
-              Unread
+              {t("columns.unread")}
             </Badge>
           )}
         </div>
