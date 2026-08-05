@@ -17,9 +17,7 @@ import {
 } from "@/components/ui/select";
 import { reloadArticles, updateArticle } from "@/lib/articles/actions";
 import { attemptCall } from "@/lib/attempt";
-import { reportRunOutcome } from "@/lib/jobs/report-run-outcome";
-import { waitForRun } from "@/lib/jobs/wait-for-run";
-import { Spinner } from "@/components/ui/spinner";
+import { useTrackRun } from "@/components/jobs/active-runs-context";
 import type { Article, Feed } from "@/lib/db/schema";
 
 export function ArticleForm({
@@ -31,6 +29,7 @@ export function ArticleForm({
 }) {
   const t = useTranslations("articles");
   const router = useRouter();
+  const trackRun = useTrackRun();
   const [isPending, startTransition] = useTransition();
   const [reloading, startReload] = useTransition();
 
@@ -54,13 +53,11 @@ export function ArticleForm({
       // The count comes from the run, never from the one id submitted: the
       // article may have been deleted by another session between the click and
       // the enqueue, in which case nothing ran and "1 reloaded" would be a lie.
-      const outcome = await waitForRun(attempted.result.runId);
-      reportRunOutcome(outcome, {
+      trackRun(attempted.result.runId, {
         completed: (n) => t("reloadCompleted", { count: n }),
         partial: (ok, failed) => t("reloadCompletedWithFailures", { completed: ok, failed }),
         fallback: t("saveFailed"),
       });
-      router.refresh();
     });
   }
 
@@ -165,7 +162,6 @@ export function ArticleForm({
           disabled={isPending || reloading}
           onClick={runReload}
         >
-          {reloading && <Spinner className="mr-1" />}
           {t("reloadNow")}
         </Button>
       </div>

@@ -22,9 +22,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 
 import { createFeed, updateFeed, updateFeedsBulk } from "@/lib/feeds/actions";
 import { attempt } from "@/lib/feeds/result";
-import { reportRunOutcome } from "@/lib/jobs/report-run-outcome";
-import { waitForRun } from "@/lib/jobs/wait-for-run";
-import { Spinner } from "@/components/ui/spinner";
+import { useTrackRun } from "@/components/jobs/active-runs-context";
 import {
   AGGREGATOR_SPECS,
   defaultIdentifierFor,
@@ -52,6 +50,7 @@ export function FeedForm({
   const t = useTranslations("feeds");
   const c = useTranslations("common");
   const router = useRouter();
+  const trackRun = useTrackRun();
 
   const [pending, start] = useTransition();
   const [updating, startUpdate] = useTransition();
@@ -74,13 +73,11 @@ export function FeedForm({
       // The count comes from the run, never from the one id submitted: the feed
       // may have been deleted by another session between the click and the
       // enqueue, in which case nothing ran and "1 updated" would be a lie.
-      const outcome = await waitForRun(result.runId);
-      reportRunOutcome(outcome, {
+      trackRun(result.runId, {
         completed: (n) => t("aggregationCompleted", { count: n }),
         partial: (ok, failed) => t("aggregationCompletedWithFailures", { completed: ok, failed }),
         fallback: t("saveFailed"),
       });
-      router.refresh();
     });
   }
 
@@ -469,7 +466,6 @@ export function FeedForm({
             disabled={pending || updating}
             onClick={runUpdate}
           >
-            {updating && <Spinner className="mr-1" />}
             {t("form.updateNow")}
           </Button>
         )}
