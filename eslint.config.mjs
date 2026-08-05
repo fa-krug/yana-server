@@ -129,8 +129,8 @@ const eslintConfig = defineConfig([
                * probe modules is structural but unenforced. Filing them with the
                * others would blur what that group means.
                *
-               * `probes.ts` is the barrel and the three provider modules are
-               * what it wires; all four are named, because reaching past the
+               * `probes.ts` is the barrel and the six provider modules are
+               * what it wires; all seven are named, because reaching past the
                * barrel for one constant is the obvious way around a rule that
                * only guards the barrel. `OPENAI_DEFAULT_API_URL` -- the one
                * thing a form legitimately wants from this side -- was moved into
@@ -142,11 +142,14 @@ const eslintConfig = defineConfig([
                 "**/lib/ai/openai",
                 "**/lib/ai/anthropic",
                 "**/lib/ai/gemini",
+                "**/lib/ai/mistral",
+                "**/lib/ai/qwen",
+                "**/lib/ai/deepseek",
               ],
               allowTypeImports: true,
               message:
                 "The AI probe modules are server-side outbound fetch calls, not a safety " +
-                "boundary: importing one from a component costs bundle weight and puts three " +
+                "boundary: importing one from a component costs bundle weight and puts six " +
                 "provider clients in the browser for nothing. Everything a form needs -- the " +
                 "model lists, the default model, whether a base URL is configurable, and " +
                 "OPENAI_DEFAULT_API_URL -- is in the client-safe @/lib/ai/providers; the " +

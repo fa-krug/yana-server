@@ -434,6 +434,12 @@
       "quota": "Der Schlüssel ist gültig — Qwen begrenzt ihn gerade. In Kürze funktioniert er wieder.",
       "modelUnknown": "Wähle eines der Modelle, die Yana für Qwen anbietet."
     },
+    "deepseek": {
+      "required": "Trage zuerst einen API-Schlüssel ein.",
+      "rejected": "DeepSeek hat diese Zugangsdaten nicht akzeptiert. Prüfe den API-Schlüssel, ob das Konto noch Guthaben hat und ob es das gewählte Modell nutzen darf.",
+      "quota": "Der Schlüssel ist gültig — DeepSeek begrenzt ihn gerade. In Kürze funktioniert er wieder.",
+      "modelUnknown": "Wähle eines der Modelle, die Yana für DeepSeek anbietet."
+    },
     "advanced": {
       "title": "Erweitert",
       "description": "Wie jede KI-Anfrage aussieht. Diese Werte gelten für den jeweils aktiven Anbieter und werden gemeinsam gespeichert, weil sie voneinander abhängen.",
@@ -449,7 +455,7 @@
       "monthlyLimit": "Monatslimit für Anfragen",
       "monthlyLimitHelp": "Wie viele KI-Anfragen Yana pro Monat höchstens stellt. Mindestens so groß wie das Tageslimit.",
       "maxPromptLength": "Maximale Prompt-Länge",
-      "maxPromptLengthHelp": "Wie viele Zeichen eines Artikels höchstens an den Anbieter gesendet werden.",
+      "maxPromptLengthHelp": "Wie viele Zeichen in einer einzelnen Anfrage höchstens an den Anbieter gesendet werden — ein zusammenzufassender Artikel oder ein aus der mobilen App gesendeter Prompt.",
       "requestTimeout": "Anfrage-Timeout (Sekunden)",
       "requestTimeoutHelp": "Wie lange Yana auf eine Antwort wartet, bevor eine Anfrage abgebrochen wird.",
       "maxRetries": "Wiederholungen",

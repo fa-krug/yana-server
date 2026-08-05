@@ -6,6 +6,7 @@ import { feedTags, feeds, tags } from "./schema/feeds";
 import { redditSubreddits, youtubeChannels } from "./schema/references";
 import { userSettings, users } from "./schema/users";
 
+export * from "./schema/ai";
 export * from "./schema/articles";
 export * from "./schema/auth";
 export * from "./schema/enums";

@@ -1,16 +1,16 @@
 import { openaiCompatibleChatProbe } from "@/lib/integrations/probe";
 import type { ProbeResult } from "@/lib/integrations/probe";
 
-import { MISTRAL_API_URL } from "./providers";
+import { DEEPSEEK_API_URL } from "./providers";
 
 /**
- * Mistral's endpoint is fixed (no operator setting, see `providers.ts`), so
+ * DeepSeek's endpoint is fixed (no operator setting, see `providers.ts`), so
  * unlike OpenAI's probe there is no URL to validate — this only ever calls
  * the shared OpenAI-compatible probe with a literal endpoint. The base URL
- * itself is `MISTRAL_API_URL`, imported rather than declared here, so this
- * probe and `run.ts`'s `callMistral()` cannot drift apart on it.
+ * itself is `DEEPSEEK_API_URL`, imported rather than declared here, so this
+ * probe and `run.ts`'s `callDeepseek()` cannot drift apart on it.
  */
-export async function testMistralKey({
+export async function testDeepseekKey({
   apiKey,
   model,
 }: {
@@ -18,8 +18,8 @@ export async function testMistralKey({
   model: string;
 }): Promise<ProbeResult> {
   return openaiCompatibleChatProbe({
-    providerName: "mistral",
-    endpoint: `${MISTRAL_API_URL}/chat/completions`,
+    providerName: "deepseek",
+    endpoint: `${DEEPSEEK_API_URL}/chat/completions`,
     apiKey,
     model,
   });

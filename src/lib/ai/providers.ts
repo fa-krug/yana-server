@@ -7,19 +7,19 @@
  * module's `queries.ts`: everything here is rendered by the `/ai` page's client
  * components -- the provider tabs, the model `<Select>`, whether a base-URL
  * field appears at all -- so anything reachable from here reaches the browser
- * bundle. The three live probes are `fetch` calls that only a server action ever
+ * bundle. The six live probes are `fetch` calls that only a server action ever
  * makes, and they are one import away in `./probes`, keyed by the same
  * `AiProviderKey`. Splitting them was a human ruling; keep the halves apart.
  *
- * **Why a registry rather than three hand-written sections.** Phase 6 shipped
+ * **Why a registry rather than six hand-written sections.** Phase 6 shipped
  * two credential providers as two near-twin sequences and phase 7's refactor
  * turned that into `defineIntegrationIn()` precisely because five copies is a
- * drift problem rather than a length one. These three are declared the same
- * way: adding a fourth provider is an entry in `AI_PROVIDERS` plus an entry in
+ * drift problem rather than a length one. These six are declared the same
+ * way: adding a seventh provider is an entry in `AI_PROVIDERS` plus an entry in
  * `AI_PROBES`, not an edit to the form, the action and the client.
  */
 
-export type AiProviderKey = "openai" | "anthropic" | "gemini" | "mistral" | "qwen";
+export type AiProviderKey = "openai" | "anthropic" | "gemini" | "mistral" | "qwen" | "deepseek";
 
 /**
  * Where an OpenAI credential is probed, and what a fresh `user_settings` row
@@ -42,6 +42,20 @@ export type AiProviderKey = "openai" | "anthropic" | "gemini" | "mistral" | "qwe
  * fresh account pointed at a stale endpoint.
  */
 export const OPENAI_DEFAULT_API_URL = "https://api.openai.com/v1";
+
+/**
+ * Mistral's, Qwen's and DeepSeek's fixed base URLs -- the same reason
+ * `OPENAI_DEFAULT_API_URL` lives here rather than in a probe module: both
+ * sides that need one (each provider's probe, in `./mistral`, `./qwen` and
+ * `./deepseek`, and `run.ts`'s matching `callMistral`/`callQwen`/`callDeepseek`
+ * methods) must agree, and a client-safe constant is the only place both can
+ * import from without a probe module reaching the browser bundle. Unlike
+ * OpenAI's, none of these three is an operator setting -- there is no column,
+ * no form field and no fallback logic around them, just one literal each.
+ */
+export const MISTRAL_API_URL = "https://api.mistral.ai/v1";
+export const QWEN_API_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
+export const DEEPSEEK_API_URL = "https://api.deepseek.com/v1";
 
 /** One entry in a provider's model select. `label` is a brand name, never translated. */
 export type AiModel = { value: string; label: string };
@@ -74,7 +88,7 @@ export type AiProvider = {
    * divergence in the *values* fails a test even though a divergence in the
    * prose cannot.
    *
-   * All three answers, and why they are not the same:
+   * All six answers, and why they are not the same:
    *
    * - **OpenAI: `false`.** Two independent reasons, either of which is
    *   sufficient. This is the one provider whose base URL is an operator
@@ -96,12 +110,38 @@ export type AiProvider = {
    *   inheritance: quota is charged to the project the key resolves to, so the
    *   key is validated first, and a key Google does not recognise answers
    *   `400 API_KEY_INVALID` instead. The endpoint is fixed here too.
+   * - **Mistral: `true`.** `api.mistral.ai` is Mistral's own direct API
+   *   endpoint -- not a third-party gateway or a CDN-fronted edge in front of
+   *   it, the same "fixed direct endpoint, no operator-configurable proxy"
+   *   argument that justifies Anthropic's and Gemini's `true` above. There is
+   *   nothing positioned to shed load before Mistral's own auth check runs, so
+   *   a 429 from it can only mean the key was already accepted.
+   * - **DeepSeek: `true`,** by the identical argument: `api.deepseek.com` is
+   *   DeepSeek's own direct endpoint, fixed and non-configurable, with no
+   *   intermediary that could answer on the provider's behalf. A rate limit
+   *   from it is DeepSeek itself, past its own key check.
+   * - **Qwen: `true`, but the least confident of the six.** `dashscope-intl.aliyuncs.com`
+   *   is Alibaba Cloud's DashScope endpoint -- still the provider's own
+   *   service rather than a third-party proxy, so the same "no operator-config
+   *   gateway" reasoning applies in principle. But Reddit's argument for `false`
+   *   does *not* transfer here to argue the other way either: Reddit's edge is
+   *   a third-party CDN shedding load in front of an *unrelated* origin before
+   *   authentication, which is a different shape from Alibaba Cloud's own edge
+   *   sitting in front of Alibaba Cloud's own service. What is missing is
+   *   simply public documentation, at the level Anthropic's and Gemini's API
+   *   docs provide, confirming DashScope's rate limiting happens strictly
+   *   after key evaluation rather than at a CDN layer in front of it. Absent
+   *   that confirmation this is a reasoned `true`, not a verified one, and it
+   *   is exactly what phase 7's carried-forward mandatory pre-release manual
+   *   pass (see "Carried forward from phase 7's review" in this repository's
+   *   `CLAUDE.md`) must check for Qwen specifically before `/ai` reaches a
+   *   user with Qwen configured.
    */
   quotaMeansVerified: boolean;
 };
 
 /**
- * The three providers, in the order the page renders them.
+ * The six providers, in the order the page renders them.
  *
  * **Model lists were looked up, not carried over, and they go stale.** Each
  * entry carries the date and the vendor page it was read from, because the
@@ -115,9 +155,11 @@ export type AiProvider = {
  * **Each list is ordered cheapest-capable first, and each `defaultModel` is its
  * first entry,** because the workload is summarising one article.
  *
- * **Deliberately three.** The direction record defers provider expansion (the
- * iOS client supports seven) as a separate concern; this is not the place to
- * widen it.
+ * **Six providers now, matching yana-ios.** The direction record originally
+ * deferred expansion beyond the initial three (OpenAI, Anthropic, Gemini); that
+ * was widened to six to match yana-ios's full provider list. Apple Intelligence
+ * (the seventh in yana-ios) is deliberately excluded here as it is on-device
+ * only with no server-side equivalent.
  */
 export const AI_PROVIDERS: readonly AiProvider[] = [
   {
@@ -210,6 +252,18 @@ export const AI_PROVIDERS: readonly AiProvider[] = [
       { value: "qwen3-max", label: "Qwen 3 Max" },
     ],
     defaultModel: "qwen3.5-flash",
+    hasCustomUrl: false,
+    quotaMeansVerified: true,
+  },
+  {
+    key: "deepseek",
+    label: "DeepSeek",
+    // From yana-ios's AIProvider enum (AppSettings.swift), copied 2026-08-04.
+    models: [
+      { value: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
+      { value: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
+    ],
+    defaultModel: "deepseek-v4-flash",
     hasCustomUrl: false,
     quotaMeansVerified: true,
   },

@@ -14,7 +14,11 @@ nothing needs to read it), and CI no longer publishes or deploys. See
 `docs/superpowers/plans/nextjs-14-folder-swap.md`. One release gate remains
 open: no live call has ever been made to the OpenAI, Anthropic or Gemini
 probes (see the "Carried forward from phase 7's review" section) — `/ai` must
-not reach a user before a manual pass per provider.
+not reach a user before a manual pass per provider. A 2026-08-04 plan
+(`docs/superpowers/specs/2026-08-04-ai-provider-expansion-and-prompt-endpoint-design.md`)
+has since widened the provider list to six (adding Mistral, Qwen, DeepSeek) and
+shipped `POST /api/v1/ai/prompt`; the gate now covers all six, not three — see
+the note at the end of the phase-7 section below.
 
 ## Background
 
@@ -620,6 +624,14 @@ The third thing phase 7's review left open — **where `define.ts` should live**
 second consumer — is recorded at the end of phase 6's section above rather than repeated here. It is
 phase 6's question; phase 7 only sharpened it by supplying the second consumer, and phases 9–11 are
 still where it gets answered.
+
+**Shipped, 2026-08-04**: provider expansion to six (openai/anthropic/gemini/mistral/qwen/deepseek,
+matching yana-ios minus the on-device-only Apple Intelligence) and the new `POST /api/v1/ai/prompt`
+mobile endpoint, plus first-time enforcement of `aiDefaultDailyLimit`/`aiDefaultMonthlyLimit`. See
+`docs/superpowers/specs/2026-08-04-ai-provider-expansion-and-prompt-endpoint-design.md` (design) and
+`docs/superpowers/plans/2026-08-04-ai-provider-expansion-and-prompt-endpoint.md` (plan). The release
+gate above is unchanged in kind, only in scope: Mistral, Qwen and DeepSeek share OpenAI's untested-live-call
+status, not its SSRF exposure (their base URLs are fixed, not operator-configurable).
 
 ## Carried forward from phase 4's review
 
