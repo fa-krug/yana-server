@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { FeedLike } from "../../base";
+import type { FeedLike, RawArticle } from "../../base";
 import { YouTubeAggregator } from "./aggregator";
 import type { YouTubeCommentThread } from "./client";
 
@@ -54,5 +54,26 @@ describe("YouTubeAggregator.buildContentHtml", () => {
     expect(html).toContain("hello");
     expect(html).toContain("Someone");
     expect(html).toContain("<b>nice video</b>");
+  });
+});
+
+describe("YouTubeAggregator.finalizeArticles", () => {
+  it("embeds each video's facade exactly once", async () => {
+    const agg = aggregatorFor();
+    const videoId = "dQw4w9WgXcQ";
+    const article: RawArticle = {
+      name: "A video",
+      identifier: `https://www.youtube.com/watch?v=${videoId}`,
+      raw_content: "a description",
+      content: "a description",
+      date: new Date(),
+      author: "Some Channel",
+      _youtube_video_id: videoId,
+    };
+
+    const [finalized] = await agg.finalizeArticles([article]);
+
+    const occurrences = finalized.content.split("youtube-embed-container").length - 1;
+    expect(occurrences).toBe(1);
   });
 });
