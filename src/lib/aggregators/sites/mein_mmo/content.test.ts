@@ -55,12 +55,17 @@ describe("extractMeinMmoContent", () => {
 // Everything above mocks buildBlueskyEmbedHtml at the module boundary, which
 // proves the async plumbing works but never exercises the real builder's HTML
 // (inline styles, real Bluesky CDN <img> URLs) against this file's later
-// cleanDataAttributes/sanitizeClassNames passes, or against the img-src
-// localization pass at content.ts:116-125 that every other embed relies on.
-// This block stubs fetch instead -- the actual network boundary -- and
-// vi.doUnmock's the bluesky module so the real buildBlueskyEmbedHtml runs.
+// cleanDataAttributes/sanitizeClassNames passes. This block stubs fetch
+// instead -- the actual network boundary -- and vi.doUnmock's the bluesky
+// module so the real buildBlueskyEmbedHtml runs.
+//
+// Image localization itself is NOT this function's job: extractMeinMmoContent
+// only builds the content HTML (with the real, un-localized Bluesky CDN URL
+// still present); MeinMmoAggregator.processContent() -- one stage later, in
+// aggregator.ts -- is what resolves every body <img src> (Bluesky's included)
+// to a real yana-img:// reference via storeImageRefFromUrl.
 describe("extractMeinMmoContent - real Bluesky builder end-to-end (unmocked)", () => {
-  it("survives the real extraction pipeline and localizes the embed's image", async () => {
+  it("survives the real extraction pipeline with the embed's image left for processContent to localize", async () => {
     const mockFetch = vi.fn(async (url: string) => {
       if (url.includes("resolveHandle")) {
         return { ok: true, json: async () => ({ did: "did:plc:test123" }) };
@@ -102,12 +107,12 @@ describe("extractMeinMmoContent - real Bluesky builder end-to-end (unmocked)", (
     expect(result).toContain("Real Author");
     expect(result).toContain("Real post text.");
 
-    // Proves the existing localization pass at content.ts:116-125 applies to
-    // Bluesky's images too: the raw CDN URL must not survive into the output.
+    // extractMeinMmoContent does not localize images -- that is
+    // MeinMmoAggregator.processContent()'s job, one stage later -- so the
+    // real Bluesky CDN URL is expected to still be present here, unmodified.
     const $ = cheerio.load(result);
     const src = $("img").attr("src");
-    expect(src).toMatch(/^yana-img:\/\//);
-    expect(result).not.toContain("https://cdn.bsky.app/img/test.jpg");
+    expect(src).toBe("https://cdn.bsky.app/img/test.jpg");
 
     vi.unstubAllGlobals();
   });

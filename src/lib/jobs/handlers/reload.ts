@@ -40,7 +40,7 @@ export async function handleReloadJob(job: Job): Promise<void> {
   const headerData = await aggregator.extractHeaderElement(rawArticle);
   if (headerData) rawArticle.header_data = headerData;
 
-  const extracted = aggregator.extractContent(article.rawContent, rawArticle);
+  const extracted = await aggregator.extractContent(article.rawContent, rawArticle);
   const processed = await aggregator.processContent(extracted, rawArticle);
 
   const blocks = parseBlocks(processed, article.identifier);
