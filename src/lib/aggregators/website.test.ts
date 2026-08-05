@@ -1,7 +1,23 @@
 import { describe, expect, it } from "vitest";
 
 import { FeedLike, RawArticle } from "./base";
+import { ARTICLE_ENRICHMENT_CONCURRENCY } from "./concurrency";
+import { ArticleSkipError } from "./errors";
 import { FullWebsiteAggregator, RssSummaryFallbackAggregator } from "./website";
+
+function makeArticle(identifier: string): RawArticle {
+  return {
+    name: identifier,
+    identifier,
+    raw_content: "",
+    content: "",
+    date: new Date(),
+  };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 describe("FullWebsiteAggregator", () => {
   it("resolves default content and ignore selectors", () => {
@@ -90,5 +106,137 @@ describe("RssSummaryFallbackAggregator", () => {
 
     const extracted = agg.extractContent(html, article);
     expect(extracted).toBe("RSS Summary Content");
+  });
+});
+
+describe("FullWebsiteAggregator.enrichArticles", () => {
+  const feed: FeedLike = { identifier: "https://example.com", dailyLimit: 20 };
+
+  it("skips articles that raise ArticleSkipError and keeps others on other errors", async () => {
+    class MixedOutcomeAggregator extends FullWebsiteAggregator {
+      async extractHeaderElement(): Promise<null> {
+        return null;
+      }
+
+      async fetchArticleContent(url: string): Promise<string> {
+        if (url.includes("skip")) throw new ArticleSkipError("gone", 404);
+        if (url.includes("fail")) throw new Error("network boom");
+        return `<article>content for ${url}</article>`;
+      }
+
+      extractContent(html: string): string {
+        return html;
+      }
+
+      processContent(html: string): string {
+        return html;
+      }
+    }
+
+    const agg = new MixedOutcomeAggregator(feed);
+    const articles = [
+      makeArticle("https://example.com/ok"),
+      makeArticle("https://example.com/skip"),
+      makeArticle("https://example.com/fail"),
+    ];
+
+    const result = await agg.enrichArticles(articles);
+
+    expect(result.map((a) => a.identifier)).toEqual([
+      "https://example.com/ok",
+      "https://example.com/fail",
+    ]);
+    expect(result[0].content).toContain("content for https://example.com/ok");
+    // The article that failed keeps its original (unenriched) content.
+    expect(result[1].content).toBe("");
+  });
+
+  it("preserves input order even when articles finish out of completion order", async () => {
+    class OutOfOrderAggregator extends FullWebsiteAggregator {
+      async extractHeaderElement(): Promise<null> {
+        return null;
+      }
+
+      async fetchArticleContent(url: string): Promise<string> {
+        // The first article is the slowest, the last is the fastest, so
+        // completion order is reversed relative to input order.
+        const delays: Record<string, number> = {
+          "https://example.com/1": 30,
+          "https://example.com/2": 15,
+          "https://example.com/3": 0,
+        };
+        await delay(delays[url] ?? 0);
+        return `<article>content for ${url}</article>`;
+      }
+
+      extractContent(html: string): string {
+        return html;
+      }
+
+      processContent(html: string): string {
+        return html;
+      }
+    }
+
+    const agg = new OutOfOrderAggregator(feed);
+    const articles = [
+      makeArticle("https://example.com/1"),
+      makeArticle("https://example.com/2"),
+      makeArticle("https://example.com/3"),
+    ];
+
+    const result = await agg.enrichArticles(articles);
+
+    expect(result.map((a) => a.identifier)).toEqual([
+      "https://example.com/1",
+      "https://example.com/2",
+      "https://example.com/3",
+    ]);
+    // Each article's content reflects its own URL, not a swapped neighbor's.
+    expect(result[0].content).toContain("content for https://example.com/1");
+    expect(result[1].content).toContain("content for https://example.com/2");
+    expect(result[2].content).toContain("content for https://example.com/3");
+  });
+
+  it("never runs more than ARTICLE_ENRICHMENT_CONCURRENCY fetches concurrently", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+
+    class CappedConcurrencyAggregator extends FullWebsiteAggregator {
+      async extractHeaderElement(): Promise<null> {
+        return null;
+      }
+
+      async fetchArticleContent(url: string): Promise<string> {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await delay(10);
+        inFlight--;
+        return `<article>content for ${url}</article>`;
+      }
+
+      extractContent(html: string): string {
+        return html;
+      }
+
+      processContent(html: string): string {
+        return html;
+      }
+    }
+
+    const agg = new CappedConcurrencyAggregator(feed);
+    // More articles than the concurrency cap, so the cap is actually exercised.
+    const articleCount = ARTICLE_ENRICHMENT_CONCURRENCY * 2 + 1;
+    const articles = Array.from({ length: articleCount }, (_, i) =>
+      makeArticle(`https://example.com/${i}`),
+    );
+
+    const result = await agg.enrichArticles(articles);
+
+    expect(result).toHaveLength(articleCount);
+    expect(maxInFlight).toBeLessThanOrEqual(ARTICLE_ENRICHMENT_CONCURRENCY);
+    // Confirms the pool actually parallelizes rather than degenerating to
+    // sequential execution.
+    expect(maxInFlight).toBeGreaterThan(1);
   });
 });

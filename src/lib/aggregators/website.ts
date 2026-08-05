@@ -1,6 +1,7 @@
 import * as cheerio from "cheerio";
 
 import { RawArticle } from "./base";
+import { ARTICLE_ENRICHMENT_CONCURRENCY, mapWithConcurrency } from "./concurrency";
 import { ArticleSkipError } from "./errors";
 import { cleanHtml, removeImageByUrl, sanitizeClassNames } from "./extract/clean";
 import {
@@ -144,35 +145,37 @@ export class FullWebsiteAggregator extends RssAggregator {
   }
 
   async enrichArticles(articles: RawArticle[]): Promise<RawArticle[]> {
-    const enriched: RawArticle[] = [];
+    const results = await mapWithConcurrency(
+      articles,
+      ARTICLE_ENRICHMENT_CONCURRENCY,
+      async (article): Promise<RawArticle | null> => {
+        const url = article.identifier;
+        try {
+          const headerData = await this.extractHeaderElement(article);
+          if (headerData) {
+            article.header_data = headerData;
+          }
 
-    for (const article of articles) {
-      const url = article.identifier;
-      try {
-        const headerData = await this.extractHeaderElement(article);
-        if (headerData) {
-          article.header_data = headerData;
+          const rawHtml = await this.fetchArticleContent(url);
+          article.raw_content = rawHtml;
+
+          const content = await this.extractContent(rawHtml, article);
+          const processed = await this.processContent(content, article);
+          article.content = processed;
+
+          return article;
+        } catch (err) {
+          if (err instanceof ArticleSkipError) {
+            // Skip article on HTTP 4xx errors
+            return null;
+          }
+          // Keep original RSS article on fetch/extraction errors
+          return article;
         }
+      },
+    );
 
-        const rawHtml = await this.fetchArticleContent(url);
-        article.raw_content = rawHtml;
-
-        const content = await this.extractContent(rawHtml, article);
-        const processed = await this.processContent(content, article);
-        article.content = processed;
-
-        enriched.push(article);
-      } catch (err) {
-        if (err instanceof ArticleSkipError) {
-          // Skip article on HTTP 4xx errors
-          continue;
-        }
-        // Keep original RSS article on fetch/extraction errors
-        enriched.push(article);
-      }
-    }
-
-    return enriched;
+    return results.filter((a): a is RawArticle => a !== null);
   }
 }
 
