@@ -15,7 +15,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { updateArticle } from "@/lib/articles/actions";
+import { reloadArticles, updateArticle } from "@/lib/articles/actions";
+import { reportRunOutcome } from "@/lib/jobs/report-run-outcome";
+import { waitForRun } from "@/lib/jobs/wait-for-run";
+import { Spinner } from "@/components/ui/spinner";
 import type { Article, Feed } from "@/lib/db/schema";
 
 export function ArticleForm({
@@ -28,6 +31,20 @@ export function ArticleForm({
   const t = useTranslations("articles");
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [reloading, startReload] = useTransition();
+
+  function runReload() {
+    startReload(async () => {
+      const result = await reloadArticles([article.id]);
+      const outcome = await waitForRun(result.runId);
+      reportRunOutcome(outcome, {
+        completed: () => t("reloadCompleted", { count: 1 }),
+        partial: (ok, failed) => t("reloadCompletedWithFailures", { completed: ok, failed }),
+        fallback: t("saveFailed"),
+      });
+      router.refresh();
+    });
+  }
 
   const [name, setName] = useState(article.name);
   const [feedId, setFeedId] = useState(article.feedId);
@@ -123,6 +140,10 @@ export function ArticleForm({
       <div className="flex items-center space-x-2 pt-2">
         <Button type="submit" disabled={isPending}>
           {isPending ? t("save") + "..." : t("save")}
+        </Button>
+        <Button type="button" variant="outline" disabled={isPending || reloading} onClick={runReload}>
+          {reloading && <Spinner className="mr-1" />}
+          {t("reloadNow")}
         </Button>
       </div>
     </form>
