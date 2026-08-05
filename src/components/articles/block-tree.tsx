@@ -11,11 +11,12 @@ export function BlockTree({ nodes }: { nodes: BlockNodeType[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end space-x-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
         <Button
           variant={view === "rendered" ? "default" : "outline"}
           size="sm"
           onClick={() => setView("rendered")}
+          className="w-full sm:w-auto"
         >
           Rendered
         </Button>
@@ -23,6 +24,7 @@ export function BlockTree({ nodes }: { nodes: BlockNodeType[] }) {
           variant={view === "json" ? "default" : "outline"}
           size="sm"
           onClick={() => setView("json")}
+          className="w-full sm:w-auto"
         >
           Raw JSON
         </Button>

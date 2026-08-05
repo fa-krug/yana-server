@@ -155,11 +155,17 @@ export function RedditSection({
             />
             <p className="text-sm text-muted-foreground">{t("reddit.userAgentHelp")}</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit" disabled={busy}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <Button type="submit" disabled={busy} className="w-full sm:w-auto">
               {saving ? t("saving") : t("save")}
             </Button>
-            <Button type="button" variant="outline" disabled={busy} onClick={test}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={test}
+              className="w-full sm:w-auto"
+            >
               {testing ? t("testing") : t("test")}
             </Button>
           </div>

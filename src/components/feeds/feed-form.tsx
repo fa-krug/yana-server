@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { cn } from "@/lib/utils";
 
 import { createFeed, updateFeed, updateFeedsBulk } from "@/lib/feeds/actions";
 import { attempt } from "@/lib/feeds/result";
@@ -455,8 +456,8 @@ export function FeedForm({
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        <Button type="submit" disabled={pending}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <Button type="submit" disabled={pending} className="w-full sm:w-auto">
           {feed ? t("form.save") : t("form.create")}
         </Button>
         {feed && (
@@ -465,11 +466,15 @@ export function FeedForm({
             variant="outline"
             disabled={pending || updating}
             onClick={runUpdate}
+            className="w-full sm:w-auto"
           >
             {t("form.updateNow")}
           </Button>
         )}
-        <Link href="/feeds" className={buttonVariants({ variant: "outline" })}>
+        <Link
+          href="/feeds"
+          className={cn(buttonVariants({ variant: "outline" }), "w-full sm:w-auto")}
+        >
           {c("cancel")}
         </Link>
       </div>

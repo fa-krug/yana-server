@@ -20,6 +20,7 @@ import { ADMIN_ROLE, isAdminRole } from "@/lib/auth/roles";
 import { createUser, updateUser } from "@/lib/users/actions";
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, STANDARD_ROLE } from "@/lib/users/fields";
 import { attempt, type UsersKey } from "@/lib/users/result";
+import { cn } from "@/lib/utils";
 
 /** The columns the form edits -- not the `User` row, which carries far more. */
 export type EditableUser = {
@@ -236,15 +237,18 @@ export function UserForm({ user }: { user?: EditableUser }) {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        <Button type="submit" disabled={pending}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <Button type="submit" disabled={pending} className="w-full sm:w-auto">
           {user ? t("form.save") : t("form.create")}
         </Button>
         {/* buttonVariants on a <Link>, not `<Button render={<Link/>}>`: the Base
             UI button primitive renders a native <button> unless told otherwise,
             and the class is the whole contract here. Same form as the CRUD
             kit's pagination links. */}
-        <Link href="/users" className={buttonVariants({ variant: "outline" })}>
+        <Link
+          href="/users"
+          className={cn(buttonVariants({ variant: "outline" }), "w-full sm:w-auto")}
+        >
           {t("form.cancel")}
         </Link>
       </div>

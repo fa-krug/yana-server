@@ -375,8 +375,8 @@ export function ProviderSection({
             </>
           ) : null}
 
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit" disabled={busy}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <Button type="submit" disabled={busy} className="w-full sm:w-auto">
               {provider
                 ? saving
                   ? t("saving")
@@ -386,7 +386,13 @@ export function ProviderSection({
                   : t("provider.turnOff")}
             </Button>
             {provider ? (
-              <Button type="button" variant="outline" disabled={busy} onClick={test}>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={test}
+                className="w-full sm:w-auto"
+              >
                 {testing ? t("testing") : t("test")}
               </Button>
             ) : null}

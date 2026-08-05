@@ -152,8 +152,8 @@ export function ArticleForm({
         <p className="text-xs text-muted-foreground">{t("createdAtNote")}</p>
       </div>
 
-      <div className="flex items-center space-x-2 pt-2">
-        <Button type="submit" disabled={isPending}>
+      <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:items-center">
+        <Button type="submit" disabled={isPending} className="w-full sm:w-auto">
           {isPending ? t("save") + "..." : t("save")}
         </Button>
         <Button
@@ -161,6 +161,7 @@ export function ArticleForm({
           variant="outline"
           disabled={isPending || reloading}
           onClick={runReload}
+          className="w-full sm:w-auto"
         >
           {t("reloadNow")}
         </Button>

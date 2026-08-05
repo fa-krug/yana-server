@@ -111,11 +111,14 @@ export function TagForm({ tag }: { tag?: Tag }) {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button type="submit" disabled={pending}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <Button type="submit" disabled={pending} className="w-full sm:w-auto">
             {tag ? t("form.save") : t("form.create")}
           </Button>
-          <Link href="/tags" className={buttonVariants({ variant: "outline" })}>
+          <Link
+            href="/tags"
+            className={cn(buttonVariants({ variant: "outline" }), "w-full sm:w-auto")}
+          >
             {c("cancel")}
           </Link>
         </div>
