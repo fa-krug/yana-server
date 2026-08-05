@@ -1,3 +1,5 @@
+import { eq } from "drizzle-orm";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 
@@ -5,6 +7,8 @@ import { JobLogViewer } from "@/components/jobs/job-log-viewer";
 import { StatusBadge } from "@/components/jobs/jobs-table";
 import { isAdminRole } from "@/lib/auth/roles";
 import { requireUserFreshRole } from "@/lib/auth/session";
+import { getDb } from "@/lib/db/client";
+import { feeds } from "@/lib/db/schema";
 import { getJob, listJobLogs } from "@/lib/jobs/queue";
 
 export default async function JobDetailPage({
@@ -31,6 +35,15 @@ export default async function JobDetailPage({
   const logs = listJobLogs(job.id);
   const t = await getTranslations("jobs");
 
+  const feedId = Number(job.payload?.feedId);
+  const feed = feedId
+    ? getDb()
+        .select({ id: feeds.id, name: feeds.name })
+        .from(feeds)
+        .where(eq(feeds.id, feedId))
+        .get()
+    : undefined;
+
   return (
     <div className="max-w-3xl space-y-6">
       <h1 className="text-2xl font-semibold">{t("detailTitle", { id: job.id })}</h1>
@@ -40,6 +53,20 @@ export default async function JobDetailPage({
           <dt className="text-muted-foreground">{t("kind")}</dt>
           <dd className="font-mono">{job.kind}</dd>
         </div>
+        {feedId > 0 && (
+          <div>
+            <dt className="text-muted-foreground">{t("feed")}</dt>
+            <dd>
+              {feed ? (
+                <Link href={`/feeds/${feed.id}`} className="hover:underline">
+                  {feed.name}
+                </Link>
+              ) : (
+                <span className="text-muted-foreground">{t("feedGone", { id: feedId })}</span>
+              )}
+            </dd>
+          </div>
+        )}
         <div>
           <dt className="text-muted-foreground">{t("status")}</dt>
           <dd>

@@ -429,7 +429,7 @@ describe("src/lib/jobs/handlers", () => {
       expect(lines).toContain("removed 2 existing articles before re-aggregating");
       // The feed is disabled, so handleAggregateJob's own early-return line
       // should follow -- proving the re-aggregate step really ran afterward.
-      expect(lines).toContain("feed not found or disabled, skipping");
+      expect(lines).toContain(`feed ${feedId} not found or disabled, skipping`);
     });
 
     it("wipes no articles and writes no tombstones for a feed with none", async () => {
@@ -509,7 +509,7 @@ describe("src/lib/jobs/handlers", () => {
 
       expect(factory.createAggregator).not.toHaveBeenCalled();
       const lines = logLines(job.id);
-      expect(lines).toEqual(["feed not found or disabled, skipping"]);
+      expect(lines).toEqual([`feed ${feedId} not found or disabled, skipping`]);
     });
 
     it("logs fetched and created counts for newly seen articles", async () => {
@@ -565,6 +565,7 @@ describe("src/lib/jobs/handlers", () => {
       expect(inserted).toHaveLength(2);
 
       const lines = logLines(job.id);
+      expect(lines).toContain('aggregating feed "Active Feed" (full_website)');
       expect(lines).toContain("fetched 2 articles");
       expect(lines).toContain("upserted articles: 2 created, 0 updated");
     });
@@ -626,6 +627,7 @@ describe("src/lib/jobs/handlers", () => {
       expect(stillOne[0].name).toBe("Article One Updated");
 
       const lines = logLines(job.id);
+      expect(lines).toContain('aggregating feed "Active Feed" (full_website)');
       expect(lines).toContain("fetched 1 articles");
       expect(lines).toContain("upserted articles: 0 created, 1 updated");
     });
