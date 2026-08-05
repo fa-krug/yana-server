@@ -5,6 +5,16 @@ const config: NextConfig = {
   // The Docker image copies .next/standalone; without this the image would
   // need the full node_modules tree.
   output: "standalone",
+  // Dev-mode only: how many compiled routes `next dev` keeps resident before
+  // disposing the least-recently-used one. The default (5 routes, 60s) lets
+  // memory grow unbounded as a session visits this app's ~20 distinct routes
+  // -- measured climbing past 2GB RSS after visiting a handful of pages.
+  // Lower numbers trade a short recompile when returning to a disposed route
+  // for a capped memory footprint.
+  onDemandEntries: {
+    maxInactiveAge: 15 * 1000,
+    pagesBufferLength: 2,
+  },
   // Without this pin, Next infers the workspace root by walking up from this
   // directory and picking the topmost ancestor that has a lockfile -- which
   // can be a completely unrelated lockfile that happens to sit above the
