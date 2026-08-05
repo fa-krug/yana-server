@@ -2,6 +2,12 @@
 
 Date: 2026-08-05
 
+> **Amended after the final whole-branch review, not authoritative on two points.**
+> The bulk call sites' "clear the selection before polling" flow and the 10-minute
+> bounded poll (see the plan's matching header note) both changed post-merge. The
+> merged code polls unboundedly and clears the selection only after the outcome is
+> reported.
+
 ## Problem
 
 Every action button in the app already disables itself and swaps its label

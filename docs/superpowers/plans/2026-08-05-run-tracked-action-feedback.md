@@ -2,6 +2,17 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Amended after the final whole-branch review, not authoritative on two points.**
+> Task 1 & 2's `setSelected([])` ordering (Steps 2 of the `runAggregation()`/
+> `handleReload()` implementations) shipped as written here and turned out to hide
+> `<BulkActionBar>`'s spinner for the whole poll — the merged code clears the
+> selection *after* the outcome is reported, not before `waitForRun()`. And
+> `waitForRun()`'s bounded "give up after ~10 minutes" design (Task 4) was replaced
+> post-merge, by explicit product decision, with unbounded polling — `RunOutcome`
+> no longer has a `"timeout"` member. Read the merged code
+> (`src/lib/jobs/wait-for-run.ts`, `src/lib/jobs/report-run-outcome.ts`, and the two
+> table components) for what actually shipped.
+
 **Goal:** Give "Run aggregation" (feeds) and "Reload" (articles) a real spinner that stays active until their enqueued background jobs actually finish, followed by one toast reporting the real outcome — for both the existing bulk actions and two new single-item buttons on the feed/article detail pages.
 
 **Architecture:** Group each action's enqueued jobs into one `runs` row (reusing `enqueueRun()`, already used by the external `/api/v1/aggregate` endpoint), expose a session-authenticated `getRunStatus()` server action so the dashboard can poll that row, and add a small client-side poll-to-terminal helper plus a shared spinner + outcome-toast helper that four call sites (2 existing bulk actions, 2 new detail-page buttons) use identically.
