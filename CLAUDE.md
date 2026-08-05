@@ -643,6 +643,29 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   - **Otherwise `requestFailed`,** deliberately distinct from `saveFailed`:
     "the server said no" and "the server never answered" want different advice.
 
+- **An action that enqueues background work reports the work, not the
+  enqueueing.** `enqueueRun()` (`src/lib/jobs/queue.ts`) groups the jobs it
+  inserts under one `runs` row and hands the caller its id; `getRunStatus()`
+  (`src/lib/jobs/actions.ts`) is the session-authenticated poll target for it
+  (unknown id and someone else's id both answer `null`, so it enumerates
+  nothing); and **`waitForRun()` + `reportRunOutcome()`
+  (`src/lib/jobs/`) are the pair every long-running dashboard action uses** — a
+  spinner for as long as the run actually takes, then exactly one toast carrying
+  the run's real `completedJobs`/`failedJobs`. The instant "N enqueued" toast
+  they replaced was a lie about the only thing the operator wanted to know, and
+  a count taken from the ids _submitted_ is the same lie (rows can vanish
+  between the click and the insert) — read it from the outcome. Two call-site
+  obligations: the poll is a bare `await` away from a defect, so `waitForRun()`
+  goes through `attemptCall()` on every poll; and a bulk caller must **not**
+  clear its selection until the outcome is reported, because `<BulkActionBar>`
+  renders `null` at `count === 0` and would take the spinner with it.
+  **The poll is unbounded on purpose** — no timeout, decided rather than
+  overlooked. The worker claims one job at a time, so the runs most worth
+  tracking are the long ones, and a poll that gives up produces silence for
+  exactly those; navigating away unmounts the component and abandons the promise
+  chain, which costs nothing. So `RunOutcome`'s failure arms are real failures
+  only (`"request-failed"`, `"not-found"`) and every one of them toasts.
+
 - **There is a way out, and it is a full document navigation.**
   `<SignOutButton>` (`src/components/auth/sign-out-button.tsx`) sits in the
   sidebar footer under the profile entry — the only chrome on every route in

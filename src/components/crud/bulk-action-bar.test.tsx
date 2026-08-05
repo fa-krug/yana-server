@@ -27,6 +27,50 @@ beforeEach(() => {
 });
 
 describe("<BulkActionBar>", () => {
+  it("shows a spinner only on the button whose action is still running", async () => {
+    let resolveRun: (value: boolean) => void = () => {};
+    const slowRun = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveRun = resolve;
+        }),
+    );
+    const slowAction: BulkAction = {
+      key: "slow",
+      label: "Slow action",
+      destructive: false,
+      run: slowRun,
+    };
+    const fastAction: BulkAction = {
+      key: "fast",
+      label: "Fast action",
+      destructive: false,
+      run: vi.fn().mockResolvedValue(true),
+    };
+
+    renderWithProviders(
+      <BulkActionBar count={2} actions={[slowAction, fastAction]} onClear={vi.fn()} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Slow action" }));
+
+    // The clicked button gets a spinner; its sibling stays plain-disabled.
+    expect(
+      screen.getByRole("button", { name: "Slow action" }).querySelector("svg.animate-spin"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Fast action" }).querySelector("svg.animate-spin"),
+    ).toBeNull();
+    expect(screen.getByRole("button", { name: "Fast action" }).hasAttribute("disabled")).toBe(true);
+
+    resolveRun(true);
+    await vi.waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Slow action" }).querySelector("svg.animate-spin"),
+      ).toBeNull();
+    });
+  });
+
   it("renders nothing when nothing is selected", () => {
     // So a caller can mount it unconditionally.
     const { container } = renderWithProviders(

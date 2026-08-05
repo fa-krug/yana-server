@@ -20,7 +20,11 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 
-import { createFeed, updateFeed } from "@/lib/feeds/actions";
+import { createFeed, updateFeed, updateFeedsBulk } from "@/lib/feeds/actions";
+import { attempt } from "@/lib/feeds/result";
+import { reportRunOutcome } from "@/lib/jobs/report-run-outcome";
+import { waitForRun } from "@/lib/jobs/wait-for-run";
+import { Spinner } from "@/components/ui/spinner";
 import {
   AGGREGATOR_SPECS,
   defaultIdentifierFor,
@@ -50,6 +54,35 @@ export function FeedForm({
   const router = useRouter();
 
   const [pending, start] = useTransition();
+  const [updating, startUpdate] = useTransition();
+
+  function runUpdate() {
+    if (!feed) return;
+
+    startUpdate(async () => {
+      // Never a bare `await` of a server action from a client component (see
+      // `@/lib/attempt`): an action that fails without returning -- a dropped
+      // connection, the container restarting mid-request -- rejects inside this
+      // transition scope and escalates to the (app) group's error boundary,
+      // replacing the whole form with "Something went wrong".
+      const result = await attempt(() => updateFeedsBulk([feed.id]));
+      if (!result.ok) {
+        toast.error(t("saveFailed"));
+        return;
+      }
+
+      // The count comes from the run, never from the one id submitted: the feed
+      // may have been deleted by another session between the click and the
+      // enqueue, in which case nothing ran and "1 updated" would be a lie.
+      const outcome = await waitForRun(result.runId);
+      reportRunOutcome(outcome, {
+        completed: (n) => t("aggregationCompleted", { count: n }),
+        partial: (ok, failed) => t("aggregationCompletedWithFailures", { completed: ok, failed }),
+        fallback: t("saveFailed"),
+      });
+      router.refresh();
+    });
+  }
 
   const [aggregator, setAggregator] = useState<keyof typeof AGGREGATOR_SPECS>(
     (feed?.aggregator as keyof typeof AGGREGATOR_SPECS) || "full_website",
@@ -429,6 +462,17 @@ export function FeedForm({
         <Button type="submit" disabled={pending}>
           {feed ? t("form.save") : t("form.create")}
         </Button>
+        {feed && (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={pending || updating}
+            onClick={runUpdate}
+          >
+            {updating && <Spinner className="mr-1" />}
+            {t("form.updateNow")}
+          </Button>
+        )}
         <Link href="/feeds" className={buttonVariants({ variant: "outline" })}>
           {c("cancel")}
         </Link>
