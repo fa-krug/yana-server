@@ -9,6 +9,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { articles, feeds, jobs, users } from "../db/schema";
 import { applyMigrationsAt } from "../db/test-support";
 
+const notifyJobFailureMock = vi.fn();
+vi.mock("../email/error-notifications", () => ({
+  notifyAdmins: vi.fn(),
+  notifyJobFailure: notifyJobFailureMock,
+}));
+
 describe("src/lib/jobs/queue", () => {
   let dbPath: string;
   let queue: typeof import("./queue");
@@ -53,6 +59,7 @@ describe("src/lib/jobs/queue", () => {
     client = await import("../db/client");
     events = await import("../api/events");
     queue = await import("./queue");
+    notifyJobFailureMock.mockClear();
   });
 
   afterEach(() => {
@@ -176,6 +183,51 @@ describe("src/lib/jobs/queue", () => {
       const job = queue.getJob(id);
       expect(job?.status).toBe("cancelled");
       expect(job?.finishedAt).not.toBeNull();
+    });
+
+    it("notifies the run's owner on terminal failure", () => {
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(userId, "aggregate", [{ feedId: 1 }]);
+      const job = client.getDb().select().from(jobs).where(eq(jobs.runId, runId)).get()!;
+      queue.claim();
+
+      client.getDb().update(jobs).set({ attempts: 3 }).where(eq(jobs.id, job.id)).run();
+
+      queue.fail(job.id, "feed unreachable");
+
+      expect(notifyJobFailureMock).toHaveBeenCalledWith(
+        userId,
+        expect.objectContaining({
+          category: "job",
+          message: "feed unreachable",
+          jobKind: "aggregate",
+        }),
+      );
+    });
+
+    it("notifies admins instead of a user for an ownerless job's terminal failure", () => {
+      const id = queue.enqueue("retention", {}, { maxAttempts: 1 });
+      queue.claim();
+
+      queue.fail(id, "cleanup failed");
+
+      expect(notifyJobFailureMock).toHaveBeenCalledWith(
+        null,
+        expect.objectContaining({
+          category: "job",
+          message: "cleanup failed",
+          jobKind: "retention",
+        }),
+      );
+    });
+
+    it("does not notify on a retry, only on terminal failure", () => {
+      const id = queue.enqueue("noop", {}, { maxAttempts: 3 });
+      queue.claim();
+
+      queue.fail(id, "temporary error");
+
+      expect(notifyJobFailureMock).not.toHaveBeenCalled();
     });
   });
 
