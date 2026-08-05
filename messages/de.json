@@ -279,7 +279,8 @@
       "updateNow": "Jetzt aktualisieren"
     },
     "saveFailed": "Feed konnte nicht gespeichert werden",
-    "logosEnqueued": "{count, plural, one {# Logo eingereiht} other {# Logos eingereiht}}",
+    "logoUpdateCompleted": "{count, plural, one {# Logo aktualisiert} other {# Logos aktualisiert}}",
+    "logoUpdateCompletedWithFailures": "{completed} aktualisiert, {failed} fehlgeschlagen",
     "bulkUpdateLogo": "Logo aktualisieren",
     "bulkRunAggregation": "Aggregation ausführen",
     "aggregationCompleted": "{count, plural, one {# Feed aktualisiert} other {# Feeds aktualisiert}}",

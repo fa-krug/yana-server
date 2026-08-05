@@ -130,14 +130,19 @@ export function FeedsTable({
     if (selected.length === 0) return false;
 
     const result = await attempt(() => refreshLogos(selected));
-
     if (!result.ok) {
       toast.error(t("saveFailed"));
       return false;
     }
 
+    const outcome = await waitForRun(result.runId);
+    reportRunOutcome(outcome, {
+      completed: (n) => t("logoUpdateCompleted", { count: n }),
+      partial: (ok, failed) => t("logoUpdateCompletedWithFailures", { completed: ok, failed }),
+      fallback: t("saveFailed"),
+    });
     setSelected([]);
-    toast.success(t("logosEnqueued", { count: result.enqueued }));
+    router.refresh();
     return true;
   }
 

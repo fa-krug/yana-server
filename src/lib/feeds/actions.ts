@@ -411,32 +411,24 @@ export async function deleteFeeds(ids: number[]) {
   });
 }
 
-export async function refreshLogos(ids: number[]): Promise<{ ok: boolean; enqueued: number }> {
-  if (ids.length === 0) return { ok: true, enqueued: 0 };
-
+export async function refreshLogos(
+  ids: number[],
+): Promise<{ ok: boolean; enqueued: number; runId: number }> {
   const userId = await currentUserId();
 
-  return writeTransaction((tx) => {
-    const validFeeds = tx
-      .select({ id: feeds.id })
-      .from(feeds)
-      .where(and(inArray(feeds.id, ids), eq(feeds.userId, userId)))
-      .all();
+  const validFeeds = getDb()
+    .select({ id: feeds.id })
+    .from(feeds)
+    .where(and(inArray(feeds.id, ids), eq(feeds.userId, userId)))
+    .all();
 
-    if (validFeeds.length > 0) {
-      tx.insert(jobs)
-        .values(
-          validFeeds.map((f) => ({
-            kind: "feed.logo",
-            payload: { feedId: f.id },
-            userId,
-          })),
-        )
-        .run();
-    }
+  const runId = enqueueRun(
+    userId,
+    "feed.logo",
+    validFeeds.map((f) => ({ feedId: f.id })),
+  );
 
-    return { ok: true, enqueued: validFeeds.length };
-  });
+  return { ok: true, enqueued: validFeeds.length, runId };
 }
 
 export async function updateFeedsBulk(

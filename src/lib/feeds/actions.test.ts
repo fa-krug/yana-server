@@ -678,7 +678,7 @@ describe("bulk job enqueue actions", () => {
     const feedId = seedFeed();
 
     const result = await actions.refreshLogos([feedId]);
-    expect(result).toEqual({ ok: true, enqueued: 1 });
+    expect(result).toEqual({ ok: true, enqueued: 1, runId: expect.any(Number) });
 
     const job = client
       .getDb()
