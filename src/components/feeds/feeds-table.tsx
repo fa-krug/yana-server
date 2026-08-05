@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useState } from "react";
+import { useEffect } from "react";
 import { toast } from "sonner";
 
 import { BulkActionBar, type BulkAction } from "@/components/crud/bulk-action-bar";
-import { DataTable, type Column } from "@/components/crud/data-table";
+import { DataTableBody, DataTableHeader, type Column } from "@/components/crud/data-table";
+import { ListSelectionProvider, useListSelection } from "@/components/crud/list-selection";
 import { Pagination } from "@/components/crud/pagination";
+import { Table } from "@/components/ui/table";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { CheckIcon, XIcon } from "lucide-react";
@@ -20,23 +22,11 @@ import type { Feed, Tag } from "@/lib/db/schema";
 
 type FeedListRow = Feed & { tags: Tag[]; articleCount: number };
 
-export function FeedsTable({
-  rows,
-  page,
-  pageSize,
-  total,
-}: {
-  rows: FeedListRow[];
-  page: number;
-  pageSize: number;
-  total: number;
-}) {
+/** Shared between the header (rendered immediately) and the body (rendered once rows arrive). */
+function useFeedsColumns(): Column<FeedListRow>[] {
   const t = useTranslations("feeds");
-  const router = useRouter();
-  const trackRun = useTrackRun();
-  const [selected, setSelected] = useState<number[]>([]);
 
-  const columns: Column<FeedListRow>[] = [
+  return [
     {
       key: "logo",
       header: t("columns.logo"),
@@ -107,18 +97,50 @@ export function FeedsTable({
       ),
     },
   ];
+}
+
+/**
+ * Chrome: the bulk action bar and the table's header row, with no dependency on
+ * `rows` -- a page renders this outside its `<Suspense>` boundary so it never
+ * disappears while the rows themselves are loading. `children` is the
+ * `<Suspense>`-wrapped body (a `<FeedsTableBody>` once resolved, a
+ * `<TableRowsSkeleton>` fallback until then).
+ *
+ * **Never give this a `key` that changes with the list's params** -- pass
+ * `resetKey` instead. See the doc comment on `<ListSelectionProvider>` for why.
+ */
+export function FeedsTableShell({
+  children,
+  resetKey,
+}: {
+  children: React.ReactNode;
+  resetKey?: string;
+}) {
+  return (
+    <ListSelectionProvider resetKey={resetKey}>
+      <FeedsTableChrome>{children}</FeedsTableChrome>
+    </ListSelectionProvider>
+  );
+}
+
+function FeedsTableChrome({ children }: { children: React.ReactNode }) {
+  const t = useTranslations("feeds");
+  const router = useRouter();
+  const trackRun = useTrackRun();
+  const { selected, onSelectedChange, pageIds } = useListSelection();
+  const columns = useFeedsColumns();
 
   async function removeSelected(): Promise<boolean> {
     if (selected.length === 0) return false;
 
-    const result = await attempt(() => deleteFeeds(selected));
+    const result = await attempt(() => deleteFeeds(selected.map(Number)));
 
     if (!result.ok) {
       toast.error(t("saveFailed"));
       return false;
     }
 
-    setSelected([]);
+    onSelectedChange([]);
     router.refresh();
 
     if (result.deleted === 0) toast.info(t("deletedNone"));
@@ -129,7 +151,7 @@ export function FeedsTable({
   async function updateSelectedLogos(): Promise<boolean> {
     if (selected.length === 0) return false;
 
-    const result = await attempt(() => refreshLogos(selected));
+    const result = await attempt(() => refreshLogos(selected.map(Number)));
     if (!result.ok) {
       toast.error(t("saveFailed"));
       return false;
@@ -144,14 +166,14 @@ export function FeedsTable({
       partial: (ok, failed) => t("logoUpdateCompletedWithFailures", { completed: ok, failed }),
       fallback: t("saveFailed"),
     });
-    setSelected([]);
+    onSelectedChange([]);
     return true;
   }
 
   async function runAggregation(): Promise<boolean> {
     if (selected.length === 0) return false;
 
-    const result = await attempt(() => updateFeedsBulk(selected));
+    const result = await attempt(() => updateFeedsBulk(selected.map(Number)));
     if (!result.ok) {
       toast.error(t("saveFailed"));
       return false;
@@ -162,7 +184,7 @@ export function FeedsTable({
       partial: (ok, failed) => t("aggregationCompletedWithFailures", { completed: ok, failed }),
       fallback: t("saveFailed"),
     });
-    setSelected([]);
+    onSelectedChange([]);
     return true;
   }
 
@@ -195,14 +217,61 @@ export function FeedsTable({
 
   return (
     <div className="space-y-4">
-      <BulkActionBar count={count} actions={actions} onClear={() => setSelected([])} />
-      <DataTable
-        rows={rows}
-        columns={columns}
-        rowId={(row) => String(row.id)}
-        selected={selected.map(String)}
-        onSelectedChange={(ids) => setSelected(ids.map(Number))}
-      />
+      <BulkActionBar count={count} actions={actions} onClear={() => onSelectedChange([])} />
+      <Table>
+        <DataTableHeader
+          columns={columns}
+          pageIds={pageIds}
+          selected={selected}
+          onSelectedChange={onSelectedChange}
+        />
+        {children}
+      </Table>
+    </div>
+  );
+}
+
+/** The data-dependent half: must render inside a `<FeedsTableShell>`. */
+export function FeedsTableBody({ rows }: { rows: FeedListRow[] }) {
+  const columns = useFeedsColumns();
+  const { selected, onSelectedChange, setPageIds } = useListSelection();
+  const rowId = (row: FeedListRow) => String(row.id);
+
+  useEffect(() => {
+    setPageIds(rows.map(rowId));
+  }, [rows, setPageIds]);
+
+  return (
+    <DataTableBody
+      rows={rows}
+      columns={columns}
+      rowId={rowId}
+      selected={selected}
+      onSelectedChange={onSelectedChange}
+    />
+  );
+}
+
+/**
+ * The all-at-once form: everything above, composed for a caller with no
+ * reason to split header from body across a `<Suspense>` boundary.
+ */
+export function FeedsTable({
+  rows,
+  page,
+  pageSize,
+  total,
+}: {
+  rows: FeedListRow[];
+  page: number;
+  pageSize: number;
+  total: number;
+}) {
+  return (
+    <div className="space-y-4">
+      <FeedsTableShell>
+        <FeedsTableBody rows={rows} />
+      </FeedsTableShell>
       <Pagination page={page} pageSize={pageSize} total={total} />
     </div>
   );

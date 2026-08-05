@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useFormatter, useTranslations } from "next-intl";
-import { useState } from "react";
+import { useEffect } from "react";
 import { toast } from "sonner";
 
 import { BulkActionBar, type BulkAction } from "@/components/crud/bulk-action-bar";
-import { DataTable, type Column } from "@/components/crud/data-table";
+import { DataTableBody, DataTableHeader, type Column } from "@/components/crud/data-table";
+import { ListSelectionProvider, useListSelection } from "@/components/crud/list-selection";
 import { Pagination } from "@/components/crud/pagination";
+import { Table } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { UserAvatar } from "@/components/user-avatar";
 import { useUserImpact } from "@/components/users/use-user-impact";
@@ -48,40 +50,12 @@ export type UserRow = {
   createdAt: Date;
 };
 
-/**
- * The users list: the table, the selection it owns, and the one bulk action.
- *
- * **The selection lives here and nowhere else.** `<DataTable>` is controlled,
- * `<BulkActionBar>` renders from the count, and the confirmation copy is built
- * from the same array -- one owner, so the three cannot disagree about what is
- * about to be deleted. It deliberately does **not** survive a page change: the
- * ids do (`toggleAll` only ever touches the current page's), but this component
- * remounts on navigation and the operator starts clean, which is the safer of
- * the two defaults for a destructive action.
- *
- * `page`/`pageSize`/`total` are props rather than another `useListParams()`
- * read, because `total` can only come from the server anyway and the three
- * belong to one answer -- reading two of them from the URL and one from a prop
- * is how a range label ends up describing a different query than the rows.
- */
-export function UsersTable({
-  rows,
-  page,
-  pageSize,
-  total,
-}: {
-  rows: UserRow[];
-  page: number;
-  pageSize: number;
-  total: number;
-}) {
+/** Shared between the header (rendered immediately) and the body (rendered once rows arrive). */
+function useUsersColumns(): Column<UserRow>[] {
   const t = useTranslations("users");
   const format = useFormatter();
-  const router = useRouter();
-  const [selected, setSelected] = useState<string[]>([]);
-  const impact = useUserImpact(selected);
 
-  const columns: Column<UserRow>[] = [
+  return [
     {
       key: "avatar",
       header: t("columns.avatar"),
@@ -141,6 +115,47 @@ export function UsersTable({
       cell: (row) => format.dateTime(row.createdAt, { dateStyle: "medium" }),
     },
   ];
+}
+
+/**
+ * Chrome: the bulk action bar and the table's header row, with no dependency
+ * on `rows` -- a page renders this outside its `<Suspense>` boundary so it
+ * never disappears while the rows themselves are loading. `children` is the
+ * `<Suspense>`-wrapped body (a `<UsersTableBody>` once resolved, a
+ * `<TableRowsSkeleton>` fallback until then).
+ *
+ * **The selection lives in `<ListSelectionProvider>` and nowhere else.**
+ * `<DataTableHeader>`/`<DataTableBody>` are controlled, `<BulkActionBar>`
+ * renders from the count, and the confirmation copy is built from the same
+ * array -- one owner, so the three cannot disagree about what is about to be
+ * deleted. `resetKey` (see `src/app/(app)/users/page.tsx`) is what keeps the
+ * rest of the contract this had before the split: it deliberately does
+ * **not** survive a page change, and the operator starts clean, which is the
+ * safer of the two defaults for a destructive action. **This component itself
+ * must never be given a `key` that changes with the list's params** -- see
+ * the doc comment on `<ListSelectionProvider>` for why that duplicates the
+ * table instead of resetting it.
+ */
+export function UsersTableShell({
+  children,
+  resetKey,
+}: {
+  children: React.ReactNode;
+  resetKey?: string;
+}) {
+  return (
+    <ListSelectionProvider resetKey={resetKey}>
+      <UsersTableChrome>{children}</UsersTableChrome>
+    </ListSelectionProvider>
+  );
+}
+
+function UsersTableChrome({ children }: { children: React.ReactNode }) {
+  const t = useTranslations("users");
+  const router = useRouter();
+  const { selected, onSelectedChange, pageIds } = useListSelection();
+  const impact = useUserImpact(selected);
+  const columns = useUsersColumns();
 
   /**
    * Delete everything selected.
@@ -163,7 +178,7 @@ export function UsersTable({
       return false;
     }
 
-    setSelected([]);
+    onSelectedChange([]);
     // The action revalidated `/users`; this is what makes the router refetch it.
     router.refresh();
 
@@ -204,14 +219,66 @@ export function UsersTable({
 
   return (
     <div className="space-y-4">
-      <BulkActionBar count={count} actions={actions} onClear={() => setSelected([])} />
-      <DataTable
-        rows={rows}
-        columns={columns}
-        rowId={(row) => row.id}
-        selected={selected}
-        onSelectedChange={setSelected}
-      />
+      <BulkActionBar count={count} actions={actions} onClear={() => onSelectedChange([])} />
+      <Table>
+        <DataTableHeader
+          columns={columns}
+          pageIds={pageIds}
+          selected={selected}
+          onSelectedChange={onSelectedChange}
+        />
+        {children}
+      </Table>
+    </div>
+  );
+}
+
+/** The data-dependent half: must render inside a `<UsersTableShell>`. */
+export function UsersTableBody({ rows }: { rows: UserRow[] }) {
+  const columns = useUsersColumns();
+  const { selected, onSelectedChange, setPageIds } = useListSelection();
+  const rowId = (row: UserRow) => row.id;
+
+  useEffect(() => {
+    setPageIds(rows.map(rowId));
+  }, [rows, setPageIds]);
+
+  return (
+    <DataTableBody
+      rows={rows}
+      columns={columns}
+      rowId={rowId}
+      selected={selected}
+      onSelectedChange={onSelectedChange}
+    />
+  );
+}
+
+/**
+ * The all-at-once form: everything above, composed for a caller with no
+ * reason to split header from body across a `<Suspense>` boundary.
+ *
+ * `page`/`pageSize`/`total` are props rather than another `useListParams()`
+ * read, because `total` can only come from the server anyway and the three
+ * belong to one answer -- reading two of them from the URL and one from a prop
+ * is how a range label ends up describing a different query than the rows.
+ */
+export function UsersTable({
+  rows,
+  page,
+  pageSize,
+  total,
+}: {
+  rows: UserRow[];
+  page: number;
+  pageSize: number;
+  total: number;
+}) {
+  return (
+    <div className="space-y-4">
+      <UsersTableShell>
+        <UsersTableBody rows={rows} />
+      </UsersTableShell>
       <Pagination page={page} pageSize={pageSize} total={total} />
     </div>
   );

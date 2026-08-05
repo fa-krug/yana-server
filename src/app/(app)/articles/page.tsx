@@ -1,19 +1,29 @@
-import { Suspense } from "react";
+import { cache, Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 
-import { ArticlesTable } from "@/components/articles/articles-table";
+import { ArticlesTableBody, ArticlesTableShell } from "@/components/articles/articles-table";
+import { Pagination } from "@/components/crud/pagination";
 import { SearchFilterBar } from "@/components/crud/search-filter-bar";
-import { TableSkeleton } from "@/components/data-skeleton";
+import { TableRowsSkeleton } from "@/components/data-skeleton";
 import { listArticles } from "@/lib/articles/queries";
 import { requireUser } from "@/lib/auth/session";
 import { parseListParams, type ListParams } from "@/lib/crud/params";
 import { listFeeds } from "@/lib/feeds/actions";
 import { listTags } from "@/lib/tags/queries";
 
-async function ArticlesData({ params }: { params: ListParams }) {
-  const { rows, total } = await listArticles(params);
+// Body and Pagination below both read `{ rows, total }` for the same `params`
+// object -- `cache()` (per request, like `getSettings()` elsewhere) turns that
+// into one query rather than two.
+const cachedListArticles = cache(listArticles);
 
-  return <ArticlesTable rows={rows} page={params.page} pageSize={params.pageSize} total={total} />;
+async function ArticlesBody({ params }: { params: ListParams }) {
+  const { rows } = await cachedListArticles(params);
+  return <ArticlesTableBody rows={rows} />;
+}
+
+async function ArticlesPagination({ params }: { params: ListParams }) {
+  const { total } = await cachedListArticles(params);
+  return <Pagination page={params.page} pageSize={params.pageSize} total={total} />;
 }
 
 export default async function ArticlesPage({
@@ -83,8 +93,16 @@ export default async function ArticlesPage({
 
       <SearchFilterBar placeholder={t("searchPlaceholder")} filters={filters} />
 
-      <Suspense key={JSON.stringify(params)} fallback={<TableSkeleton columns={5} />}>
-        <ArticlesData params={params} />
+      {/* See src/app/(app)/tags/page.tsx for why the shell takes `resetKey`
+          rather than a `key`, and why only the inner Suspense is keyed. */}
+      <ArticlesTableShell resetKey={JSON.stringify(params)}>
+        <Suspense key={JSON.stringify(params)} fallback={<TableRowsSkeleton columns={5} />}>
+          <ArticlesBody params={params} />
+        </Suspense>
+      </ArticlesTableShell>
+
+      <Suspense key={JSON.stringify(params)} fallback={null}>
+        <ArticlesPagination params={params} />
       </Suspense>
     </div>
   );
