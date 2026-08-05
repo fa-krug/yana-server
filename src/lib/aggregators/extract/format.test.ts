@@ -46,7 +46,9 @@ describe("content format utilities", () => {
     it("builds Youtube video header when URL is Youtube", () => {
       const header = buildHeaderHtml("https://youtu.be/dQw4w9WgXcQ", "Title");
       expect(header).not.toBeNull();
-      expect(header).toContain('<header style="margin-bottom: 1.5em; text-align: center;">');
+      expect(header).toContain(
+        '<header class="media-header" style="margin-bottom: 1.5em; text-align: center;">',
+      );
       expect(header).toContain('data-embed="https://www.youtube.com/embed/dQw4w9WgXcQ"');
     });
 
@@ -57,6 +59,10 @@ describe("content format utilities", () => {
         "<figcaption>Photo credit</figcaption>",
       );
       expect(header).not.toBeNull();
+      // `media-header` is what keeps blocks/parser.ts's headerBlocks() from
+      // treating this as decorative chrome and dropping the image -- see
+      // parser.test.ts.
+      expect(header).toContain('<header class="media-header"');
       expect(header).toContain('src="https://example.com/img.jpg?a=1&amp;b=2"');
       expect(header).toContain('alt="My &quot;Title&quot;"');
       expect(header).toContain("<figcaption>Photo credit</figcaption>");

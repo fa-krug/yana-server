@@ -331,13 +331,15 @@ function dropImageBlocks(blocks: Block[]): Block[] {
 }
 
 /**
- * A generic article-body `<header>` is usually decorative chrome -- a byline,
- * a date, sometimes a small avatar or site-logo image -- so its images are
+ * A `<header>` surviving inside the extracted article body (never the
+ * synthetic lead-image header -- see below) is usually decorative chrome: a
+ * byline, a date, sometimes a small avatar or site-logo image. Its images are
  * dropped rather than mistaken for the article's own content. `media-header`
- * is the one exception: it is TagesschauAggregator's own convention (see
- * `sites/tagesschau/aggregator.ts`) for the *actual* header image or video
- * poster it built, and dropping it here silently threw away the image after
- * `resolveMediaHeaderImage()` had already fetched and stored it for real.
+ * is the one exception: both `buildHeaderHtml()` in `../extract/format.ts`
+ * (the lead image/video every FullWebsiteAggregator-based site builds) and
+ * TagesschauAggregator's own convention (`sites/tagesschau/media.ts`) tag
+ * their real header with this class, and dropping it here would silently
+ * throw away an image the aggregator had already fetched and stored.
  */
 function headerBlocks($: cheerio.CheerioAPI, header: Element, baseUrl: string): Block[] {
   const classes = getAttr(header, "class").split(/\s+/).filter(Boolean);

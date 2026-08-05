@@ -100,7 +100,7 @@ export function buildHeaderHtml(
   if (youtubeVideoId) {
     const youtubeEmbed = createYoutubeEmbedHtml(youtubeVideoId, headerCaptionHtml || "");
     return [
-      '<header style="margin-bottom: 1.5em; text-align: center;">',
+      '<header class="media-header" style="margin-bottom: 1.5em; text-align: center;">',
       youtubeEmbed,
       "</header>",
     ].join("\n");
@@ -112,7 +112,12 @@ export function buildHeaderHtml(
   }
 
   const headerParts = [
-    '<header style="margin-bottom: 1.5em; text-align: center;">',
+    // `media-header` marks this as the article's real lead image for
+    // blocks/parser.ts's headerBlocks(): without it, a generic `<header>` is
+    // treated as decorative chrome (byline, date, site logo) and its images
+    // are dropped -- which silently stripped the header image from every
+    // FullWebsiteAggregator-based site's reading view.
+    '<header class="media-header" style="margin-bottom: 1.5em; text-align: center;">',
     `<img src="${escapeHtml(headerImageUrl)}" alt="${escapeHtml(
       title,
     )}" style="max-width: 100%; height: auto; border-radius: 8px;">`,

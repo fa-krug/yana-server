@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildHeaderHtml } from "../extract/format";
 import { isSafeUrl, parseBlocks, plainTextOf } from "./parser";
 import type {
   Blockquote,
@@ -232,6 +233,19 @@ describe("parseBlocks", () => {
     // sites/tagesschau/media.ts). Dropping it here silently threw away an
     // image the aggregator had already fetched and stored.
     const html = `<header class="media-header"><div class="media-image"><img src="yana-img://${"a".repeat(64)}"></div></header>`;
+    const blocks = parseBlocks(html);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].kind).toBe("image");
+  });
+
+  it("keeps the lead image built by buildHeaderHtml() -- every generic full-website aggregator's header, not decorative chrome", () => {
+    // FullWebsiteAggregator.processContent() (and every site aggregator that
+    // reuses it -- Ars Technica, Heise, mactechnews, mein_mmo, reddit,
+    // podcast) builds its lead image via buildHeaderHtml() in extract/format.ts
+    // and hands the result straight to parseBlocks() as the article's raw
+    // content. That header must survive here, or every one of those sites
+    // shows no header image in the reading view.
+    const html = buildHeaderHtml(`yana-img://${"a".repeat(64)}`, "Headline")!;
     const blocks = parseBlocks(html);
     expect(blocks).toHaveLength(1);
     expect(blocks[0].kind).toBe("image");
