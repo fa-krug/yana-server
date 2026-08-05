@@ -6,6 +6,7 @@
 
 import * as cheerio from "cheerio";
 import { AggregatorUserSettings, BaseAggregator, FeedLike, RawArticle } from "../../base";
+import { ARTICLE_ENRICHMENT_CONCURRENCY, mapWithConcurrency } from "../../concurrency";
 import { AggregatorError, ArticleSkipError } from "../../errors";
 import { getHeaderImageRef, HeaderElementData } from "../../header/context";
 import { extractHeaderElement } from "../../header/extractor";
@@ -344,46 +345,48 @@ export class RedditAggregator extends BaseAggregator {
       settings.reddit_user_agent,
     );
 
-    const enriched: RawArticle[] = [];
+    const results = await mapWithConcurrency(
+      articles,
+      ARTICLE_ENRICHMENT_CONCURRENCY,
+      async (article): Promise<RawArticle | null> => {
+        try {
+          const postDataDict = (article._reddit_post_data as RedditPostDataDict) || {};
+          const postData = new RedditPostData(postDataDict);
+          const subreddit = (article._reddit_subreddit as string) || "";
+          const isCrossPost = (article._reddit_is_cross_post as boolean) || false;
 
-    for (const article of articles) {
-      try {
-        const postDataDict = (article._reddit_post_data as RedditPostDataDict) || {};
-        const postData = new RedditPostData(postDataDict);
-        const subreddit = (article._reddit_subreddit as string) || "";
-        const isCrossPost = (article._reddit_is_cross_post as boolean) || false;
+          const comments = await fetchPostComments(
+            subreddit,
+            postData.id,
+            commentLimit,
+            this.feed.userId,
+            accessToken,
+          );
 
-        const comments = await fetchPostComments(
-          subreddit,
-          postData.id,
-          commentLimit,
-          this.feed.userId,
-          accessToken,
-        );
+          const content = await buildPostContent(
+            postData,
+            commentLimit,
+            subreddit,
+            this.feed.userId,
+            isCrossPost,
+            comments,
+          );
 
-        const content = await buildPostContent(
-          postData,
-          commentLimit,
-          subreddit,
-          this.feed.userId,
-          isCrossPost,
-          comments,
-        );
-
-        article.raw_content = content;
-        article.content = content;
-      } catch (err) {
-        if (err instanceof ArticleSkipError) {
-          continue; // drop this article; it's private/removed, not empty-with-comments
+          article.raw_content = content;
+          article.content = content;
+        } catch (err) {
+          if (err instanceof ArticleSkipError) {
+            return null; // drop this article; it's private/removed, not empty-with-comments
+          }
+          article.raw_content = "";
+          article.content = "";
         }
-        article.raw_content = "";
-        article.content = "";
-      }
 
-      enriched.push(article);
-    }
+        return article;
+      },
+    );
 
-    return enriched;
+    return results.filter((a): a is RawArticle => a !== null);
   }
 
   override async finalizeArticles(
@@ -391,72 +394,73 @@ export class RedditAggregator extends BaseAggregator {
     userSettings?: AggregatorUserSettings,
   ): Promise<RawArticle[]> {
     const processedArticles = await this.applyAiProcessing(articles, userSettings);
-    const finalized: RawArticle[] = [];
 
-    for (const article of processedArticles) {
-      const includeHeaderImage = (this.feed.options?.include_header_image as boolean) ?? true;
-      const headerSourceUrl = includeHeaderImage
-        ? (article._reddit_header_image_url as string | null)
-        : null;
+    return mapWithConcurrency(
+      processedArticles,
+      ARTICLE_ENRICHMENT_CONCURRENCY,
+      async (article): Promise<RawArticle> => {
+        const includeHeaderImage = (this.feed.options?.include_header_image as boolean) ?? true;
+        const headerSourceUrl = includeHeaderImage
+          ? (article._reddit_header_image_url as string | null)
+          : null;
 
-      let headerHtml: string | null = null;
-      const redditVideo = article._reddit_video_info as
-        { hlsUrl?: string; fallbackUrl?: string } | null | undefined;
+        let headerHtml: string | null = null;
+        const redditVideo = article._reddit_video_info as
+          { hlsUrl?: string; fallbackUrl?: string } | null | undefined;
 
-      // `include_header_image: false` suppresses the video header too, not just
-      // the image one: both are headers, and a user who turned headers off got a
-      // `<video>` anyway. Nothing is lost -- `addLinkMedia()` in `./content.ts`
-      // still renders the post's own `v.redd.it` link in the body.
-      if (includeHeaderImage && redditVideo) {
-        headerHtml = await buildVideoHeaderHtml(redditVideo, headerSourceUrl);
-        if (headerHtml && article.content) {
-          article.content = this._stripImageFromContent(article.content, headerSourceUrl || "");
-        }
-      } else if (headerSourceUrl) {
-        const isYoutubeHeader = Boolean(extractYoutubeVideoId(headerSourceUrl));
-        const isTwitterHeader = isTwitterUrl(headerSourceUrl);
+        // `include_header_image: false` suppresses the video header too, not just
+        // the image one: both are headers, and a user who turned headers off got a
+        // `<video>` anyway. Nothing is lost -- `addLinkMedia()` in `./content.ts`
+        // still renders the post's own `v.redd.it` link in the body.
+        if (includeHeaderImage && redditVideo) {
+          headerHtml = await buildVideoHeaderHtml(redditVideo, headerSourceUrl);
+          if (headerHtml && article.content) {
+            article.content = this._stripImageFromContent(article.content, headerSourceUrl || "");
+          }
+        } else if (headerSourceUrl) {
+          const isYoutubeHeader = Boolean(extractYoutubeVideoId(headerSourceUrl));
+          const isTwitterHeader = isTwitterUrl(headerSourceUrl);
 
-        let renderUrl = headerSourceUrl;
-        if (!(isYoutubeHeader || isTwitterHeader)) {
-          renderUrl = await this._storeHeaderImage(headerSourceUrl, article);
-        }
+          let renderUrl = headerSourceUrl;
+          if (!(isYoutubeHeader || isTwitterHeader)) {
+            renderUrl = await this._storeHeaderImage(headerSourceUrl, article);
+          }
 
-        let headerCaptionHtml: string | null = null;
-        const videoUrl = article._reddit_video_url as string | null;
-        if (videoUrl && !isYoutubeHeader) {
-          headerCaptionHtml = `<p>${safeLinkHtml(videoUrl, "▶ View Video")}</p>`;
-        }
+          let headerCaptionHtml: string | null = null;
+          const videoUrl = article._reddit_video_url as string | null;
+          if (videoUrl && !isYoutubeHeader) {
+            headerCaptionHtml = `<p>${safeLinkHtml(videoUrl, "▶ View Video")}</p>`;
+          }
 
-        headerHtml = buildHeaderHtml(renderUrl, article.name, headerCaptionHtml);
+          headerHtml = buildHeaderHtml(renderUrl, article.name, headerCaptionHtml);
 
-        if (headerHtml && article.content) {
-          article.content = this._stripImageFromContent(article.content, headerSourceUrl);
-          if (isYoutubeHeader) {
-            article.content = this._stripYoutubeLinkFromContent(article.content, headerSourceUrl);
+          if (headerHtml && article.content) {
+            article.content = this._stripImageFromContent(article.content, headerSourceUrl);
+            if (isYoutubeHeader) {
+              article.content = this._stripYoutubeLinkFromContent(article.content, headerSourceUrl);
+            }
           }
         }
-      }
 
-      article.header_html = headerHtml;
+        article.header_html = headerHtml;
 
-      const content = article.content || "";
-      if (content || headerHtml) {
-        article.content = await this.processContent(content, article);
-      }
+        const content = article.content || "";
+        if (content || headerHtml) {
+          article.content = await this.processContent(content, article);
+        }
 
-      delete article._reddit_post_data;
-      delete article._reddit_subreddit;
-      delete article._reddit_is_cross_post;
-      delete article._reddit_num_comments;
-      delete article._reddit_header_image_url;
-      delete article._reddit_video_url;
-      delete article._reddit_video_info;
-      delete article.header_html;
+        delete article._reddit_post_data;
+        delete article._reddit_subreddit;
+        delete article._reddit_is_cross_post;
+        delete article._reddit_num_comments;
+        delete article._reddit_header_image_url;
+        delete article._reddit_video_url;
+        delete article._reddit_video_info;
+        delete article.header_html;
 
-      finalized.push(article);
-    }
-
-    return finalized;
+        return article;
+      },
+    );
   }
 
   protected async _storeHeaderImage(headerImageUrl: string, _article: RawArticle): Promise<string> {
