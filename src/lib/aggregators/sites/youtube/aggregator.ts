@@ -7,10 +7,10 @@
 import crypto from "node:crypto";
 import * as cheerio from "cheerio";
 import { BaseAggregator, FeedLike, RawArticle } from "../../base";
+import { ARTICLE_ENRICHMENT_CONCURRENCY, mapWithConcurrency } from "../../concurrency";
 import { isSafeUrl } from "../../blocks/parser";
 import { cleanHtml, removeSanitizedAttributes, sanitizeHtmlAttributes } from "../../extract/clean";
 import { createYoutubeEmbedHtml, escapeHtml, formatArticleContent } from "../../extract/format";
-import { ARTICLE_ENRICHMENT_CONCURRENCY, mapWithConcurrency } from "../../concurrency";
 import { buildImageRef, storeImageRefFromUrl } from "../../images/store";
 import {
   YouTubeAPIError,

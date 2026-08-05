@@ -4,6 +4,11 @@
  * independent per-article network I/O (header image extraction, full-page
  * fetch, comment fetches) that was previously awaited one article at a time
  * with no ordering dependency between articles.
+ *
+ * If `fn` rejects for one item, the returned promise rejects with that
+ * error, but other in-flight workers are NOT cancelled -- they keep running,
+ * and their results, if any, are discarded since the caller has already
+ * moved on.
  */
 export async function mapWithConcurrency<T, R>(
   items: T[],
