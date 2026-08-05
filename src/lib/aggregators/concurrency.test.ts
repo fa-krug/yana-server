@@ -101,15 +101,11 @@ describe("mapWithConcurrency", () => {
     let maxConcurrent = 0;
     let currentConcurrent = 0;
 
-    await mapWithConcurrency(
-      [1, 2, 3],
-      -5,
-      async () => {
-        currentConcurrent++;
-        maxConcurrent = Math.max(maxConcurrent, currentConcurrent);
-        currentConcurrent--;
-      },
-    );
+    await mapWithConcurrency([1, 2, 3], -5, async () => {
+      currentConcurrent++;
+      maxConcurrent = Math.max(maxConcurrent, currentConcurrent);
+      currentConcurrent--;
+    });
 
     expect(maxConcurrent).toBe(1);
   });
