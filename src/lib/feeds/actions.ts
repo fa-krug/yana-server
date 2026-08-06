@@ -3,6 +3,7 @@
 import { and, eq, inArray, count, desc, asc, like } from "drizzle-orm";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 
 import { currentUserId } from "@/lib/auth/session";
 import { getDb, writeTransaction } from "@/lib/db/client";
@@ -37,6 +38,15 @@ export async function capabilitiesFor(): Promise<Capabilities> {
     ai: !!activeProvider(settings),
   };
 }
+
+// 0 disables automatic updates for the feed (see scheduler.ts's tick());
+// everything above that is a whole number of minutes. Concurrency bounds are
+// a sanity range, not derived from anything -- 1 means "no overlap", 10 is
+// comfortably above every aggregator's recommended value in specs.ts.
+const schedulingSchema = z.object({
+  updateIntervalMinutes: z.number().int().min(0).max(1440).optional(),
+  concurrency: z.number().int().min(1).max(10).optional(),
+});
 
 /**
  * Snaps a `none`/`choice`-mode identifier to one of its known choices,
@@ -162,6 +172,8 @@ type FeedInput = {
   options?: Record<string, unknown>;
   tagIds?: number[];
   enabled?: boolean;
+  updateIntervalMinutes?: number;
+  concurrency?: number;
 };
 
 export async function createFeed(
@@ -188,6 +200,14 @@ export async function createFeed(
     const optionsParsed = schemaFor(spec.key).safeParse(options);
     if (!optionsParsed.success) {
       return { ok: false, error: "Invalid options" };
+    }
+
+    const schedulingParsed = schedulingSchema.safeParse({
+      updateIntervalMinutes: input?.updateIntervalMinutes,
+      concurrency: input?.concurrency,
+    });
+    if (!schedulingParsed.success) {
+      return { ok: false, error: "Invalid scheduling configuration" };
     }
 
     const capabilities = await capabilitiesFor();
@@ -224,6 +244,12 @@ export async function createFeed(
           identifier,
           options: cleanedOptions,
           userId,
+          ...(schedulingParsed.data.updateIntervalMinutes !== undefined && {
+            updateIntervalMinutes: schedulingParsed.data.updateIntervalMinutes,
+          }),
+          ...(schedulingParsed.data.concurrency !== undefined && {
+            concurrency: schedulingParsed.data.concurrency,
+          }),
         })
         .returning({ id: feeds.id })
         .get();
@@ -324,6 +350,14 @@ export async function updateFeed(id: number, input: FeedInput) {
       ? stripUnavailable(spec.key, submittedOptions, capabilities)
       : undefined;
 
+  const schedulingParsed = schedulingSchema.safeParse({
+    updateIntervalMinutes: input?.updateIntervalMinutes,
+    concurrency: input?.concurrency,
+  });
+  if (!schedulingParsed.success) {
+    return { ok: false, error: "Invalid scheduling configuration" };
+  }
+
   return writeTransaction((tx) => {
     if (tagIds.length > 0) {
       const validTags = tx
@@ -343,6 +377,12 @@ export async function updateFeed(id: number, input: FeedInput) {
         ...(identifier !== undefined && { identifier }),
         ...(cleanedOptions !== undefined && { options: cleanedOptions }),
         ...(enabled !== undefined && { enabled }),
+        ...(schedulingParsed.data.updateIntervalMinutes !== undefined && {
+          updateIntervalMinutes: schedulingParsed.data.updateIntervalMinutes,
+        }),
+        ...(schedulingParsed.data.concurrency !== undefined && {
+          concurrency: schedulingParsed.data.concurrency,
+        }),
       })
       .where(and(eq(feeds.id, id), eq(feeds.userId, userId)))
       .run();
