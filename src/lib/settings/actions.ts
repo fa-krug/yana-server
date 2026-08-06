@@ -110,8 +110,8 @@ async function write(values: Partial<typeof userSettings.$inferInsert>): Promise
   //
   // Everything else here is read only by /settings, and the layout-wide form
   // throws away the entire client router cache -- every visited route has to be
-  // re-fetched on the next navigation -- so using it for a retention or
-  // interval change is pure waste. A theme change does not need it either: the
+  // re-fetched on the next navigation -- so using it for a retention
+  // change is pure waste. A theme change does not need it either: the
   // root layout passes the stored theme to next-themes as a pre-hydration
   // default only, and the settings control has already applied the new value
   // client-side via setTheme() before this action resolves (see

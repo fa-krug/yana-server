@@ -92,10 +92,10 @@ export function FeedForm({
 
   const [options, setOptions] = useState<Record<string, unknown>>(feed?.options ?? {});
   const [updateIntervalMinutes, setUpdateIntervalMinutes] = useState(
-    feed?.updateIntervalMinutes ?? AGGREGATOR_SPECS[aggregator].recommendedIntervalMinutes,
+    String(feed?.updateIntervalMinutes ?? AGGREGATOR_SPECS[aggregator].recommendedIntervalMinutes),
   );
   const [concurrency, setConcurrency] = useState(
-    feed?.concurrency ?? AGGREGATOR_SPECS[aggregator].recommendedConcurrency,
+    String(feed?.concurrency ?? AGGREGATOR_SPECS[aggregator].recommendedConcurrency),
   );
 
   const spec = AGGREGATOR_SPECS[aggregator];
@@ -128,8 +128,8 @@ export function FeedForm({
         newOptions[opt.key] = opt.default;
       }
       setIdentifier(defaultIdentifierFor(newSpec));
-      setUpdateIntervalMinutes(newSpec.recommendedIntervalMinutes);
-      setConcurrency(newSpec.recommendedConcurrency);
+      setUpdateIntervalMinutes(String(newSpec.recommendedIntervalMinutes));
+      setConcurrency(String(newSpec.recommendedConcurrency));
     }
     setOptions(newOptions);
   }
@@ -149,8 +149,8 @@ export function FeedForm({
         tagIds: tagIds.map(Number),
         options,
         enabled,
-        updateIntervalMinutes,
-        concurrency,
+        updateIntervalMinutes: Number(updateIntervalMinutes),
+        concurrency: Number(concurrency),
       };
 
       if (feed) {
@@ -358,7 +358,7 @@ export function FeedForm({
             min={0}
             max={1440}
             value={updateIntervalMinutes}
-            onChange={(event) => setUpdateIntervalMinutes(Number(event.target.value))}
+            onChange={(event) => setUpdateIntervalMinutes(event.target.value)}
             disabled={pending}
           />
           <p className="text-sm text-muted-foreground">{t("form.updateIntervalHelp")}</p>
@@ -371,7 +371,7 @@ export function FeedForm({
             min={1}
             max={10}
             value={concurrency}
-            onChange={(event) => setConcurrency(Number(event.target.value))}
+            onChange={(event) => setConcurrency(event.target.value)}
             disabled={pending}
           />
           <p className="text-sm text-muted-foreground">{t("form.concurrencyHelp")}</p>

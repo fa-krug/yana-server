@@ -594,6 +594,19 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   jobId-keyed, not user-keyed, and enforces no ownership of its own (see its
   module doc comment) — the filtering above is what stands between it and a
   non-admin subscribing to a job id that isn't theirs.
+- **Each feed's own `updateIntervalMinutes`/`concurrency` columns replaced a
+  global setting and a hard-coded constant, respectively.**
+  `feeds.updateIntervalMinutes` (default `30`; `0` disables automatic updates
+  for that feed) is read directly by `scheduler.ts`'s `tick()` — there is no
+  longer a `userSettings` fallback or join. `feeds.concurrency` (default `4`)
+  flows into `BaseAggregator.concurrency` via the same `feed.concurrency ?? 4`
+  pattern `dailyLimit` already used, and is what the five
+  `mapWithConcurrency(...)` call sites (`website.ts`, `youtube/aggregator.ts`,
+  `reddit/aggregator.ts`) read instead of the retired
+  `ARTICLE_ENRICHMENT_CONCURRENCY` constant. Both are pre-filled in the feed
+  form from `AggregatorSpec.recommendedIntervalMinutes`/`recommendedConcurrency`
+  (`src/lib/aggregators/specs.ts`) on create and on aggregator switch — a
+  starting point, not an enforced limit, freely editable per feed afterward.
 - **Error-notification email has two channels, and they answer different
   questions.** `notifyAdmins()` (`src/lib/email/error-notifications.ts`) is "is
   this instance healthy" — it fires from `src/lib/jobs/worker.ts` on a fatal
@@ -839,6 +852,13 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     behaviour that does not exist. The single failure that reaches neither is a
     duplicate-key loss to a concurrent bootstrap, absorbed inside
     `ensureAdminExists()`.
+- **`runStartupTasks()` sets `dns.setDefaultResultOrder("ipv4first")`
+  process-wide, as its first statement.** Node's default DNS order is
+  `verbatim`; inside Docker's default bridge network (no IPv6 route), a
+  dual-stack source whose AAAA record sorts first makes every `fetch()` —
+  including every aggregator's — pay for a failed IPv6 connection attempt
+  before falling back to IPv4. This is a global Node setting, not scoped to
+  any one caller.
 - **Route protection is `src/proxy.ts` — Next 16's rename of `middleware.ts`,
   and it is not cosmetic.** The old name still works but warns on every build,
   and a Proxy defaults to the **Node.js** runtime where middleware was compiled

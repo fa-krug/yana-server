@@ -37,6 +37,8 @@ export interface FeedWire {
   identifier: string;
   enabled: boolean;
   dailyLimit: number;
+  updateIntervalMinutes: number;
+  concurrency: number;
   tagIds: number[];
   logoImageHash: string | null;
   updatedAt: string;
@@ -50,6 +52,8 @@ export function serializeFeed(feed: Feed, tagIds: number[]): FeedWire {
     identifier: feed.identifier,
     enabled: feed.enabled,
     dailyLimit: feed.dailyLimit,
+    updateIntervalMinutes: feed.updateIntervalMinutes,
+    concurrency: feed.concurrency,
     tagIds,
     logoImageHash: feed.logoImageHash,
     updatedAt: feed.updatedAt.toISOString(),

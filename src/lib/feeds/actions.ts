@@ -207,7 +207,12 @@ export async function createFeed(
       concurrency: input?.concurrency,
     });
     if (!schedulingParsed.success) {
-      return { ok: false, error: "Invalid scheduling configuration" };
+      const field = schedulingParsed.error.issues[0]?.path[0];
+      return {
+        ok: false,
+        field: typeof field === "string" ? field : undefined,
+        error: "Invalid scheduling configuration",
+      };
     }
 
     const capabilities = await capabilitiesFor();
@@ -355,7 +360,12 @@ export async function updateFeed(id: number, input: FeedInput) {
     concurrency: input?.concurrency,
   });
   if (!schedulingParsed.success) {
-    return { ok: false, error: "Invalid scheduling configuration" };
+    const field = schedulingParsed.error.issues[0]?.path[0];
+    return {
+      ok: false,
+      field: typeof field === "string" ? field : undefined,
+      error: "Invalid scheduling configuration",
+    };
   }
 
   return writeTransaction((tx) => {
