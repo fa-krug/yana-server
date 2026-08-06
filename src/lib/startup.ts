@@ -1,3 +1,4 @@
+import dns from "node:dns";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -39,6 +40,16 @@ export function resolveDataDir(explicit?: string): string {
  * loop and scheduler tick start.
  */
 export async function runStartupTasks(): Promise<void> {
+  /**
+   * Node's default DNS result order is "verbatim" -- whatever the resolver
+   * returns, AAAA first or not. Docker's default bridge network gives
+   * containers no IPv6 route, so a dual-stack source whose AAAA record sorts
+   * first makes every `fetch()` pay for a failed IPv6 connection attempt
+   * before falling back to IPv4. Forcing IPv4 first removes that wasted
+   * attempt everywhere in the process, including every aggregator's fetch.
+   */
+  dns.setDefaultResultOrder("ipv4first");
+
   applyPendingMigrations();
   await ensureAdminExists();
   startWorker();
