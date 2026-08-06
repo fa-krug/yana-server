@@ -91,6 +91,12 @@ export function FeedForm({
   const [enabled, setEnabled] = useState(feed?.enabled ?? true);
 
   const [options, setOptions] = useState<Record<string, unknown>>(feed?.options ?? {});
+  const [updateIntervalMinutes, setUpdateIntervalMinutes] = useState(
+    feed?.updateIntervalMinutes ?? AGGREGATOR_SPECS[aggregator].recommendedIntervalMinutes,
+  );
+  const [concurrency, setConcurrency] = useState(
+    feed?.concurrency ?? AGGREGATOR_SPECS[aggregator].recommendedConcurrency,
+  );
 
   const spec = AGGREGATOR_SPECS[aggregator];
   const visibleOptions = visibleOptionsFor(aggregator, capabilities);
@@ -122,6 +128,8 @@ export function FeedForm({
         newOptions[opt.key] = opt.default;
       }
       setIdentifier(defaultIdentifierFor(newSpec));
+      setUpdateIntervalMinutes(newSpec.recommendedIntervalMinutes);
+      setConcurrency(newSpec.recommendedConcurrency);
     }
     setOptions(newOptions);
   }
@@ -141,6 +149,8 @@ export function FeedForm({
         tagIds: tagIds.map(Number),
         options,
         enabled,
+        updateIntervalMinutes,
+        concurrency,
       };
 
       if (feed) {
@@ -338,6 +348,35 @@ export function FeedForm({
           <Switch id="enabled" checked={enabled} onCheckedChange={setEnabled} disabled={pending} />
         </div>
       )}
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="grid gap-2">
+          <Label htmlFor="updateIntervalMinutes">{t("form.updateInterval")}</Label>
+          <Input
+            id="updateIntervalMinutes"
+            type="number"
+            min={0}
+            max={1440}
+            value={updateIntervalMinutes}
+            onChange={(event) => setUpdateIntervalMinutes(Number(event.target.value))}
+            disabled={pending}
+          />
+          <p className="text-sm text-muted-foreground">{t("form.updateIntervalHelp")}</p>
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="concurrency">{t("form.concurrency")}</Label>
+          <Input
+            id="concurrency"
+            type="number"
+            min={1}
+            max={10}
+            value={concurrency}
+            onChange={(event) => setConcurrency(Number(event.target.value))}
+            disabled={pending}
+          />
+          <p className="text-sm text-muted-foreground">{t("form.concurrencyHelp")}</p>
+        </div>
+      </div>
 
       {visibleOptions.length > 0 && (
         <div className="space-y-4 rounded-lg border p-4 bg-muted/20">

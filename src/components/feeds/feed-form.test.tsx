@@ -111,4 +111,19 @@ describe("FeedForm identifier field", () => {
     fireEvent.click(screen.getByLabelText("Aggregator"));
     expect(screen.getByRole("option", { name: "YouTube" })).toBeTruthy();
   });
+
+  it("pre-fills the recommended interval and concurrency for the selected aggregator", () => {
+    renderWithProviders(<FeedForm capabilities={ALL} allTags={[]} />);
+    selectAggregator("Caschys Blog");
+    expect((screen.getByLabelText("Update interval (minutes)") as HTMLInputElement).value).toBe(
+      "60",
+    );
+    expect((screen.getByLabelText("Concurrency") as HTMLInputElement).value).toBe("2");
+
+    selectAggregator("Full Website");
+    expect((screen.getByLabelText("Update interval (minutes)") as HTMLInputElement).value).toBe(
+      "30",
+    );
+    expect((screen.getByLabelText("Concurrency") as HTMLInputElement).value).toBe("4");
+  });
 });
