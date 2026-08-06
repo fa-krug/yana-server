@@ -155,6 +155,57 @@ describe("GET /api/v1/images/[hash]", () => {
     expect(Buffer.from(await response.arrayBuffer())).toEqual(Buffer.from([4, 5, 6, 7]));
   });
 
+  it("serves bytes for a hash owned via an embed thumbnail on the caller's own article", async () => {
+    // A video embed (e.g. Tagesschau's player) localizes its poster to
+    // embedThumbnailRef, not imageRef -- a distinct ownership path from the
+    // article-body-image one above. Same yana-img://<hash> ref shape, so the
+    // join must compare against buildImageRef(hash), not the bare hash.
+    const owner = await createUserWithPassword({
+      email: "embed-owner@example.com",
+      ...CREDENTIALS,
+    });
+    const { token } = await createDeviceSession(owner.id, "Test");
+
+    const hash = "8".repeat(64);
+    const relativeFile = "article_images/eight.webp";
+    await writeMediaFile(relativeFile, Buffer.from([8, 8, 8]));
+
+    client.writeTransaction((tx) => {
+      tx.insert(schema.articleImages)
+        .values({ contentHash: hash, file: relativeFile, contentType: "image/webp", byteSize: 3 })
+        .run();
+      const feed = tx
+        .insert(schema.feeds)
+        .values({
+          name: "F",
+          aggregator: "full_website",
+          identifier: "https://x",
+          userId: owner.id,
+        })
+        .returning({ id: schema.feeds.id })
+        .get();
+      const article = tx
+        .insert(schema.articles)
+        .values({ name: "A", identifier: "a1", date: new Date(), feedId: feed.id })
+        .returning({ id: schema.articles.id })
+        .get();
+      tx.insert(schema.articleBlocks)
+        .values({
+          articleId: article.id,
+          position: 0,
+          kind: "embed",
+          embedThumbnailRef: buildImageRef(hash),
+        })
+        .run();
+    });
+
+    const response = await get(hash, { authorization: `Bearer ${token}` });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/webp");
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(Buffer.from([8, 8, 8]));
+  });
+
   it("404s for a hash owned only by a different user, via the logo path", async () => {
     const owner = await createUserWithPassword({ email: "owner-only@example.com", ...CREDENTIALS });
     const other = await createUserWithPassword({

@@ -34,7 +34,7 @@ const HASH_PATTERN = /^[0-9a-f]{64}$/;
  * why that fallback only applies when there is no `Authorization` header at
  * all.
  *
- * **Ownership is two disjoint paths, both scoped to the caller's own feeds,
+ * **Ownership is three disjoint paths, all scoped to the caller's own feeds,
  * and a hash needs only one of them to be "owned":**
  *
  * 1. **Logo**: some feed the caller owns has `feeds.logoImageHash` equal to
@@ -45,6 +45,11 @@ const HASH_PATTERN = /^[0-9a-f]{64}$/;
  *    `buildImageRef(hash)` -- the block stores the `yana-img://<hash>` *ref*
  *    string, never the bare hash, so the comparison has to go through
  *    `buildImageRef()` rather than comparing to `hash` directly.
+ * 3. **Embed thumbnail**: same shape as (2), but on an embed block's
+ *    `embedThumbnailRef` column instead of an image block's `imageRef` --
+ *    this is what a video embed's poster (e.g. Tagesschau's player,
+ *    `src/lib/aggregators/sites/tagesschau/media.ts`) is stored under, and
+ *    without this path a caller's own localized video thumbnail 404s.
  *
  * Deduplication crosses users (`article_images` carries no `userId` -- see
  * its schema comment), so the same hash can legitimately be "owned" by many
@@ -104,9 +109,9 @@ export async function GET(
 }
 
 /**
- * Does `userId` own `hash`, through either a feed logo or an article body
- * image? Two independent, narrowly-scoped queries rather than one clever
- * join, so each path reads as exactly the sentence describing it above.
+ * Does `userId` own `hash`, through a feed logo, an article body image, or an
+ * embed thumbnail? Three independent, narrowly-scoped queries rather than one
+ * clever join, so each path reads as exactly the sentence describing it above.
  */
 function ownsHash(userId: string, hash: string): boolean {
   const db = getDb();
@@ -125,5 +130,14 @@ function ownsHash(userId: string, hash: string): boolean {
     .innerJoin(feeds, eq(articles.feedId, feeds.id))
     .where(and(eq(feeds.userId, userId), eq(articleBlocks.imageRef, buildImageRef(hash))))
     .get();
-  return Boolean(viaArticleBlock);
+  if (viaArticleBlock) return true;
+
+  const viaEmbedThumbnail = db
+    .select({ id: articleBlocks.id })
+    .from(articleBlocks)
+    .innerJoin(articles, eq(articleBlocks.articleId, articles.id))
+    .innerJoin(feeds, eq(articles.feedId, feeds.id))
+    .where(and(eq(feeds.userId, userId), eq(articleBlocks.embedThumbnailRef, buildImageRef(hash))))
+    .get();
+  return Boolean(viaEmbedThumbnail);
 }
