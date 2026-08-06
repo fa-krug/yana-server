@@ -64,7 +64,7 @@ describe("MeinMmoAggregator.enrichArticles", () => {
     // instance field (`firstPageHtml`), read later by processContent() for
     // comment extraction. That was safe only because the old enrichArticles()
     // ran one article to completion before starting the next. This branch
-    // parallelizes enrichArticles() up to ARTICLE_ENRICHMENT_CONCURRENCY, so a
+    // parallelizes enrichArticles() up to the feed's concurrency, so a
     // second article's fetchArticleContent() can overwrite that field while
     // the first article's processContent() is still awaiting its img-resolution
     // loop -- and the first article then reads the second article's page for

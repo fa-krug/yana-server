@@ -7,7 +7,7 @@
 import crypto from "node:crypto";
 import * as cheerio from "cheerio";
 import { BaseAggregator, FeedLike, RawArticle } from "../../base";
-import { ARTICLE_ENRICHMENT_CONCURRENCY, mapWithConcurrency } from "../../concurrency";
+import { mapWithConcurrency } from "../../concurrency";
 import { isSafeUrl } from "../../blocks/parser";
 import { cleanHtml, removeSanitizedAttributes, sanitizeHtmlAttributes } from "../../extract/clean";
 import { createYoutubeEmbedHtml, escapeHtml, formatArticleContent } from "../../extract/format";
@@ -244,7 +244,7 @@ export class YouTubeAggregator extends BaseAggregator {
 
     const commentLimit = (this.feed.options?.comment_limit as number) ?? 10;
 
-    await mapWithConcurrency(articles, ARTICLE_ENRICHMENT_CONCURRENCY, async (article) => {
+    await mapWithConcurrency(articles, this.concurrency, async (article) => {
       const videoId = article._youtube_video_id;
       const description = article.content || "";
 

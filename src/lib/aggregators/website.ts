@@ -1,7 +1,7 @@
 import * as cheerio from "cheerio";
 
 import { RawArticle } from "./base";
-import { ARTICLE_ENRICHMENT_CONCURRENCY, mapWithConcurrency } from "./concurrency";
+import { mapWithConcurrency } from "./concurrency";
 import { ArticleSkipError } from "./errors";
 import { cleanHtml, removeImageByUrl, sanitizeClassNames } from "./extract/clean";
 import {
@@ -147,7 +147,7 @@ export class FullWebsiteAggregator extends RssAggregator {
   async enrichArticles(articles: RawArticle[]): Promise<RawArticle[]> {
     const results = await mapWithConcurrency(
       articles,
-      ARTICLE_ENRICHMENT_CONCURRENCY,
+      this.concurrency,
       async (article): Promise<RawArticle | null> => {
         const url = article.identifier;
         try {

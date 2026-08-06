@@ -6,7 +6,7 @@
 
 import * as cheerio from "cheerio";
 import { AggregatorUserSettings, BaseAggregator, FeedLike, RawArticle } from "../../base";
-import { ARTICLE_ENRICHMENT_CONCURRENCY, mapWithConcurrency } from "../../concurrency";
+import { mapWithConcurrency } from "../../concurrency";
 import { AggregatorError, ArticleSkipError } from "../../errors";
 import { getHeaderImageRef, HeaderElementData } from "../../header/context";
 import { extractHeaderElement } from "../../header/extractor";
@@ -347,7 +347,7 @@ export class RedditAggregator extends BaseAggregator {
 
     const results = await mapWithConcurrency(
       articles,
-      ARTICLE_ENRICHMENT_CONCURRENCY,
+      this.concurrency,
       async (article): Promise<RawArticle | null> => {
         try {
           const postDataDict = (article._reddit_post_data as RedditPostDataDict) || {};
@@ -397,7 +397,7 @@ export class RedditAggregator extends BaseAggregator {
 
     return mapWithConcurrency(
       processedArticles,
-      ARTICLE_ENRICHMENT_CONCURRENCY,
+      this.concurrency,
       async (article): Promise<RawArticle> => {
         const includeHeaderImage = (this.feed.options?.include_header_image as boolean) ?? true;
         const headerSourceUrl = includeHeaderImage

@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { FeedLike, RawArticle } from "../../base";
-import { ARTICLE_ENRICHMENT_CONCURRENCY } from "../../concurrency";
 import { ArticleSkipError } from "../../errors";
 import { RedditAggregator } from "./aggregator";
 import { fetchPostComments } from "./comments";
@@ -135,7 +134,7 @@ describe("RedditAggregator.enrichArticles concurrency", () => {
     expect(result.map((a) => a.identifier)).toEqual(["1", "2", "3"]);
   });
 
-  it("never runs more than ARTICLE_ENRICHMENT_CONCURRENCY comment fetches concurrently", async () => {
+  it("never runs more than the feed's concurrency comment fetches concurrently", async () => {
     let inFlight = 0;
     let maxInFlight = 0;
 
@@ -148,13 +147,13 @@ describe("RedditAggregator.enrichArticles concurrency", () => {
     });
 
     const agg = new RedditAggregator(feed);
-    const articleCount = ARTICLE_ENRICHMENT_CONCURRENCY * 2 + 1;
+    const articleCount = agg.concurrency * 2 + 1;
     const articles = Array.from({ length: articleCount }, (_, i) => enrichmentArticle(`${i}`));
 
     const result = await agg.enrichArticles(articles);
 
     expect(result).toHaveLength(articleCount);
-    expect(maxInFlight).toBeLessThanOrEqual(ARTICLE_ENRICHMENT_CONCURRENCY);
+    expect(maxInFlight).toBeLessThanOrEqual(agg.concurrency);
     // Confirms the pool actually parallelizes rather than degenerating to
     // sequential execution.
     expect(maxInFlight).toBeGreaterThan(1);
@@ -192,7 +191,7 @@ describe("RedditAggregator.finalizeArticles header-image concurrency", () => {
     expect(result.map((a) => a.identifier)).toEqual(["1", "2", "3"]);
   });
 
-  it("never runs more than ARTICLE_ENRICHMENT_CONCURRENCY header-image stores concurrently", async () => {
+  it("never runs more than the feed's concurrency header-image stores concurrently", async () => {
     let inFlight = 0;
     let maxInFlight = 0;
 
@@ -207,13 +206,13 @@ describe("RedditAggregator.finalizeArticles header-image concurrency", () => {
     }
 
     const agg = new CappedConcurrencyAggregator({ identifier: "test", dailyLimit: 20 });
-    const articleCount = ARTICLE_ENRICHMENT_CONCURRENCY * 2 + 1;
+    const articleCount = agg.concurrency * 2 + 1;
     const articles = Array.from({ length: articleCount }, (_, i) => headerImageArticle(`${i}`));
 
     const result = await agg.finalizeArticles(articles);
 
     expect(result).toHaveLength(articleCount);
-    expect(maxInFlight).toBeLessThanOrEqual(ARTICLE_ENRICHMENT_CONCURRENCY);
+    expect(maxInFlight).toBeLessThanOrEqual(agg.concurrency);
     // Confirms the pool actually parallelizes rather than degenerating to
     // sequential execution.
     expect(maxInFlight).toBeGreaterThan(1);

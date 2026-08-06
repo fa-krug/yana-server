@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { FeedLike, RawArticle } from "./base";
-import { ARTICLE_ENRICHMENT_CONCURRENCY } from "./concurrency";
 import { ArticleSkipError } from "./errors";
 import { FullWebsiteAggregator, RssSummaryFallbackAggregator } from "./website";
 
@@ -198,7 +197,7 @@ describe("FullWebsiteAggregator.enrichArticles", () => {
     expect(result[2].content).toContain("content for https://example.com/3");
   });
 
-  it("never runs more than ARTICLE_ENRICHMENT_CONCURRENCY fetches concurrently", async () => {
+  it("never runs more than the feed's concurrency fetches concurrently", async () => {
     let inFlight = 0;
     let maxInFlight = 0;
 
@@ -226,7 +225,7 @@ describe("FullWebsiteAggregator.enrichArticles", () => {
 
     const agg = new CappedConcurrencyAggregator(feed);
     // More articles than the concurrency cap, so the cap is actually exercised.
-    const articleCount = ARTICLE_ENRICHMENT_CONCURRENCY * 2 + 1;
+    const articleCount = agg.concurrency * 2 + 1;
     const articles = Array.from({ length: articleCount }, (_, i) =>
       makeArticle(`https://example.com/${i}`),
     );
@@ -234,7 +233,7 @@ describe("FullWebsiteAggregator.enrichArticles", () => {
     const result = await agg.enrichArticles(articles);
 
     expect(result).toHaveLength(articleCount);
-    expect(maxInFlight).toBeLessThanOrEqual(ARTICLE_ENRICHMENT_CONCURRENCY);
+    expect(maxInFlight).toBeLessThanOrEqual(agg.concurrency);
     // Confirms the pool actually parallelizes rather than degenerating to
     // sequential execution.
     expect(maxInFlight).toBeGreaterThan(1);

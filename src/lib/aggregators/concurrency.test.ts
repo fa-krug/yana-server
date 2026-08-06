@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { mapWithConcurrency, ARTICLE_ENRICHMENT_CONCURRENCY } from "./concurrency";
+import { mapWithConcurrency } from "./concurrency";
 
 describe("mapWithConcurrency", () => {
   it("returns results in the same order as inputs, even when later items resolve first", async () => {
@@ -122,13 +122,5 @@ describe("mapWithConcurrency", () => {
     );
 
     expect(indices.sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6]);
-  });
-});
-
-describe("ARTICLE_ENRICHMENT_CONCURRENCY", () => {
-  it("is a positive integer", () => {
-    expect(ARTICLE_ENRICHMENT_CONCURRENCY).toBe(4);
-    expect(Number.isInteger(ARTICLE_ENRICHMENT_CONCURRENCY)).toBe(true);
-    expect(ARTICLE_ENRICHMENT_CONCURRENCY).toBeGreaterThan(0);
   });
 });
