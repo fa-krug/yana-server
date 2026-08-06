@@ -13,14 +13,16 @@ import { getIntegrationStatus } from "@/lib/integrations/queries";
  * with a skeleton standing in for each control -- so the card titles,
  * descriptions and field labels are never replaced by an anonymous skeleton
  * block, only the values nobody can know yet. Neither shell can submit
- * anything real here, so both get a no-op `onSubmit` and no remove button.
+ * anything real here, so both take their default no-op `onSubmit` and get no
+ * remove button. `onSubmit` is deliberately omitted rather than passed as a
+ * function value: this is a Server Component, and a function it created here
+ * cannot cross into the Client Component shells below (it isn't a Server
+ * Action) -- the shells default it themselves instead.
  */
 function SectionsFallback() {
-  const noopSubmit = (event: React.FormEvent<HTMLFormElement>) => event.preventDefault();
   return (
     <div className="space-y-6">
       <YoutubeSectionShell
-        onSubmit={noopSubmit}
         statusControl={<Skeleton className="h-5 w-16" />}
         apiKeyControl={<Skeleton className="h-9 w-full" />}
         apiKeyHintControl={<Skeleton className="h-4 w-48" />}
@@ -29,7 +31,6 @@ function SectionsFallback() {
         removeControl={null}
       />
       <RedditSectionShell
-        onSubmit={noopSubmit}
         statusControl={<Skeleton className="h-5 w-16" />}
         clientIdControl={<Skeleton className="h-9 w-full" />}
         clientSecretControl={<Skeleton className="h-9 w-full" />}

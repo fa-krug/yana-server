@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 
+import { resolveFeedCredentials } from "@/lib/aggregators/credential-resolution";
 import { createAggregator } from "@/lib/aggregators/factory";
 import { getDb } from "@/lib/db/client";
 import { feeds, type Job } from "@/lib/db/schema";
@@ -17,7 +18,11 @@ export async function handleLogoJob(job: Job): Promise<void> {
     return;
   }
 
-  const aggregator = createAggregator(feed);
+  // Without this, logoImageUrl() has no credentials to call the YouTube/Reddit
+  // API with, always throws, and the job silently falls through to generic
+  // favicon discovery against the site's homepage -- see aggregate.ts, which
+  // resolves credentials the same way for the same reason.
+  const aggregator = createAggregator(resolveFeedCredentials(feed));
 
   // Tier 1: an aggregator-provided image -- a subreddit's icon, a YouTube channel's avatar --
   // is already a direct image URL, not a page to run favicon discovery against. Only Reddit and

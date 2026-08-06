@@ -187,7 +187,13 @@ export function RedditSection({
  * plain presentational split rather than a state-sharing one.
  */
 export function RedditSectionShell({
-  onSubmit,
+  // Optional, and defaulted here rather than by the caller: `integrations/page.tsx`
+  // renders this shell from a Server Component fallback, which cannot pass a
+  // function prop into a Client Component (it isn't a Server Action, so React
+  // has nothing to serialize it as). Defaulting inside this "use client" module
+  // keeps the function entirely on the client, so the fallback needs no
+  // `onSubmit` prop at all.
+  onSubmit = (event) => event.preventDefault(),
   statusControl,
   clientIdControl,
   clientSecretControl,
@@ -197,7 +203,7 @@ export function RedditSectionShell({
   testControl,
   removeControl,
 }: {
-  onSubmit: React.FormEventHandler<HTMLFormElement>;
+  onSubmit?: React.FormEventHandler<HTMLFormElement>;
   statusControl: ReactNode;
   clientIdControl: ReactNode;
   clientSecretControl: ReactNode;
