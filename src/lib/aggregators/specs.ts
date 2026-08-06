@@ -25,6 +25,19 @@ export type OptionSpec = {
 export type AggregatorSpec = {
   key: AggregatorKey;
   label: string;
+  /**
+   * Starting point for a new feed's `updateIntervalMinutes`/`concurrency`
+   * columns (`src/lib/db/schema/feeds.ts`) -- pre-filled by the feed form on
+   * create and on aggregator switch, freely editable afterward. Three tiers:
+   * 30 min / concurrency 4 for frequently-updated article sources, 1440 min
+   * (daily) / concurrency 4 for infrequent comics/podcasts, and 60 min /
+   * concurrency 2 for sources known to be rate- or quota-sensitive --
+   * `caschys_blog` earned its tier the hard way: its host started refusing
+   * connections from this server's IP after repeated automated polling (see
+   * docs/superpowers/specs/2026-08-06-per-feed-interval-and-concurrency-design.md).
+   */
+  recommendedIntervalMinutes: number;
+  recommendedConcurrency: number;
   identifierRequired: boolean;
   identifierLabel: string;
   identifierHelp: string;
@@ -134,6 +147,8 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
   full_website: {
     key: "full_website",
     label: "Full Website",
+    recommendedIntervalMinutes: 30,
+    recommendedConcurrency: 4,
     identifierRequired: false,
     identifierLabel: "URL",
     identifierHelp: "Website URL",
@@ -143,6 +158,8 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
   feed_content: {
     key: "feed_content",
     label: "Feed Content",
+    recommendedIntervalMinutes: 30,
+    recommendedConcurrency: 4,
     identifierRequired: false,
     identifierLabel: "URL",
     identifierHelp: "RSS Feed URL",
@@ -152,6 +169,8 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
   heise: {
     key: "heise",
     label: "Heise",
+    recommendedIntervalMinutes: 30,
+    recommendedConcurrency: 4,
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select Heise feed",
@@ -170,6 +189,8 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
   merkur: {
     key: "merkur",
     label: "Merkur",
+    recommendedIntervalMinutes: 30,
+    recommendedConcurrency: 4,
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select Merkur feed",
@@ -221,6 +242,8 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
   tagesschau: {
     key: "tagesschau",
     label: "Tagesschau",
+    recommendedIntervalMinutes: 30,
+    recommendedConcurrency: 4,
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select Tagesschau feed",
@@ -361,6 +384,8 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
   explosm: {
     key: "explosm",
     label: "Explosm",
+    recommendedIntervalMinutes: 1440,
+    recommendedConcurrency: 4,
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select Explosm feed",
@@ -375,6 +400,8 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
   dark_legacy: {
     key: "dark_legacy",
     label: "Dark Legacy Comics",
+    recommendedIntervalMinutes: 1440,
+    recommendedConcurrency: 4,
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select Dark Legacy feed",
@@ -389,6 +416,8 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
   caschys_blog: {
     key: "caschys_blog",
     label: "Caschys Blog",
+    recommendedIntervalMinutes: 60,
+    recommendedConcurrency: 2,
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select Caschys Blog feed",
@@ -403,6 +432,8 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
   mactechnews: {
     key: "mactechnews",
     label: "MacTechNews",
+    recommendedIntervalMinutes: 30,
+    recommendedConcurrency: 4,
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select MacTechNews feed",
@@ -421,6 +452,8 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
   oglaf: {
     key: "oglaf",
     label: "Oglaf",
+    recommendedIntervalMinutes: 1440,
+    recommendedConcurrency: 4,
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select Oglaf feed",
@@ -433,6 +466,8 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
   mein_mmo: {
     key: "mein_mmo",
     label: "Mein MMO",
+    recommendedIntervalMinutes: 30,
+    recommendedConcurrency: 4,
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select Mein MMO feed",
@@ -447,6 +482,8 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
   the_verge: {
     key: "the_verge",
     label: "The Verge",
+    recommendedIntervalMinutes: 30,
+    recommendedConcurrency: 4,
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select The Verge feed",
@@ -456,6 +493,8 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
   ars_technica: {
     key: "ars_technica",
     label: "Ars Technica",
+    recommendedIntervalMinutes: 30,
+    recommendedConcurrency: 4,
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Select Ars Technica feed",
@@ -470,6 +509,8 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
   youtube: {
     key: "youtube",
     label: "YouTube",
+    recommendedIntervalMinutes: 60,
+    recommendedConcurrency: 2,
     identifierRequired: true,
     identifierLabel: "Channel",
     identifierHelp: "YouTube Channel ID or URL",
@@ -483,6 +524,8 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
   reddit: {
     key: "reddit",
     label: "Reddit",
+    recommendedIntervalMinutes: 60,
+    recommendedConcurrency: 2,
     identifierRequired: true,
     identifierLabel: "Subreddit",
     identifierHelp: "Subreddit name or URL",
@@ -516,6 +559,8 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
   podcast: {
     key: "podcast",
     label: "Podcast",
+    recommendedIntervalMinutes: 1440,
+    recommendedConcurrency: 4,
     identifierRequired: false,
     identifierLabel: "Feed",
     identifierHelp: "Podcast RSS Feed",

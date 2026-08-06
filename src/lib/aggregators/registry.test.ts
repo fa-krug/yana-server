@@ -49,6 +49,20 @@ describe("AGGREGATOR_SPECS", () => {
       expect(new Set(keys).size).toBe(keys.length);
     }
   });
+
+  it("gives every aggregator a recommended interval and concurrency", () => {
+    for (const spec of Object.values(AGGREGATOR_SPECS)) {
+      expect(spec.recommendedIntervalMinutes).toBeGreaterThan(0);
+      expect(spec.recommendedConcurrency).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("recommends a gentler interval and lower concurrency for rate-sensitive sources", () => {
+    for (const key of ["caschys_blog", "youtube", "reddit"] as const) {
+      expect(AGGREGATOR_SPECS[key].recommendedIntervalMinutes).toBe(60);
+      expect(AGGREGATOR_SPECS[key].recommendedConcurrency).toBe(2);
+    }
+  });
 });
 
 describe("IMPLEMENTED_AGGREGATORS & AggregatorRegistry", () => {
