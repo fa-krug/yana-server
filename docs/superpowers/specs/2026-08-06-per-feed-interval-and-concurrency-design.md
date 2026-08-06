@@ -37,11 +37,21 @@ JSON `options` blob):
 - `concurrency: integer, not null, default 4` — max in-flight per-article
   enrichment calls during one aggregation run.
 
-The defaults (`30` / `4`) match today's global values, so existing feeds keep
-their current behavior after migration; they are **not** backfilled from
-their aggregator's recommendation (consistent with how this repo treats other
-additive-column migrations — new behavior applies going forward, not
-retroactively).
+The columns default to `30`/`4` (today's global values) for aggregators whose
+recommended tier already matches that default. For the two tiers that don't —
+comics/infrequent (`1440` min) and sensitive/rate-limited (`60` min,
+concurrency `2`) — the migration backfills existing feeds to their
+aggregator's recommended tier, not the flat default. This is deliberately
+**not** a backfill from the old global `userSettings.updateIntervalMinutes`
+— a user's manually-chosen global value (including `0`, disabling automatic
+updates) is not preserved on upgrade, a tradeoff confirmed explicitly rather
+than assumed. It derives each feed's new value from its own `aggregator`
+column instead, so an existing `caschys_blog` feed lands on the
+same `60`/`2` a newly created one would get, rather than staying at whatever
+flat default would otherwise apply. This matters concretely for
+`caschys_blog`: leaving existing rows at a flat `30`-minute default would
+keep polling the same host that is already blocking this server's IP for
+exactly that behavior (see Context above).
 
 `userSettings.updateIntervalMinutes` is dropped. It becomes dead the moment
 every feed carries its own value.
