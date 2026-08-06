@@ -26,7 +26,6 @@ function SectionsFallback() {
       <Separator />
       <LibrarySectionShell
         retentionControl={<Skeleton className="h-9 w-24" />}
-        intervalControl={<Skeleton className="h-9 w-24" />}
         saveControl={<Skeleton className="h-9 w-24" />}
       />
     </div>
@@ -39,10 +38,7 @@ async function Sections() {
     <div className="space-y-8">
       <GeneralSection theme={settings.theme} language={settings.language} />
       <Separator />
-      <LibrarySection
-        articleRetentionDays={settings.articleRetentionDays}
-        updateIntervalMinutes={settings.updateIntervalMinutes}
-      />
+      <LibrarySection articleRetentionDays={settings.articleRetentionDays} />
     </div>
   );
 }

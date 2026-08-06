@@ -19,10 +19,7 @@ const { toastError, toastSuccess } = vi.hoisted(() => ({
 vi.mock("sonner", () => ({ toast: { error: toastError, success: toastSuccess } }));
 
 function render(locale: "en" | "de" = "de") {
-  return renderWithProviders(
-    <LibrarySection articleRetentionDays={30} updateIntervalMinutes={60} />,
-    { locale },
-  );
+  return renderWithProviders(<LibrarySection articleRetentionDays={30} />, { locale });
 }
 
 function field(label: string): HTMLInputElement {
@@ -39,17 +36,14 @@ describe("<LibrarySection>", () => {
     updateLibrarySettings.mockResolvedValue({ ok: true });
   });
 
-  it("submits both fields as numbers", async () => {
+  it("submits the retention field as a number", async () => {
     render();
 
     fireEvent.change(field("Aufbewahrung"), { target: { value: "90" } });
     save();
 
     await waitFor(() =>
-      expect(updateLibrarySettings).toHaveBeenCalledWith({
-        articleRetentionDays: 90,
-        updateIntervalMinutes: 60,
-      }),
+      expect(updateLibrarySettings).toHaveBeenCalledWith({ articleRetentionDays: 90 }),
     );
     expect(toastSuccess).toHaveBeenCalledWith("Einstellungen gespeichert");
   });
@@ -73,13 +67,13 @@ describe("<LibrarySection>", () => {
     // rejection -- a dropped connection, the container restarting mid-request --
     // went unhandled inside the transition scope and escalated to the (app)
     // group's error.tsx: the whole page became "Something went wrong", taking
-    // the two half-edited fields with it. `attempt()` turns it into a toast.
+    // the half-edited field with it. `attempt()` turns it into a toast.
     updateLibrarySettings.mockRejectedValue(new Error("the container restarted"));
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
     try {
       render("en");
-      fireEvent.change(field("Update interval"), { target: { value: "15" } });
+      fireEvent.change(field("Article retention"), { target: { value: "15" } });
       save("en");
 
       await waitFor(() =>
@@ -88,7 +82,7 @@ describe("<LibrarySection>", () => {
         ),
       );
       // Still on the page, still holding what was typed.
-      expect(field("Update interval").value).toBe("15");
+      expect(field("Article retention").value).toBe("15");
     } finally {
       logged.mockRestore();
     }

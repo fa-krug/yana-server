@@ -23,9 +23,6 @@ const general = z.object({
 
 const library = z.object({
   articleRetentionDays: z.number().int().min(1).max(3650),
-  // 0 disables automatic updates for the feed entirely (see scheduler.ts's
-  // tick()); everything above that is a whole number of minutes.
-  updateIntervalMinutes: z.number().int().min(0).max(1440),
 });
 
 // `errorKey`, when present, is a key under the `settings` catalog namespace
@@ -36,7 +33,7 @@ const library = z.object({
 // whatever language the UI happens to be showing.
 //
 // This table maps a failing field to its catalog key under settings.library. Only the
-// two range-validated library fields get a specific key -- anything else
+// range-validated retention field gets a specific key -- anything else
 // (including the general section's enums, which safeParse can only fail for
 // a value that isn't one of the hard-coded enum members, never a real user
 // input) falls through to undefined, and the caller shows the generic
@@ -48,7 +45,6 @@ const library = z.object({
 // rendered into a toast.
 const FIELD_ERROR_KEYS: Record<string, SettingsKey> = {
   articleRetentionDays: "library.retentionRange",
-  updateIntervalMinutes: "library.intervalRange",
 };
 
 function errorKeyFor(issues: z.core.$ZodIssue[]): SettingsKey | undefined {

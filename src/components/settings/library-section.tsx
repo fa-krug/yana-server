@@ -10,32 +10,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-export function LibrarySection({
-  articleRetentionDays,
-  updateIntervalMinutes,
-}: {
-  articleRetentionDays: number;
-  updateIntervalMinutes: number;
-}) {
+export function LibrarySection({ articleRetentionDays }: { articleRetentionDays: number }) {
   const t = useTranslations("settings");
   const tCommon = useTranslations("common");
   const [retention, setRetention] = useState(String(articleRetentionDays));
-  // Named updateInterval, not interval: "interval" would shadow the global
-  // setInterval() inside this component.
-  const [updateInterval, setUpdateInterval] = useState(String(updateIntervalMinutes));
   const [pending, start] = useTransition();
 
   function save() {
     start(async () => {
       // attempt(), never a bare await: a rejected action inside this transition
-      // scope escalates to the (app) group's error.tsx and takes the two
-      // half-edited fields with it, and a session that ended is otherwise
+      // scope escalates to the (app) group's error.tsx and takes the
+      // half-edited field with it, and a session that ended is otherwise
       // indistinguishable from a failed request. See @/lib/settings/result.
       const result = await attempt(() =>
-        updateLibrarySettings({
-          articleRetentionDays: Number(retention),
-          updateIntervalMinutes: Number(updateInterval),
-        }),
+        updateLibrarySettings({ articleRetentionDays: Number(retention) }),
       );
       if (result.ok) {
         toast.success(t("saved"));
@@ -58,17 +46,6 @@ export function LibrarySection({
           className="w-24"
         />
       }
-      intervalControl={
-        <Input
-          id="interval"
-          type="number"
-          min={0}
-          max={1440}
-          value={updateInterval}
-          onChange={(event) => setUpdateInterval(event.target.value)}
-          className="w-24"
-        />
-      }
       saveControl={
         <Button onClick={save} disabled={pending} className="w-full sm:w-auto">
           {tCommon("save")}
@@ -79,20 +56,17 @@ export function LibrarySection({
 }
 
 /**
- * The section's chrome alone: the heading, both field labels and their help
- * text, with no dependency on `articleRetentionDays`/`updateIntervalMinutes`
- * -- see the doc comment on `GeneralSectionShell` in `./general-section.tsx`
- * for why `settings/page.tsx` renders this directly as its own `<Suspense>`
- * fallback (with skeleton bars for the three control slots) instead of a
- * generic skeleton block.
+ * The section's chrome alone: the heading, the field's label and help text,
+ * with no dependency on `articleRetentionDays` -- see the doc comment on
+ * `GeneralSectionShell` in `./general-section.tsx` for why `settings/page.tsx`
+ * renders this directly as its own `<Suspense>` fallback (with a skeleton bar
+ * standing in for the control slot) instead of a generic skeleton block.
  */
 export function LibrarySectionShell({
   retentionControl,
-  intervalControl,
   saveControl,
 }: {
   retentionControl: ReactNode;
-  intervalControl: ReactNode;
   saveControl: ReactNode;
 }) {
   const t = useTranslations("settings");
@@ -108,15 +82,6 @@ export function LibrarySectionShell({
           <span className="text-sm text-muted-foreground">{t("library.days")}</span>
         </div>
         <p className="text-sm text-muted-foreground">{t("library.retentionHelp")}</p>
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="interval">{t("library.interval")}</Label>
-        <div className="flex items-center gap-2">
-          {intervalControl}
-          <span className="text-sm text-muted-foreground">{t("library.minutes")}</span>
-        </div>
-        <p className="text-sm text-muted-foreground">{t("library.intervalHelp")}</p>
       </div>
 
       {saveControl}
