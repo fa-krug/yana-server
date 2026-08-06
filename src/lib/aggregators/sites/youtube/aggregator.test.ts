@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import type { FeedLike, RawArticle } from "../../base";
-import { ARTICLE_ENRICHMENT_CONCURRENCY } from "../../concurrency";
 import { YouTubeAggregator } from "./aggregator";
 import type { YouTubeClient, YouTubeCommentThread } from "./client";
 
@@ -186,7 +185,7 @@ describe("YouTubeAggregator.enrichArticles concurrency", () => {
     expect(result[2]!.content).toContain("description 3");
   });
 
-  it("never runs more than ARTICLE_ENRICHMENT_CONCURRENCY comment fetches concurrently", async () => {
+  it("never runs more than the feed's concurrency comment fetches concurrently", async () => {
     let inFlight = 0;
     let maxInFlight = 0;
 
@@ -198,13 +197,13 @@ describe("YouTubeAggregator.enrichArticles concurrency", () => {
       return [];
     });
 
-    const articleCount = ARTICLE_ENRICHMENT_CONCURRENCY * 2 + 1;
+    const articleCount = agg.concurrency * 2 + 1;
     const articles = Array.from({ length: articleCount }, (_, i) => enrichmentArticle(`${i}`));
 
     const result = await agg.enrichArticles(articles);
 
     expect(result).toHaveLength(articleCount);
-    expect(maxInFlight).toBeLessThanOrEqual(ARTICLE_ENRICHMENT_CONCURRENCY);
+    expect(maxInFlight).toBeLessThanOrEqual(agg.concurrency);
     // Confirms the pool actually parallelizes rather than degenerating to
     // sequential execution.
     expect(maxInFlight).toBeGreaterThan(1);

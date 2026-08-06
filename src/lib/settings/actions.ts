@@ -23,9 +23,6 @@ const general = z.object({
 
 const library = z.object({
   articleRetentionDays: z.number().int().min(1).max(3650),
-  // 0 disables automatic updates for the feed entirely (see scheduler.ts's
-  // tick()); everything above that is a whole number of minutes.
-  updateIntervalMinutes: z.number().int().min(0).max(1440),
 });
 
 // `errorKey`, when present, is a key under the `settings` catalog namespace
@@ -36,7 +33,7 @@ const library = z.object({
 // whatever language the UI happens to be showing.
 //
 // This table maps a failing field to its catalog key under settings.library. Only the
-// two range-validated library fields get a specific key -- anything else
+// range-validated retention field gets a specific key -- anything else
 // (including the general section's enums, which safeParse can only fail for
 // a value that isn't one of the hard-coded enum members, never a real user
 // input) falls through to undefined, and the caller shows the generic
@@ -48,7 +45,6 @@ const library = z.object({
 // rendered into a toast.
 const FIELD_ERROR_KEYS: Record<string, SettingsKey> = {
   articleRetentionDays: "library.retentionRange",
-  updateIntervalMinutes: "library.intervalRange",
 };
 
 function errorKeyFor(issues: z.core.$ZodIssue[]): SettingsKey | undefined {
@@ -114,8 +110,8 @@ async function write(values: Partial<typeof userSettings.$inferInsert>): Promise
   //
   // Everything else here is read only by /settings, and the layout-wide form
   // throws away the entire client router cache -- every visited route has to be
-  // re-fetched on the next navigation -- so using it for a retention or
-  // interval change is pure waste. A theme change does not need it either: the
+  // re-fetched on the next navigation -- so using it for a retention
+  // change is pure waste. A theme change does not need it either: the
   // root layout passes the stored theme to next-themes as a pre-hydration
   // default only, and the settings control has already applied the new value
   // client-side via setTheme() before this action resolves (see

@@ -1,14 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
 import { BulkActionBar, type BulkAction } from "@/components/crud/bulk-action-bar";
-import { DataTable, type Column } from "@/components/crud/data-table";
+import { DataTableBody, DataTableHeader, type Column } from "@/components/crud/data-table";
+import { ListSelectionProvider, useListSelection } from "@/components/crud/list-selection";
 import { Pagination } from "@/components/crud/pagination";
+import { Table } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { useTrackBackgroundTask } from "@/components/jobs/active-runs-context";
 import { displayNameFor } from "@/lib/avatar";
@@ -63,26 +65,16 @@ export function StatusBadge({ status }: { status: string }) {
   }
 }
 
-export function JobsTable({
-  rows,
-  page,
-  pageSize,
-  total,
-  showOwner = false,
-}: {
-  rows: JobWithOwner[];
-  page: number;
-  pageSize: number;
-  total: number;
-  /** Only an admin sees jobs across every user, so only an admin needs the column that says whose. */
-  showOwner?: boolean;
-}) {
+/**
+ * Shared between the header (rendered immediately) and the body (rendered
+ * once rows arrive). `showOwner` is only known to the page (an admin sees
+ * every job's owner, a non-admin does not), so both the shell and the body
+ * take it as a prop and build the identical column set from it.
+ */
+function useJobsColumns(showOwner: boolean): Column<JobWithOwner>[] {
   const t = useTranslations("jobs");
-  const router = useRouter();
-  const trackBackgroundTask = useTrackBackgroundTask();
-  const [selected, setSelected] = useState<number[]>([]);
 
-  const columns: Column<JobWithOwner>[] = [
+  return [
     {
       key: "kind",
       header: t("kind"),
@@ -150,17 +142,57 @@ export function JobsTable({
       ),
     },
   ];
+}
+
+/**
+ * Chrome: the bulk action bar and the table's header row, with no dependency
+ * on `rows` -- a page renders this outside its `<Suspense>` boundary so it
+ * never disappears while the rows themselves are loading. `children` is the
+ * `<Suspense>`-wrapped body (a `<JobsTableBody>` once resolved, a
+ * `<TableRowsSkeleton>` fallback until then).
+ *
+ * **Never give this a `key` that changes with the list's params** -- pass
+ * `resetKey` instead. See the doc comment on `<ListSelectionProvider>` for why.
+ */
+export function JobsTableShell({
+  children,
+  showOwner = false,
+  resetKey,
+}: {
+  children: React.ReactNode;
+  showOwner?: boolean;
+  resetKey?: string;
+}) {
+  return (
+    <ListSelectionProvider resetKey={resetKey}>
+      <JobsTableChrome showOwner={showOwner}>{children}</JobsTableChrome>
+    </ListSelectionProvider>
+  );
+}
+
+function JobsTableChrome({
+  children,
+  showOwner,
+}: {
+  children: React.ReactNode;
+  showOwner: boolean;
+}) {
+  const t = useTranslations("jobs");
+  const router = useRouter();
+  const trackBackgroundTask = useTrackBackgroundTask();
+  const { selected, onSelectedChange, pageIds } = useListSelection();
+  const columns = useJobsColumns(showOwner);
 
   async function cancelSelected(): Promise<boolean> {
     if (selected.length === 0) return false;
 
-    const result = await attempt(() => cancelJobs(selected));
+    const result = await attempt(() => cancelJobs(selected.map(Number)));
     if (!result.ok) {
       toast.error(t(result.errorKey));
       return false;
     }
 
-    setSelected([]);
+    onSelectedChange([]);
     router.refresh();
     if (result.affected === 0) toast.info(t("cancelNone"));
     else toast.success(t("cancelRequested", { count: result.affected }));
@@ -195,13 +227,13 @@ export function JobsTable({
   async function removeSelected(): Promise<boolean> {
     if (selected.length === 0) return false;
 
-    const result = await attempt(() => deleteJobs(selected));
+    const result = await attempt(() => deleteJobs(selected.map(Number)));
     if (!result.ok) {
       toast.error(t(result.errorKey));
       return false;
     }
 
-    setSelected([]);
+    onSelectedChange([]);
     router.refresh();
 
     if (result.stopping.length > 0) {
@@ -235,14 +267,70 @@ export function JobsTable({
 
   return (
     <div className="space-y-4">
-      <BulkActionBar count={count} actions={actions} onClear={() => setSelected([])} />
-      <DataTable
-        rows={rows}
-        columns={columns}
-        rowId={(job) => String(job.id)}
-        selected={selected.map(String)}
-        onSelectedChange={(ids) => setSelected(ids.map(Number))}
-      />
+      <BulkActionBar count={count} actions={actions} onClear={() => onSelectedChange([])} />
+      <Table>
+        <DataTableHeader
+          columns={columns}
+          pageIds={pageIds}
+          selected={selected}
+          onSelectedChange={onSelectedChange}
+        />
+        {children}
+      </Table>
+    </div>
+  );
+}
+
+/** The data-dependent half: must render inside a `<JobsTableShell>` with the same `showOwner`. */
+export function JobsTableBody({
+  rows,
+  showOwner = false,
+}: {
+  rows: JobWithOwner[];
+  showOwner?: boolean;
+}) {
+  const columns = useJobsColumns(showOwner);
+  const { selected, onSelectedChange, setPageIds } = useListSelection();
+  const rowId = (job: JobWithOwner) => String(job.id);
+
+  useEffect(() => {
+    setPageIds(rows.map(rowId));
+  }, [rows, setPageIds]);
+
+  return (
+    <DataTableBody
+      rows={rows}
+      columns={columns}
+      rowId={rowId}
+      selected={selected}
+      onSelectedChange={onSelectedChange}
+    />
+  );
+}
+
+/**
+ * The all-at-once form: everything above, composed for a caller with no
+ * reason to split header from body across a `<Suspense>` boundary.
+ */
+export function JobsTable({
+  rows,
+  page,
+  pageSize,
+  total,
+  showOwner = false,
+}: {
+  rows: JobWithOwner[];
+  page: number;
+  pageSize: number;
+  total: number;
+  /** Only an admin sees jobs across every user, so only an admin needs the column that says whose. */
+  showOwner?: boolean;
+}) {
+  return (
+    <div className="space-y-4">
+      <JobsTableShell showOwner={showOwner}>
+        <JobsTableBody rows={rows} showOwner={showOwner} />
+      </JobsTableShell>
       <Pagination page={page} pageSize={pageSize} total={total} />
     </div>
   );

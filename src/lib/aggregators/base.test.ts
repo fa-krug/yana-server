@@ -72,6 +72,22 @@ describe("BaseAggregator", () => {
     expect(articles[0].name).toBe("Recent Article");
   });
 
+  it("defaults concurrency to 4 when the feed omits it", () => {
+    const feed: FeedLike = { identifier: "https://example.com/rss", dailyLimit: 20 };
+    const agg = new TestAggregator(feed);
+    expect(agg.concurrency).toBe(4);
+  });
+
+  it("uses the feed's own concurrency when set", () => {
+    const feed: FeedLike = {
+      identifier: "https://example.com/rss",
+      dailyLimit: 20,
+      concurrency: 2,
+    };
+    const agg = new TestAggregator(feed);
+    expect(agg.concurrency).toBe(2);
+  });
+
   it("passes userSettings through aggregate to finalizeArticles and applyAiProcessing", async () => {
     const feed: FeedLike = {
       identifier: "https://example.com/rss",

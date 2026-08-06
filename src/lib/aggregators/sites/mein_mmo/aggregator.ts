@@ -82,7 +82,7 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
   protected selectorsToRemove = [...MeinMmoAggregator.selectorsToRemove];
 
   // Keyed by article URL rather than a single instance field: enrichArticles()
-  // now runs up to ARTICLE_ENRICHMENT_CONCURRENCY articles concurrently, so a
+  // now runs up to this.concurrency articles concurrently, so a
   // single `firstPageHtml` field could be overwritten by a sibling article's
   // fetchArticleContent() while this article's processContent() was still
   // awaiting its img-resolution loop. Each entry is deleted once read, since

@@ -6,6 +6,7 @@ import { extractHeaderElement } from "./header/extractor";
 export interface FeedLike {
   identifier: string;
   dailyLimit: number;
+  concurrency?: number;
   aggregator?: string;
   options?: Record<string, unknown> | null;
   userId?: string | number | null;
@@ -68,11 +69,13 @@ export abstract class BaseAggregator {
 
   public identifier: string;
   public dailyLimit: number;
+  public concurrency: number;
   public usesFirstContentMatch = false;
 
   constructor(public feed: FeedLike) {
     this.identifier = feed.identifier || "";
     this.dailyLimit = feed.dailyLimit ?? 20;
+    this.concurrency = feed.concurrency ?? 4;
   }
 
   logoImageUrl(): Promise<string | null> {

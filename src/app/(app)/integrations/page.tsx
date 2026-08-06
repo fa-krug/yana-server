@@ -2,10 +2,46 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 
-import { CardSkeletonGroup } from "@/components/data-skeleton";
-import { RedditSection } from "@/components/integrations/reddit-section";
-import { YoutubeSection } from "@/components/integrations/youtube-section";
+import { RedditSection, RedditSectionShell } from "@/components/integrations/reddit-section";
+import { YoutubeSection, YoutubeSectionShell } from "@/components/integrations/youtube-section";
+import { Skeleton } from "@/components/ui/skeleton";
 import { getIntegrationStatus } from "@/lib/integrations/queries";
+
+/**
+ * The `<Suspense>` fallback for `<Sections>` below: the same two section
+ * shells `<Sections>` itself renders once `getIntegrationStatus()` resolves,
+ * with a skeleton standing in for each control -- so the card titles,
+ * descriptions and field labels are never replaced by an anonymous skeleton
+ * block, only the values nobody can know yet. Neither shell can submit
+ * anything real here, so both get a no-op `onSubmit` and no remove button.
+ */
+function SectionsFallback() {
+  const noopSubmit = (event: React.FormEvent<HTMLFormElement>) => event.preventDefault();
+  return (
+    <div className="space-y-6">
+      <YoutubeSectionShell
+        onSubmit={noopSubmit}
+        statusControl={<Skeleton className="h-5 w-16" />}
+        apiKeyControl={<Skeleton className="h-9 w-full" />}
+        apiKeyHintControl={<Skeleton className="h-4 w-48" />}
+        saveControl={<Skeleton className="h-9 w-full sm:w-24" />}
+        testControl={<Skeleton className="h-9 w-full sm:w-24" />}
+        removeControl={null}
+      />
+      <RedditSectionShell
+        onSubmit={noopSubmit}
+        statusControl={<Skeleton className="h-5 w-16" />}
+        clientIdControl={<Skeleton className="h-9 w-full" />}
+        clientSecretControl={<Skeleton className="h-9 w-full" />}
+        secretsHintControl={<Skeleton className="h-4 w-48" />}
+        userAgentControl={<Skeleton className="h-9 w-full" />}
+        saveControl={<Skeleton className="h-9 w-full sm:w-24" />}
+        testControl={<Skeleton className="h-9 w-full sm:w-24" />}
+        removeControl={null}
+      />
+    </div>
+  );
+}
 
 /**
  * The data region: one read, projected to masked credentials before it leaves the
@@ -45,7 +81,7 @@ export default async function IntegrationsPage() {
         <h1 className="text-2xl font-semibold">{t("title")}</h1>
         <p className="text-sm text-muted-foreground">{t("description")}</p>
       </div>
-      <Suspense fallback={<CardSkeletonGroup count={2} />}>
+      <Suspense fallback={<SectionsFallback />}>
         <Sections />
       </Suspense>
     </div>

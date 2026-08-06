@@ -127,50 +127,21 @@ describe("settings", () => {
 
   describe("updateLibrarySettings", () => {
     it("rejects a retention of zero days with a real catalog key", async () => {
-      const result = await actions.updateLibrarySettings({
-        articleRetentionDays: 0,
-        updateIntervalMinutes: 30,
-      });
+      const result = await actions.updateLibrarySettings({ articleRetentionDays: 0 });
       expect(result.ok).toBe(false);
       const message = settingsMessage(result.errorKey);
       expect(typeof message).toBe("string");
       expect(message).not.toBe("");
-    });
-
-    it("rejects a negative update interval with a real catalog key", async () => {
-      const result = await actions.updateLibrarySettings({
-        articleRetentionDays: 60,
-        updateIntervalMinutes: -1,
-      });
-      expect(result.ok).toBe(false);
-      const message = settingsMessage(result.errorKey);
-      expect(typeof message).toBe("string");
-      expect(message).not.toBe("");
-    });
-
-    it("accepts 0 to disable automatic updates", async () => {
-      const result = await actions.updateLibrarySettings({
-        articleRetentionDays: 60,
-        updateIntervalMinutes: 0,
-      });
-      expect(result.ok).toBe(true);
-
-      const settings = await queries.getSettings();
-      expect(settings.updateIntervalMinutes).toBe(0);
     });
 
     it("accepts sane values and persists them", async () => {
-      const result = await actions.updateLibrarySettings({
-        articleRetentionDays: 90,
-        updateIntervalMinutes: 15,
-      });
+      const result = await actions.updateLibrarySettings({ articleRetentionDays: 90 });
       expect(result.ok).toBe(true);
 
       // A no-op write() would still return { ok: true }, so this reads the
       // row back for real rather than trusting the flag alone.
       const settings = await queries.getSettings();
       expect(settings.articleRetentionDays).toBe(90);
-      expect(settings.updateIntervalMinutes).toBe(15);
     });
   });
 
@@ -189,10 +160,7 @@ describe("settings", () => {
 
       const logged = vi.spyOn(console, "error").mockImplementation(() => {});
       try {
-        const result = await actions.updateLibrarySettings({
-          articleRetentionDays: 90,
-          updateIntervalMinutes: 15,
-        });
+        const result = await actions.updateLibrarySettings({ articleRetentionDays: 90 });
         expect(result.ok).toBe(false);
         // Not a validation failure, so there is no field-specific catalog key
         // -- the caller shows the generic settings.saveFailed toast.
@@ -238,14 +206,7 @@ describe("settings", () => {
       expect(revalidate).toHaveBeenCalledWith("/", "layout");
 
       revalidate.mockClear();
-      expect(
-        (
-          await actions.updateLibrarySettings({
-            articleRetentionDays: 10,
-            updateIntervalMinutes: 10,
-          })
-        ).ok,
-      ).toBe(true);
+      expect((await actions.updateLibrarySettings({ articleRetentionDays: 10 })).ok).toBe(true);
       expect(revalidate).toHaveBeenCalledWith("/settings");
       expect(revalidate).not.toHaveBeenCalledWith("/", "layout");
     });

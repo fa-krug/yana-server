@@ -49,6 +49,21 @@ export const feeds = sqliteTable(
     /** URL or external id. Required for reddit and youtube, optional elsewhere. */
     identifier: text("identifier").notNull().default(""),
     dailyLimit: integer("daily_limit").notNull().default(20),
+    /**
+     * Minutes between automatic aggregation runs for this feed. `0` disables
+     * automatic updates entirely (see `src/lib/jobs/scheduler.ts`'s `tick()`).
+     * Pre-filled from the aggregator's `recommendedIntervalMinutes` when a
+     * feed is created (`src/lib/aggregators/specs.ts`), freely editable
+     * afterward -- a recommendation, not an enforced limit.
+     */
+    updateIntervalMinutes: integer("update_interval_minutes").notNull().default(30),
+    /**
+     * Max in-flight per-article enrichment calls (header image extraction,
+     * full-page fetch, comment fetches) during one aggregation run. Was the
+     * hard-coded `ARTICLE_ENRICHMENT_CONCURRENCY` constant; now per-feed, with
+     * the same pre-fill-from-recommendation behavior as `updateIntervalMinutes`.
+     */
+    concurrency: integer("concurrency").notNull().default(4),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     userId: text("user_id")
       .notNull()

@@ -1,11 +1,56 @@
 import { connection } from "next/server";
-import { Suspense } from "react";
+import { Suspense, type ReactNode } from "react";
 import { getTranslations } from "next-intl/server";
 
-import { AdvancedSection } from "@/components/ai/advanced-section";
-import { ProviderSection } from "@/components/ai/provider-section";
-import { CardSkeletonGroup } from "@/components/data-skeleton";
+import { AdvancedSection, AdvancedSectionShell } from "@/components/ai/advanced-section";
+import { ProviderSection, ProviderSectionShell } from "@/components/ai/provider-section";
+import { Skeleton } from "@/components/ui/skeleton";
+import { AI_ADVANCED_FIELDS, type AiAdvancedField } from "@/lib/ai/bounds";
 import { getAiStatus } from "@/lib/ai/queries";
+
+/**
+ * The `<Suspense>` fallback for `<Sections>` below: the same two section
+ * shells `<Sections>` itself renders once `getAiStatus()` resolves, with a
+ * skeleton standing in for each control -- so the headings, field labels and
+ * help text are never replaced by an anonymous skeleton block, only the
+ * values nobody can know yet. Matches `SectionsFallback` in
+ * `src/app/(app)/settings/page.tsx`.
+ *
+ * The provider card's fallback shape approximates a provider already being
+ * selected -- model, API key and Test controls all render as skeletons --
+ * because that is the common case once an instance is configured; the
+ * base-URL field and the remove footer stay absent, since neither is
+ * universal even among configured providers. Nothing here is submitted, so
+ * `onSubmit` is a no-op on both shells.
+ */
+function SectionsFallback() {
+  const advancedControls = Object.fromEntries(
+    AI_ADVANCED_FIELDS.map((name) => [name, <Skeleton key={name} className="h-9 w-full" />]),
+  ) as Record<AiAdvancedField, ReactNode>;
+
+  return (
+    <div className="space-y-6">
+      <ProviderSectionShell
+        statusBadge={<Skeleton className="h-5 w-16" />}
+        providerControl={<Skeleton className="h-9 w-full sm:w-64" />}
+        providerHint={<Skeleton className="h-4 w-48" />}
+        modelControl={<Skeleton className="h-9 w-full sm:w-64" />}
+        apiKeyControl={<Skeleton className="h-9 w-full" />}
+        apiKeyHelp={<Skeleton className="h-4 w-32" />}
+        apiUrlControl={null}
+        saveControl={<Skeleton className="h-9 w-24" />}
+        testControl={<Skeleton className="h-9 w-24" />}
+        removeControl={null}
+        onSubmit={(event) => event.preventDefault()}
+      />
+      <AdvancedSectionShell
+        controls={advancedControls}
+        saveControl={<Skeleton className="h-9 w-24" />}
+        onSubmit={(event) => event.preventDefault()}
+      />
+    </div>
+  );
+}
 
 /**
  * The data region: one read, projected to masked credentials before it leaves
@@ -51,7 +96,7 @@ export default async function AiPage() {
         <h1 className="text-2xl font-semibold">{t("title")}</h1>
         <p className="text-sm text-muted-foreground">{t("description")}</p>
       </div>
-      <Suspense fallback={<CardSkeletonGroup count={2} />}>
+      <Suspense fallback={<SectionsFallback />}>
         <Sections />
       </Suspense>
     </div>

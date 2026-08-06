@@ -65,9 +65,11 @@ export const users = sqliteTable(
 /**
  * Per-user credentials and preferences.
  *
- * Grows four columns beyond the Django model, for phase 3's settings tab:
- * theme, language, articleRetentionDays and updateIntervalMinutes. Retention is
- * currently a job kwarg rather than a setting; this promotes it.
+ * Grows three columns beyond the Django model, for phase 3's settings tab:
+ * theme, language and articleRetentionDays. Retention is currently a job
+ * kwarg rather than a setting; this promotes it. `updateIntervalMinutes` was
+ * a fourth (phase 3) but moved to a per-feed column on `feeds` -- see
+ * docs/superpowers/specs/2026-08-06-per-feed-interval-and-concurrency-design.md.
  */
 export const userSettings = sqliteTable(
   "user_settings",
@@ -83,7 +85,6 @@ export const userSettings = sqliteTable(
 
     // --- Library (new in this migration) ---
     articleRetentionDays: integer("article_retention_days").notNull().default(60),
-    updateIntervalMinutes: integer("update_interval_minutes").notNull().default(30),
 
     // --- Reddit ---
     redditEnabled: integer("reddit_enabled", { mode: "boolean" }).notNull().default(false),

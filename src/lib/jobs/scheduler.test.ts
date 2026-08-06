@@ -120,7 +120,7 @@ describe("src/lib/jobs/scheduler", () => {
     expect(enqueued?.userId).toBe(userId);
   });
 
-  it("never enqueues an aggregate job when updateIntervalMinutes is 0", async () => {
+  it("never enqueues an aggregate job when the feed's updateIntervalMinutes is 0", async () => {
     let feedId = 0;
     client.writeTransaction((db) => {
       let user = db.select().from(schema.users).limit(1).get();
@@ -129,14 +129,6 @@ describe("src/lib/jobs/scheduler", () => {
         user = db.select().from(schema.users).limit(1).get();
       }
 
-      db.insert(schema.userSettings)
-        .values({ userId: user!.id, updateIntervalMinutes: 0 })
-        .onConflictDoUpdate({
-          target: schema.userSettings.userId,
-          set: { updateIntervalMinutes: 0 },
-        })
-        .run();
-
       const inserted = db
         .insert(schema.feeds)
         .values({
@@ -144,6 +136,7 @@ describe("src/lib/jobs/scheduler", () => {
           aggregator: "full_website",
           userId: user!.id,
           enabled: true,
+          updateIntervalMinutes: 0,
         })
         .returning({ id: schema.feeds.id })
         .get();
@@ -158,6 +151,57 @@ describe("src/lib/jobs/scheduler", () => {
 
     const { jobs: jobList } = queue.listJobs({ kind: "aggregate" });
     expect(jobList.length).toBe(0);
+  });
+
+  it("respects each feed's own interval independently", async () => {
+    let dueFeedId = 0;
+    let notDueFeedId = 0;
+    client.writeTransaction((db) => {
+      let user = db.select().from(schema.users).limit(1).get();
+      if (!user) {
+        db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+        user = db.select().from(schema.users).limit(1).get();
+      }
+
+      const due = db
+        .insert(schema.feeds)
+        .values({
+          name: "Due Feed",
+          aggregator: "full_website",
+          userId: user!.id,
+          enabled: true,
+          updateIntervalMinutes: 30,
+        })
+        .returning({ id: schema.feeds.id })
+        .get();
+      dueFeedId = due.id;
+
+      const notDue = db
+        .insert(schema.feeds)
+        .values({
+          name: "Not Due Feed",
+          aggregator: "full_website",
+          userId: user!.id,
+          enabled: true,
+          updateIntervalMinutes: 1440,
+        })
+        .returning({ id: schema.feeds.id })
+        .get();
+      notDueFeedId = notDue.id;
+
+      // Both updated an hour ago: overdue for the 30-minute feed, not for the
+      // 1440-minute (daily) one.
+      const oneHourAgoSec = Math.floor((Date.now() - 3_600_000) / 1000);
+      db.run(
+        sql`UPDATE feeds SET updated_at = ${oneHourAgoSec} WHERE id IN (${dueFeedId}, ${notDueFeedId})`,
+      );
+    });
+
+    await scheduler.tick();
+
+    const { jobs: jobList } = queue.listJobs({ kind: "aggregate" });
+    expect(jobList.map((j) => j.payload)).toEqual([{ feedId: dueFeedId }]);
+    expect(jobList.some((j) => j.payload?.feedId === notDueFeedId)).toBe(false);
   });
 
   it("enqueues daily retention job and deduplicates", async () => {

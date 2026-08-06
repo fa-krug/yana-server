@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 
 import { ConfirmDestructive } from "@/components/crud/confirm-destructive";
 import { StatusBadge, useReportOutcome } from "@/components/integrations/section-parts";
@@ -86,56 +86,48 @@ export function YoutubeSection({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("youtube.title")}</CardTitle>
-        <CardDescription>{t("youtube.description")}</CardDescription>
-        <CardAction>
-          <StatusBadge enabled={enabled} />
-        </CardAction>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={save} className="space-y-4">
-          <div className="grid gap-2">
-            <Label htmlFor="youtube-api-key">{t("youtube.apiKey")}</Label>
-            {/* type="password" and autoComplete="off": a credential is not a
-                login, so no password manager should offer to fill or store it,
-                and it must not be readable over the operator's shoulder. */}
-            <Input
-              id="youtube-api-key"
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder={secretPlaceholder(apiKeyMasked)}
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-            />
-            <p className="text-sm text-muted-foreground">
-              {configured ? t("keepHint") : t("notConfigured")}
-            </p>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            <Button type="submit" disabled={busy} className="w-full sm:w-auto">
-              {saving ? t("saving") : t("save")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={test}
-              className="w-full sm:w-auto"
-            >
-              {testing ? t("testing") : t("test")}
-            </Button>
-          </div>
-        </form>
-      </CardContent>
-      {/* Outside the form, so the trigger cannot submit it, and visually apart
-          from Save: this is the one control here that destroys something. It is
-          offered only when there is something to destroy -- `removeYoutube()`
-          is idempotent either way. */}
-      {configured ? (
-        <CardFooter className="justify-end">
+    <YoutubeSectionShell
+      onSubmit={save}
+      statusControl={<StatusBadge enabled={enabled} />}
+      apiKeyControl={
+        // type="password" and autoComplete="off": a credential is not a
+        // login, so no password manager should offer to fill or store it,
+        // and it must not be readable over the operator's shoulder.
+        <Input
+          id="youtube-api-key"
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder={secretPlaceholder(apiKeyMasked)}
+          value={apiKey}
+          onChange={(event) => setApiKey(event.target.value)}
+        />
+      }
+      apiKeyHintControl={
+        <p className="text-sm text-muted-foreground">
+          {configured ? t("keepHint") : t("notConfigured")}
+        </p>
+      }
+      saveControl={
+        <Button type="submit" disabled={busy} className="w-full sm:w-auto">
+          {saving ? t("saving") : t("save")}
+        </Button>
+      }
+      testControl={
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy}
+          onClick={test}
+          className="w-full sm:w-auto"
+        >
+          {testing ? t("testing") : t("test")}
+        </Button>
+      }
+      // The one control here that destroys something, offered only when there
+      // is something to destroy -- `removeYoutube()` is idempotent either way.
+      removeControl={
+        configured ? (
           <ConfirmDestructive
             trigger={
               <Button type="button" variant="destructive" disabled={busy}>
@@ -147,8 +139,64 @@ export function YoutubeSection({
             confirmLabel={t("removeConfirm")}
             onConfirm={remove}
           />
-        </CardFooter>
-      ) : null}
+        ) : null
+      }
+    />
+  );
+}
+
+/**
+ * The card's chrome alone: the heading, description and field label, with no
+ * dependency on `enabled`/`apiKeyMasked` -- `integrations/page.tsx` renders
+ * this as its own `<Suspense>` fallback (with skeletons standing in for the
+ * status badge, the input, the hint text and the three buttons) so the title
+ * and label never disappear behind a generic skeleton block while
+ * `getIntegrationStatus()` resolves. See the doc comment on
+ * `GeneralSectionShell` in `../settings/general-section.tsx` for why this is a
+ * plain presentational split rather than a state-sharing one.
+ */
+export function YoutubeSectionShell({
+  onSubmit,
+  statusControl,
+  apiKeyControl,
+  apiKeyHintControl,
+  saveControl,
+  testControl,
+  removeControl,
+}: {
+  onSubmit: React.FormEventHandler<HTMLFormElement>;
+  statusControl: ReactNode;
+  apiKeyControl: ReactNode;
+  apiKeyHintControl: ReactNode;
+  saveControl: ReactNode;
+  testControl: ReactNode;
+  removeControl: ReactNode | null;
+}) {
+  const t = useTranslations("integrations");
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("youtube.title")}</CardTitle>
+        <CardDescription>{t("youtube.description")}</CardDescription>
+        <CardAction>{statusControl}</CardAction>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={onSubmit} className="space-y-4">
+          <div className="grid gap-2">
+            <Label htmlFor="youtube-api-key">{t("youtube.apiKey")}</Label>
+            {apiKeyControl}
+            {apiKeyHintControl}
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            {saveControl}
+            {testControl}
+          </div>
+        </form>
+      </CardContent>
+      {/* Outside the form, so the trigger cannot submit it, and visually apart
+          from Save. */}
+      {removeControl ? <CardFooter className="justify-end">{removeControl}</CardFooter> : null}
     </Card>
   );
 }

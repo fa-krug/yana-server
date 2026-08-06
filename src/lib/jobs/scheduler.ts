@@ -1,7 +1,7 @@
 import { and, eq, gte } from "drizzle-orm";
 
 import { writeTransaction } from "../db/client";
-import { feeds, jobs, userSettings } from "../db/schema";
+import { feeds, jobs } from "../db/schema";
 import { notifyAdmins } from "../email/error-notifications";
 import { enqueue } from "./queue";
 
@@ -73,10 +73,9 @@ export async function tick(): Promise<void> {
         feedId: feeds.id,
         userId: feeds.userId,
         updatedAt: feeds.updatedAt,
-        updateIntervalMinutes: userSettings.updateIntervalMinutes,
+        updateIntervalMinutes: feeds.updateIntervalMinutes,
       })
       .from(feeds)
-      .leftJoin(userSettings, eq(feeds.userId, userSettings.userId))
       .where(eq(feeds.enabled, true))
       .all();
 
@@ -98,7 +97,7 @@ export async function tick(): Promise<void> {
         continue;
       }
 
-      const intervalMinutes = item.updateIntervalMinutes ?? 30;
+      const intervalMinutes = item.updateIntervalMinutes;
       if (intervalMinutes <= 0) {
         // 0 (or, defensively, negative) disables automatic updates for this feed.
         continue;

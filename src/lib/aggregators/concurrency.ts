@@ -31,9 +31,3 @@ export async function mapWithConcurrency<T, R>(
 
   return results;
 }
-
-/** Per-feed cap on in-flight per-article enrichment calls (header image
- * extraction, full-page fetch, comment fetches). Chosen to overlap I/O
- * substantially while staying polite to source sites -- see the aggregation
- * performance investigation this constant came out of. */
-export const ARTICLE_ENRICHMENT_CONCURRENCY = 4;

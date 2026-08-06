@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { StatusBadge, useReportOutcome } from "@/components/ai/section-parts";
@@ -266,157 +266,238 @@ export function ProviderSection({
   }
 
   return (
+    <ProviderSectionShell
+      statusBadge={status ? <StatusBadge enabled={status.enabled} /> : null}
+      providerControl={
+        <Select
+          items={providerItems}
+          value={selected}
+          disabled={busy}
+          onValueChange={(value) => {
+            // Base UI reports `null` for a clearable selection, which this
+            // one never is. `""` is a listed item, not an absence.
+            if (value === null) return;
+            choose(value);
+          }}
+        >
+          <SelectTrigger id="ai-provider" className="w-full sm:w-64">
+            {/* No `placeholder` prop: see the header -- it would win over
+                the resolved label for the `""` item. */}
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {providerItems.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      }
+      providerHint={t(hintKey)}
+      modelControl={
+        provider ? (
+          <Select
+            items={modelItems}
+            value={model}
+            disabled={busy}
+            onValueChange={(value) => {
+              if (value === null) return;
+              setModel(value);
+            }}
+          >
+            <SelectTrigger id="ai-model" className="w-full sm:w-64">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {modelItems.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null
+      }
+      apiKeyControl={
+        provider ? (
+          // type="password" and autoComplete="off": a credential is not a
+          // login, so no password manager should offer to fill or store it,
+          // and it must not be readable over the operator's shoulder.
+          <Input
+            id="ai-api-key"
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder={secretPlaceholder(status?.apiKeyMasked ?? "")}
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+          />
+        ) : null
+      }
+      apiKeyHelp={provider ? (configured ? t("keepHint") : t("notConfigured")) : null}
+      apiUrlControl={
+        provider?.hasCustomUrl ? (
+          // Plaintext and shown in full: an operator setting rather than a
+          // credential, and the one field they most often have to correct.
+          // The placeholder is the value an empty field resolves to on the
+          // server.
+          <Input
+            id="ai-api-url"
+            type="url"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder={OPENAI_DEFAULT_API_URL}
+            value={apiUrl}
+            onChange={(event) => setApiUrl(event.target.value)}
+          />
+        ) : null
+      }
+      saveControl={
+        <Button type="submit" disabled={busy} className="w-full sm:w-auto">
+          {provider
+            ? saving
+              ? t("saving")
+              : t("save")
+            : saving
+              ? t("provider.turningOff")
+              : t("provider.turnOff")}
+        </Button>
+      }
+      testControl={
+        provider ? (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={busy}
+            onClick={test}
+            className="w-full sm:w-auto"
+          >
+            {testing ? t("testing") : t("test")}
+          </Button>
+        ) : null
+      }
+      removeControl={
+        // The one control here that destroys something -- offered only when
+        // there is something to destroy.
+        configured ? (
+          <CardFooter className="justify-end">
+            <ConfirmDestructive
+              trigger={
+                <Button type="button" variant="destructive" disabled={busy}>
+                  {t("remove")}
+                </Button>
+              }
+              title={t("provider.removeTitle")}
+              description={t("provider.removeDescription")}
+              confirmLabel={t("removeConfirm")}
+              onConfirm={remove}
+            />
+          </CardFooter>
+        ) : null
+      }
+      onSubmit={save}
+    />
+  );
+}
+
+/**
+ * The card's chrome alone: the heading, the picker's own label and hint, and
+ * every conditionally-present field's structural wrapper -- with no
+ * dependency on `active`/`providers`, so `src/app/(app)/ai/page.tsx` can
+ * render this directly as its own `<Suspense>` fallback (with a skeleton bar
+ * standing in for each slot) instead of an anonymous skeleton block. See the
+ * doc comment on `GeneralSectionShell` in `../settings/general-section.tsx`
+ * for why this split exists.
+ *
+ * **Presence, not just content, is a slot's job here.** Unlike
+ * `GeneralSectionShell`, where both controls are always shown, whether the
+ * model/API-key/API-url fields and the remove footer render *at all* depends
+ * on which provider is selected and what is stored for it -- data this shell
+ * never sees. So each of those slots is `null` when `<ProviderSection>`
+ * decides nothing belongs there, and this shell's only job is to wrap a
+ * non-null slot in its label/structure and render nothing for a null one;
+ * it never inspects `active`/`providers` itself to make that call.
+ *
+ * The `<form>` lives here, wrapping the picker, the conditional fields and the
+ * action buttons exactly as it did inside `<ProviderSection>`'s own
+ * `CardContent` -- `onSubmit` is just a callback the shell forwards, unaware
+ * of what it does.
+ */
+export function ProviderSectionShell({
+  statusBadge,
+  providerControl,
+  providerHint,
+  modelControl,
+  apiKeyControl,
+  apiKeyHelp,
+  apiUrlControl,
+  saveControl,
+  testControl,
+  removeControl,
+  onSubmit,
+}: {
+  statusBadge: ReactNode;
+  providerControl: ReactNode;
+  providerHint: ReactNode;
+  modelControl: ReactNode;
+  apiKeyControl: ReactNode;
+  apiKeyHelp: ReactNode;
+  apiUrlControl: ReactNode;
+  saveControl: ReactNode;
+  testControl: ReactNode;
+  removeControl: ReactNode;
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+}) {
+  const t = useTranslations("ai");
+
+  return (
     <Card>
       <CardHeader>
         <CardTitle>{t("provider.title")}</CardTitle>
         <CardDescription>{t("provider.description")}</CardDescription>
-        {status ? (
-          <CardAction>
-            <StatusBadge enabled={status.enabled} />
-          </CardAction>
-        ) : null}
+        {statusBadge ? <CardAction>{statusBadge}</CardAction> : null}
       </CardHeader>
       <CardContent>
-        <form onSubmit={save} className="space-y-4">
+        <form onSubmit={onSubmit} className="space-y-4">
           <div className="grid gap-2">
             <Label htmlFor="ai-provider">{t("provider.label")}</Label>
-            <Select
-              items={providerItems}
-              value={selected}
-              disabled={busy}
-              onValueChange={(value) => {
-                // Base UI reports `null` for a clearable selection, which this
-                // one never is. `""` is a listed item, not an absence.
-                if (value === null) return;
-                choose(value);
-              }}
-            >
-              <SelectTrigger id="ai-provider" className="w-full sm:w-64">
-                {/* No `placeholder` prop: see the header -- it would win over
-                    the resolved label for the `""` item. */}
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {providerItems.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-sm text-muted-foreground">{t(hintKey)}</p>
+            {providerControl}
+            <div className="text-sm text-muted-foreground">{providerHint}</div>
           </div>
 
-          {provider ? (
-            <>
-              <div className="grid gap-2">
-                <Label htmlFor="ai-model">{t("provider.model")}</Label>
-                <Select
-                  items={modelItems}
-                  value={model}
-                  disabled={busy}
-                  onValueChange={(value) => {
-                    if (value === null) return;
-                    setModel(value);
-                  }}
-                >
-                  <SelectTrigger id="ai-model" className="w-full sm:w-64">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {modelItems.map((item) => (
-                      <SelectItem key={item.value} value={item.value}>
-                        {item.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+          {modelControl ? (
+            <div className="grid gap-2">
+              <Label htmlFor="ai-model">{t("provider.model")}</Label>
+              {modelControl}
+            </div>
+          ) : null}
 
-              <div className="grid gap-2">
-                <Label htmlFor="ai-api-key">{t("provider.apiKey")}</Label>
-                {/* type="password" and autoComplete="off": a credential is not a
-                    login, so no password manager should offer to fill or store
-                    it, and it must not be readable over the operator's
-                    shoulder. */}
-                <Input
-                  id="ai-api-key"
-                  type="password"
-                  autoComplete="off"
-                  spellCheck={false}
-                  placeholder={secretPlaceholder(status?.apiKeyMasked ?? "")}
-                  value={apiKey}
-                  onChange={(event) => setApiKey(event.target.value)}
-                />
-                <p className="text-sm text-muted-foreground">
-                  {configured ? t("keepHint") : t("notConfigured")}
-                </p>
-              </div>
+          {apiKeyControl ? (
+            <div className="grid gap-2">
+              <Label htmlFor="ai-api-key">{t("provider.apiKey")}</Label>
+              {apiKeyControl}
+              <div className="text-sm text-muted-foreground">{apiKeyHelp}</div>
+            </div>
+          ) : null}
 
-              {provider.hasCustomUrl ? (
-                <div className="grid gap-2">
-                  <Label htmlFor="ai-api-url">{t("provider.apiUrl")}</Label>
-                  {/* Plaintext and shown in full: an operator setting rather
-                      than a credential, and the one field they most often have
-                      to correct. The placeholder is the value an empty field
-                      resolves to on the server. */}
-                  <Input
-                    id="ai-api-url"
-                    type="url"
-                    autoComplete="off"
-                    spellCheck={false}
-                    placeholder={OPENAI_DEFAULT_API_URL}
-                    value={apiUrl}
-                    onChange={(event) => setApiUrl(event.target.value)}
-                  />
-                  <p className="text-sm text-muted-foreground">{t("provider.apiUrlHelp")}</p>
-                </div>
-              ) : null}
-            </>
+          {apiUrlControl ? (
+            <div className="grid gap-2">
+              <Label htmlFor="ai-api-url">{t("provider.apiUrl")}</Label>
+              {apiUrlControl}
+              <p className="text-sm text-muted-foreground">{t("provider.apiUrlHelp")}</p>
+            </div>
           ) : null}
 
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            <Button type="submit" disabled={busy} className="w-full sm:w-auto">
-              {provider
-                ? saving
-                  ? t("saving")
-                  : t("save")
-                : saving
-                  ? t("provider.turningOff")
-                  : t("provider.turnOff")}
-            </Button>
-            {provider ? (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={test}
-                className="w-full sm:w-auto"
-              >
-                {testing ? t("testing") : t("test")}
-              </Button>
-            ) : null}
+            {saveControl}
+            {testControl}
           </div>
         </form>
       </CardContent>
       {/* Outside the form, so the trigger cannot submit it, and visually apart
-          from Save: this is the one control here that destroys something. It is
-          offered only when there is something to destroy. */}
-      {configured ? (
-        <CardFooter className="justify-end">
-          <ConfirmDestructive
-            trigger={
-              <Button type="button" variant="destructive" disabled={busy}>
-                {t("remove")}
-              </Button>
-            }
-            title={t("provider.removeTitle")}
-            description={t("provider.removeDescription")}
-            confirmLabel={t("removeConfirm")}
-            onConfirm={remove}
-          />
-        </CardFooter>
-      ) : null}
+          from Save. */}
+      {removeControl}
     </Card>
   );
 }

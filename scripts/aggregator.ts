@@ -271,6 +271,8 @@ async function main(): Promise<void> {
         updatedAt: new Date(),
         redditSubredditId: null,
         youtubeChannelId: null,
+        updateIntervalMinutes: 30,
+        concurrency: 4,
       };
     }
   }

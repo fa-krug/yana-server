@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 
 import { ConfirmDestructive } from "@/components/crud/confirm-destructive";
 import { StatusBadge, useReportOutcome } from "@/components/integrations/section-parts";
@@ -96,83 +96,67 @@ export function RedditSection({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("reddit.title")}</CardTitle>
-        <CardDescription>{t("reddit.description")}</CardDescription>
-        <CardAction>
-          <StatusBadge enabled={enabled} />
-        </CardAction>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={save} className="space-y-4">
-          {/* The two secrets and the one hint that belongs to both of them. It
-              used to sit inside the client-secret group, where it read as a rule
-              about that field alone -- and "leave a field empty to keep the
-              stored value" is precisely the thing an operator has to know about
-              the *pair*, since either may be left alone independently. */}
-          <div className="space-y-4">
-            <div className="grid gap-2">
-              <Label htmlFor="reddit-client-id">{t("reddit.clientId")}</Label>
-              <Input
-                id="reddit-client-id"
-                type="password"
-                autoComplete="off"
-                spellCheck={false}
-                placeholder={secretPlaceholder(clientIdMasked)}
-                value={clientId}
-                onChange={(event) => setClientId(event.target.value)}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="reddit-client-secret">{t("reddit.clientSecret")}</Label>
-              <Input
-                id="reddit-client-secret"
-                type="password"
-                autoComplete="off"
-                spellCheck={false}
-                placeholder={secretPlaceholder(clientSecretMasked)}
-                value={clientSecret}
-                onChange={(event) => setClientSecret(event.target.value)}
-              />
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {configured ? t("keepHint") : t("notConfigured")}
-            </p>
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="reddit-user-agent">{t("reddit.userAgent")}</Label>
-            {/* type="text": not a secret, and an operator has to be able to read
-                what they wrote. `required` saves a round trip; the server
-                enforces it either way. */}
-            <Input
-              id="reddit-user-agent"
-              type="text"
-              required
-              autoComplete="off"
-              value={userAgent}
-              onChange={(event) => setUserAgent(event.target.value)}
-            />
-            <p className="text-sm text-muted-foreground">{t("reddit.userAgentHelp")}</p>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            <Button type="submit" disabled={busy} className="w-full sm:w-auto">
-              {saving ? t("saving") : t("save")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={test}
-              className="w-full sm:w-auto"
-            >
-              {testing ? t("testing") : t("test")}
-            </Button>
-          </div>
-        </form>
-      </CardContent>
-      {configured ? (
-        <CardFooter className="justify-end">
+    <RedditSectionShell
+      onSubmit={save}
+      statusControl={<StatusBadge enabled={enabled} />}
+      clientIdControl={
+        <Input
+          id="reddit-client-id"
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder={secretPlaceholder(clientIdMasked)}
+          value={clientId}
+          onChange={(event) => setClientId(event.target.value)}
+        />
+      }
+      clientSecretControl={
+        <Input
+          id="reddit-client-secret"
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder={secretPlaceholder(clientSecretMasked)}
+          value={clientSecret}
+          onChange={(event) => setClientSecret(event.target.value)}
+        />
+      }
+      secretsHintControl={
+        <p className="text-sm text-muted-foreground">
+          {configured ? t("keepHint") : t("notConfigured")}
+        </p>
+      }
+      userAgentControl={
+        // type="text": not a secret, and an operator has to be able to read
+        // what they wrote. `required` saves a round trip; the server
+        // enforces it either way.
+        <Input
+          id="reddit-user-agent"
+          type="text"
+          required
+          autoComplete="off"
+          value={userAgent}
+          onChange={(event) => setUserAgent(event.target.value)}
+        />
+      }
+      saveControl={
+        <Button type="submit" disabled={busy} className="w-full sm:w-auto">
+          {saving ? t("saving") : t("save")}
+        </Button>
+      }
+      testControl={
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy}
+          onClick={test}
+          className="w-full sm:w-auto"
+        >
+          {testing ? t("testing") : t("test")}
+        </Button>
+      }
+      removeControl={
+        configured ? (
           <ConfirmDestructive
             trigger={
               <Button type="button" variant="destructive" disabled={busy}>
@@ -184,8 +168,84 @@ export function RedditSection({
             confirmLabel={t("removeConfirm")}
             onConfirm={remove}
           />
-        </CardFooter>
-      ) : null}
+        ) : null
+      }
+    />
+  );
+}
+
+/**
+ * The card's chrome alone: the heading, description and the three field
+ * labels (plus the static user-agent help text, which -- unlike the shared
+ * secrets hint -- does not depend on `clientIdMasked`/`clientSecretMasked`),
+ * with no dependency on the fetched props at all. `integrations/page.tsx`
+ * renders this as its own `<Suspense>` fallback (with skeletons standing in
+ * for the status badge, the three inputs, the shared hint and the buttons) so
+ * the title and labels never disappear behind a generic skeleton block while
+ * `getIntegrationStatus()` resolves. See the doc comment on
+ * `GeneralSectionShell` in `../settings/general-section.tsx` for why this is a
+ * plain presentational split rather than a state-sharing one.
+ */
+export function RedditSectionShell({
+  onSubmit,
+  statusControl,
+  clientIdControl,
+  clientSecretControl,
+  secretsHintControl,
+  userAgentControl,
+  saveControl,
+  testControl,
+  removeControl,
+}: {
+  onSubmit: React.FormEventHandler<HTMLFormElement>;
+  statusControl: ReactNode;
+  clientIdControl: ReactNode;
+  clientSecretControl: ReactNode;
+  secretsHintControl: ReactNode;
+  userAgentControl: ReactNode;
+  saveControl: ReactNode;
+  testControl: ReactNode;
+  removeControl: ReactNode | null;
+}) {
+  const t = useTranslations("integrations");
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("reddit.title")}</CardTitle>
+        <CardDescription>{t("reddit.description")}</CardDescription>
+        <CardAction>{statusControl}</CardAction>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={onSubmit} className="space-y-4">
+          {/* The two secrets and the one hint that belongs to both of them. It
+              used to sit inside the client-secret group, where it read as a rule
+              about that field alone -- and "leave a field empty to keep the
+              stored value" is precisely the thing an operator has to know about
+              the *pair*, since either may be left alone independently. */}
+          <div className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="reddit-client-id">{t("reddit.clientId")}</Label>
+              {clientIdControl}
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="reddit-client-secret">{t("reddit.clientSecret")}</Label>
+              {clientSecretControl}
+            </div>
+            {secretsHintControl}
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="reddit-user-agent">{t("reddit.userAgent")}</Label>
+            {userAgentControl}
+            <p className="text-sm text-muted-foreground">{t("reddit.userAgentHelp")}</p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            {saveControl}
+            {testControl}
+          </div>
+        </form>
+      </CardContent>
+      {removeControl ? <CardFooter className="justify-end">{removeControl}</CardFooter> : null}
     </Card>
   );
 }

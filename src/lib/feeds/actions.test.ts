@@ -212,6 +212,41 @@ describe("createFeed", () => {
       (await actions.createFeed({ name: "X", aggregator: "heise", tagIds: [foreign] })).ok,
     ).toBe(false);
   });
+
+  it("stores updateIntervalMinutes and concurrency on create", async () => {
+    await currentUserId();
+    const result = await actions.createFeed({
+      name: "Interval Feed",
+      aggregator: "heise",
+      updateIntervalMinutes: 15,
+      concurrency: 2,
+    });
+    expect(result.ok).toBe(true);
+
+    const row = await actions.getFeed(result.id!);
+    expect(row?.updateIntervalMinutes).toBe(15);
+    expect(row?.concurrency).toBe(2);
+  });
+
+  it("rejects an update interval outside 0-1440", async () => {
+    await currentUserId();
+    const result = await actions.createFeed({
+      name: "Bad Interval Feed",
+      aggregator: "heise",
+      updateIntervalMinutes: 1441,
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it("rejects concurrency outside 1-10", async () => {
+    await currentUserId();
+    const result = await actions.createFeed({
+      name: "Bad Concurrency Feed",
+      aggregator: "heise",
+      concurrency: 0,
+    });
+    expect(result.ok).toBe(false);
+  });
 });
 
 describe("updateFeed", () => {
@@ -325,6 +360,23 @@ describe("updateFeed", () => {
       identifier: "programming",
     });
     expect(result.ok).toBe(false);
+  });
+
+  it("leaves updateIntervalMinutes and concurrency unchanged when omitted on update", async () => {
+    const created = await actions.createFeed({
+      name: "Keep Interval Feed",
+      aggregator: "heise",
+      updateIntervalMinutes: 45,
+      concurrency: 3,
+    });
+    const feedId = created.id!;
+
+    const updated = await actions.updateFeed(feedId, { name: "Renamed" });
+    expect(updated.ok).toBe(true);
+
+    const row = await actions.getFeed(feedId);
+    expect(row?.updateIntervalMinutes).toBe(45);
+    expect(row?.concurrency).toBe(3);
   });
 });
 
