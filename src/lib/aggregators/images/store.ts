@@ -65,7 +65,11 @@ export function findImageRefs(text: string): Set<string> {
 export async function storeImageBytes(
   imageBytes: Buffer,
   contentType: string,
-  options?: { isHeader?: boolean; compress?: boolean },
+  options?: {
+    isHeader?: boolean;
+    compress?: boolean;
+    maxDimensions?: { width: number; height: number };
+  },
 ): Promise<string | null> {
   if (!imageBytes || imageBytes.length === 0) {
     return null;
@@ -80,7 +84,12 @@ export async function storeImageBytes(
   let height: number | null = null;
 
   if (compress) {
-    const compressed = await compressImage(imageBytes, contentType, isHeader);
+    const compressed = await compressImage(
+      imageBytes,
+      contentType,
+      isHeader,
+      options?.maxDimensions,
+    );
     if (compressed) {
       data = compressed.data;
       outputType = compressed.contentType;
@@ -157,7 +166,7 @@ export async function storeImageBytes(
  */
 export async function storeImageFromUrl(
   url: string,
-  options?: { isHeader?: boolean },
+  options?: { isHeader?: boolean; maxDimensions?: { width: number; height: number } },
 ): Promise<string | null> {
   const fetched = await fetchSingleImage(url);
   if (!fetched) return null;
@@ -170,7 +179,7 @@ export async function storeImageFromUrl(
  */
 export async function storeImageRefFromUrl(
   url: string,
-  options?: { isHeader?: boolean },
+  options?: { isHeader?: boolean; maxDimensions?: { width: number; height: number } },
 ): Promise<string | null> {
   const hash = await storeImageFromUrl(url, options);
   return hash ? buildImageRef(hash) : null;

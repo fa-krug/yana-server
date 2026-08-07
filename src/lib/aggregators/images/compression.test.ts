@@ -87,6 +87,30 @@ describe("compressImage", () => {
     expect(result?.height).toBe(300);
   });
 
+  it("uses explicit maxDimensions over the isHeader defaults", async () => {
+    const tallJpeg = await sharp({
+      create: {
+        width: 1000,
+        height: 3000,
+        channels: 3,
+        background: { r: 10, g: 20, b: 30 },
+      },
+    })
+      .jpeg({ quality: 100 })
+      .toBuffer();
+
+    expect(tallJpeg.length).toBeGreaterThan(5000);
+
+    const result = await compressImage(tallJpeg, "image/jpeg", false, {
+      width: 1600,
+      height: 4800,
+    });
+    expect(result).not.toBeNull();
+    expect(result?.contentType).toBe("image/webp");
+    expect(result?.width).toBe(1000);
+    expect(result?.height).toBe(3000);
+  });
+
   it("returns null for invalid/corrupt image bytes > 5KB", async () => {
     const invalid = Buffer.alloc(6000, 65); // 6KB of ASCII 'A'
     const result = await compressImage(invalid, "image/png", false);
