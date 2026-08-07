@@ -97,6 +97,7 @@ export function FeedForm({
   const [concurrency, setConcurrency] = useState(
     String(feed?.concurrency ?? AGGREGATOR_SPECS[aggregator].recommendedConcurrency),
   );
+  const [maxArticleAgeDays, setMaxArticleAgeDays] = useState(String(feed?.maxArticleAgeDays ?? 30));
 
   const spec = AGGREGATOR_SPECS[aggregator];
   const visibleOptions = visibleOptionsFor(aggregator, capabilities);
@@ -151,6 +152,7 @@ export function FeedForm({
         enabled,
         updateIntervalMinutes: Number(updateIntervalMinutes),
         concurrency: Number(concurrency),
+        maxArticleAgeDays: Number(maxArticleAgeDays),
       };
 
       if (feed) {
@@ -349,7 +351,7 @@ export function FeedForm({
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="grid gap-2">
           <Label htmlFor="updateIntervalMinutes">{t("form.updateInterval")}</Label>
           <Input
@@ -375,6 +377,19 @@ export function FeedForm({
             disabled={pending}
           />
           <p className="text-sm text-muted-foreground">{t("form.concurrencyHelp")}</p>
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="maxArticleAgeDays">{t("form.maxArticleAge")}</Label>
+          <Input
+            id="maxArticleAgeDays"
+            type="number"
+            min={0}
+            max={3650}
+            value={maxArticleAgeDays}
+            onChange={(event) => setMaxArticleAgeDays(event.target.value)}
+            disabled={pending}
+          />
+          <p className="text-sm text-muted-foreground">{t("form.maxArticleAgeHelp")}</p>
         </div>
       </div>
 

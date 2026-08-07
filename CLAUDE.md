@@ -591,6 +591,20 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   form from `AggregatorSpec.recommendedIntervalMinutes`/`recommendedConcurrency`
   (`src/lib/aggregators/specs.ts`) on create and on aggregator switch — a
   starting point, not an enforced limit, freely editable per feed afterward.
+- **`feeds.maxArticleAgeDays` (default `30`) is an ingestion filter, not a
+  retention policy — that's `userSettings.articleRetentionDays` (default
+  `60`), a separate column enforced by the nightly `retention` job. This one
+  is read by `BaseAggregator.filterArticles()` (`src/lib/aggregators/base.ts`)
+  before an aggregation run's articles are ever enriched or saved: anything
+  older than `this.maxArticleAgeDays` (`feed.maxArticleAgeDays ?? 30`, same
+  pattern as `dailyLimit`/`concurrency`) is dropped up front. `0` disables the
+  filter entirely, the same meaning `0` has on `updateIntervalMinutes` — a
+  feed whose source is a deliberate backlog (a podcast's back-catalogue, a
+  comic's archive) needs that escape hatch, or a first aggregation run would
+  drop everything older than 30 days on the very fetch meant to backfill it.
+  Unlike `updateIntervalMinutes`/`concurrency`, there's no per-aggregator
+  recommendation in `specs.ts` — every aggregator starts at the same flat
+  `30`, freely editable per feed afterward.
 - **Error-notification email has two channels, and they answer different
   questions.** `notifyAdmins()` (`src/lib/email/error-notifications.ts`) is "is
   this instance healthy" — it fires from `src/lib/jobs/worker.ts` on a fatal

@@ -64,12 +64,41 @@ describe("BaseAggregator", () => {
     expect(limit).toBeLessThanOrEqual(20);
   });
 
-  it("filters articles older than 60 days", async () => {
+  it("filters articles older than 30 days by default", async () => {
     const feed: FeedLike = { identifier: "https://example.com/rss", dailyLimit: 20 };
     const agg = new TestAggregator(feed);
     const articles = await agg.aggregate();
     expect(articles).toHaveLength(1);
     expect(articles[0].name).toBe("Recent Article");
+  });
+
+  it("defaults maxArticleAgeDays to 30 when the feed omits it", () => {
+    const feed: FeedLike = { identifier: "https://example.com/rss", dailyLimit: 20 };
+    const agg = new TestAggregator(feed);
+    expect(agg.maxArticleAgeDays).toBe(30);
+  });
+
+  it("uses the feed's own maxArticleAgeDays when set", async () => {
+    const feed: FeedLike = {
+      identifier: "https://example.com/rss",
+      dailyLimit: 20,
+      maxArticleAgeDays: 90,
+    };
+    const agg = new TestAggregator(feed);
+    expect(agg.maxArticleAgeDays).toBe(90);
+    const articles = await agg.aggregate();
+    expect(articles).toHaveLength(2);
+  });
+
+  it("disables the age filter entirely when maxArticleAgeDays is 0", async () => {
+    const feed: FeedLike = {
+      identifier: "https://example.com/rss",
+      dailyLimit: 20,
+      maxArticleAgeDays: 0,
+    };
+    const agg = new TestAggregator(feed);
+    const articles = await agg.aggregate();
+    expect(articles).toHaveLength(2);
   });
 
   it("defaults concurrency to 4 when the feed omits it", () => {
