@@ -30,6 +30,7 @@ export async function compressImage(
   imageData: Buffer,
   contentType: string,
   isHeader = false,
+  maxDimensions?: { width: number; height: number },
 ): Promise<CompressedImageResult | null> {
   if (!imageData || imageData.length === 0) {
     return null;
@@ -57,8 +58,8 @@ export async function compressImage(
       }
     }
 
-    const maxW = isHeader ? MAX_HEADER_IMAGE_WIDTH : MAX_IMAGE_WIDTH;
-    const maxH = isHeader ? MAX_HEADER_IMAGE_HEIGHT : MAX_IMAGE_HEIGHT;
+    const maxW = maxDimensions?.width ?? (isHeader ? MAX_HEADER_IMAGE_WIDTH : MAX_IMAGE_WIDTH);
+    const maxH = maxDimensions?.height ?? (isHeader ? MAX_HEADER_IMAGE_HEIGHT : MAX_IMAGE_HEIGHT);
 
     const compressedBuffer = await sharp(imageData)
       .rotate()

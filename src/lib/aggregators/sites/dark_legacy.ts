@@ -6,6 +6,11 @@ import { HeaderElementData } from "../header/context";
 import { storeImageRefFromUrl } from "../images/store";
 import { FullWebsiteAggregator } from "../website";
 
+// Comics here are tall vertical strips; the default 600x600 body-image cap
+// (src/lib/aggregators/images/compression.ts) crushes them down to an
+// unreadable width. This aggregator alone gets a taller ceiling.
+const COMIC_MAX_DIMENSIONS = { width: 1600, height: 4800 };
+
 export class DarkLegacyAggregator extends FullWebsiteAggregator {
   static brandSiteUrl = "https://darklegacycomics.com/";
 
@@ -83,7 +88,7 @@ export class DarkLegacyAggregator extends FullWebsiteAggregator {
 
         let imgSrc = src;
         if (isSafeUrl(src)) {
-          const ref = await storeImageRefFromUrl(src);
+          const ref = await storeImageRefFromUrl(src, { maxDimensions: COMIC_MAX_DIMENSIONS });
           imgSrc = ref || src;
         }
 
