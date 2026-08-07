@@ -1,8 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { FeedLike, RawArticle } from "../../base";
 import { YouTubeAggregator } from "./aggregator";
 import type { YouTubeClient, YouTubeCommentThread } from "./client";
+
+// finalizeArticles() embeds a localized thumbnail via storeImageRefFromUrl,
+// which otherwise fetches a real YouTube thumbnail and writes to the real
+// database -- mocked here for the same reason embeds/youtube.test.ts mocks it.
+vi.mock("../../images/store", () => ({
+  storeImageRefFromUrl: vi.fn(async () => "yana-img://abc123hash"),
+}));
 
 function aggregatorFor(options: Record<string, unknown> = {}): YouTubeAggregator {
   const feed: FeedLike = { identifier: "UCtest", dailyLimit: 20, options };
