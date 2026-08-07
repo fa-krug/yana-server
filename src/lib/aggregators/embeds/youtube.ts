@@ -155,7 +155,7 @@ function extractVideoId(element: Element, $: CheerioAPI): string | null {
  * Localize a YouTube thumbnail by trying qualities in order.
  * Returns a `yana-img://<hash>` ref, or an empty string on failure.
  */
-async function localizeThumbnail(videoId: string): Promise<string> {
+export async function localizeThumbnail(videoId: string): Promise<string> {
   for (const quality of THUMBNAIL_QUALITIES) {
     const url = thumbnailUrlFor(videoId, quality);
     const ref = await storeImageRefFromUrl(url, { isHeader: true });

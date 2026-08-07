@@ -4,14 +4,13 @@
  * Ported from old/core/aggregators/youtube/aggregator.py.
  */
 
-import crypto from "node:crypto";
 import * as cheerio from "cheerio";
 import { BaseAggregator, FeedLike, RawArticle } from "../../base";
 import { mapWithConcurrency } from "../../concurrency";
 import { isSafeUrl } from "../../blocks/parser";
 import { cleanHtml, removeSanitizedAttributes, sanitizeHtmlAttributes } from "../../extract/clean";
 import { createYoutubeEmbedHtml, escapeHtml, formatArticleContent } from "../../extract/format";
-import { buildImageRef, storeImageRefFromUrl } from "../../images/store";
+import { localizeThumbnail } from "../../embeds/youtube";
 import {
   YouTubeAPIError,
   YouTubeChannelData,
@@ -34,10 +33,9 @@ export function safeCommentAuthorHtml(name?: string | null, channelUrl?: string 
   return escapedName;
 }
 
-export function safeCommentAvatarHtml(avatarUrl?: string | null): string {
-  if (avatarUrl && isSafeUrl(avatarUrl)) {
-    return `<img src="${escapeHtml(avatarUrl)}" alt="" class="youtube-comment-avatar">`;
-  }
+// Comment avatars are deliberately not rendered -- they added a full-size,
+// unconstrained <img> to every comment with no product need for it.
+export function safeCommentAvatarHtml(): string {
   return "";
 }
 
@@ -297,17 +295,15 @@ export class YouTubeAggregator extends BaseAggregator {
         const snippet = topLevel?.snippet;
         const author = snippet?.authorDisplayName;
         const channelUrl = snippet?.authorChannelUrl;
-        const avatarUrl = snippet?.authorProfileImageUrl;
         const body = snippet?.textDisplay || "";
         const commentId = comment.id || "";
 
         const commentUrl = `https://www.youtube.com/watch?v=${videoId}&lc=${escapeHtml(String(commentId))}`;
 
         const authorHtml = safeCommentAuthorHtml(author, channelUrl);
-        const avatarHtml = safeCommentAvatarHtml(avatarUrl);
         const sanitizedBody = sanitizeCommentBodyHtml(body);
 
-        htmlContent += `\n<blockquote>\n${avatarHtml}<p><strong>${authorHtml}</strong> | <a href="${commentUrl}" target="_blank" rel="noopener">source</a></p>\n<div>${sanitizedBody}</div>\n</blockquote>\n`;
+        htmlContent += `\n<blockquote>\n<p><strong>${authorHtml}</strong> | <a href="${commentUrl}" target="_blank" rel="noopener">source</a></p>\n<div>${sanitizedBody}</div>\n</blockquote>\n`;
       }
       htmlContent += `</div>`;
     }
@@ -411,27 +407,13 @@ export class YouTubeAggregator extends BaseAggregator {
       videoId = match ? match[1] : null;
     }
 
-    const $ = cheerio.load(content);
-    const avatarImgs = $("img.youtube-comment-avatar").toArray();
-    for (const img of avatarImgs) {
-      const src = $(img).attr("src");
-      if (src && isSafeUrl(src) && !src.startsWith("yana-img://")) {
-        let ref = await storeImageRefFromUrl(src);
-        if (!ref) {
-          const hash = crypto.createHash("sha256").update(src).digest("hex");
-          ref = buildImageRef(hash);
-        }
-        $(img).attr("src", ref);
-      }
-    }
-    const localizedContent = $.html();
-
     let embedHtml = "";
     if (videoId) {
-      embedHtml = createYoutubeEmbedHtml(videoId);
+      const thumbnailRef = await localizeThumbnail(videoId);
+      embedHtml = createYoutubeEmbedHtml(videoId, "", thumbnailRef);
     }
 
-    const processed = formatArticleContent(localizedContent, article.name, article.identifier);
+    const processed = formatArticleContent(content, article.name, article.identifier);
     return embedHtml + processed;
   }
 }

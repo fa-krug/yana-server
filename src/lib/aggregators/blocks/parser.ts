@@ -227,6 +227,38 @@ function videoEmbed($: cheerio.CheerioAPI, element: Element): EmbedBlock | null 
   };
 }
 
+function audioEmbed($: cheerio.CheerioAPI, element: Element): EmbedBlock | null {
+  const sourceEl = $(element).find("source").get(0) as Element | undefined;
+  let src = sourceEl ? getAttr(sourceEl, "src") : "";
+  if (!src) {
+    src = getAttr(element, "src");
+  }
+  if (!src || !isSafeUrl(src)) {
+    return null;
+  }
+  return {
+    kind: "embed",
+    provider: "generic",
+    externalUrl: src,
+    thumbnailRef: "",
+    title: "",
+  };
+}
+
+function iframeEmbed(element: Element): EmbedBlock | null {
+  const src = getAttr(element, "src");
+  if (!src || !isSafeUrl(src)) {
+    return null;
+  }
+  return {
+    kind: "embed",
+    provider: "generic",
+    externalUrl: src,
+    thumbnailRef: "",
+    title: "",
+  };
+}
+
 function mediaBlock($: cheerio.CheerioAPI, element: Element, baseUrl: string): Block | null {
   const tag = (element.name || "").toLowerCase();
   if (tag === "img") {
@@ -344,7 +376,11 @@ function dropImageBlocks(blocks: Block[]): Block[] {
 function headerBlocks($: cheerio.CheerioAPI, header: Element, baseUrl: string): Block[] {
   const classes = getAttr(header, "class").split(/\s+/).filter(Boolean);
   if (classes.includes("media-header")) {
-    return convert($, header, baseUrl);
+    // The media-header's own <iframe>/<audio> player is real, already-vetted
+    // content the aggregator built on purpose (see the class comment above) --
+    // unlike an arbitrary body iframe (ad, tracker, related-content widget),
+    // which DROPPED_TAGS is right to keep suppressing everywhere else.
+    return convert($, header, baseUrl, true);
   }
   return dropImageBlocks(convert($, header, baseUrl));
 }
@@ -593,7 +629,12 @@ function inlineRuns(
   return runs;
 }
 
-function convert($: cheerio.CheerioAPI, container: AnyNode, baseUrl: string): Block[] {
+function convert(
+  $: cheerio.CheerioAPI,
+  container: AnyNode,
+  baseUrl: string,
+  allowMediaEmbeds = false,
+): Block[] {
   const blocks: Block[] = [];
   const inline: InlineRun[] = [];
   const pendingMedia: Block[] = [];
@@ -629,6 +670,24 @@ function convert($: cheerio.CheerioAPI, container: AnyNode, baseUrl: string): Bl
     }
 
     const tag = (node as Element).name.toLowerCase();
+
+    if (allowMediaEmbeds && tag === "iframe") {
+      flush();
+      const embed = iframeEmbed(node as Element);
+      if (embed !== null) {
+        blocks.push(embed);
+      }
+      continue;
+    }
+
+    if (allowMediaEmbeds && tag === "audio") {
+      flush();
+      const embed = audioEmbed($, node as Element);
+      if (embed !== null) {
+        blocks.push(embed);
+      }
+      continue;
+    }
 
     if (DROPPED_TAGS.has(tag)) {
       continue;
@@ -758,7 +817,7 @@ function convert($: cheerio.CheerioAPI, container: AnyNode, baseUrl: string): Bl
       blocks.push(facade);
       continue;
     }
-    blocks.push(...convert($, node as Element, baseUrl));
+    blocks.push(...convert($, node as Element, baseUrl, allowMediaEmbeds));
   }
 
   flush();

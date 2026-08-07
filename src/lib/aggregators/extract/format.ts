@@ -37,18 +37,27 @@ export function extractYoutubeVideoId(url: string): string | null {
   return null;
 }
 
-export function buildYoutubeFacadeHtml(videoId: string): string {
+export function buildYoutubeFacadeHtml(videoId: string, thumbnailRef?: string | null): string {
+  // facadeThumbnail() in blocks/parser.ts (and therefore articleBlocks.embedThumbnailRef,
+  // served via /api/v1/images/:hash) reads this <img>'s src -- with no <img> here, every
+  // YouTube-embedded video has no preview thumbnail at all.
+  const thumbnailImg = thumbnailRef ? `<img src="${escapeHtml(thumbnailRef)}" alt="">` : "";
   return (
     `<div class="youtube-embed-container" ` +
     `data-embed="https://www.youtube.com/embed/${videoId}">` +
+    thumbnailImg +
     `<a href="https://www.youtube.com/watch?v=${videoId}" ` +
     `target="_blank" rel="noopener">Watch on YouTube</a>` +
     `</div>`
   );
 }
 
-export function createYoutubeEmbedHtml(videoId: string, caption = ""): string {
-  const facade = buildYoutubeFacadeHtml(videoId);
+export function createYoutubeEmbedHtml(
+  videoId: string,
+  caption = "",
+  thumbnailRef?: string | null,
+): string {
+  const facade = buildYoutubeFacadeHtml(videoId, thumbnailRef);
   if (!caption) {
     return facade;
   }
