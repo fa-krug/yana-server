@@ -126,5 +126,10 @@
   }
   html {
     @apply font-sans;
+    /* Tailwind v4's spacing, sizing and typography scales are all rem-based,
+       so raising the root font size here scales text, padding, gaps and
+       icons together at every viewport size, without touching every
+       component individually. */
+    font-size: 118.75%;
   }
 }
