@@ -247,6 +247,31 @@ describe("createFeed", () => {
     });
     expect(result.ok).toBe(false);
   });
+
+  it("stores maxArticleAgeDays on create, defaulting to 30 when omitted", async () => {
+    await currentUserId();
+    const withDefault = await actions.createFeed({ name: "Default Age Feed", aggregator: "heise" });
+    expect(withDefault.ok).toBe(true);
+    expect((await actions.getFeed(withDefault.id!))?.maxArticleAgeDays).toBe(30);
+
+    const withOverride = await actions.createFeed({
+      name: "Custom Age Feed",
+      aggregator: "heise",
+      maxArticleAgeDays: 90,
+    });
+    expect(withOverride.ok).toBe(true);
+    expect((await actions.getFeed(withOverride.id!))?.maxArticleAgeDays).toBe(90);
+  });
+
+  it("rejects maxArticleAgeDays outside 0-3650", async () => {
+    await currentUserId();
+    const result = await actions.createFeed({
+      name: "Bad Age Feed",
+      aggregator: "heise",
+      maxArticleAgeDays: -1,
+    });
+    expect(result.ok).toBe(false);
+  });
 });
 
 describe("updateFeed", () => {
@@ -377,6 +402,23 @@ describe("updateFeed", () => {
     const row = await actions.getFeed(feedId);
     expect(row?.updateIntervalMinutes).toBe(45);
     expect(row?.concurrency).toBe(3);
+  });
+
+  it("leaves maxArticleAgeDays unchanged when omitted on update, and applies it when submitted", async () => {
+    const created = await actions.createFeed({
+      name: "Keep Age Feed",
+      aggregator: "heise",
+      maxArticleAgeDays: 45,
+    });
+    const feedId = created.id!;
+
+    const unchanged = await actions.updateFeed(feedId, { name: "Renamed" });
+    expect(unchanged.ok).toBe(true);
+    expect((await actions.getFeed(feedId))?.maxArticleAgeDays).toBe(45);
+
+    const changed = await actions.updateFeed(feedId, { maxArticleAgeDays: 0 });
+    expect(changed.ok).toBe(true);
+    expect((await actions.getFeed(feedId))?.maxArticleAgeDays).toBe(0);
   });
 });
 

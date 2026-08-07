@@ -64,6 +64,17 @@ export const feeds = sqliteTable(
      * the same pre-fill-from-recommendation behavior as `updateIntervalMinutes`.
      */
     concurrency: integer("concurrency").notNull().default(4),
+    /**
+     * Articles older than this, at fetch time, are dropped by
+     * `BaseAggregator.filterArticles()` (`src/lib/aggregators/base.ts`) before
+     * they're ever enriched or saved -- this is an ingestion filter, not a
+     * retention policy (see `userSettings.articleRetentionDays` for that).
+     * `0` disables the filter for this feed, same meaning `0` has on
+     * `updateIntervalMinutes`: a feed whose source is a deliberate backlog
+     * (a podcast's back-catalogue, a comic's archive) can opt out entirely
+     * rather than losing everything older than 30 days on first aggregation.
+     */
+    maxArticleAgeDays: integer("max_article_age_days").notNull().default(30),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     userId: text("user_id")
       .notNull()

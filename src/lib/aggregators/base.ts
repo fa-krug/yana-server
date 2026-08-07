@@ -7,6 +7,7 @@ export interface FeedLike {
   identifier: string;
   dailyLimit: number;
   concurrency?: number;
+  maxArticleAgeDays?: number;
   aggregator?: string;
   options?: Record<string, unknown> | null;
   userId?: string | number | null;
@@ -70,12 +71,14 @@ export abstract class BaseAggregator {
   public identifier: string;
   public dailyLimit: number;
   public concurrency: number;
+  public maxArticleAgeDays: number;
   public usesFirstContentMatch = false;
 
   constructor(public feed: FeedLike) {
     this.identifier = feed.identifier || "";
     this.dailyLimit = feed.dailyLimit ?? 20;
     this.concurrency = feed.concurrency ?? 4;
+    this.maxArticleAgeDays = feed.maxArticleAgeDays ?? 30;
   }
 
   logoImageUrl(): Promise<string | null> {
@@ -151,7 +154,11 @@ export abstract class BaseAggregator {
   abstract parseToRawArticles(sourceData: unknown): Promise<RawArticle[]>;
 
   async filterArticles(articles: RawArticle[]): Promise<RawArticle[]> {
-    const cutoffDate = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+    if (this.maxArticleAgeDays === 0) {
+      return articles;
+    }
+
+    const cutoffDate = new Date(Date.now() - this.maxArticleAgeDays * 24 * 60 * 60 * 1000);
     const filtered: RawArticle[] = [];
 
     for (const article of articles) {

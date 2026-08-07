@@ -126,4 +126,34 @@ describe("FeedForm identifier field", () => {
     );
     expect((screen.getByLabelText("Concurrency") as HTMLInputElement).value).toBe("4");
   });
+
+  it("defaults maximum article age to 30 days regardless of aggregator, and doesn't reset it on switch", () => {
+    renderWithProviders(<FeedForm capabilities={ALL} allTags={[]} />);
+    const ageInput = () => screen.getByLabelText("Maximum article age (days)") as HTMLInputElement;
+    expect(ageInput().value).toBe("30");
+
+    fireEvent.change(ageInput(), { target: { value: "90" } });
+    selectAggregator("Caschys Blog");
+    expect(ageInput().value).toBe("90");
+  });
+
+  it("initializes maximum article age from the feed's own stored value on edit", () => {
+    const feed = {
+      id: 1,
+      name: "Existing",
+      aggregator: "heise",
+      identifier: "",
+      options: {},
+      enabled: true,
+      updateIntervalMinutes: 30,
+      concurrency: 4,
+      maxArticleAgeDays: 90,
+      tags: [],
+    } as unknown as import("@/lib/db/schema").Feed & { tags: import("@/lib/db/schema").Tag[] };
+
+    renderWithProviders(<FeedForm feed={feed} capabilities={ALL} allTags={[]} />);
+    expect((screen.getByLabelText("Maximum article age (days)") as HTMLInputElement).value).toBe(
+      "90",
+    );
+  });
 });

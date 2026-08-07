@@ -291,6 +291,8 @@
       "updateIntervalHelp": "How often this feed is checked for new articles. 0 disables automatic updates.",
       "concurrency": "Concurrency",
       "concurrencyHelp": "How many articles this feed fetches in parallel during one run.",
+      "maxArticleAge": "Maximum article age (days)",
+      "maxArticleAgeHelp": "Articles older than this are skipped when this feed is aggregated. 0 disables the limit.",
       "create": "Create feed",
       "save": "Save feed",
       "created": "Feed created",

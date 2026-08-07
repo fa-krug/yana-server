@@ -43,9 +43,14 @@ export async function capabilitiesFor(): Promise<Capabilities> {
 // everything above that is a whole number of minutes. Concurrency bounds are
 // a sanity range, not derived from anything -- 1 means "no overlap", 10 is
 // comfortably above every aggregator's recommended value in specs.ts.
+// 0 disables the age filter for the feed (see BaseAggregator.filterArticles()
+// in src/lib/aggregators/base.ts); the upper bound matches
+// articleRetentionDays' -- there's no point admitting an ingestion window
+// wider than retention would keep anyway.
 const schedulingSchema = z.object({
   updateIntervalMinutes: z.number().int().min(0).max(1440).optional(),
   concurrency: z.number().int().min(1).max(10).optional(),
+  maxArticleAgeDays: z.number().int().min(0).max(3650).optional(),
 });
 
 /**
@@ -174,6 +179,7 @@ type FeedInput = {
   enabled?: boolean;
   updateIntervalMinutes?: number;
   concurrency?: number;
+  maxArticleAgeDays?: number;
 };
 
 export async function createFeed(
@@ -205,6 +211,7 @@ export async function createFeed(
     const schedulingParsed = schedulingSchema.safeParse({
       updateIntervalMinutes: input?.updateIntervalMinutes,
       concurrency: input?.concurrency,
+      maxArticleAgeDays: input?.maxArticleAgeDays,
     });
     if (!schedulingParsed.success) {
       const field = schedulingParsed.error.issues[0]?.path[0];
@@ -254,6 +261,9 @@ export async function createFeed(
           }),
           ...(schedulingParsed.data.concurrency !== undefined && {
             concurrency: schedulingParsed.data.concurrency,
+          }),
+          ...(schedulingParsed.data.maxArticleAgeDays !== undefined && {
+            maxArticleAgeDays: schedulingParsed.data.maxArticleAgeDays,
           }),
         })
         .returning({ id: feeds.id })
@@ -358,6 +368,7 @@ export async function updateFeed(id: number, input: FeedInput) {
   const schedulingParsed = schedulingSchema.safeParse({
     updateIntervalMinutes: input?.updateIntervalMinutes,
     concurrency: input?.concurrency,
+    maxArticleAgeDays: input?.maxArticleAgeDays,
   });
   if (!schedulingParsed.success) {
     const field = schedulingParsed.error.issues[0]?.path[0];
@@ -392,6 +403,9 @@ export async function updateFeed(id: number, input: FeedInput) {
         }),
         ...(schedulingParsed.data.concurrency !== undefined && {
           concurrency: schedulingParsed.data.concurrency,
+        }),
+        ...(schedulingParsed.data.maxArticleAgeDays !== undefined && {
+          maxArticleAgeDays: schedulingParsed.data.maxArticleAgeDays,
         }),
       })
       .where(and(eq(feeds.id, id), eq(feeds.userId, userId)))

@@ -1,0 +1,1 @@
+ALTER TABLE `feeds` ADD `max_article_age_days` integer DEFAULT 30 NOT NULL;

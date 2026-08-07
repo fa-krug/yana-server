@@ -273,6 +273,7 @@ async function main(): Promise<void> {
         youtubeChannelId: null,
         updateIntervalMinutes: 30,
         concurrency: 4,
+        maxArticleAgeDays: 30,
       };
     }
   }
