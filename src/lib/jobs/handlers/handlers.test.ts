@@ -1200,6 +1200,16 @@ describe("src/lib/jobs/handlers", () => {
       expect(article!.plainText).toContain("Real article body");
       expect(article!.plainText).not.toContain("Hauptnavigation");
       expect(article!.plainText).not.toContain("Untermenü");
+
+      // articles.rawContent must be the true raw page (nav included), never
+      // the already-distilled `content` -- reload.ts re-runs extractContent()
+      // against whatever is stored here on the assumption that it's a full
+      // page. Storing `content` there instead silently breaks reload: the
+      // site-specific markers extractContent() looks for are already gone,
+      // so it finds no body text and overwrites the article with just its
+      // header image.
+      expect(article!.rawContent).toContain("Hauptnavigation");
+      expect(article!.rawContent).toContain("Real article body");
     });
   });
 

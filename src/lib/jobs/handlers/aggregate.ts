@@ -48,13 +48,27 @@ export async function handleAggregateJob(job: Job): Promise<void> {
     if (!raw.identifier) continue;
 
     // `content` is what extractContent()/processContent() actually distilled
-    // from the page -- `raw_content` is the whole fetched page a full-website
-    // aggregator (Tagesschau, Heise, ...) stashes there unconditionally, nav
-    // and footer included, and is only a fallback for aggregators (plain RSS)
-    // that never populate `content` at all.
+    // from the page -- that's what the initial block tree is built from.
+    // `raw_content` is the whole fetched page a full-website aggregator
+    // (Tagesschau, Heise, ...) stashes there unconditionally, nav and footer
+    // included, and is only empty for aggregators (plain RSS) that never
+    // fetch a full page at all -- for those, `content` is the only thing
+    // there is to persist as `articles.rawContent`.
+    //
+    // `articles.rawContent` MUST be `raw.raw_content` (the true page), never
+    // `raw.content` (the distilled one): reload.ts re-runs the same
+    // aggregator's extractContent()/processContent() against whatever is
+    // stored there, on the assumption that it's a full raw page. Storing the
+    // already-distilled `content` there instead breaks that silently -- the
+    // site-specific selectors and markers extractContent() looks for (CSS
+    // classes, `data-v-type="MediaPlayer"` divs, ...) no longer exist once
+    // sanitizeClassNames() and friends have already run once, so reload finds
+    // no body text at all and overwrites a perfectly good article with just
+    // its header image.
     const htmlContent = raw.content || raw.raw_content || "";
     const blocks = parseBlocks(htmlContent, raw.identifier);
     const plainText = plainTextOf(blocks);
+    const rawContentToStore = raw.raw_content || raw.content || "";
 
     let articleId = 0;
 
@@ -71,7 +85,7 @@ export async function handleAggregateJob(job: Job): Promise<void> {
         tx.update(articles)
           .set({
             name: raw.name || "Untitled",
-            rawContent: htmlContent,
+            rawContent: rawContentToStore,
             plainText,
             date: raw.date || new Date(),
             author: raw.author || "",
@@ -86,7 +100,7 @@ export async function handleAggregateJob(job: Job): Promise<void> {
             feedId,
             name: raw.name || "Untitled",
             identifier: raw.identifier,
-            rawContent: htmlContent,
+            rawContent: rawContentToStore,
             plainText,
             date: raw.date || new Date(),
             author: raw.author || "",
