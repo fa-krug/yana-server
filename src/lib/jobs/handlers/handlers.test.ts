@@ -1069,10 +1069,12 @@ describe("src/lib/jobs/handlers", () => {
       expect(lines).toEqual(["article not found or has no stored content, skipping"]);
     });
 
-    it("logs after reloading article content", async () => {
+    it("re-fetches the original page and logs after reloading article content", async () => {
       vi.resetModules();
+      const fetchArticleContent = vi.fn().mockResolvedValue("<p>Fresh from the source</p>");
       vi.doMock("@/lib/aggregators/factory", () => ({
         createAggregator: () => ({
+          fetchArticleContent,
           extractHeaderElement: async () => null,
           extractContent: (html: string) => html,
           processContent: (html: string) => html,
@@ -1098,10 +1100,72 @@ describe("src/lib/jobs/handlers", () => {
           .insert(schema.articles)
           .values({
             name: "Has Content",
-            identifier: "art-1",
+            identifier: "https://example.com/art-1",
             feedId: feed.id,
-            rawContent: "<p>Hello world</p>",
+            rawContent: "<p>Stale, previously stored</p>",
             plainText: "",
+            date: new Date(),
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        articleId = article.id;
+      });
+
+      const reloadHandler = handlers.getHandler("article.reload");
+      const job = makeJob("article.reload", { articleId });
+
+      await reloadHandler!(job);
+
+      expect(fetchArticleContent).toHaveBeenCalledWith("https://example.com/art-1");
+
+      const reloaded = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, articleId))
+        .get();
+      expect(reloaded?.plainText).toContain("Fresh from the source");
+      expect(reloaded?.plainText).not.toContain("Stale, previously stored");
+      expect(reloaded?.rawContent).toBe("<p>Fresh from the source</p>");
+
+      const lines = logLines(job.id);
+      expect(lines).toContain("reloaded article content");
+    });
+
+    it("writes an error article and logs when the original page can no longer be fetched", async () => {
+      vi.resetModules();
+      vi.doMock("@/lib/aggregators/factory", () => ({
+        createAggregator: () => ({
+          fetchArticleContent: vi.fn().mockRejectedValue(new Error("HTTP 404 Not Found")),
+          extractHeaderElement: async () => null,
+          extractContent: (html: string) => html,
+          processContent: (html: string) => html,
+        }),
+      }));
+      handlers = await import("./index");
+
+      let articleId = 0;
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "Feed", userId: user!.id })
+          .returning({ id: schema.feeds.id })
+          .get();
+
+        const article = db
+          .insert(schema.articles)
+          .values({
+            name: "Has Content",
+            identifier: "https://example.com/gone",
+            feedId: feed.id,
+            rawContent: "<p>Stale, previously stored</p>",
+            plainText: "stale",
             date: new Date(),
           })
           .returning({ id: schema.articles.id })
@@ -1120,10 +1184,14 @@ describe("src/lib/jobs/handlers", () => {
         .from(schema.articles)
         .where(eq(schema.articles.id, articleId))
         .get();
-      expect(reloaded?.plainText).toContain("Hello world");
+      expect(reloaded?.plainText).toContain("could not be reloaded");
+      expect(reloaded?.plainText).toContain("HTTP 404 Not Found");
+      // The stale raw page is left alone -- there is no fresh page to replace it with.
+      expect(reloaded?.rawContent).toBe("<p>Stale, previously stored</p>");
 
       const lines = logLines(job.id);
-      expect(lines).toContain("reloaded article content");
+      expect(lines).toContain("failed to refetch original page: HTTP 404 Not Found");
+      expect(lines).toContain("wrote error article after failed refetch");
     });
   });
 
@@ -1214,10 +1282,14 @@ describe("src/lib/jobs/handlers", () => {
   });
 
   describe("reload", () => {
-    it("re-runs the aggregator's extraction on raw_content instead of re-parsing the raw page verbatim", async () => {
+    it("re-runs the aggregator's extraction on the freshly re-fetched page, not the raw page verbatim", async () => {
       vi.resetModules();
+      const freshPage =
+        "<html><body><nav>Hauptnavigation Untermenü einblenden</nav>" +
+        "<article><p>Real article body.</p></article></body></html>";
       vi.doMock("@/lib/aggregators/factory", () => ({
         createAggregator: () => ({
+          fetchArticleContent: vi.fn().mockResolvedValue(freshPage),
           // A stand-in for TagesschauAggregator's own extractContent/processContent:
           // strips everything outside <article>, mirroring what the real
           // pipeline distills from a full page fetch.
@@ -1256,9 +1328,9 @@ describe("src/lib/jobs/handlers", () => {
             identifier: "https://example.com/article-1",
             feedId,
             date: new Date("2024-01-01"),
-            rawContent:
-              "<html><body><nav>Hauptnavigation Untermenü einblenden</nav>" +
-              "<article><p>Real article body.</p></article></body></html>",
+            // Stale on purpose: reload must not re-parse this, only a freshly
+            // re-fetched page.
+            rawContent: "<html><body><article><p>Stale body.</p></article></body></html>",
           })
           .returning({ id: schema.articles.id })
           .get();
@@ -1292,8 +1364,10 @@ describe("src/lib/jobs/handlers", () => {
         .where(eq(schema.articles.id, articleId))
         .get();
       expect(article!.plainText).toContain("Real article body");
+      expect(article!.plainText).not.toContain("Stale body");
       expect(article!.plainText).not.toContain("Hauptnavigation");
       expect(article!.plainText).not.toContain("Untermenü");
+      expect(article!.rawContent).toBe(freshPage);
     });
   });
 });

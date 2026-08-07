@@ -3,19 +3,37 @@ import { eq } from "drizzle-orm";
 import type { RawArticle } from "@/lib/aggregators/base";
 import { parseBlocks, plainTextOf } from "@/lib/aggregators/blocks/parser";
 import { writeBlocks } from "@/lib/aggregators/blocks/storage";
+import type { Block } from "@/lib/aggregators/blocks/types";
 import { createAggregator } from "@/lib/aggregators/factory";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, feeds, type Job } from "@/lib/db/schema";
 import { appendLogLine } from "../queue";
 
+function buildErrorBlocks(message: string): Block[] {
+  return [
+    {
+      kind: "paragraph",
+      runs: [{ text: message }],
+    },
+  ];
+}
+
 /**
- * `article.rawContent` is the whole fetched page for a full-website
- * aggregator (Tagesschau, Heise, ...) -- nav, header and footer included --
- * never content ready to parse into blocks as-is. Re-running the same
- * aggregator's extractContent()/processContent() on it is what
- * handleAggregateJob does for a fresh fetch; reload must match that, or a
- * "Reload" brings back exactly the unfiltered page a real aggregation run
- * would have distilled.
+ * Reload re-fetches the article's original page through the same
+ * `fetchArticleContent()` a fresh aggregation run would call, then re-runs
+ * `extractContent()`/`processContent()` on that fresh page -- not on the
+ * previously stored `rawContent`, which is exactly the stale copy the user
+ * is asking to be replaced. A stored `rawContent` is what gates reload to
+ * feeds whose aggregator genuinely fetches a full page (website-based,
+ * YouTube, Reddit -- see `fetchArticleContent()` on each); a plain RSS feed
+ * never populates it, so it is never reached here.
+ *
+ * When the source page can no longer be fetched (removed, gone offline,
+ * ...), the article's content is replaced with a short error notice instead:
+ * leaving the old content in place would look like the reload succeeded, and
+ * retrying the job would not help with a deterministic failure
+ * (fetchArticleContent already exhausts its own retry budget for transient
+ * ones).
  */
 export async function handleReloadJob(job: Job): Promise<void> {
   const articleId = Number(job.payload?.articleId);
@@ -38,10 +56,38 @@ export async function handleReloadJob(job: Job): Promise<void> {
   }
 
   const aggregator = createAggregator(feed);
+
+  let freshHtml: string;
+  try {
+    freshHtml = await aggregator.fetchArticleContent(article.identifier);
+    if (!freshHtml) {
+      throw new Error("fetchArticleContent returned no content");
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    appendLogLine(job.id, "stdout", `failed to refetch original page: ${message}`);
+
+    const blocks = buildErrorBlocks(
+      `This article could not be reloaded: the original page could not be fetched (${message}).`,
+    );
+    const plainText = plainTextOf(blocks);
+
+    await writeBlocks(article.id, blocks);
+    writeTransaction((tx) => {
+      tx.update(articles)
+        .set({ plainText, updatedAt: new Date() })
+        .where(eq(articles.id, article.id))
+        .run();
+    });
+
+    appendLogLine(job.id, "stdout", "wrote error article after failed refetch");
+    return;
+  }
+
   const rawArticle: RawArticle = {
     name: article.name,
     identifier: article.identifier,
-    raw_content: article.rawContent,
+    raw_content: freshHtml,
     content: "",
     date: article.date,
     author: article.author || "",
@@ -50,7 +96,7 @@ export async function handleReloadJob(job: Job): Promise<void> {
   const headerData = await aggregator.extractHeaderElement(rawArticle);
   if (headerData) rawArticle.header_data = headerData;
 
-  const extracted = await aggregator.extractContent(article.rawContent, rawArticle);
+  const extracted = await aggregator.extractContent(freshHtml, rawArticle);
   const processed = await aggregator.processContent(extracted, rawArticle);
 
   const blocks = parseBlocks(processed, article.identifier);
@@ -60,7 +106,7 @@ export async function handleReloadJob(job: Job): Promise<void> {
 
   writeTransaction((tx) => {
     tx.update(articles)
-      .set({ plainText, updatedAt: new Date() })
+      .set({ rawContent: freshHtml, plainText, updatedAt: new Date() })
       .where(eq(articles.id, article.id))
       .run();
   });
