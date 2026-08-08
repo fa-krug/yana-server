@@ -737,18 +737,30 @@ type OpenrouterModelEntry = {
 
 /**
  * The live OpenRouter model catalog, fetched on demand -- never cached, since
- * the refresh is button-triggered (see the design spec). Public,
- * unauthenticated endpoint: this takes no credential and is safe to call
- * before any OpenRouter key has been saved.
+ * the refresh is button-triggered (see the design spec). The upstream endpoint
+ * itself is public and unauthenticated -- no credential is sent to OpenRouter
+ * and this is safe to call before any OpenRouter key has been saved -- but the
+ * caller still has to be a signed-in Yana user, like every other export in
+ * this file: without the `currentUserId()` gate below, an unauthenticated POST
+ * to this server action would make the instance issue outbound requests to
+ * `openrouter.ai` on a stranger's behalf.
  *
- * Every failure -- network, timeout, a non-200, an unparseable body --
- * collapses to one outcome. Unlike the credential probes' `unreachable`/
+ * Every failure -- no session, network, timeout, a non-200, an unparseable
+ * body -- collapses to one outcome. Unlike the credential probes' `unreachable`/
  * `timedOut`/`unexpected` catalog keys, this does **not** reuse them: those
  * are worded "...these credentials could not be verified," which is wrong
  * here -- no credential is involved in listing models.
  */
 export async function listOpenrouterModels(): Promise<OpenrouterModelsResult> {
   try {
+    // Same gate every other export here sits behind, just not via
+    // `defineIntegrationIn()` (there is no credential and nothing to save).
+    // `currentUserId()` throws -- including Next's own `redirect()` control
+    // flow for "no session" -- rather than returning a falsy value, so it is
+    // enough to call it and let this function's existing catch-all handle the
+    // failure the same way it handles a network error.
+    await currentUserId();
+
     const response = await fetch(`${OPENROUTER_API_URL}/models`, {
       method: "GET",
       redirect: "error",
@@ -762,19 +774,35 @@ export async function listOpenrouterModels(): Promise<OpenrouterModelsResult> {
       return { ok: false, errorKey: "openrouter.modelsFetchFailed" };
     }
 
-    const models: OpenrouterModelOption[] = [];
+    const entries: { value: string; label: string; isFree: boolean }[] = [];
     for (const entry of body.data as OpenrouterModelEntry[]) {
       if (typeof entry.id !== "string" || typeof entry.name !== "string") continue;
       const isFree = entry.pricing?.prompt === "0" && entry.pricing?.completion === "0";
-      models.push({ value: entry.id, label: isFree ? `${entry.name} (Free)` : entry.name });
+      // OpenRouter's own vendor-supplied `name` sometimes already ends in
+      // "(free)" (confirmed live, e.g. "NVIDIA: Nemotron 3 Ultra (free)") --
+      // appending another suffix unconditionally produced a visible
+      // double-labeled "... (free) (Free)". Checked case-insensitively because
+      // the casing of OpenRouter's own suffix is not guaranteed either.
+      const alreadyLabeledFree = /\(free\)$/i.test(entry.name);
+      const label = isFree && !alreadyLabeledFree ? `${entry.name} (Free)` : entry.name;
+      entries.push({ value: entry.id, label, isFree });
     }
     // Free entries first: a user hunting for a $0 model should not have to
-    // scroll past hundreds of paid ones to find one.
-    models.sort((a, b) => Number(b.label.endsWith("(Free)")) - Number(a.label.endsWith("(Free)")));
+    // scroll past hundreds of paid ones to find one. Sorted on the computed
+    // boolean rather than re-derived from the label's text, so a name that
+    // happens to end in "(Free)" without actually being free-priced (or one
+    // that skipped the suffix above because it already carried its own) is
+    // never misread as the other thing.
+    entries.sort((a, b) => Number(b.isFree) - Number(a.isFree));
 
-    if (models.length === 0) {
+    if (entries.length === 0) {
+      // An empty-but-well-formed catalog response is treated the same as a
+      // fetch failure: "no models to show" and "couldn't load models" want the
+      // same operator-facing message, and there is no separate catalog key for
+      // "OpenRouter returned nothing."
       return { ok: false, errorKey: "openrouter.modelsFetchFailed" };
     }
+    const models: OpenrouterModelOption[] = entries.map(({ value, label }) => ({ value, label }));
     return { ok: true, models };
   } catch {
     return { ok: false, errorKey: "openrouter.modelsFetchFailed" };
