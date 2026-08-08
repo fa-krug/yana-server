@@ -6,6 +6,7 @@
 
 import * as cheerio from "cheerio";
 import { BaseAggregator, FeedLike, RawArticle } from "../../base";
+import type { ChromeLabels } from "../../chrome-labels";
 import { mapWithConcurrency } from "../../concurrency";
 import { isSafeUrl } from "../../blocks/parser";
 import { cleanHtml, removeSanitizedAttributes, sanitizeHtmlAttributes } from "../../extract/clean";
@@ -259,6 +260,7 @@ export class YouTubeAggregator extends BaseAggregator {
     }
 
     const commentLimit = (this.feed.options?.comment_limit as number) ?? 10;
+    const labels = await this.chromeLabels();
 
     await mapWithConcurrency(articles, this.concurrency, async (article) => {
       const videoId = article._youtube_video_id;
@@ -273,6 +275,7 @@ export class YouTubeAggregator extends BaseAggregator {
         description,
         comments,
         typeof videoId === "string" ? videoId : "",
+        labels,
       );
       article.content = contentHtml;
       article.raw_content = contentHtml;
@@ -281,7 +284,12 @@ export class YouTubeAggregator extends BaseAggregator {
     return articles;
   }
 
-  buildContentHtml(description: string, comments: YouTubeCommentThread[], videoId: string): string {
+  buildContentHtml(
+    description: string,
+    comments: YouTubeCommentThread[],
+    videoId: string,
+    labels: ChromeLabels,
+  ): string {
     // The description is plain text from the API and channel-owner-controlled, so it must be
     // escaped before splicing it into HTML -- a raw `<script>`/`onerror=` payload here would be
     // a stored XSS served verbatim through GET /api/v1/articles/[id]/content.
@@ -289,7 +297,7 @@ export class YouTubeAggregator extends BaseAggregator {
     let htmlContent = `<div class="youtube-description">${formattedDescription}</div>`;
 
     if (comments && comments.length > 0) {
-      htmlContent += `<div class="youtube-comments"><h3>Comments</h3>`;
+      htmlContent += `<div class="youtube-comments"><h3>${labels.comments}</h3>`;
       for (const comment of comments) {
         const topLevel = comment.snippet?.topLevelComment;
         const snippet = topLevel?.snippet;
@@ -303,7 +311,7 @@ export class YouTubeAggregator extends BaseAggregator {
         const authorHtml = safeCommentAuthorHtml(author, channelUrl);
         const sanitizedBody = sanitizeCommentBodyHtml(body);
 
-        htmlContent += `\n<blockquote>\n<p><strong>${authorHtml}</strong> | <a href="${commentUrl}" target="_blank" rel="noopener">source</a></p>\n<div>${sanitizedBody}</div>\n</blockquote>\n`;
+        htmlContent += `\n<blockquote>\n<p><strong>${authorHtml}</strong> | <a href="${commentUrl}" target="_blank" rel="noopener">${labels.source}</a></p>\n<div>${sanitizedBody}</div>\n</blockquote>\n`;
       }
       htmlContent += `</div>`;
     }
@@ -351,7 +359,9 @@ export class YouTubeAggregator extends BaseAggregator {
     }
   }
 
-  override extractContent(html: string, article: RawArticle): string {
+  override async extractContent(html: string, article: RawArticle): Promise<string> {
+    const labels = await this.chromeLabels();
+
     if (this._last_reloaded_video) {
       const video = this._last_reloaded_video;
       const comments = this._last_reloaded_comments;
@@ -361,7 +371,7 @@ export class YouTubeAggregator extends BaseAggregator {
       }
       const description = video.snippet?.description || "";
       if (typeof videoId === "string") {
-        return this.buildContentHtml(description, comments, videoId);
+        return this.buildContentHtml(description, comments, videoId, labels);
       }
     }
 
@@ -383,7 +393,7 @@ export class YouTubeAggregator extends BaseAggregator {
             const description = video.snippet?.description || "";
             const comments = Array.isArray(data.comments) ? data.comments : [];
             if (typeof videoId === "string" && videoId) {
-              return this.buildContentHtml(description, comments, videoId);
+              return this.buildContentHtml(description, comments, videoId, labels);
             }
           }
         }

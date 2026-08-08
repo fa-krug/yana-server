@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { FeedLike, RawArticle } from "../../base";
+import { DEFAULT_CHROME_LABELS } from "../../chrome-labels";
 import { YouTubeAggregator } from "./aggregator";
 import type { YouTubeClient, YouTubeCommentThread } from "./client";
 
@@ -35,7 +36,12 @@ function enrichmentArticle(videoId: string): RawArticle {
 describe("YouTubeAggregator.buildContentHtml", () => {
   it("escapes a description containing a script tag", () => {
     const agg = aggregatorFor();
-    const html = agg.buildContentHtml("<script>alert(1)</script>", [], "vid1");
+    const html = agg.buildContentHtml(
+      "<script>alert(1)</script>",
+      [],
+      "vid1",
+      DEFAULT_CHROME_LABELS,
+    );
 
     expect(html).not.toContain("<script>");
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
@@ -43,7 +49,12 @@ describe("YouTubeAggregator.buildContentHtml", () => {
 
   it("escapes a description containing an event-handler payload", () => {
     const agg = aggregatorFor();
-    const html = agg.buildContentHtml("<img src=x onerror=alert(1)>", [], "vid1");
+    const html = agg.buildContentHtml(
+      "<img src=x onerror=alert(1)>",
+      [],
+      "vid1",
+      DEFAULT_CHROME_LABELS,
+    );
 
     expect(html).not.toContain("<img src=x onerror=alert(1)>");
     expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
@@ -51,7 +62,7 @@ describe("YouTubeAggregator.buildContentHtml", () => {
 
   it("still converts plain-text newlines to <br> after escaping", () => {
     const agg = aggregatorFor();
-    const html = agg.buildContentHtml("line one\nline two", [], "vid1");
+    const html = agg.buildContentHtml("line one\nline two", [], "vid1", DEFAULT_CHROME_LABELS);
 
     expect(html).toContain("line one<br>line two");
   });
@@ -72,11 +83,36 @@ describe("YouTubeAggregator.buildContentHtml", () => {
       },
     ];
 
-    const html = agg.buildContentHtml("hello", comments, "vid1");
+    const html = agg.buildContentHtml("hello", comments, "vid1", DEFAULT_CHROME_LABELS);
 
     expect(html).toContain("hello");
     expect(html).toContain("Someone");
     expect(html).toContain("<b>nice video</b>");
+  });
+
+  it("renders the Comments heading and per-comment source link in the passed-in locale's labels", () => {
+    const agg = aggregatorFor();
+    const comments: YouTubeCommentThread[] = [
+      {
+        id: "c1",
+        snippet: {
+          topLevelComment: {
+            snippet: {
+              authorDisplayName: "Someone",
+              textDisplay: "nice video",
+            },
+          },
+        },
+      },
+    ];
+
+    const germanLabels = { ...DEFAULT_CHROME_LABELS, comments: "Kommentare", source: "Quelle" };
+    const html = agg.buildContentHtml("hello", comments, "vid1", germanLabels);
+
+    expect(html).toContain(">Kommentare</h3>");
+    expect(html).toContain(">Quelle</a>");
+    expect(html).not.toContain(">Comments<");
+    expect(html).not.toContain(">source<");
   });
 });
 
