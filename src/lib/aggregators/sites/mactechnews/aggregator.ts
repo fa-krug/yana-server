@@ -194,7 +194,7 @@ export class MactechnewsAggregator extends FullWebsiteAggregator {
     });
 
     // Replace YouTube iframes with click-through facades
-    proxyYoutubeEmbeds($, labels);
+    await proxyYoutubeEmbeds($, labels);
 
     // Remove header image from content if extracted
     if (headerData?.imageUrl) {

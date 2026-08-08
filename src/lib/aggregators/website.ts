@@ -16,6 +16,7 @@ import {
   extractYoutubeVideoId,
   formatArticleContent,
 } from "./extract/format";
+import { localizeThumbnail } from "./embeds/youtube";
 import { getHeaderImageRef } from "./header/context";
 import { fetchHtml } from "./http/fetcher";
 import { RssAggregator } from "./rss";
@@ -29,8 +30,17 @@ export function isYoutubeUrl(url: string): boolean {
   return youtubeDomains.some((domain) => url.includes(domain));
 }
 
-export function proxyYoutubeEmbeds($: cheerio.CheerioAPI, labels: ChromeLabels): void {
-  $(".embed-privacy-container").each((_, container) => {
+/**
+ * Replace every raw YouTube iframe (and privacy-wrapper placeholder) with a
+ * click-through facade -- localizing each video's thumbnail first, so the
+ * facade shows a real preview image rather than a bare play button on black.
+ */
+export async function proxyYoutubeEmbeds(
+  $: cheerio.CheerioAPI,
+  labels: ChromeLabels,
+): Promise<void> {
+  const containers = $(".embed-privacy-container").toArray();
+  for (const container of containers) {
     const $container = $(container);
     const link = $container.find(".embed-privacy-url a[href]").first();
     const href = link.attr("href");
@@ -40,18 +50,20 @@ export function proxyYoutubeEmbeds($: cheerio.CheerioAPI, labels: ChromeLabels):
     } else {
       $container.remove();
     }
-  });
+  }
 
-  $("iframe").each((_, iframe) => {
+  const iframes = $("iframe").toArray();
+  for (const iframe of iframes) {
     const $iframe = $(iframe);
     const src = $iframe.attr("src") || "";
     if (isYoutubeUrl(src)) {
       const videoId = extractYoutubeVideoId(src);
       if (videoId) {
-        $iframe.replaceWith(createYoutubeEmbedHtml(videoId, labels));
+        const thumbnailRef = await localizeThumbnail(videoId);
+        $iframe.replaceWith(createYoutubeEmbedHtml(videoId, labels, "", thumbnailRef));
       }
     }
-  });
+  }
 }
 
 export class FullWebsiteAggregator extends RssAggregator {
@@ -131,7 +143,7 @@ export class FullWebsiteAggregator extends RssAggregator {
     const labels = await this.chromeLabels();
     const $ = cheerio.load(html);
 
-    proxyYoutubeEmbeds($, labels);
+    await proxyYoutubeEmbeds($, labels);
 
     const headerData = article.header_data;
     if (headerData?.imageUrl) {

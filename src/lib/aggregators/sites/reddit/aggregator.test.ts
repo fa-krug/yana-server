@@ -16,6 +16,10 @@ vi.mock("./comments", async (importOriginal) => ({
   fetchPostComments: vi.fn(),
 }));
 
+vi.mock("../../images/store", () => ({
+  storeImageRefFromUrl: vi.fn(async () => "yana-img://abc123hash"),
+}));
+
 function article(overrides: Partial<RawArticle> = {}): RawArticle {
   return {
     name: "A video post",
@@ -277,6 +281,21 @@ describe("RedditAggregator.finalizeArticles video-link header caption", () => {
     ]);
 
     expect(finalized!.content).toContain("▶ View Video");
+  });
+});
+
+describe("RedditAggregator.finalizeArticles YouTube-link header thumbnail", () => {
+  it("localizes and embeds a thumbnail for a post linking to a YouTube video", async () => {
+    const agg = aggregatorFor({});
+
+    const [finalized] = await agg.finalizeArticles([
+      article({
+        _reddit_header_image_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      }),
+    ]);
+
+    expect(finalized!.content).toContain('data-embed="https://www.youtube.com/embed/dQw4w9WgXcQ"');
+    expect(finalized!.content).toContain('<img src="yana-img://abc123hash"');
   });
 });
 

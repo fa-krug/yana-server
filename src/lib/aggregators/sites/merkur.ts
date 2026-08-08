@@ -122,7 +122,7 @@ export class MerkurAggregator extends FullWebsiteAggregator {
     }
 
     const labels = await this.chromeLabels();
-    proxyYoutubeEmbeds($, labels);
+    await proxyYoutubeEmbeds($, labels);
 
     sanitizeHtmlAttributes($);
 

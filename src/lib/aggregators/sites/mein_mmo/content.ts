@@ -8,21 +8,22 @@ import {
   removeSelectors,
   sanitizeClassNames,
 } from "../../extract/clean";
+import { localizeThumbnail } from "../../embeds/dailymotion";
 import { buildDailymotionFacadeHtml } from "../../extract/format";
 import { processEmbeds } from "./embeds";
 
 /**
  * Convert div.wp-block-mmo-video blocks to click-through Dailymotion facades.
  */
-export function processDailymotionBlocks(
+export async function processDailymotionBlocks(
   $content: cheerio.Cheerio<Element>,
   $: cheerio.CheerioAPI,
   labels: ChromeLabels,
-): void {
-  const videoBlocks = $content.find("div.wp-block-mmo-video");
+): Promise<void> {
+  const videoBlocks = $content.find("div.wp-block-mmo-video").toArray();
   if (videoBlocks.length === 0) return;
 
-  videoBlocks.each((_, block) => {
+  for (const block of videoBlocks) {
     const $block = $(block);
     let videoId: string | null = null;
     $block.find("script").each((_, script) => {
@@ -33,12 +34,13 @@ export function processDailymotionBlocks(
       }
     });
 
-    if (!videoId) return;
+    if (!videoId) continue;
 
     const titleDiv = $block.find("div.title").first();
     const title = titleDiv.length > 0 ? titleDiv.text().trim() : "";
 
-    const facadeHtml = buildDailymotionFacadeHtml(videoId, labels);
+    const thumbnailRef = await localizeThumbnail(videoId);
+    const facadeHtml = buildDailymotionFacadeHtml(videoId, labels, thumbnailRef);
     const $facade = $(facadeHtml);
     const $wrapper = $("<div>").addClass("dailymotion-embed-container");
     const dataEmbed = $facade.attr("data-embed");
@@ -52,7 +54,7 @@ export function processDailymotionBlocks(
     }
 
     $block.replaceWith($wrapper);
-  });
+  }
 }
 
 /**
@@ -93,7 +95,7 @@ export async function extractMeinMmoContent(
   }
 
   // Convert Dailymotion video blocks before removal
-  processDailymotionBlocks($content, $, labels);
+  await processDailymotionBlocks($content, $, labels);
 
   // Remove unwanted elements
   removeSelectors($content, selectorsToRemove);

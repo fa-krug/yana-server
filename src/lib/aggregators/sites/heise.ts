@@ -337,7 +337,7 @@ export class HeiseAggregator extends FullWebsiteAggregator {
     const labels = await this.chromeLabels();
     const $ = cheerio.load(html);
 
-    proxyYoutubeEmbeds($, labels);
+    await proxyYoutubeEmbeds($, labels);
 
     const headerData = article.header_data;
     if (headerData?.imageUrl) {

@@ -90,10 +90,16 @@ export function extractTweetId(url: string): string | null {
 /**
  * Build a click-through Dailymotion facade -- the markup the block parser reads.
  */
-export function buildDailymotionFacadeHtml(videoId: string, labels: ChromeLabels): string {
+export function buildDailymotionFacadeHtml(
+  videoId: string,
+  labels: ChromeLabels,
+  thumbnailRef?: string | null,
+): string {
+  const thumbnailImg = thumbnailRef ? `<img src="${escapeHtml(thumbnailRef)}" alt="">` : "";
   return (
     `<div class="dailymotion-embed-container" ` +
     `data-embed="https://www.dailymotion.com/embed/video/${videoId}">` +
+    thumbnailImg +
     `<a href="https://www.dailymotion.com/video/${videoId}" ` +
     `target="_blank" rel="noopener">${labels.watchOnDailymotion}</a>` +
     `</div>`
@@ -108,6 +114,7 @@ export function buildHeaderHtml(
   headerImageUrl?: string | null,
   title = "",
   headerCaptionHtml?: string | null,
+  youtubeThumbnailRef?: string | null,
 ): string | null {
   if (!headerImageUrl) {
     return null;
@@ -115,7 +122,12 @@ export function buildHeaderHtml(
 
   const youtubeVideoId = extractYoutubeVideoId(headerImageUrl);
   if (youtubeVideoId) {
-    const youtubeEmbed = createYoutubeEmbedHtml(youtubeVideoId, labels, headerCaptionHtml || "");
+    const youtubeEmbed = createYoutubeEmbedHtml(
+      youtubeVideoId,
+      labels,
+      headerCaptionHtml || "",
+      youtubeThumbnailRef,
+    );
     return [
       '<header class="media-header" style="margin-bottom: 1.5em; text-align: center;">',
       youtubeEmbed,

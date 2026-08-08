@@ -16,6 +16,7 @@ import {
   formatArticleContent,
   isTwitterUrl,
 } from "../../extract/format";
+import { localizeThumbnail } from "../../embeds/youtube";
 import { storeImageRefFromUrl } from "../../images/store";
 
 import { getRedditAccessToken, getRedditUserSettings } from "./auth";
@@ -443,7 +444,26 @@ export class RedditAggregator extends BaseAggregator {
             headerCaptionHtml = `<p>${safeLinkHtml(videoUrl, labels.viewVideo)}</p>`;
           }
 
-          headerHtml = buildHeaderHtml(labels, renderUrl, article.name, headerCaptionHtml);
+          // A YouTube-link post's headerSourceUrl is the watch URL itself, not an
+          // image -- createYoutubeEmbedHtml() renders no thumbnail at all unless
+          // one is passed in, so without this every such post showed a bare
+          // play button on black. Same localizeThumbnail() the YouTube aggregator
+          // uses for its own embeds (src/lib/aggregators/embeds/youtube.ts).
+          let youtubeThumbnailRef: string | null = null;
+          if (isYoutubeHeader) {
+            const youtubeVideoId = extractYoutubeVideoId(headerSourceUrl);
+            if (youtubeVideoId) {
+              youtubeThumbnailRef = (await localizeThumbnail(youtubeVideoId)) || null;
+            }
+          }
+
+          headerHtml = buildHeaderHtml(
+            labels,
+            renderUrl,
+            article.name,
+            headerCaptionHtml,
+            youtubeThumbnailRef,
+          );
 
           if (headerHtml && article.content) {
             article.content = this._stripImageFromContent(article.content, headerSourceUrl);

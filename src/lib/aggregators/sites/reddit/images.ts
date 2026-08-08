@@ -11,13 +11,20 @@ import { decodeHtmlEntitiesInUrl, extractUrlsFromText, fixRedditMediaUrl } from 
 
 export function extractThumbnailUrl(post: RedditPostData): string | null {
   try {
-    // Priority 1: Try preview images (high-resolution source)
+    // Priority 1: Try preview images (high-resolution source), falling back to
+    // the largest `resolutions` entry when `source` itself is missing --
+    // Reddit orders that array smallest-to-largest.
     const images = post.preview?.images;
     if (images && images.length > 0) {
       const sourceUrl = images[0]?.source?.url;
       if (sourceUrl) {
         const decoded = decodeHtmlEntitiesInUrl(sourceUrl);
         return fixRedditMediaUrl(decoded);
+      }
+      const resolutions = images[0]?.resolutions;
+      const largest = resolutions?.[resolutions.length - 1]?.url;
+      if (largest) {
+        return fixRedditMediaUrl(decodeHtmlEntitiesInUrl(largest));
       }
     }
 
@@ -54,9 +61,15 @@ export function extractRedditVideoPreview(post: RedditPostData): string | null {
     const images = post.preview?.images;
     if (!images || images.length === 0) return null;
     const sourceUrl = images[0]?.source?.url;
-    if (!sourceUrl) return null;
-    const decoded = decodeHtmlEntitiesInUrl(sourceUrl);
-    return fixRedditMediaUrl(decoded);
+    if (sourceUrl) {
+      return fixRedditMediaUrl(decodeHtmlEntitiesInUrl(sourceUrl));
+    }
+    const resolutions = images[0]?.resolutions;
+    const largest = resolutions?.[resolutions.length - 1]?.url;
+    if (largest) {
+      return fixRedditMediaUrl(decodeHtmlEntitiesInUrl(largest));
+    }
+    return null;
   } catch {
     return null;
   }

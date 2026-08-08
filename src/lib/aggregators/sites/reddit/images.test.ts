@@ -8,7 +8,7 @@ vi.mock("../../images/extractor", async () => {
 });
 
 import { extractImages } from "../../images/extractor";
-import { extractHeaderImageUrl } from "./images";
+import { extractHeaderImageUrl, extractRedditVideoPreview, extractThumbnailUrl } from "./images";
 
 describe("extractHeaderImageUrl", () => {
   afterEach(() => {
@@ -74,6 +74,73 @@ describe("extractHeaderImageUrl", () => {
     const post = new RedditPostData({ url: "https://example.com/article", is_self: false });
 
     const result = await extractHeaderImageUrl(post);
+    expect(result).toBeNull();
+  });
+});
+
+describe("extractThumbnailUrl", () => {
+  it("falls back to the largest resolutions entry when source is missing", () => {
+    const post = new RedditPostData({
+      preview: {
+        images: [
+          {
+            resolutions: [
+              { url: "https://preview.redd.it/small.jpg?width=108" },
+              { url: "https://preview.redd.it/large.jpg?width=960" },
+            ],
+          },
+        ],
+      },
+    });
+
+    const result = extractThumbnailUrl(post);
+    expect(result).toBe("https://preview.redd.it/large.jpg?width=960");
+  });
+
+  it("prefers source over resolutions when both are present", () => {
+    const post = new RedditPostData({
+      preview: {
+        images: [
+          {
+            source: { url: "https://preview.redd.it/source.jpg" },
+            resolutions: [{ url: "https://preview.redd.it/small.jpg" }],
+          },
+        ],
+      },
+    });
+
+    const result = extractThumbnailUrl(post);
+    expect(result).toBe("https://preview.redd.it/source.jpg");
+  });
+});
+
+describe("extractRedditVideoPreview", () => {
+  it("falls back to the largest resolutions entry when source is missing", () => {
+    const post = new RedditPostData({
+      url: "https://v.redd.it/abc123",
+      preview: {
+        images: [
+          {
+            resolutions: [
+              { url: "https://preview.redd.it/small.jpg?width=108" },
+              { url: "https://preview.redd.it/large.jpg?width=960" },
+            ],
+          },
+        ],
+      },
+    });
+
+    const result = extractRedditVideoPreview(post);
+    expect(result).toBe("https://preview.redd.it/large.jpg?width=960");
+  });
+
+  it("returns null when neither source nor resolutions are present", () => {
+    const post = new RedditPostData({
+      url: "https://v.redd.it/abc123",
+      preview: { images: [{}] },
+    });
+
+    const result = extractRedditVideoPreview(post);
     expect(result).toBeNull();
   });
 });

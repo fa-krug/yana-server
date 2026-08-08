@@ -116,6 +116,15 @@ function extractVideoId(element: Element, $: CheerioAPI): string | null {
 }
 
 /**
+ * Localize a Dailymotion thumbnail. Returns a `yana-img://<hash>` ref, or an
+ * empty string on failure.
+ */
+export async function localizeThumbnail(videoId: string): Promise<string> {
+  const ref = await storeImageRefFromUrl(thumbnailUrlFor(videoId), { isHeader: true });
+  return ref ?? "";
+}
+
+/**
  * Convert a Dailymotion embed element into a typed EmbedBlock.
  */
 export async function convertDailymotion(
@@ -126,8 +135,7 @@ export async function convertDailymotion(
   const videoId = extractVideoId(element, $);
   if (!videoId) return null;
 
-  const thumbUrl = thumbnailUrlFor(videoId);
-  const thumbnailRef = (await storeImageRefFromUrl(thumbUrl, { isHeader: true })) ?? "";
+  const thumbnailRef = await localizeThumbnail(videoId);
 
   return {
     kind: "embed",

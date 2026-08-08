@@ -8,6 +8,10 @@ vi.mock("../../embeds/bluesky", async (importOriginal) => {
   return { ...actual, buildBlueskyEmbedHtml: vi.fn() };
 });
 
+vi.mock("../../images/store", () => ({
+  storeImageRefFromUrl: vi.fn(async () => "yana-img://abc123hash"),
+}));
+
 import { buildBlueskyEmbedHtml } from "../../embeds/bluesky";
 
 const mockBuildBluesky = vi.mocked(buildBlueskyEmbedHtml);
@@ -65,6 +69,9 @@ describe("processEmbeds - other processors still run under the async loop", () =
 
     expect($content.find("figure").length).toBe(0);
     expect($content.find('div[data-sanitized-class="youtube-embed"]').length).toBe(1);
+    expect($content.find('div[data-sanitized-class="youtube-embed"] img').attr("src")).toBe(
+      "yana-img://abc123hash",
+    );
   });
 
   it("still converts a Reddit figure with a thumbnail image", async () => {

@@ -1,8 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { FeedLike, RawArticle } from "./base";
 import { ArticleSkipError } from "./errors";
 import { FullWebsiteAggregator, RssSummaryFallbackAggregator } from "./website";
+
+vi.mock("./images/store", () => ({
+  storeImageRefFromUrl: vi.fn(async () => "yana-img://abc123hash"),
+}));
 
 function makeArticle(identifier: string): RawArticle {
   return {
@@ -87,6 +91,9 @@ describe("FullWebsiteAggregator", () => {
     expect(processed).toContain("dQw4w9WgXcQ");
     expect(processed).not.toContain("<iframe");
     expect(processed).toContain("Watch on YouTube");
+    // The facade must carry a localized thumbnail, not just a bare play
+    // button on black -- see localizeThumbnail() in ./embeds/youtube.ts.
+    expect(processed).toContain('<img src="yana-img://abc123hash"');
   });
 });
 

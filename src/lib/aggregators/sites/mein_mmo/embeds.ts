@@ -2,6 +2,7 @@ import * as cheerio from "cheerio";
 import type { Element } from "domhandler";
 import type { ChromeLabels } from "../../chrome-labels";
 import { buildBlueskyEmbedHtml, isBlueskyUrl } from "../../embeds/bluesky";
+import { localizeThumbnail } from "../../embeds/youtube";
 import { buildYoutubeFacadeHtml } from "../../extract/format";
 
 export interface EmbedProcessorStrategy {
@@ -21,11 +22,11 @@ export class YouTubeEmbedProcessor implements EmbedProcessorStrategy {
     return keywords.some((kw) => classStr.includes(kw) || sanitizedClass.includes(kw));
   }
 
-  process(
+  async process(
     figure: cheerio.Cheerio<Element>,
     $: cheerio.CheerioAPI,
     labels: ChromeLabels,
-  ): cheerio.Cheerio<Element> | null {
+  ): Promise<cheerio.Cheerio<Element> | null> {
     const videoId = this.extractVideoId(figure, $);
     if (!videoId) return null;
 
@@ -33,7 +34,8 @@ export class YouTubeEmbedProcessor implements EmbedProcessorStrategy {
       "data-sanitized-class",
       "youtube-embed",
     );
-    const facadeHtml = buildYoutubeFacadeHtml(videoId, labels);
+    const thumbnailRef = await localizeThumbnail(videoId);
+    const facadeHtml = buildYoutubeFacadeHtml(videoId, labels, thumbnailRef);
     const $facade = $(facadeHtml);
     const dataEmbed = $facade.attr("data-embed");
     if (dataEmbed) {
@@ -287,11 +289,11 @@ export class YouTubeFallbackProcessor implements EmbedProcessorStrategy {
     return false;
   }
 
-  process(
+  async process(
     figure: cheerio.Cheerio<Element>,
     $: cheerio.CheerioAPI,
     labels: ChromeLabels,
-  ): cheerio.Cheerio<Element> | null {
+  ): Promise<cheerio.Cheerio<Element> | null> {
     let videoId: string | null = null;
     const anchors = figure.find("a[href]").toArray();
     for (const a of anchors) {
@@ -313,7 +315,8 @@ export class YouTubeFallbackProcessor implements EmbedProcessorStrategy {
       "data-sanitized-class",
       "youtube-embed",
     );
-    const facadeHtml = buildYoutubeFacadeHtml(videoId, labels);
+    const thumbnailRef = await localizeThumbnail(videoId);
+    const facadeHtml = buildYoutubeFacadeHtml(videoId, labels, thumbnailRef);
     const $facade = $(facadeHtml);
     const dataEmbed = $facade.attr("data-embed");
     if (dataEmbed) {

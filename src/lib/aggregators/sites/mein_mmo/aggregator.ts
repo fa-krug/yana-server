@@ -133,7 +133,7 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
     const $ = cheerio.load(html);
 
     // Replace YouTube iframes with click-through facades
-    proxyYoutubeEmbeds($, labels);
+    await proxyYoutubeEmbeds($, labels);
 
     // Remove header image from content if extracted
     const headerData = article.header_data;

@@ -24,6 +24,7 @@ export interface RedditPreviewVariants {
 
 export interface RedditPreviewImage {
   source?: RedditMediaSource;
+  resolutions?: RedditMediaSource[];
   variants?: RedditPreviewVariants;
 }
 
