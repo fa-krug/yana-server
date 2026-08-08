@@ -1370,4 +1370,144 @@ describe("src/lib/jobs/handlers", () => {
       expect(article!.rawContent).toBe(freshPage);
     });
   });
+
+  describe("reload credential and AI-option wiring", () => {
+    it("resolves the feed owner's stored credentials before creating the aggregator", async () => {
+      vi.resetModules();
+      const createAggregatorMock = vi.fn((_feed: { options?: Record<string, unknown> }) => ({
+        fetchArticleContent: vi.fn().mockResolvedValue("<p>Fresh from source</p>"),
+        extractHeaderElement: async () => null,
+        extractContent: (html: string) => html,
+        processContent: (html: string) => html,
+      }));
+      vi.doMock("@/lib/aggregators/factory", () => ({
+        createAggregator: createAggregatorMock,
+      }));
+      handlers = await import("./index");
+
+      let feedId = 0;
+      let articleId = 0;
+      client.writeTransaction((db) => {
+        db.insert(schema.users).values({ id: "yt-user", email: "yt@example.com" }).run();
+        db.insert(schema.userSettings)
+          .values({ userId: "yt-user", youtubeEnabled: true, youtubeApiKey: "yt-secret-key" })
+          .run();
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "YT Feed", userId: "yt-user", aggregator: "youtube" })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedId = feed.id;
+
+        const article = db
+          .insert(schema.articles)
+          .values({
+            name: "Video",
+            identifier: "https://www.youtube.com/watch?v=abc123",
+            feedId,
+            rawContent: "<p>stale</p>",
+            date: new Date(),
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        articleId = article.id;
+      });
+
+      const reloadHandler = handlers.getHandler("article.reload");
+      const job = makeJob("article.reload", { articleId });
+      await reloadHandler!(job);
+
+      expect(createAggregatorMock).toHaveBeenCalledTimes(1);
+      const passedFeed = createAggregatorMock.mock.calls[0]![0];
+      expect(passedFeed.options).toMatchObject({ youtube_api_key: "yt-secret-key" });
+    });
+
+    it("re-applies the feed's AI options (e.g. translation) to the freshly reloaded content", async () => {
+      vi.resetModules();
+      let contentSeenByAi = "";
+      const applyAiOptionsMock = vi.fn(
+        async (
+          article: { name?: string; content?: string; [key: string]: unknown },
+          _options?: Record<string, unknown> | null,
+          _userSettings?: Record<string, unknown>,
+        ) => {
+          contentSeenByAi = article.content || "";
+          article.name = "Translated Title";
+          article.content = "<p>Translated content</p>";
+          return article;
+        },
+      );
+      vi.doMock("@/lib/ai/run", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("@/lib/ai/run")>();
+        return { ...actual, applyAiOptions: applyAiOptionsMock };
+      });
+      vi.doMock("@/lib/aggregators/factory", () => ({
+        createAggregator: () => ({
+          fetchArticleContent: vi.fn().mockResolvedValue("<p>Fresh from source</p>"),
+          extractHeaderElement: async () => null,
+          extractContent: (html: string) => html,
+          processContent: (html: string) => html,
+        }),
+      }));
+      handlers = await import("./index");
+
+      let feedId = 0;
+      let articleId = 0;
+      client.writeTransaction((db) => {
+        db.insert(schema.users).values({ id: "ai-user", email: "ai@example.com" }).run();
+        db.insert(schema.userSettings)
+          .values({
+            userId: "ai-user",
+            activeAiProvider: "openai",
+            openaiEnabled: true,
+            openaiApiKey: "sk-test",
+          })
+          .run();
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({
+            name: "Feed",
+            userId: "ai-user",
+            options: { ai_translate: true, ai_translate_language: "German" },
+          })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedId = feed.id;
+
+        const article = db
+          .insert(schema.articles)
+          .values({
+            name: "Original Title",
+            identifier: "https://example.com/art-1",
+            feedId,
+            rawContent: "<p>stale</p>",
+            date: new Date(),
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        articleId = article.id;
+      });
+
+      const reloadHandler = handlers.getHandler("article.reload");
+      const job = makeJob("article.reload", { articleId });
+      await reloadHandler!(job);
+
+      expect(applyAiOptionsMock).toHaveBeenCalledTimes(1);
+      const [, optionsArg, settingsArg] = applyAiOptionsMock.mock.calls[0]!;
+      expect(contentSeenByAi).toBe("<p>Fresh from source</p>");
+      expect(optionsArg).toMatchObject({ ai_translate: true });
+      expect(settingsArg).toMatchObject({ userId: "ai-user", activeAiProvider: "openai" });
+
+      const reloaded = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, articleId))
+        .get();
+      expect(reloaded?.name).toBe("Translated Title");
+      expect(reloaded?.plainText).toContain("Translated content");
+    });
+  });
 });

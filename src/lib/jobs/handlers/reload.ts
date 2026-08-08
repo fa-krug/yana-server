@@ -4,9 +4,11 @@ import type { RawArticle } from "@/lib/aggregators/base";
 import { parseBlocks, plainTextOf } from "@/lib/aggregators/blocks/parser";
 import { writeBlocks } from "@/lib/aggregators/blocks/storage";
 import type { Block } from "@/lib/aggregators/blocks/types";
+import { resolveFeedCredentials } from "@/lib/aggregators/credential-resolution";
 import { createAggregator } from "@/lib/aggregators/factory";
+import { applyAiOptions } from "@/lib/ai/run";
 import { getDb, writeTransaction } from "@/lib/db/client";
-import { articles, feeds, type Job } from "@/lib/db/schema";
+import { articles, feeds, userSettings, type Job } from "@/lib/db/schema";
 import { appendLogLine } from "../queue";
 
 function buildErrorBlocks(message: string): Block[] {
@@ -34,6 +36,21 @@ function buildErrorBlocks(message: string): Block[] {
  * retrying the job would not help with a deterministic failure
  * (fetchArticleContent already exhausts its own retry budget for transient
  * ones).
+ *
+ * The feed is run through `resolveFeedCredentials()` before
+ * `createAggregator()`, the same as `aggregate.ts` and `logo.ts` -- without it
+ * `feed.options` carries none of the owner's stored YouTube/Reddit
+ * credentials, and YouTube's `fetchArticleContent()` (which needs an API key
+ * to call `videos.list`) fails every time, landing in the error-notice branch
+ * above instead of ever reaching the source.
+ *
+ * AI post-processing (`applyAiOptions()`, the feed's summarize/improve/translate
+ * options) runs between `extractContent()` and `processContent()`, mirroring
+ * `enrichArticles()` -> `finalizeArticles()`'s order on a fresh aggregation run:
+ * it needs the *distilled* content extractContent() produced, before
+ * processContent() splices in embeds/header markup the AI call has no reason
+ * to see. A translated title is written back too, since that is a field
+ * `applyAiOptions()` can change.
  */
 export async function handleReloadJob(job: Job): Promise<void> {
   const articleId = Number(job.payload?.articleId);
@@ -55,7 +72,7 @@ export async function handleReloadJob(job: Job): Promise<void> {
     return;
   }
 
-  const aggregator = createAggregator(feed);
+  const aggregator = createAggregator(resolveFeedCredentials(feed));
 
   let freshHtml: string;
   try {
@@ -96,8 +113,12 @@ export async function handleReloadJob(job: Job): Promise<void> {
   const headerData = await aggregator.extractHeaderElement(rawArticle);
   if (headerData) rawArticle.header_data = headerData;
 
-  const extracted = await aggregator.extractContent(freshHtml, rawArticle);
-  const processed = await aggregator.processContent(extracted, rawArticle);
+  rawArticle.content = await aggregator.extractContent(freshHtml, rawArticle);
+
+  const settings = db.select().from(userSettings).where(eq(userSettings.userId, feed.userId)).get();
+  await applyAiOptions(rawArticle, feed.options, settings);
+
+  const processed = await aggregator.processContent(rawArticle.content || "", rawArticle);
 
   const blocks = parseBlocks(processed, article.identifier);
   const plainText = plainTextOf(blocks);
@@ -106,7 +127,12 @@ export async function handleReloadJob(job: Job): Promise<void> {
 
   writeTransaction((tx) => {
     tx.update(articles)
-      .set({ rawContent: freshHtml, plainText, updatedAt: new Date() })
+      .set({
+        name: rawArticle.name || article.name,
+        rawContent: freshHtml,
+        plainText,
+        updatedAt: new Date(),
+      })
       .where(eq(articles.id, article.id))
       .run();
   });
