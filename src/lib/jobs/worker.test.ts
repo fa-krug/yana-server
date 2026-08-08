@@ -101,21 +101,62 @@ describe("src/lib/jobs/worker", () => {
     expect(job?.error).toBe("Job processing failed");
   });
 
-  it("enforces job timeout", async () => {
+  it("requests cancellation, but does not fail or abandon the handler, when it exceeds its time budget", async () => {
+    // A handler with no isCancelRequested() checkpoint (most don't have one --
+    // only aggregate.ts and retention.ts do) can't react to the request, so it
+    // keeps running exactly as it would have before -- the fix is that the
+    // worker no longer lies about the job being "failed" out from under it
+    // while that happens, and does not claim a second, concurrent execution
+    // of the same job in the meantime.
     handlers.registerHandler("slow.job", async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 300));
     });
 
     const id = queue.enqueue("slow.job", {}, { maxAttempts: 1 });
 
-    const loopPromise = worker.runWorkerLoop({ pollIntervalMs: 50, timeoutMs: 100 });
+    const loopPromise = worker.runWorkerLoop({ pollIntervalMs: 20, timeoutMs: 100 });
+
+    // Well past the 100ms budget, but before the 300ms handler finishes:
+    // cancellation has been requested, yet the job is still genuinely running
+    // -- not "failed", and nothing else could have claimed it.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(queue.getJob(id)?.status).toBe("cancelling");
+
+    // Let the handler actually finish.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    worker.stopWorker();
+    await loopPromise;
+
+    const job = queue.getJob(id);
+    expect(job?.status).toBe("completed");
+
+    const lines = queue.listJobLogs(id).map((l) => l.line);
+    expect(lines).toEqual([
+      "job started (attempt 1/1)",
+      "job exceeded its 100ms time budget -- requesting cancellation",
+      "job completed (after exceeding its time budget)",
+    ]);
+  });
+
+  it("cancels rather than fails a job that notices the cancellation request after exceeding its time budget", async () => {
+    handlers.registerHandler("cooperative.slow.job", async (job) => {
+      const { JobCancelledError } = await import("./errors");
+      while (!queue.isCancelRequested(job.id)) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      throw new JobCancelledError();
+    });
+
+    const id = queue.enqueue("cooperative.slow.job", {}, { maxAttempts: 3 });
+
+    const loopPromise = worker.runWorkerLoop({ pollIntervalMs: 20, timeoutMs: 50 });
     await new Promise((resolve) => setTimeout(resolve, 300));
     worker.stopWorker();
     await loopPromise;
 
     const job = queue.getJob(id);
-    expect(job?.status).toBe("failed");
-    expect(job?.error).toContain("timed out");
+    expect(job?.status).toBe("cancelled");
+    expect(job?.attempts).toBe(1);
   });
 
   it("logs lifecycle markers around a handler's execution, without capturing its console output", async () => {

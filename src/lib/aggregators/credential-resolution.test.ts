@@ -279,4 +279,55 @@ describe("resolveFeedCredentials", () => {
 
     expect(options).not.toHaveProperty("youtube_api_key");
   });
+
+  it("uses a passed-in settings row instead of querying for one, so a caller that already read it doesn't pay twice", () => {
+    let feed: Feed;
+    let dbSettings: typeof schema.userSettings.$inferSelect | undefined;
+
+    client.writeTransaction((db) => {
+      db.insert(schema.users).values({ id: "known-settings", email: "ks@example.com" }).run();
+      dbSettings = db
+        .insert(schema.userSettings)
+        .values({ userId: "known-settings", youtubeEnabled: true, youtubeApiKey: "db-key" })
+        .returning()
+        .get();
+      feed = db
+        .insert(schema.feeds)
+        .values({ name: "chan", userId: "known-settings", aggregator: "youtube" })
+        .returning()
+        .get();
+    });
+
+    // A copy of the real row with a different key -- if resolveFeedCredentials
+    // used this instead of querying, the DB's "db-key" never enters the result.
+    const handedInSettings = { ...dbSettings!, youtubeApiKey: "hand-key" };
+
+    const resolved = resolution.resolveFeedCredentials(feed!, handedInSettings);
+
+    expect((resolved.options as Record<string, unknown>).youtube_api_key).toBe("hand-key");
+  });
+
+  it("treats an explicit null settings row as 'already checked, none exists' rather than querying", () => {
+    let feed: Feed;
+
+    client.writeTransaction((db) => {
+      db.insert(schema.users).values({ id: "explicit-null", email: "en@example.com" }).run();
+      db.insert(schema.userSettings)
+        .values({ userId: "explicit-null", youtubeEnabled: true, youtubeApiKey: "would-be-found" })
+        .run();
+      feed = db
+        .insert(schema.feeds)
+        .values({ name: "chan", userId: "explicit-null", aggregator: "youtube" })
+        .returning()
+        .get();
+    });
+
+    // A caller passing `null` is asserting it already looked and found
+    // nothing -- resolveFeedCredentials must trust that rather than querying
+    // user_settings itself, which does have a row for this user.
+    const resolved = resolution.resolveFeedCredentials(feed!, null);
+
+    expect(resolved).toBe(feed!);
+    expect(resolved.options).toEqual({});
+  });
 });

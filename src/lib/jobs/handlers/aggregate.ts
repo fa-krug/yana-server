@@ -1,11 +1,11 @@
-import { and, eq } from "drizzle-orm";
+import { and, count, eq, gte } from "drizzle-orm";
 
 import { parseBlocks, plainTextOf } from "@/lib/aggregators/blocks/parser";
 import { writeBlocks } from "@/lib/aggregators/blocks/storage";
 import { resolveFeedCredentials } from "@/lib/aggregators/credential-resolution";
 import { createAggregator } from "@/lib/aggregators/factory";
 import { getDb, writeTransaction } from "@/lib/db/client";
-import { articles, feeds, type Job } from "@/lib/db/schema";
+import { articles, feeds, userSettings, type Job } from "@/lib/db/schema";
 import { JobCancelledError } from "../errors";
 import { appendLogLine, isCancelRequested, progress } from "../queue";
 
@@ -23,9 +23,37 @@ export async function handleAggregateJob(job: Job): Promise<void> {
     return;
   }
 
+  // Without this, `aggregate()` -> `finalizeArticles()` -> `applyAiProcessing()`
+  // calls `applyAiOptions()` with `userSettings` undefined, which is an early
+  // return (see its own "No userSettings provided" guard) -- so a feed's
+  // summarize/improve-writing/translate options never ran on a freshly
+  // aggregated article at all, not just on reload. Read once and handed to
+  // resolveFeedCredentials() too, which would otherwise re-run the identical
+  // query for the same row.
+  const settings = db.select().from(userSettings).where(eq(userSettings.userId, feed.userId)).get();
+
+  // getCurrentRunLimit()'s pacing formula (see base.ts) is meant to spread a
+  // feed's dailyLimit across the day rather than spending it all on the
+  // first run -- but every call site left `collectedToday` at its default of
+  // 0, so every run computed its allowance as though nothing had been
+  // collected yet today, regardless of how many runs already had been.
+  // `createdAt` is set once at insert and never revisited (the same property
+  // sync.ts's cursor relies on), so counting today's rows for this feed is
+  // exactly "how many articles has this feed collected today."
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const collectedToday =
+    db
+      .select({ value: count() })
+      .from(articles)
+      .where(and(eq(articles.feedId, feedId), gte(articles.createdAt, startOfToday)))
+      .get()?.value ?? 0;
+
   appendLogLine(job.id, "stdout", `aggregating feed "${feed.name}" (${feed.aggregator})`);
-  const aggregator = createAggregator(resolveFeedCredentials(feed));
-  const rawArticles = await aggregator.aggregate();
+  const aggregator = createAggregator(resolveFeedCredentials(feed, settings ?? null));
+  const rawArticles = await aggregator.aggregate(undefined, collectedToday, settings, (percent) =>
+    progress(job.id, percent),
+  );
   appendLogLine(job.id, "stdout", `fetched ${rawArticles.length} articles`);
 
   if (rawArticles.length === 0) {
@@ -117,7 +145,10 @@ export async function handleAggregateJob(job: Job): Promise<void> {
       await writeBlocks(articleId, blocks);
     }
 
-    progress(job.id, Math.floor(((i + 1) / total) * 100));
+    // aggregator.aggregate() above already reported up to 80% for the slow
+    // network/AI work; this loop is the fast local DB-write remainder, so it
+    // only claims the last 20%.
+    progress(job.id, 80 + Math.floor(((i + 1) / total) * 20));
   }
 
   writeTransaction((tx) => {

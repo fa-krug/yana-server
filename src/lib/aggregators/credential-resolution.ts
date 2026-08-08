@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 
 import { getDb } from "@/lib/db/client";
-import { type Feed, userSettings } from "@/lib/db/schema";
+import { type Feed, type UserSettings, userSettings } from "@/lib/db/schema";
 
 /**
  * Merges the feed owner's stored integration credentials (Reddit, YouTube)
@@ -36,13 +36,18 @@ import { type Feed, userSettings } from "@/lib/db/schema";
  * it, and a failed gate **omits the keys entirely** rather than writing an
  * empty string -- whatever is already in `feed.options`, or the aggregator's
  * own env-var fallback, is then what gets consulted.
+ *
+ * `knownSettings` lets a caller that already has the owner's `user_settings`
+ * row (both `aggregate.ts` and `reload.ts` read it themselves, to hand a real
+ * one to `applyAiOptions()`) pass it in instead of this function re-querying
+ * the same row a second time in the same handler invocation. Omit it and this
+ * queries for itself, as every existing caller and test still does.
  */
-export function resolveFeedCredentials(feed: Feed): Feed {
-  const settings = getDb()
-    .select()
-    .from(userSettings)
-    .where(eq(userSettings.userId, feed.userId))
-    .get();
+export function resolveFeedCredentials(feed: Feed, knownSettings?: UserSettings | null): Feed {
+  const settings =
+    knownSettings !== undefined
+      ? knownSettings
+      : getDb().select().from(userSettings).where(eq(userSettings.userId, feed.userId)).get();
   if (!settings) return feed;
 
   const redditConfigured = Boolean(

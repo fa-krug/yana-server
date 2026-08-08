@@ -29,9 +29,9 @@ export interface RawArticle {
 
 /**
  * Per-user preferences threaded through to AI post-processing
- * (`applyAiOptions` in `../ai/run`). No job handler wires a real value in yet
- * -- `src/lib/jobs/handlers/aggregate.ts` calls `aggregate()` with no
- * userSettings at all -- so this models the eventual caller: the real,
+ * (`applyAiOptions` in `../ai/run`). Both `src/lib/jobs/handlers/aggregate.ts`
+ * and `reload.ts` read the feed owner's row directly (there is no session to
+ * call `getSettings()` from in a job handler) and pass it in here: the real,
  * camelCase `UserSettings` row from `src/lib/db/schema/users.ts` (the same
  * type `getSettings()` returns), plus the snake_case fallback keys `AIClient`
  * (`../ai/run`) also reads for parity with the retired Django settings object.
@@ -254,10 +254,24 @@ export abstract class BaseAggregator {
     this.feed.options = options;
   }
 
+  /**
+   * `onProgress`, if given, is called with a coarse 0-100 estimate after each
+   * pipeline stage. `aggregate.ts`'s own per-article DB-write loop is fast
+   * (local SQLite writes only) next to everything in here -- the source
+   * fetch, per-article enrichment (comments, header images, full-page
+   * fetches) and now AI summarize/improve/translate -- so without this a
+   * job's progress sat at 0% for nearly its whole real duration and then
+   * jumped straight to 100% during the cheap part, which reads as "stuck"
+   * to anyone watching a running job. The percentages are deliberately
+   * coarse boundaries, not a measured fraction of work done (there's no way
+   * to know how long a given feed's enrichment will take up front) --
+   * they exist so the number moves, not so it's precise.
+   */
   async aggregate(
     clock?: () => Date,
     collectedToday?: number,
     userSettings?: AggregatorUserSettings,
+    onProgress?: (percent: number) => void,
   ): Promise<RawArticle[]> {
     this.validate();
     const limit = this.getCurrentRunLimit(clock, collectedToday);
@@ -265,10 +279,14 @@ export abstract class BaseAggregator {
       return [];
     }
     const sourceData = await this.fetchSourceData(limit);
+    onProgress?.(10);
     let articles = await this.parseToRawArticles(sourceData);
     articles = await this.filterArticles(articles);
+    onProgress?.(20);
     articles = await this.enrichArticles(articles);
+    onProgress?.(60);
     articles = await this.finalizeArticles(articles, userSettings);
+    onProgress?.(80);
     return articles;
   }
 }
