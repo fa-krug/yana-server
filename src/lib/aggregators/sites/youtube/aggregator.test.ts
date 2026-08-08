@@ -33,6 +33,17 @@ function enrichmentArticle(videoId: string): RawArticle {
   };
 }
 
+describe("YouTubeAggregator.extractHeaderElement", () => {
+  it("returns null without fetching anything, since processContent() never reads header_data", async () => {
+    const agg = aggregatorFor();
+    const article = enrichmentArticle("abc123");
+
+    const result = await agg.extractHeaderElement(article);
+
+    expect(result).toBeNull();
+  });
+});
+
 describe("YouTubeAggregator.buildContentHtml", () => {
   it("escapes a description containing a script tag", () => {
     const agg = aggregatorFor();
