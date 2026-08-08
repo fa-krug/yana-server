@@ -7,16 +7,16 @@
  * module's `queries.ts`: everything here is rendered by the `/ai` page's client
  * components -- the provider tabs, the model `<Select>`, whether a base-URL
  * field appears at all -- so anything reachable from here reaches the browser
- * bundle. The six live probes are `fetch` calls that only a server action ever
- * makes, and they are one import away in `./probes`, keyed by the same
+ * bundle. The seven live probes are `fetch` calls that only a server action
+ * ever makes, and they are one import away in `./probes`, keyed by the same
  * `AiProviderKey`. Splitting them was a human ruling; keep the halves apart.
  *
- * **Why a registry rather than six hand-written sections.** Phase 6 shipped
+ * **Why a registry rather than seven hand-written sections.** Phase 6 shipped
  * two credential providers as two near-twin sequences and phase 7's refactor
  * turned that into `defineIntegrationIn()` precisely because five copies is a
- * drift problem rather than a length one. These six are declared the same
- * way: adding a seventh provider is an entry in `AI_PROVIDERS` plus an entry in
- * `AI_PROBES`, not an edit to the form, the action and the client.
+ * drift problem rather than a length one. These seven are declared the same
+ * way: adding an eighth provider is an entry in `AI_PROVIDERS` plus an entry
+ * in `AI_PROBES`, not an edit to the form, the action and the client.
  */
 
 export type AiProviderKey =
@@ -170,7 +170,7 @@ export type AiProvider = {
 };
 
 /**
- * The six providers, in the order the page renders them.
+ * The seven providers, in the order the page renders them.
  *
  * **Model lists were looked up, not carried over, and they go stale.** Each
  * entry carries the date and the vendor page it was read from, because the

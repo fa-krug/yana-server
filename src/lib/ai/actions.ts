@@ -22,28 +22,28 @@ import {
 import type { AiKey, AiResult, AiSaveResult } from "./result";
 
 /**
- * Everything `/ai` writes: six provider credentials, which provider is
+ * Everything `/ai` writes: seven provider credentials, which provider is
  * active, and the nine global tuning values.
  *
- * **The six providers are a table, not six sequences.** Parse, load the row,
- * resolve each secret, guard the empty case, probe, log, judge, write -- all of
- * that lives once in `@/lib/integrations/define`, extracted in task R2 for
- * exactly this moment. What a provider *is* lives here as a declaration. Phase
- * 6's two credential cards plus these six is eight, and the risk in eight
- * near-twin sequences is not their length but the drift *between* them, which no
- * test of any one of them can see.
+ * **The seven providers are a table, not seven sequences.** Parse, load the
+ * row, resolve each secret, guard the empty case, probe, log, judge, write --
+ * all of that lives once in `@/lib/integrations/define`, extracted in task R2
+ * for exactly this moment. What a provider *is* lives here as a declaration.
+ * Phase 6's two credential cards plus these seven is nine, and the risk in
+ * nine near-twin sequences is not their length but the drift *between* them,
+ * which no test of any one of them can see.
  *
  * Every rule the integrations actions live under applies here unchanged -- read
  * that file's header for them -- plus two this page adds:
  *
  * 1. **`quotaMeansVerified` is read from the registry, never typed in here.**
- *    The six providers do not all give the same answer -- `false` for OpenAI,
- *    `true` for the other five, each for its own reason -- and the reasoning
- *    lives beside the field in `./providers` and, duplicated on purpose for
- *    the three whose probes classify a 429 themselves, at each probe's 429
- *    branch. A literal in this file would be a copy able to drift from any of
- *    the six, which is the precise failure the field was made required to
- *    prevent.
+ *    The seven providers do not all give the same answer -- `false` for
+ *    OpenAI and OpenRouter, `true` for the other five, each for its own
+ *    reason -- and the reasoning lives beside the field in `./providers` and,
+ *    duplicated on purpose for the three whose probes classify a 429
+ *    themselves, at each probe's 429 branch. A literal in this file would be a
+ *    copy able to drift from any of the seven, which is the precise failure
+ *    the field was made required to prevent.
  * 2. **`active_ai_provider` is a preference; the `*Enabled` flag is the
  *    permission.** Nothing here erases the preference when a flag goes false --
  *    which provider is *actually* active is derived on the read side by
@@ -188,7 +188,7 @@ const openrouterModelField = z.string().trim().min(1).max(200);
  * The registry entry for a provider key that is already known to be one.
  *
  * Unreachable in practice -- `providers.test.ts` pins `AI_PROVIDERS` to exactly
- * these six keys -- and it throws rather than substituting a default because
+ * these seven keys -- and it throws rather than substituting a default because
  * inventing a `quotaMeansVerified` here is precisely the inheritance the
  * required field exists to prevent.
  */
@@ -203,14 +203,16 @@ function registryEntry(key: AiProviderKey): AiProvider {
  * empty credential and the one for an unlisted model.
  *
  * **`quota` is named per its arm, not per its cause**, which is why the wording
- * splits in two rather than six ways. For Anthropic, Gemini, Mistral, Qwen and
- * DeepSeek -- every `quotaMeansVerified: true` provider -- a rate limit is a
- * *notice on a success* -- the key was accepted, only the budget is gone -- so
- * the key reads "the key is valid, and…". For OpenAI, the one `false`, the same
- * cause lands in the arm that writes nothing, because its base URL is an
- * operator setting and a gateway can shed load before reading the
- * `Authorization` header, so the key reads "could not be verified". Which arm
- * each one lands in is `quotaMeansVerified` below, read from the registry.
+ * splits in two rather than seven ways. For Anthropic, Gemini, Mistral, Qwen
+ * and DeepSeek -- every `quotaMeansVerified: true` provider -- a rate limit is
+ * a *notice on a success* -- the key was accepted, only the budget is gone --
+ * so the key reads "the key is valid, and…". For OpenAI and OpenRouter, the
+ * two `false` providers, the same cause lands in the arm that writes nothing,
+ * for their own separate reasons (OpenAI's base URL is an operator setting and
+ * a gateway can shed load before reading the `Authorization` header;
+ * OpenRouter's own edge is itself that gateway), so the key reads "could not
+ * be verified" for both. Which arm each one lands in is `quotaMeansVerified`
+ * below, read from the registry.
  *
  * **`rejected` is worded broadly on purpose.** Three quite different answers
  * reach it: a key the provider does not know, OpenAI's `insufficient_quota` and

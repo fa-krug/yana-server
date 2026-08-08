@@ -108,8 +108,8 @@ export function activeProvider(settings: UserSettings): AiProviderKey | "" {
 export async function getAiStatus(): Promise<AiStatus> {
   const settings = await getSettings();
 
-  // Built by walking the registry rather than by writing six literal blocks:
-  // a seventh provider is then an entry in `AI_PROVIDERS` plus one in
+  // Built by walking the registry rather than by writing seven literal
+  // blocks: an eighth provider is then an entry in `AI_PROVIDERS` plus one in
   // `AI_COLUMNS`, and there is no third place to forget.
   const providers = {} as Record<AiProviderKey, AiProviderStatus>;
   for (const { provider, columns } of providersWithColumns()) {
