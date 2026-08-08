@@ -103,8 +103,31 @@ export const AI_COLUMNS = {
  * It deliberately does **not** write the fallback back to the row: a read path
  * that repairs data is the thing `getSettings()` is documented not to do, and
  * the next save persists the resolved value anyway.
+ *
+ * **The membership check is skipped entirely for a {@link AiProvider.hasDynamicModels}
+ * provider whose stored value is non-empty -- OpenRouter, today.** For the
+ * other six, `provider.models` *is* the whole valid set, so "not in the list"
+ * really does mean "stale" and the fallback above is correct. OpenRouter's
+ * `models` is not that: it is the two-entry static fallback shown before any
+ * "Refresh models" press, never the full catalog (hundreds of ids, fetched live
+ * by `listOpenrouterModels()` in `./actions`). Checking a live id against that
+ * two-entry list would treat every real selection as unlisted -- an operator
+ * saves `qwen/qwen3-coder:free`, the write genuinely lands in the column, and
+ * the very next render of `/ai` calls this function and silently substitutes
+ * `openrouter/free` back in, both mis-showing the picker and risking the next
+ * Save overwriting the real stored value with the default. So for this
+ * provider the stored value is trusted outright: it already passed the
+ * permissive `openrouterModelField` schema (length only, no enum check) and a
+ * live probe at save time, which is the validation the static-list check
+ * performs for everyone else. An empty stored value is still not trusted --
+ * that is a genuinely unconfigured row, not a dynamic id -- so it still falls
+ * back to `provider.defaultModel`, the same as every other provider's empty
+ * case.
  */
 export function resolveModel(provider: AiProvider, stored: string): string {
+  if (provider.hasDynamicModels) {
+    return stored || provider.defaultModel;
+  }
   return provider.models.some((model) => model.value === stored) ? stored : provider.defaultModel;
 }
 

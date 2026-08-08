@@ -70,4 +70,25 @@ describe("resolveModel", () => {
       openai?.defaultModel,
     );
   });
+
+  describe("a provider with a live catalog (openrouter)", () => {
+    const openrouter = providerByKey("openrouter");
+
+    it("trusts a stored id absent from the static fallback list, rather than reverting it", () => {
+      // The regression test for the bug this split exists to fix: an operator
+      // used "Refresh models" and saved a real live catalog id that is not one
+      // of the two entries in `providers.ts`'s static fallback. Reverting it
+      // here would silently show `openrouter/free` on the next render and risk
+      // the next Save overwriting the real stored value with the default.
+      const liveId = "vendor/whatever:free";
+      expect(openrouter?.models.some((model) => model.value === liveId)).toBe(false);
+      expect(openrouter && resolveModel(openrouter, liveId)).toBe(liveId);
+    });
+
+    it("still falls back to the default for an empty stored value", () => {
+      // Empty is a genuinely unconfigured row, not a dynamic id -- the same
+      // fallback every other provider gets for `""`.
+      expect(openrouter && resolveModel(openrouter, "")).toBe(openrouter?.defaultModel);
+    });
+  });
 });
