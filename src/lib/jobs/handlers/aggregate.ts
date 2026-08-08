@@ -27,11 +27,13 @@ export async function handleAggregateJob(job: Job): Promise<void> {
   // calls `applyAiOptions()` with `userSettings` undefined, which is an early
   // return (see its own "No userSettings provided" guard) -- so a feed's
   // summarize/improve-writing/translate options never ran on a freshly
-  // aggregated article at all, not just on reload.
+  // aggregated article at all, not just on reload. Read once and handed to
+  // resolveFeedCredentials() too, which would otherwise re-run the identical
+  // query for the same row.
   const settings = db.select().from(userSettings).where(eq(userSettings.userId, feed.userId)).get();
 
   appendLogLine(job.id, "stdout", `aggregating feed "${feed.name}" (${feed.aggregator})`);
-  const aggregator = createAggregator(resolveFeedCredentials(feed));
+  const aggregator = createAggregator(resolveFeedCredentials(feed, settings ?? null));
   const rawArticles = await aggregator.aggregate(undefined, undefined, settings);
   appendLogLine(job.id, "stdout", `fetched ${rawArticles.length} articles`);
 

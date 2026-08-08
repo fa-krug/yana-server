@@ -72,7 +72,11 @@ export async function handleReloadJob(job: Job): Promise<void> {
     return;
   }
 
-  const aggregator = createAggregator(resolveFeedCredentials(feed));
+  // Read once, up front, and handed to both resolveFeedCredentials() (which
+  // would otherwise re-run this same query itself) and applyAiOptions() below.
+  const settings = db.select().from(userSettings).where(eq(userSettings.userId, feed.userId)).get();
+
+  const aggregator = createAggregator(resolveFeedCredentials(feed, settings ?? null));
 
   let freshHtml: string;
   try {
@@ -115,7 +119,6 @@ export async function handleReloadJob(job: Job): Promise<void> {
 
   rawArticle.content = await aggregator.extractContent(freshHtml, rawArticle);
 
-  const settings = db.select().from(userSettings).where(eq(userSettings.userId, feed.userId)).get();
   await applyAiOptions(rawArticle, feed.options, settings);
 
   const processed = await aggregator.processContent(rawArticle.content || "", rawArticle);
