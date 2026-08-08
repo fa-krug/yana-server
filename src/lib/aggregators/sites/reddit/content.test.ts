@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ArticleSkipError } from "../../errors";
 import { RedditPostData } from "./types";
 import { buildPostContent } from "./content";
+import { DEFAULT_CHROME_LABELS } from "../../chrome-labels";
 
 describe("buildPostContent Giphy link handling", () => {
   it("renders a Giphy watch-page link post as an inline GIF, not a dead link", async () => {
@@ -12,7 +13,7 @@ describe("buildPostContent Giphy link handling", () => {
       is_self: false,
     });
 
-    const html = await buildPostContent(post, 0, "test");
+    const html = await buildPostContent(post, 0, "test", DEFAULT_CHROME_LABELS);
 
     expect(html).toContain('<img src="https://media.giphy.com/media/AbC123xyz/giphy.gif"');
     expect(html).not.toContain("giphy.com/gifs");
@@ -35,7 +36,9 @@ describe("buildPostContent comment-fetch failures", () => {
   it("propagates an ArticleSkipError from the comments fetch instead of degrading", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("", { status: 403 })));
 
-    await expect(buildPostContent(post(), 10, "test")).rejects.toThrow(ArticleSkipError);
+    await expect(buildPostContent(post(), 10, "test", DEFAULT_CHROME_LABELS)).rejects.toThrow(
+      ArticleSkipError,
+    );
   });
 
   it("does not skip the article for an ordinary transport failure", async () => {
@@ -44,7 +47,7 @@ describe("buildPostContent comment-fetch failures", () => {
     // narrow, not a blanket "let comment failures fail the article".
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("socket hang up")));
 
-    const html = await buildPostContent(post(), 10, "test");
+    const html = await buildPostContent(post(), 10, "test", DEFAULT_CHROME_LABELS);
     expect(html).toContain("No comments yet.");
   });
 });

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ArticleSkipError } from "../../errors";
-import { fetchPostComments } from "./comments";
+import { DEFAULT_CHROME_LABELS } from "../../chrome-labels";
+import { fetchPostComments, formatCommentHtml } from "./comments";
+import { RedditComment } from "./types";
 
 describe("fetchPostComments", () => {
   afterEach(() => {
@@ -31,5 +33,27 @@ describe("fetchPostComments", () => {
 
     const comments = await fetchPostComments("test", "abc123", 10);
     expect(comments).toEqual([]);
+  });
+});
+
+describe("formatCommentHtml", () => {
+  function comment(): RedditComment {
+    return new RedditComment({
+      author: "Alex",
+      body: "Nice post!",
+      permalink: "/r/test/comments/abc123/post/def456/",
+      score: 1,
+    } as never);
+  }
+
+  it("renders the source link in English by default", () => {
+    const html = formatCommentHtml(comment(), DEFAULT_CHROME_LABELS);
+    expect(html).toContain(">source</a>");
+  });
+
+  it("renders the source link in the passed-in locale's labels", () => {
+    const html = formatCommentHtml(comment(), { ...DEFAULT_CHROME_LABELS, source: "Quelle" });
+    expect(html).toContain(">Quelle</a>");
+    expect(html).not.toContain(">source<");
   });
 });

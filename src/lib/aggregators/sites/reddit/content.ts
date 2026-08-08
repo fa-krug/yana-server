@@ -5,6 +5,7 @@
  */
 
 import { ArticleSkipError } from "../../errors";
+import type { ChromeLabels } from "../../chrome-labels";
 import { fetchPostComments, formatCommentHtml } from "./comments";
 import { extractAnimatedGifUrl, extractGiphyGifUrl } from "./images";
 import { convertRedditMarkdown, escapeHtml, safeImgHtml, safeLinkHtml } from "./markdown";
@@ -15,6 +16,7 @@ export async function buildPostContent(
   post: RedditPostData,
   commentLimit: number,
   subreddit: string,
+  labels: ChromeLabels,
   userId?: number | string | null,
   isCrossPost = false,
   commentsList?: RedditComment[],
@@ -31,10 +33,18 @@ export async function buildPostContent(
   addGalleryMedia(post, contentParts);
 
   // 3. Link media
-  addLinkMedia(post, contentParts, isCrossPost);
+  addLinkMedia(post, contentParts, isCrossPost, labels);
 
   // 4. Comments section
-  await addCommentsSection(post, commentLimit, subreddit, userId, contentParts, commentsList);
+  await addCommentsSection(
+    post,
+    commentLimit,
+    subreddit,
+    userId,
+    contentParts,
+    labels,
+    commentsList,
+  );
 
   return contentParts.join("");
 }
@@ -83,12 +93,17 @@ function addGalleryMedia(post: RedditPostData, contentParts: string[]): void {
   }
 }
 
-function addLinkMedia(post: RedditPostData, contentParts: string[], isCrossPost: boolean): void {
+function addLinkMedia(
+  post: RedditPostData,
+  contentParts: string[],
+  isCrossPost: boolean,
+  labels: ChromeLabels,
+): void {
   if (!post.url || post.is_gallery) return;
 
   const url = decodeHtmlEntitiesInUrl(post.url);
 
-  if (processLinkMedia(post, url, contentParts)) {
+  if (processLinkMedia(post, url, contentParts, labels)) {
     return;
   }
 
@@ -97,7 +112,12 @@ function addLinkMedia(post: RedditPostData, contentParts: string[], isCrossPost:
   }
 }
 
-function processLinkMedia(post: RedditPostData, url: string, contentParts: string[]): boolean {
+function processLinkMedia(
+  post: RedditPostData,
+  url: string,
+  contentParts: string[],
+  labels: ChromeLabels,
+): boolean {
   const urlLower = url.toLowerCase();
 
   const giphyUrl = extractGiphyGifUrl(url);
@@ -137,7 +157,7 @@ function processLinkMedia(post: RedditPostData, url: string, contentParts: strin
   }
 
   if (urlLower.includes("youtube.com") || urlLower.includes("youtu.be")) {
-    contentParts.push(`<p>${safeLinkHtml(url, "▶ View Video on YouTube")}</p>`);
+    contentParts.push(`<p>${safeLinkHtml(url, labels.viewVideoOnYoutube)}</p>`);
     return true;
   }
 
@@ -151,11 +171,12 @@ async function addCommentsSection(
   subreddit: string,
   userId: number | string | null | undefined,
   contentParts: string[],
+  labels: ChromeLabels,
   providedComments?: RedditComment[],
 ): Promise<void> {
   const decodedPermalink = decodeHtmlEntitiesInUrl(post.permalink);
   const permalink = `https://reddit.com${decodedPermalink}`;
-  const commentSectionParts: string[] = [`<h3>${safeLinkHtml(permalink, "Comments")}</h3>`];
+  const commentSectionParts: string[] = [`<h3>${safeLinkHtml(permalink, labels.comments)}</h3>`];
 
   if (commentLimit > 0) {
     try {
@@ -165,10 +186,10 @@ async function addCommentsSection(
           : await fetchPostComments(subreddit, post.id, commentLimit, userId);
 
       if (comments && comments.length > 0) {
-        const commentHtmls = comments.map(formatCommentHtml);
+        const commentHtmls = comments.map((comment) => formatCommentHtml(comment, labels));
         commentSectionParts.push(commentHtmls.join(""));
       } else {
-        commentSectionParts.push("<p><em>No comments yet.</em></p>");
+        commentSectionParts.push(`<p><em>${labels.noCommentsYet}</em></p>`);
       }
     } catch (err) {
       // A 403/404 from the comments endpoint means the post itself is private,
@@ -180,10 +201,10 @@ async function addCommentsSection(
       // reachable only from a future caller that does not -- which is exactly
       // when the guard has to already be here.
       if (err instanceof ArticleSkipError) throw err;
-      commentSectionParts.push("<p><em>Comments unavailable.</em></p>");
+      commentSectionParts.push(`<p><em>${labels.commentsUnavailable}</em></p>`);
     }
   } else {
-    commentSectionParts.push("<p><em>Comments disabled.</em></p>");
+    commentSectionParts.push(`<p><em>${labels.commentsDisabled}</em></p>`);
   }
 
   contentParts.push(`<section>${commentSectionParts.join("")}</section>`);
