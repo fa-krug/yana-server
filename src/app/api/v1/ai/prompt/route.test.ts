@@ -201,6 +201,38 @@ describe("POST /api/v1/ai/prompt", () => {
     vi.unstubAllGlobals();
   });
 
+  it("502s with provider_unauthorized when the stored credentials are rejected", async () => {
+    const token = await ownerToken();
+    const owner = client
+      .getDb()
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.email, "o@example.com"))
+      .get()!;
+    client.writeTransaction((tx) => {
+      tx.update(schema.userSettings)
+        .set({
+          anthropicEnabled: true,
+          anthropicApiKey: "sk-ant-revoked",
+          anthropicModel: "claude-haiku-4-5",
+          activeAiProvider: "anthropic",
+        })
+        .where(eq(schema.userSettings.userId, owner.id))
+        .run();
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 401 })),
+    );
+
+    const response = await promptRequest(token, { prompt: "hello" });
+
+    expect(response.status).toBe(502);
+    const body = await response.json();
+    expect(body.error.code).toBe("provider_unauthorized");
+    vi.unstubAllGlobals();
+  });
+
   it("429s once the daily request limit is reached", async () => {
     const token = await ownerToken();
     const owner = client
