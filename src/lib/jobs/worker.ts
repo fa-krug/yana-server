@@ -1,4 +1,12 @@
-import { appendLogLine, cancelled, claim, complete, fail, resetOrphaned } from "./queue";
+import {
+  appendLogLine,
+  cancelled,
+  claim,
+  complete,
+  fail,
+  requestCancel,
+  resetOrphaned,
+} from "./queue";
 import { JobCancelledError } from "./errors";
 import { getHandler } from "./handlers";
 import { notifyAdmins } from "../email/error-notifications";
@@ -69,11 +77,49 @@ export async function runWorkerLoop(options?: {
     }
 
     appendLogLine(job.id, "stdout", `job started (attempt ${job.attempts}/${job.maxAttempts})`);
+
+    // A hard `Promise.race()` timeout here does not stop the handler -- there
+    // is no way to preempt in-flight `await`s from the outside, so the
+    // "timed out" promise this used to race against was pure theater: the
+    // real handler kept running to completion in the background, writing to
+    // `articles`/`feeds` and calling `progress()`/`appendLogLine()` under this
+    // same job id, no longer supervised by anything. Worse, `fail()` would
+    // requeue the job as `pending`, so `claim()` could pick up a *second*,
+    // fully concurrent execution of the same job while the first was still
+    // silently running -- two live handlers racing writes against each other,
+    // one of them able to overwrite the other's fresher data with stale data.
+    //
+    // Exceeding the time budget now requests cooperative cancellation instead
+    // (`requestCancel()`, the same mechanism a user-initiated cancel already
+    // uses) and this loop keeps genuinely awaiting the *same* handler promise
+    // -- so the next `claim()` cannot start a second execution of this job
+    // until the first one has actually finished, one way or another. A
+    // handler with an `isCancelRequested()` checkpoint (aggregate.ts,
+    // retention.ts) stops at its next one; a handler with none just keeps
+    // running, exactly as it already did before this change -- the only
+    // difference is that the worker no longer lies about it being done.
+    let exceededBudget = false;
+    const budgetTimer = setTimeout(() => {
+      exceededBudget = true;
+      appendLogLine(
+        job.id,
+        "stdout",
+        `job exceeded its ${timeoutMs}ms time budget -- requesting cancellation`,
+      );
+      requestCancel(job.id);
+    }, timeoutMs);
+
     try {
-      await withTimeout(handler(job), timeoutMs);
-      appendLogLine(job.id, "stdout", "job completed");
+      await handler(job);
+      clearTimeout(budgetTimer);
+      appendLogLine(
+        job.id,
+        "stdout",
+        exceededBudget ? "job completed (after exceeding its time budget)" : "job completed",
+      );
       complete(job.id);
     } catch (err) {
+      clearTimeout(budgetTimer);
       if (err instanceof JobCancelledError) {
         appendLogLine(job.id, "stdout", "job cancelled");
         cancelled(job.id);
@@ -87,17 +133,4 @@ export async function runWorkerLoop(options?: {
       fail(job.id, err instanceof Error ? err : String(err));
     }
   }
-}
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  let timer: NodeJS.Timeout;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      reject(new Error(`Job execution timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-  });
-
-  return Promise.race([promise, timeoutPromise]).finally(() => {
-    clearTimeout(timer);
-  });
 }
