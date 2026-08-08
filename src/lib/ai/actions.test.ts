@@ -12,6 +12,7 @@ import { KEEP_EXISTING } from "@/lib/secrets";
 
 import en from "../../../messages/en.json";
 
+import { listOpenrouterModels } from "./actions";
 import { OPENAI_DEFAULT_API_URL } from "./providers";
 import type { AiResult, AiSaveResult } from "./result";
 
@@ -1041,5 +1042,71 @@ describe("the AI actions", () => {
         expect.stringContaining("no user_settings row for user"),
       );
     });
+  });
+});
+
+/**
+ * `listOpenrouterModels()`'s own tests, deliberately outside the
+ * `describe("the AI actions", …)` block above: it needs none of that suite's
+ * per-test database, session, or `next/headers`/`next/cache` stubbing -- it is
+ * a public, unauthenticated fetch with no user context at all. It does share
+ * that file's `fetch`-stubbing convention (mock, assert, restore) rather than
+ * inventing a second one.
+ */
+describe("listOpenrouterModels", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("returns the parsed catalog with free entries labeled and sorted first", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "vendor/paid-model",
+              name: "Paid Model",
+              pricing: { prompt: "0.001", completion: "0.002" },
+            },
+            {
+              id: "vendor/free-model:free",
+              name: "Free Model",
+              pricing: { prompt: "0", completion: "0" },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await listOpenrouterModels();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.models[0]).toEqual({
+        value: "vendor/free-model:free",
+        label: "Free Model (Free)",
+      });
+      expect(result.models[1]).toEqual({ value: "vendor/paid-model", label: "Paid Model" });
+    }
+  });
+
+  it("reports modelsFetchFailed on a non-200 response", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response("", { status: 500 }));
+    const result = await listOpenrouterModels();
+    expect(result).toEqual({ ok: false, errorKey: "openrouter.modelsFetchFailed" });
+  });
+
+  it("reports modelsFetchFailed when the fetch rejects", async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error("network down"));
+    const result = await listOpenrouterModels();
+    expect(result).toEqual({ ok: false, errorKey: "openrouter.modelsFetchFailed" });
+  });
+
+  it("reports modelsFetchFailed on an unparseable body", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response("not json", { status: 200 }));
+    const result = await listOpenrouterModels();
+    expect(result).toEqual({ ok: false, errorKey: "openrouter.modelsFetchFailed" });
   });
 });

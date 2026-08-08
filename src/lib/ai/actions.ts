@@ -14,6 +14,7 @@ import { AI_COLUMNS } from "./columns";
 import { AI_PROBES } from "./probes";
 import {
   OPENAI_DEFAULT_API_URL,
+  OPENROUTER_API_URL,
   providerByKey,
   type AiProvider,
   type AiProviderKey,
@@ -173,6 +174,17 @@ function isStorableBaseUrl(value: string): boolean {
 }
 
 /**
+ * OpenRouter's model field, deliberately **not** `modelField()`'s
+ * enum-membership check. That helper validates against `provider.models`, a
+ * static array -- correct for the other six providers, wrong here: a valid
+ * OpenRouter model id comes from a live catalog (`listOpenrouterModels()`
+ * below) the server does not re-fetch at submit time. An actually-invalid id
+ * is still refused, by OpenRouter itself at probe time, surfacing through the
+ * existing generic `unexpected` probe-failure path.
+ */
+const openrouterModelField = z.string().trim().min(1).max(200);
+
+/**
  * The registry entry for a provider key that is already known to be one.
  *
  * Unreachable in practice -- `providers.test.ts` pins `AI_PROVIDERS` to exactly
@@ -245,6 +257,17 @@ const PROVIDER_KEYS = {
     rejected: "deepseek.rejected",
     quota: "deepseek.quota",
     modelUnknown: "deepseek.modelUnknown",
+  },
+  openrouter: {
+    required: "openrouter.required",
+    rejected: "openrouter.rejected",
+    quota: "openrouter.rateLimited",
+    // Declared for shape-consistency with the other six providers'
+    // `Record<AiProviderKey, ...>` entry, but never wired into a provider's
+    // `fieldErrorKeys` below: there is no static model list to validate
+    // against before the probe runs, so an unknown OpenRouter model id is
+    // reported through the generic `unexpected` probe-failure path instead.
+    modelUnknown: "openrouter.modelUnknown",
   },
 } satisfies Record<
   AiProviderKey,
@@ -390,6 +413,26 @@ const deepseek = defineIntegration({
   },
 });
 
+const openrouter = defineIntegration({
+  provider: "openrouter",
+  schema: z.object({ apiKey: secretField, model: openrouterModelField }),
+  fields: {
+    apiKey: { column: AI_COLUMNS.openrouter.apiKey, secret: true },
+    model: { column: AI_COLUMNS.openrouter.model, secret: false },
+  },
+  flagColumn: AI_COLUMNS.openrouter.enabled,
+  requiredKey: PROVIDER_KEYS.openrouter.required,
+  // No `fieldErrorKeys` entry: `openrouterModelField` has no `.refine()`, so
+  // it never produces a `custom` zod issue to map, unlike the other six
+  // providers' `"model:custom"` -> `modelUnknown` mapping.
+  probe: AI_PROBES.openrouter,
+  keys: {
+    rejected: PROVIDER_KEYS.openrouter.rejected,
+    quota: PROVIDER_KEYS.openrouter.quota,
+    quotaMeansVerified: registryEntry("openrouter").quotaMeansVerified,
+  },
+});
+
 const PROVIDER_ACTIONS: Record<AiProviderKey, IntegrationActions<AiKey>> = {
   openai,
   anthropic,
@@ -397,6 +440,7 @@ const PROVIDER_ACTIONS: Record<AiProviderKey, IntegrationActions<AiKey>> = {
   mistral,
   qwen,
   deepseek,
+  openrouter,
 };
 
 /**
@@ -676,4 +720,63 @@ export async function saveAdvanced(input: unknown): Promise<AiResult> {
 
   revalidatePath(AI_PATH);
   return { ok: true };
+}
+
+/** One entry OpenRouter's `/models` endpoint reports, normalized for the select. */
+export type OpenrouterModelOption = { value: string; label: string };
+
+export type OpenrouterModelsResult =
+  { ok: true; models: OpenrouterModelOption[] } | { ok: false; errorKey: AiKey };
+
+/** Every field this reads off one entry of OpenRouter's public `/models` response. */
+type OpenrouterModelEntry = {
+  id?: unknown;
+  name?: unknown;
+  pricing?: { prompt?: unknown; completion?: unknown };
+};
+
+/**
+ * The live OpenRouter model catalog, fetched on demand -- never cached, since
+ * the refresh is button-triggered (see the design spec). Public,
+ * unauthenticated endpoint: this takes no credential and is safe to call
+ * before any OpenRouter key has been saved.
+ *
+ * Every failure -- network, timeout, a non-200, an unparseable body --
+ * collapses to one outcome. Unlike the credential probes' `unreachable`/
+ * `timedOut`/`unexpected` catalog keys, this does **not** reuse them: those
+ * are worded "...these credentials could not be verified," which is wrong
+ * here -- no credential is involved in listing models.
+ */
+export async function listOpenrouterModels(): Promise<OpenrouterModelsResult> {
+  try {
+    const response = await fetch(`${OPENROUTER_API_URL}/models`, {
+      method: "GET",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) {
+      return { ok: false, errorKey: "openrouter.modelsFetchFailed" };
+    }
+    const body = (await response.json().catch(() => null)) as { data?: unknown } | null;
+    if (!body || !Array.isArray(body.data)) {
+      return { ok: false, errorKey: "openrouter.modelsFetchFailed" };
+    }
+
+    const models: OpenrouterModelOption[] = [];
+    for (const entry of body.data as OpenrouterModelEntry[]) {
+      if (typeof entry.id !== "string" || typeof entry.name !== "string") continue;
+      const isFree = entry.pricing?.prompt === "0" && entry.pricing?.completion === "0";
+      models.push({ value: entry.id, label: isFree ? `${entry.name} (Free)` : entry.name });
+    }
+    // Free entries first: a user hunting for a $0 model should not have to
+    // scroll past hundreds of paid ones to find one.
+    models.sort((a, b) => Number(b.label.endsWith("(Free)")) - Number(a.label.endsWith("(Free)")));
+
+    if (models.length === 0) {
+      return { ok: false, errorKey: "openrouter.modelsFetchFailed" };
+    }
+    return { ok: true, models };
+  } catch {
+    return { ok: false, errorKey: "openrouter.modelsFetchFailed" };
+  }
 }
