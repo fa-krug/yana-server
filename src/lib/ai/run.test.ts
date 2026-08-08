@@ -11,6 +11,7 @@ import {
   DEEPSEEK_API_URL,
   MISTRAL_API_URL,
   OPENAI_DEFAULT_API_URL,
+  OPENROUTER_API_URL,
   QWEN_API_URL,
 } from "./providers";
 import type { AiRuntimeSettings } from "./run";
@@ -419,6 +420,68 @@ describe("applyAiOptions & AIClient processing", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
+    it("reports providerUnauthorized on a 401 without retrying", async () => {
+      const settings = makeSettings({
+        activeAiProvider: "gemini",
+        aiMaxRetries: 3,
+        aiRetryDelay: 0,
+      });
+      const fetchMock = vi.fn();
+      globalThis.fetch = fetchMock;
+
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+      });
+
+      const client = new AIClient(settings);
+      const result = await client.generateResponse("test prompt");
+
+      expect(result).toMatchObject({ ok: false, reason: "providerUnauthorized" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("reports providerUnauthorized on a 403 without retrying", async () => {
+      const settings = makeSettings({
+        activeAiProvider: "gemini",
+        aiMaxRetries: 3,
+        aiRetryDelay: 0,
+      });
+      const fetchMock = vi.fn();
+      globalThis.fetch = fetchMock;
+
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 403,
+        statusText: "Forbidden",
+      });
+
+      const client = new AIClient(settings);
+      const result = await client.generateResponse("test prompt");
+
+      expect(result).toMatchObject({ ok: false, reason: "providerUnauthorized" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("still reports plain providerError on a 500, distinct from providerUnauthorized", async () => {
+      const settings = makeSettings({
+        activeAiProvider: "gemini",
+        aiMaxRetries: 3,
+        aiRetryDelay: 0,
+      });
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: "Internal Server Error",
+      });
+
+      const client = new AIClient(settings);
+      const result = await client.generateResponse("test prompt");
+
+      expect(result).toMatchObject({ ok: false, reason: "providerError" });
+    });
+
     it("with maxRetries = 0, no retry is attempted", async () => {
       const settings = makeSettings({
         activeAiProvider: "gemini",
@@ -654,7 +717,8 @@ describe("applyAiOptions & AIClient processing", () => {
         case "gemini":
           return { candidates: [{ content: { parts: [{ text }] } }] };
         default:
-          // openai, mistral, qwen, deepseek: the shared OpenAI-compatible shape.
+          // openai, mistral, qwen, deepseek, openrouter: the shared
+          // OpenAI-compatible shape.
           return { choices: [{ message: { content: text } }] };
       }
     };
@@ -677,6 +741,8 @@ describe("applyAiOptions & AIClient processing", () => {
           return `${QWEN_API_URL}/chat/completions`;
         case "deepseek":
           return `${DEEPSEEK_API_URL}/chat/completions`;
+        case "openrouter":
+          return `${OPENROUTER_API_URL}/chat/completions`;
       }
     };
 
