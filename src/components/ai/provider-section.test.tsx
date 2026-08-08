@@ -478,6 +478,38 @@ describe("<ProviderSection>", () => {
       );
     });
 
+    it("disables the provider picker while a refresh is in flight", async () => {
+      // `choose()` resets `fetchedModels` synchronously but cannot cancel an
+      // already-in-flight `refreshModels()` transition -- so a switch away
+      // and back to OpenRouter before that fetch resolves would otherwise let
+      // its `setFetchedModels(result.models)` land *after* the reset and
+      // silently repopulate the catalog with a stale request's answer,
+      // defeating the very reset the switch just performed. Disabling the
+      // picker for the duration of the refresh is what closes that window;
+      // this test proves the window is closed rather than merely asserting
+      // the reset happens (the earlier "re-shows the static fallback" test
+      // already does that, with a fetch that resolves before the switch).
+      let resolveFetch!: (result: { ok: true; models: { value: string; label: string }[] }) => void;
+      listOpenrouterModels.mockReturnValue(
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        }),
+      );
+      render("openrouter");
+
+      fireEvent.click(screen.getByRole("button", { name: "Modelle aktualisieren" }));
+
+      await waitFor(() =>
+        expect(document.querySelector<HTMLButtonElement>("#ai-provider")!.disabled).toBe(true),
+      );
+
+      resolveFetch({ ok: true, models: [{ value: "some/live-model", label: "Some Live Model" }] });
+
+      await waitFor(() =>
+        expect(document.querySelector<HTMLButtonElement>("#ai-provider")!.disabled).toBe(false),
+      );
+    });
+
     it("reports a fetch failure without touching the model list", async () => {
       listOpenrouterModels.mockResolvedValue({
         ok: false,
@@ -503,7 +535,13 @@ describe("<ProviderSection>", () => {
       const { container } = render("openrouter");
 
       fireEvent.click(screen.getByRole("button", { name: "Modelle aktualisieren" }));
-      await waitFor(() => expect(listOpenrouterModels).toHaveBeenCalled());
+      // The provider picker is disabled for the duration of the refresh (see
+      // the "disables the provider picker while a refresh is in flight"
+      // test), so switching has to wait for it to re-enable rather than just
+      // for the call to have been made.
+      await waitFor(() =>
+        expect(document.querySelector<HTMLButtonElement>("#ai-provider")!.disabled).toBe(false),
+      );
 
       choose("ai-provider", "Gemini");
       choose("ai-provider", "OpenRouter");

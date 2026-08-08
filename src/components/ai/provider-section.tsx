@@ -320,7 +320,14 @@ export function ProviderSection({
         <Select
           items={providerItems}
           value={selected}
-          disabled={busy}
+          // `refreshingModels` too, not just `busy`: `choose()` resets
+          // `fetchedModels` to `null` synchronously, but it cannot cancel an
+          // in-flight `refreshModels()` transition. Left enabled, a
+          // switch-away-and-back before that fetch resolves would let its
+          // `setFetchedModels(result.models)` land after the reset and
+          // silently repopulate the catalog with a stale request's answer --
+          // defeating the very reset this picker's own `choose()` performs.
+          disabled={busy || refreshingModels}
           onValueChange={(value) => {
             // Base UI reports `null` for a clearable selection, which this
             // one never is. `""` is a listed item, not an absence.
