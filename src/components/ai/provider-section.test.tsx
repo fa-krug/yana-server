@@ -534,8 +534,7 @@ describe("<ProviderSection>", () => {
         // boundary's fallback UI, and the button is interactive again.
         expect(triggerText(container, "ai-model")).toBe("Free (auto-routed)");
         expect(
-          screen.getByRole<HTMLButtonElement>("button", { name: "Modelle aktualisieren" })
-            .disabled,
+          screen.getByRole<HTMLButtonElement>("button", { name: "Modelle aktualisieren" }).disabled,
         ).toBe(false);
       } finally {
         logged.mockRestore();
