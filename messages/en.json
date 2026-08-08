@@ -584,5 +584,14 @@
     "createdAtNote": "Added date is displayed for information only and cannot be edited.",
     "save": "Save article",
     "saved": "Article saved"
+  },
+  "aggregatorChrome": {
+    "comments": "Comments",
+    "source": "source",
+    "noCommentsYet": "No comments yet.",
+    "commentsDisabled": "Comments disabled.",
+    "commentsUnavailable": "Comments unavailable.",
+    "viewVideoOnYoutube": "▶ View Video on YouTube",
+    "viewVideo": "▶ View Video"
   }
 }

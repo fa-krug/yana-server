@@ -1,5 +1,6 @@
 import { applyAiOptions } from "../ai/run";
 import type { UserSettings } from "@/lib/db/schema";
+import { resolveChromeLabels, type ChromeLabels } from "./chrome-labels";
 import type { HeaderElementData } from "./header/context";
 import { extractHeaderElement } from "./header/extractor";
 
@@ -73,12 +74,27 @@ export abstract class BaseAggregator {
   public concurrency: number;
   public maxArticleAgeDays: number;
   public usesFirstContentMatch = false;
+  private chromeLabelsPromise?: Promise<ChromeLabels>;
 
   constructor(public feed: FeedLike) {
     this.identifier = feed.identifier || "";
     this.dailyLimit = feed.dailyLimit ?? 20;
     this.concurrency = feed.concurrency ?? 4;
     this.maxArticleAgeDays = feed.maxArticleAgeDays ?? 30;
+  }
+
+  /**
+   * The feed owner's own-language versions of the chrome text aggregators
+   * splice into article content ("Comments" headings, per-comment "source"
+   * links, ...). Memoized per instance: a feed's aggregator processes every
+   * one of its articles in a single run, and this way that run does one
+   * database read total instead of one per article.
+   */
+  protected chromeLabels(): Promise<ChromeLabels> {
+    if (!this.chromeLabelsPromise) {
+      this.chromeLabelsPromise = resolveChromeLabels(this.feed.userId);
+    }
+    return this.chromeLabelsPromise;
   }
 
   logoImageUrl(): Promise<string | null> {

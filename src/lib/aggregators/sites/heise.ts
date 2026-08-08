@@ -1,6 +1,7 @@
 import * as cheerio from "cheerio";
 import type { Element } from "domhandler";
 import { FeedLike, RawArticle } from "../base";
+import type { ChromeLabels } from "../chrome-labels";
 import { isSafeUrl } from "../blocks/parser";
 import {
   cleanHtml,
@@ -16,11 +17,11 @@ import { getHeaderImageRef } from "../header/context";
 import { fetchHtml } from "../http/fetcher";
 import { FullWebsiteAggregator } from "../website";
 
-function commentSourceLink(url: string): string {
+function commentSourceLink(url: string, labels: ChromeLabels): string {
   if (isSafeUrl(url)) {
-    return `<a href="${escapeHtml(url)}">source</a>`;
+    return `<a href="${escapeHtml(url)}">${labels.source}</a>`;
   }
-  return "source";
+  return labels.source;
 }
 
 function sanitizeCommentHtml(contentHtml: string): string {
@@ -93,7 +94,11 @@ function findCommentElements($: cheerio.CheerioAPI): cheerio.Cheerio<Element> {
   return $<Element, string>("");
 }
 
-function processListItemComment($: cheerio.CheerioAPI, el: Element): string | null {
+function processListItemComment(
+  $: cheerio.CheerioAPI,
+  el: Element,
+  labels: ChromeLabels,
+): string | null {
   const $el = $(el);
   let author = "Unknown";
   const authorEl = $el.find(".tree_thread_list--written_by_user, .pseudonym").first();
@@ -119,7 +124,7 @@ function processListItemComment($: cheerio.CheerioAPI, el: Element): string | nu
   return (
     `<blockquote>` +
     `<p><strong>${escapeHtml(author)}</strong> | ` +
-    `${commentSourceLink(commentUrl)}</p>` +
+    `${commentSourceLink(commentUrl, labels)}</p>` +
     `<div><p>${escapeHtml(title)}</p></div>` +
     `</blockquote>`
   );
@@ -130,6 +135,7 @@ function processFullViewComment(
   el: Element,
   index: number,
   articleUrl: string,
+  labels: ChromeLabels,
 ): string | null {
   const $el = $(el);
   let author = "Unknown";
@@ -170,7 +176,7 @@ function processFullViewComment(
   return (
     `<blockquote>` +
     `<p><strong>${escapeHtml(author)}</strong> | ` +
-    `${commentSourceLink(commentUrl)}</p>` +
+    `${commentSourceLink(commentUrl, labels)}</p>` +
     `<div>${sanitizeCommentHtml(content)}</div>` +
     `</blockquote>`
   );
@@ -385,7 +391,13 @@ export class HeiseAggregator extends FullWebsiteAggregator {
       try {
         const rawHtml = article.raw_content || "";
         if (rawHtml) {
-          commentsHtml = await this.extractComments(article.identifier, rawHtml, maxComments);
+          const labels = await this.chromeLabels();
+          commentsHtml = await this.extractComments(
+            article.identifier,
+            rawHtml,
+            maxComments,
+            labels,
+          );
         }
       } catch {
         // ignore
@@ -405,7 +417,8 @@ export class HeiseAggregator extends FullWebsiteAggregator {
   async extractComments(
     articleUrl: string,
     articleHtml: string,
-    maxComments = 5,
+    maxComments: number,
+    labels: ChromeLabels,
   ): Promise<string | null> {
     const baseUrl = articleUrl.includes("heise.de/-") ? "https://www.heise.de/" : articleUrl;
 
@@ -430,8 +443,8 @@ export class HeiseAggregator extends FullWebsiteAggregator {
         const el = commentElements.get(i)!;
         const commentHtml =
           el.name === "li"
-            ? processListItemComment($, el)
-            : processFullViewComment($, el, i, articleUrl);
+            ? processListItemComment($, el, labels)
+            : processFullViewComment($, el, i, articleUrl, labels);
         if (commentHtml) {
           commentParts.push(commentHtml);
         }
@@ -441,7 +454,7 @@ export class HeiseAggregator extends FullWebsiteAggregator {
         return null;
       }
 
-      const header = `<h3><a href="${escapeHtml(forumUrl)}">Comments</a></h3>`;
+      const header = `<h3><a href="${escapeHtml(forumUrl)}">${labels.comments}</a></h3>`;
       return `<section>${header}${commentParts.join("")}</section>`;
     } catch {
       return null;

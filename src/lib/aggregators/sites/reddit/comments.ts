@@ -5,6 +5,7 @@
  */
 
 import { ArticleSkipError } from "../../errors";
+import type { ChromeLabels } from "../../chrome-labels";
 import { convertRedditMarkdown, escapeHtml, safeLinkHtml } from "./markdown";
 import { RedditComment, RedditCommentRaw, RedditListing, RedditPostRaw } from "./types";
 
@@ -14,14 +15,14 @@ type RedditCommentsPageResponse = [
   RedditListing<string, RedditCommentRaw>,
 ];
 
-export function formatCommentHtml(comment: RedditComment): string {
+export function formatCommentHtml(comment: RedditComment, labels: ChromeLabels): string {
   const author = comment.author || "[deleted]";
   const body = convertRedditMarkdown(comment.body || "");
   const commentUrl = `https://reddit.com${comment.permalink}`;
 
   return `\n<blockquote>\n<p><strong>${escapeHtml(author)}</strong> | ${safeLinkHtml(
     commentUrl,
-    "source",
+    labels.source,
   )}</p>\n<div>${body}</div>\n</blockquote>\n`;
 }
 

@@ -584,5 +584,14 @@
     "createdAtNote": "Das Hinzufügedatum dient nur zur Information und kann nicht bearbeitet werden.",
     "save": "Artikel speichern",
     "saved": "Artikel gespeichert"
+  },
+  "aggregatorChrome": {
+    "comments": "Kommentare",
+    "source": "Quelle",
+    "noCommentsYet": "Noch keine Kommentare.",
+    "commentsDisabled": "Kommentare deaktiviert.",
+    "commentsUnavailable": "Kommentare nicht verfügbar.",
+    "viewVideoOnYoutube": "▶ Video auf YouTube ansehen",
+    "viewVideo": "▶ Video ansehen"
   }
 }

@@ -1,4 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import Database from "better-sqlite3";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { FeedLike, RawArticle } from "../../base";
 import { ArticleSkipError } from "../../errors";
@@ -250,5 +255,91 @@ describe("RedditAggregator.finalizeArticles header-image concurrency", () => {
     // Confirms the pool actually parallelizes rather than degenerating to
     // sequential execution.
     expect(maxInFlight).toBeGreaterThan(1);
+  });
+});
+
+describe("RedditAggregator.finalizeArticles video-link header caption", () => {
+  it("renders the View Video caption", async () => {
+    class StubHeaderImageAggregator extends RedditAggregator {
+      protected async _storeHeaderImage(headerImageUrl: string): Promise<string> {
+        return headerImageUrl;
+      }
+    }
+
+    const feed: FeedLike = { identifier: "test", dailyLimit: 20, options: {} };
+    const agg = new StubHeaderImageAggregator(feed);
+
+    const [finalized] = await agg.finalizeArticles([
+      article({
+        _reddit_header_image_url: "https://preview.redd.it/a/preview.jpg",
+        _reddit_video_url: "https://v.redd.it/a",
+      }),
+    ]);
+
+    expect(finalized!.content).toContain("▶ View Video");
+  });
+});
+
+describe("RedditAggregator.extractContent legacy JSON locale", () => {
+  let dbPath: string;
+  let client: typeof import("../../../db/client");
+  let schema: typeof import("../../../db/schema");
+  let FreshRedditAggregator: typeof import("./aggregator").RedditAggregator;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    dbPath = path.join(
+      os.tmpdir(),
+      `yana-reddit-locale-${process.pid}-${Math.random().toString(36).slice(2)}.db`,
+    );
+    process.env.DATABASE_PATH = dbPath;
+    const { applyMigrationsAt } = await import("../../../db/test-support");
+    applyMigrationsAt(dbPath);
+
+    client = await import("../../../db/client");
+    schema = await import("../../../db/schema");
+    // `RedditAggregator` is imported statically at the top of this file, so
+    // its transitive `chrome-labels.ts` -> `@/lib/db/client` dependency
+    // captured `DB_PATH` (a module-load-time constant, see client.ts) before
+    // this test ever set `DATABASE_PATH` -- resetting the module registry
+    // does not retroactively change what an already-resolved module closed
+    // over. A fresh dynamic import, after `vi.resetModules()`, is what makes
+    // the aggregator's own `getDb()` resolve to this test's temp database.
+    ({ RedditAggregator: FreshRedditAggregator } = await import("./aggregator"));
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_PATH;
+    const connection = (client.getDb() as unknown as { $client: Database.Database }).$client;
+    if (connection.open) connection.close();
+    for (const suffix of ["", "-shm", "-wal"]) {
+      fs.rmSync(`${dbPath}${suffix}`, { force: true });
+    }
+  });
+
+  it("renders the Comments heading in the feed owner's language", async () => {
+    client.writeTransaction((db) => {
+      db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+      db.insert(schema.userSettings).values({ userId: "user1", language: "de" }).run();
+    });
+
+    const feed: FeedLike = { identifier: "test", dailyLimit: 20, userId: "user1" };
+    const agg = new FreshRedditAggregator(feed);
+
+    // The legacy JSON shape extractContent() falls back to parsing when its
+    // input isn't already-built content HTML -- a raw post dict with at
+    // least `id` and `title`. No network call happens on this path.
+    const legacyJson = JSON.stringify({
+      id: "abc123",
+      title: "A post",
+      permalink: "/r/test/comments/abc123/post/",
+      is_self: true,
+      selftext: "hello",
+    });
+
+    const html = await agg.extractContent(legacyJson, article());
+
+    expect(html).toContain("Kommentare");
+    expect(html).not.toContain(">Comments<");
   });
 });

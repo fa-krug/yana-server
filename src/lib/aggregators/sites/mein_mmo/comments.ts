@@ -3,6 +3,7 @@ import type { Element } from "domhandler";
 import { isSafeUrl } from "../../blocks/parser";
 import { cleanHtml, removeSanitizedAttributes, sanitizeHtmlAttributes } from "../../extract/clean";
 import { escapeHtml } from "../../extract/format";
+import type { ChromeLabels } from "../../chrome-labels";
 
 function commentLink(url: string, label: string): string {
   if (isSafeUrl(url)) {
@@ -38,6 +39,7 @@ function processComment(
   commentEl: cheerio.Cheerio<Element>,
   articleUrl: string,
   _$: cheerio.CheerioAPI,
+  labels: ChromeLabels,
 ): string | null {
   let author = "Unknown";
   const authorEl = commentEl.find("div.wpd-comment-author").first();
@@ -80,7 +82,7 @@ function processComment(
   return (
     `<blockquote>` +
     `<p><strong>${escapeHtml(author)}</strong>${tsDisplay} | ` +
-    `${commentLink(anchorUrl, "source")}</p>` +
+    `${commentLink(anchorUrl, labels.source)}</p>` +
     `<div>${sanitizeCommentHtml(commentText)}</div>` +
     `</blockquote>`
   );
@@ -92,9 +94,15 @@ function processComment(
  * @param html - Full article page HTML
  * @param articleUrl - Article URL for building anchor links
  * @param maxComments - Maximum number of comments to extract
+ * @param labels - Localized chrome labels (Comments, source)
  * @returns HTML string with formatted comments, or null if no comments found
  */
-export function extractComments(html: string, articleUrl: string, maxComments = 5): string | null {
+export function extractComments(
+  html: string,
+  articleUrl: string,
+  maxComments: number,
+  labels: ChromeLabels,
+): string | null {
   if (maxComments <= 0) {
     return null;
   }
@@ -116,7 +124,7 @@ export function extractComments(html: string, articleUrl: string, maxComments = 
 
   for (let i = 0; i < limit; i++) {
     const commentEl = $(comments.get(i)!);
-    const commentHtml = processComment(commentEl, articleUrl, $);
+    const commentHtml = processComment(commentEl, articleUrl, $, labels);
     if (commentHtml) {
       commentParts.push(commentHtml);
     }
@@ -127,6 +135,6 @@ export function extractComments(html: string, articleUrl: string, maxComments = 
   }
 
   const commentsUrl = `${articleUrl}#comments`;
-  const header = `<h3>${commentLink(commentsUrl, "Comments")}</h3>`;
+  const header = `<h3>${commentLink(commentsUrl, labels.comments)}</h3>`;
   return `<section>${header}${commentParts.join("")}</section>`;
 }
