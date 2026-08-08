@@ -2,6 +2,8 @@
  * Content formatting utilities.
  */
 
+import type { ChromeLabels } from "../chrome-labels";
+
 export function escapeHtml(str: string): string {
   return str
     .replace(/&/g, "&amp;")
@@ -37,7 +39,11 @@ export function extractYoutubeVideoId(url: string): string | null {
   return null;
 }
 
-export function buildYoutubeFacadeHtml(videoId: string, thumbnailRef?: string | null): string {
+export function buildYoutubeFacadeHtml(
+  videoId: string,
+  labels: ChromeLabels,
+  thumbnailRef?: string | null,
+): string {
   // facadeThumbnail() in blocks/parser.ts (and therefore articleBlocks.embedThumbnailRef,
   // served via /api/v1/images/:hash) reads this <img>'s src -- with no <img> here, every
   // YouTube-embedded video has no preview thumbnail at all.
@@ -47,17 +53,18 @@ export function buildYoutubeFacadeHtml(videoId: string, thumbnailRef?: string | 
     `data-embed="https://www.youtube.com/embed/${videoId}">` +
     thumbnailImg +
     `<a href="https://www.youtube.com/watch?v=${videoId}" ` +
-    `target="_blank" rel="noopener">Watch on YouTube</a>` +
+    `target="_blank" rel="noopener">${labels.watchOnYoutube}</a>` +
     `</div>`
   );
 }
 
 export function createYoutubeEmbedHtml(
   videoId: string,
+  labels: ChromeLabels,
   caption = "",
   thumbnailRef?: string | null,
 ): string {
-  const facade = buildYoutubeFacadeHtml(videoId, thumbnailRef);
+  const facade = buildYoutubeFacadeHtml(videoId, labels, thumbnailRef);
   if (!caption) {
     return facade;
   }
@@ -83,12 +90,12 @@ export function extractTweetId(url: string): string | null {
 /**
  * Build a click-through Dailymotion facade -- the markup the block parser reads.
  */
-export function buildDailymotionFacadeHtml(videoId: string): string {
+export function buildDailymotionFacadeHtml(videoId: string, labels: ChromeLabels): string {
   return (
     `<div class="dailymotion-embed-container" ` +
     `data-embed="https://www.dailymotion.com/embed/video/${videoId}">` +
     `<a href="https://www.dailymotion.com/video/${videoId}" ` +
-    `target="_blank" rel="noopener">Watch on Dailymotion</a>` +
+    `target="_blank" rel="noopener">${labels.watchOnDailymotion}</a>` +
     `</div>`
   );
 }
@@ -97,6 +104,7 @@ export function buildDailymotionFacadeHtml(videoId: string): string {
  * Build the article's lead-media header, or null when none can be rendered.
  */
 export function buildHeaderHtml(
+  labels: ChromeLabels,
   headerImageUrl?: string | null,
   title = "",
   headerCaptionHtml?: string | null,
@@ -107,7 +115,7 @@ export function buildHeaderHtml(
 
   const youtubeVideoId = extractYoutubeVideoId(headerImageUrl);
   if (youtubeVideoId) {
-    const youtubeEmbed = createYoutubeEmbedHtml(youtubeVideoId, headerCaptionHtml || "");
+    const youtubeEmbed = createYoutubeEmbedHtml(youtubeVideoId, labels, headerCaptionHtml || "");
     return [
       '<header class="media-header" style="margin-bottom: 1.5em; text-align: center;">',
       youtubeEmbed,
@@ -145,6 +153,7 @@ export function formatArticleContent(
   content: string,
   title: string,
   url: string,
+  labels: ChromeLabels,
   headerImageUrl?: string | null,
   headerCaptionHtml?: string | null,
   commentsContent?: string | null,
@@ -155,7 +164,7 @@ export function formatArticleContent(
   const header =
     headerHtml !== undefined && headerHtml !== null
       ? headerHtml
-      : buildHeaderHtml(headerImageUrl, title, headerCaptionHtml);
+      : buildHeaderHtml(labels, headerImageUrl, title, headerCaptionHtml);
 
   if (header) {
     parts.push(header);

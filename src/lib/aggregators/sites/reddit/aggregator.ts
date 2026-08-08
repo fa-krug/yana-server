@@ -428,6 +428,7 @@ export class RedditAggregator extends BaseAggregator {
             article.content = this._stripImageFromContent(article.content, headerSourceUrl || "");
           }
         } else if (headerSourceUrl) {
+          const labels = await this.chromeLabels();
           const isYoutubeHeader = Boolean(extractYoutubeVideoId(headerSourceUrl));
           const isTwitterHeader = isTwitterUrl(headerSourceUrl);
 
@@ -439,11 +440,10 @@ export class RedditAggregator extends BaseAggregator {
           let headerCaptionHtml: string | null = null;
           const videoUrl = article._reddit_video_url as string | null;
           if (videoUrl && !isYoutubeHeader) {
-            const labels = await this.chromeLabels();
             headerCaptionHtml = `<p>${safeLinkHtml(videoUrl, labels.viewVideo)}</p>`;
           }
 
-          headerHtml = buildHeaderHtml(renderUrl, article.name, headerCaptionHtml);
+          headerHtml = buildHeaderHtml(labels, renderUrl, article.name, headerCaptionHtml);
 
           if (headerHtml && article.content) {
             article.content = this._stripImageFromContent(article.content, headerSourceUrl);
@@ -749,12 +749,13 @@ export class RedditAggregator extends BaseAggregator {
   }
 
   override async processContent(content: string, article: RawArticle): Promise<string> {
+    const labels = await this.chromeLabels();
     let headerHtml = article.header_html as string | null | undefined;
 
     if (headerHtml === undefined && (this.feed.options?.include_header_image ?? true)) {
       const headerData = article.header_data;
       if (headerData) {
-        headerHtml = buildHeaderHtml(getHeaderImageRef(headerData), article.name);
+        headerHtml = buildHeaderHtml(labels, getHeaderImageRef(headerData), article.name);
       }
     }
 
@@ -762,6 +763,7 @@ export class RedditAggregator extends BaseAggregator {
       content,
       article.name,
       article.identifier,
+      labels,
       null,
       null,
       null,

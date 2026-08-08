@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_CHROME_LABELS } from "../chrome-labels";
 import { buildHeaderHtml } from "../extract/format";
 import { isSafeUrl, parseBlocks, plainTextOf } from "./parser";
 import type {
@@ -245,7 +246,11 @@ describe("parseBlocks", () => {
     // and hands the result straight to parseBlocks() as the article's raw
     // content. That header must survive here, or every one of those sites
     // shows no header image in the reading view.
-    const html = buildHeaderHtml(`yana-img://${"a".repeat(64)}`, "Headline")!;
+    const html = buildHeaderHtml(
+      DEFAULT_CHROME_LABELS,
+      `yana-img://${"a".repeat(64)}`,
+      "Headline",
+    )!;
     const blocks = parseBlocks(html);
     expect(blocks).toHaveLength(1);
     expect(blocks[0].kind).toBe("image");

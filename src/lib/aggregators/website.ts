@@ -1,6 +1,7 @@
 import * as cheerio from "cheerio";
 
 import { RawArticle } from "./base";
+import type { ChromeLabels } from "./chrome-labels";
 import { mapWithConcurrency } from "./concurrency";
 import { ArticleSkipError } from "./errors";
 import { cleanHtml, removeImageByUrl, sanitizeClassNames } from "./extract/clean";
@@ -28,7 +29,7 @@ export function isYoutubeUrl(url: string): boolean {
   return youtubeDomains.some((domain) => url.includes(domain));
 }
 
-export function proxyYoutubeEmbeds($: cheerio.CheerioAPI): void {
+export function proxyYoutubeEmbeds($: cheerio.CheerioAPI, labels: ChromeLabels): void {
   $(".embed-privacy-container").each((_, container) => {
     const $container = $(container);
     const link = $container.find(".embed-privacy-url a[href]").first();
@@ -47,7 +48,7 @@ export function proxyYoutubeEmbeds($: cheerio.CheerioAPI): void {
     if (isYoutubeUrl(src)) {
       const videoId = extractYoutubeVideoId(src);
       if (videoId) {
-        $iframe.replaceWith(createYoutubeEmbedHtml(videoId));
+        $iframe.replaceWith(createYoutubeEmbedHtml(videoId, labels));
       }
     }
   });
@@ -126,10 +127,11 @@ export class FullWebsiteAggregator extends RssAggregator {
     return extracted;
   }
 
-  processContent(html: string, article: RawArticle): string | Promise<string> {
+  async processContent(html: string, article: RawArticle): Promise<string> {
+    const labels = await this.chromeLabels();
     const $ = cheerio.load(html);
 
-    proxyYoutubeEmbeds($);
+    proxyYoutubeEmbeds($, labels);
 
     const headerData = article.header_data;
     if (headerData?.imageUrl) {
@@ -141,7 +143,7 @@ export class FullWebsiteAggregator extends RssAggregator {
     const cleaned = cleanHtml($.html());
     const headerImageUrl = headerData ? getHeaderImageRef(headerData) : null;
 
-    return formatArticleContent(cleaned, article.name, article.identifier, headerImageUrl);
+    return formatArticleContent(cleaned, article.name, article.identifier, labels, headerImageUrl);
   }
 
   async enrichArticles(articles: RawArticle[]): Promise<RawArticle[]> {

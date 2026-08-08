@@ -17,6 +17,14 @@ export interface ChromeLabels {
   commentsUnavailable: string;
   viewVideoOnYoutube: string;
   viewVideo: string;
+  unknownAuthor: string;
+  watchOnYoutube: string;
+  watchOnDailymotion: string;
+  showNotes: string;
+  downloadEpisode: string;
+  viewOnBluesky: string;
+  viewOnReddit: string;
+  viewOnTwitter: string;
 }
 
 export const DEFAULT_CHROME_LABELS: ChromeLabels = Object.freeze({
@@ -27,6 +35,14 @@ export const DEFAULT_CHROME_LABELS: ChromeLabels = Object.freeze({
   commentsUnavailable: "Comments unavailable.",
   viewVideoOnYoutube: "▶ View Video on YouTube",
   viewVideo: "▶ View Video",
+  unknownAuthor: "Unknown",
+  watchOnYoutube: "Watch on YouTube",
+  watchOnDailymotion: "Watch on Dailymotion",
+  showNotes: "Show Notes",
+  downloadEpisode: "Download Episode",
+  viewOnBluesky: "View on Bluesky",
+  viewOnReddit: "View on Reddit",
+  viewOnTwitter: "View on X/Twitter",
 });
 
 /**
@@ -69,5 +85,13 @@ export async function resolveChromeLabels(
     commentsUnavailable: t("commentsUnavailable"),
     viewVideoOnYoutube: t("viewVideoOnYoutube"),
     viewVideo: t("viewVideo"),
+    unknownAuthor: t("unknownAuthor"),
+    watchOnYoutube: t("watchOnYoutube"),
+    watchOnDailymotion: t("watchOnDailymotion"),
+    showNotes: t("showNotes"),
+    downloadEpisode: t("downloadEpisode"),
+    viewOnBluesky: t("viewOnBluesky"),
+    viewOnReddit: t("viewOnReddit"),
+    viewOnTwitter: t("viewOnTwitter"),
   };
 }

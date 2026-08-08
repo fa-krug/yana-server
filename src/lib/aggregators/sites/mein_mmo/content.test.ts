@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as cheerio from "cheerio";
 import type { RawArticle } from "../../base";
+import { DEFAULT_CHROME_LABELS } from "../../chrome-labels";
 import { extractMeinMmoContent } from "./content";
 
 vi.mock("../../embeds/bluesky", async (importOriginal) => {
@@ -29,7 +30,7 @@ describe("extractMeinMmoContent", () => {
   it("resolves asynchronously and extracts the entry-content div", async () => {
     const html = '<html><body><div class="entry-content"><p>Hello world.</p></div></body></html>';
 
-    const result = extractMeinMmoContent(html, ARTICLE, []);
+    const result = extractMeinMmoContent(html, ARTICLE, [], DEFAULT_CHROME_LABELS);
     expect(result).toBeInstanceOf(Promise);
 
     const resolved = await result;
@@ -45,7 +46,7 @@ describe("extractMeinMmoContent", () => {
       '<a href="https://bsky.app/profile/user.bsky.social/post/abc">link</a>' +
       "</figure></div></body></html>";
 
-    const result = await extractMeinMmoContent(html, ARTICLE, []);
+    const result = await extractMeinMmoContent(html, ARTICLE, [], DEFAULT_CHROME_LABELS);
 
     expect(result).toContain("Rich Bluesky post");
     expect(result).toContain('data-sanitized-class="bluesky-embed"');
@@ -101,7 +102,7 @@ describe("extractMeinMmoContent - real Bluesky builder end-to-end (unmocked)", (
       '<a href="https://bsky.app/profile/user.bsky.social/post/abc">link</a>' +
       "</figure></div></body></html>";
 
-    const result = await realExtractMeinMmoContent(html, ARTICLE, []);
+    const result = await realExtractMeinMmoContent(html, ARTICLE, [], DEFAULT_CHROME_LABELS);
 
     // Proves the real builder ran (not the module-mocked stub above).
     expect(result).toContain("Real Author");

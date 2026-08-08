@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { buildBlueskyEmbedHtml, formatBlueskyCount, formatBlueskyPostDate } from "./bluesky";
+import { DEFAULT_CHROME_LABELS } from "../chrome-labels";
 import * as cheerio from "cheerio";
 
 const mockFetch = vi.fn();
@@ -75,6 +76,7 @@ describe("buildBlueskyEmbedHtml", () => {
 
     const result = await buildBlueskyEmbedHtml(
       "https://bsky.app/profile/stirpicus.bsky.social/post/3mngsbu7t2s27",
+      DEFAULT_CHROME_LABELS,
     );
 
     expect(result).not.toBeNull();
@@ -90,6 +92,19 @@ describe("buildBlueskyEmbedHtml", () => {
     expect(result).toContain("Jun 04, 2026");
   });
 
+  it("renders the passed-in locale's viewOnBluesky label", async () => {
+    mockBlueskyApi(SAMPLE_POST);
+
+    const result = await buildBlueskyEmbedHtml(
+      "https://bsky.app/profile/stirpicus.bsky.social/post/3mngsbu7t2s27",
+      { ...DEFAULT_CHROME_LABELS, viewOnBluesky: "Auf Bluesky ansehen" },
+    );
+
+    expect(result).not.toBeNull();
+    expect(result).toContain("Auf Bluesky ansehen");
+    expect(result).not.toContain("View on Bluesky");
+  });
+
   it("omits the image paragraph when the post has none", async () => {
     mockBlueskyApi({
       author: { handle: "user.bsky.social", displayName: "" },
@@ -102,6 +117,7 @@ describe("buildBlueskyEmbedHtml", () => {
 
     const result = await buildBlueskyEmbedHtml(
       "https://bsky.app/profile/user.bsky.social/post/abc",
+      DEFAULT_CHROME_LABELS,
     );
 
     expect(result).not.toBeNull();
@@ -114,6 +130,7 @@ describe("buildBlueskyEmbedHtml", () => {
 
     const result = await buildBlueskyEmbedHtml(
       "https://bsky.app/profile/stirpicus.bsky.social/post/3mngsbu7t2s27?foo=bar",
+      DEFAULT_CHROME_LABELS,
     );
 
     expect(result).not.toBeNull();
@@ -133,6 +150,7 @@ describe("buildBlueskyEmbedHtml", () => {
 
     const result = await buildBlueskyEmbedHtml(
       "https://bsky.app/profile/user.bsky.social/post/abc",
+      DEFAULT_CHROME_LABELS,
     );
 
     expect(result).not.toBeNull();
@@ -143,7 +161,10 @@ describe("buildBlueskyEmbedHtml", () => {
   });
 
   it("returns null for a non-post URL", async () => {
-    const result = await buildBlueskyEmbedHtml("https://example.com/not-a-post");
+    const result = await buildBlueskyEmbedHtml(
+      "https://example.com/not-a-post",
+      DEFAULT_CHROME_LABELS,
+    );
     expect(result).toBeNull();
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -152,6 +173,7 @@ describe("buildBlueskyEmbedHtml", () => {
     mockBlueskyApi(null);
     const result = await buildBlueskyEmbedHtml(
       "https://bsky.app/profile/user.bsky.social/post/abc",
+      DEFAULT_CHROME_LABELS,
     );
     expect(result).toBeNull();
   });
@@ -160,7 +182,10 @@ describe("buildBlueskyEmbedHtml", () => {
     mockFetch.mockRejectedValue(new Error("network error"));
 
     await expect(
-      buildBlueskyEmbedHtml("https://bsky.app/profile/user.bsky.social/post/abc"),
+      buildBlueskyEmbedHtml(
+        "https://bsky.app/profile/user.bsky.social/post/abc",
+        DEFAULT_CHROME_LABELS,
+      ),
     ).resolves.toBeNull();
   });
 
@@ -169,6 +194,7 @@ describe("buildBlueskyEmbedHtml", () => {
 
     const result = await buildBlueskyEmbedHtml(
       "https://bsky.app/profile/user.bsky.social/post/abc",
+      DEFAULT_CHROME_LABELS,
     );
     expect(result).toBeNull();
   });
@@ -179,7 +205,7 @@ describe("buildBlueskyEmbedHtml", () => {
     // (/\/profile\/([^/]+)\/post\/([^/?#]+)/) — the regex has no start anchor.
     // This exercises the isSafeUrl guard on a URL that passes pattern extraction.
     const unsafeUrl = "javascript:alert(1)//profile/a/post/b";
-    const result = await buildBlueskyEmbedHtml(unsafeUrl);
+    const result = await buildBlueskyEmbedHtml(unsafeUrl, DEFAULT_CHROME_LABELS);
 
     expect(result).not.toBeNull();
     const $ = cheerio.load(result!);
@@ -202,6 +228,7 @@ describe("buildBlueskyEmbedHtml", () => {
 
     const result = await buildBlueskyEmbedHtml(
       "https://bsky.app/profile/stirpicus.bsky.social/post/3mngsbu7t2s27",
+      DEFAULT_CHROME_LABELS,
     );
 
     expect(result).not.toBeNull();

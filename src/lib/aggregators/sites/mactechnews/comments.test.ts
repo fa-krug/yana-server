@@ -21,6 +21,16 @@ function pageWithOneComment(): string {
   `;
 }
 
+function pageWithAnonymousComment(): string {
+  return `
+    <div class="MtnCommentScroll">
+      <div class="MtnComment" id="comment-1">
+        <div class="MtnCommentText"><p>Nice article!</p></div>
+      </div>
+    </div>
+  `;
+}
+
 describe("extractComments", () => {
   it("renders the Comments heading and source link in English by default", () => {
     const html = extractComments(
@@ -46,5 +56,14 @@ describe("extractComments", () => {
     expect(html).toContain(">Quelle</a>");
     expect(html).not.toContain("Comments");
     expect(html).not.toContain(">source<");
+  });
+
+  it("falls back to the locale's unknownAuthor label when no author element is found", () => {
+    const html = extractComments(pageWithAnonymousComment(), "https://mactechnews.de/a", 5, {
+      ...DEFAULT_CHROME_LABELS,
+      unknownAuthor: "Unbekannt",
+    });
+
+    expect(html).toContain("<strong>Unbekannt</strong>");
   });
 });

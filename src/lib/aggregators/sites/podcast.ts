@@ -193,6 +193,7 @@ export class PodcastAggregator extends RssAggregator {
     const includePlayer = options.include_player !== false;
     const includeDownloadLink = options.include_download_link !== false;
     const artworkSize = (options.artwork_size as number) ?? 300;
+    const labels = await this.chromeLabels();
 
     const enriched: RawArticle[] = [];
 
@@ -241,10 +242,12 @@ export class PodcastAggregator extends RssAggregator {
         if (safeMediaUrl) {
           metaParts.push(
             `<a href="${safeMediaUrl}" data-sanitized-class="podcast-download" ` +
-              `download>Download Episode</a>`,
+              `download>${labels.downloadEpisode}</a>`,
           );
         } else {
-          metaParts.push(`<span data-sanitized-class="podcast-download">Download Episode</span>`);
+          metaParts.push(
+            `<span data-sanitized-class="podcast-download">${labels.downloadEpisode}</span>`,
+          );
         }
       }
 
@@ -263,7 +266,7 @@ export class PodcastAggregator extends RssAggregator {
       const description = article.content || "";
       if (description) {
         htmlParts.push(`<div data-sanitized-class="podcast-description">`);
-        htmlParts.push(`<h4>Show Notes</h4>`);
+        htmlParts.push(`<h4>${labels.showNotes}</h4>`);
         htmlParts.push(sanitizeShowNotesHtml(description));
         htmlParts.push(`</div>`);
       }
@@ -276,15 +279,16 @@ export class PodcastAggregator extends RssAggregator {
     return enriched;
   }
 
-  override processContent(htmlContent: string, article: RawArticle): string {
+  override async processContent(htmlContent: string, article: RawArticle): Promise<string> {
     if (!htmlContent) {
       return "";
     }
 
+    const labels = await this.chromeLabels();
     const $ = cheerio.load(htmlContent);
     sanitizeClassNames($);
     const cleaned = cleanHtml($.html());
 
-    return formatArticleContent(cleaned, article.name, article.identifier);
+    return formatArticleContent(cleaned, article.name, article.identifier, labels);
   }
 }

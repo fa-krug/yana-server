@@ -1,6 +1,7 @@
 import * as cheerio from "cheerio";
 import type { Element } from "domhandler";
 import type { RawArticle } from "../../base";
+import type { ChromeLabels } from "../../chrome-labels";
 import {
   cleanDataAttributes,
   removeEmptyElements,
@@ -16,6 +17,7 @@ import { processEmbeds } from "./embeds";
 export function processDailymotionBlocks(
   $content: cheerio.Cheerio<Element>,
   $: cheerio.CheerioAPI,
+  labels: ChromeLabels,
 ): void {
   const videoBlocks = $content.find("div.wp-block-mmo-video");
   if (videoBlocks.length === 0) return;
@@ -36,7 +38,7 @@ export function processDailymotionBlocks(
     const titleDiv = $block.find("div.title").first();
     const title = titleDiv.length > 0 ? titleDiv.text().trim() : "";
 
-    const facadeHtml = buildDailymotionFacadeHtml(videoId);
+    const facadeHtml = buildDailymotionFacadeHtml(videoId, labels);
     const $facade = $(facadeHtml);
     const $wrapper = $("<div>").addClass("dailymotion-embed-container");
     const dataEmbed = $facade.attr("data-embed");
@@ -70,6 +72,7 @@ export async function extractMeinMmoContent(
   html: string,
   _article: RawArticle,
   selectorsToRemove: string[],
+  labels: ChromeLabels,
 ): Promise<string> {
   const $ = cheerio.load(html);
 
@@ -90,7 +93,7 @@ export async function extractMeinMmoContent(
   }
 
   // Convert Dailymotion video blocks before removal
-  processDailymotionBlocks($content, $);
+  processDailymotionBlocks($content, $, labels);
 
   // Remove unwanted elements
   removeSelectors($content, selectorsToRemove);
@@ -109,7 +112,7 @@ export async function extractMeinMmoContent(
   });
 
   // Process embeds (YouTube, Twitter, Reddit, Bluesky, TikTok, YouTubeFallback)
-  await processEmbeds($content, $);
+  await processEmbeds($content, $, labels);
   // Body `<img>` src values -- including any embedded by processEmbeds above,
   // e.g. a Bluesky post's images -- are resolved to real yana-img:// references
   // in MeinMmoAggregator.processContent() -- that step does a real fetch, and

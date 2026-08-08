@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import type { Element } from "domhandler";
+import type { ChromeLabels } from "../../chrome-labels";
 import { buildBlueskyEmbedHtml, isBlueskyUrl } from "../../embeds/bluesky";
 import { buildYoutubeFacadeHtml } from "../../extract/format";
 
@@ -8,6 +9,7 @@ export interface EmbedProcessorStrategy {
   process(
     figure: cheerio.Cheerio<Element>,
     $: cheerio.CheerioAPI,
+    labels: ChromeLabels,
   ): Promise<cheerio.Cheerio<Element> | null> | cheerio.Cheerio<Element> | null;
 }
 
@@ -22,6 +24,7 @@ export class YouTubeEmbedProcessor implements EmbedProcessorStrategy {
   process(
     figure: cheerio.Cheerio<Element>,
     $: cheerio.CheerioAPI,
+    labels: ChromeLabels,
   ): cheerio.Cheerio<Element> | null {
     const videoId = this.extractVideoId(figure, $);
     if (!videoId) return null;
@@ -30,7 +33,7 @@ export class YouTubeEmbedProcessor implements EmbedProcessorStrategy {
       "data-sanitized-class",
       "youtube-embed",
     );
-    const facadeHtml = buildYoutubeFacadeHtml(videoId);
+    const facadeHtml = buildYoutubeFacadeHtml(videoId, labels);
     const $facade = $(facadeHtml);
     const dataEmbed = $facade.attr("data-embed");
     if (dataEmbed) {
@@ -84,6 +87,7 @@ export class TwitterEmbedProcessor implements EmbedProcessorStrategy {
   process(
     figure: cheerio.Cheerio<Element>,
     $: cheerio.CheerioAPI,
+    labels: ChromeLabels,
   ): cheerio.Cheerio<Element> | null {
     let twitterLink: string | null = null;
     const anchors = figure.find("a[href]").toArray();
@@ -103,7 +107,7 @@ export class TwitterEmbedProcessor implements EmbedProcessorStrategy {
       .attr("href", cleanUrl)
       .attr("target", "_blank")
       .attr("rel", "noopener")
-      .text(`View on X/Twitter: ${cleanUrl}`);
+      .text(`${labels.viewOnTwitter}: ${cleanUrl}`);
     p.append(a);
 
     const figcaption = figure.find("figcaption").first();
@@ -132,6 +136,7 @@ export class RedditEmbedProcessor implements EmbedProcessorStrategy {
   process(
     figure: cheerio.Cheerio<Element>,
     $: cheerio.CheerioAPI,
+    labels: ChromeLabels,
   ): cheerio.Cheerio<Element> | null {
     let redditLink: string | null = null;
     const anchors = figure.find("a[href]").toArray();
@@ -169,7 +174,7 @@ export class RedditEmbedProcessor implements EmbedProcessorStrategy {
       .attr("href", cleanUrl)
       .attr("target", "_blank")
       .attr("rel", "noopener")
-      .text("View on Reddit");
+      .text(labels.viewOnReddit);
     p.append(a);
 
     return p;
@@ -189,6 +194,7 @@ export class BlueskyEmbedProcessor implements EmbedProcessorStrategy {
   async process(
     figure: cheerio.Cheerio<Element>,
     $: cheerio.CheerioAPI,
+    labels: ChromeLabels,
   ): Promise<cheerio.Cheerio<Element> | null> {
     let blueskyLink: string | null = null;
     const anchors = figure.find("a[href]").toArray();
@@ -202,7 +208,7 @@ export class BlueskyEmbedProcessor implements EmbedProcessorStrategy {
 
     if (!blueskyLink) return null;
 
-    const embedHtml = await buildBlueskyEmbedHtml(blueskyLink);
+    const embedHtml = await buildBlueskyEmbedHtml(blueskyLink, labels);
     if (!embedHtml) return null;
 
     const wrapper = ($("<div>") as cheerio.Cheerio<Element>).attr(
@@ -228,6 +234,7 @@ export class TikTokEmbedProcessor implements EmbedProcessorStrategy {
   process(
     figure: cheerio.Cheerio<Element>,
     $: cheerio.CheerioAPI,
+    _labels: ChromeLabels,
   ): cheerio.Cheerio<Element> | null {
     const videoId = this.extractVideoId(figure, $);
     if (!videoId) return null;
@@ -283,6 +290,7 @@ export class YouTubeFallbackProcessor implements EmbedProcessorStrategy {
   process(
     figure: cheerio.Cheerio<Element>,
     $: cheerio.CheerioAPI,
+    labels: ChromeLabels,
   ): cheerio.Cheerio<Element> | null {
     let videoId: string | null = null;
     const anchors = figure.find("a[href]").toArray();
@@ -305,7 +313,7 @@ export class YouTubeFallbackProcessor implements EmbedProcessorStrategy {
       "data-sanitized-class",
       "youtube-embed",
     );
-    const facadeHtml = buildYoutubeFacadeHtml(videoId);
+    const facadeHtml = buildYoutubeFacadeHtml(videoId, labels);
     const $facade = $(facadeHtml);
     const dataEmbed = $facade.attr("data-embed");
     if (dataEmbed) {
@@ -331,6 +339,7 @@ export class YouTubeFallbackProcessor implements EmbedProcessorStrategy {
 export async function processEmbeds(
   $content: cheerio.Cheerio<Element>,
   $: cheerio.CheerioAPI,
+  labels: ChromeLabels,
 ): Promise<void> {
   const processors: EmbedProcessorStrategy[] = [
     new YouTubeEmbedProcessor(),
@@ -346,7 +355,7 @@ export async function processEmbeds(
     const $figure = $(figure);
     for (const processor of processors) {
       if (processor.canHandle($figure, $)) {
-        const replacement = await processor.process($figure, $);
+        const replacement = await processor.process($figure, $, labels);
         if (replacement) {
           $figure.replaceWith(replacement);
         } else {

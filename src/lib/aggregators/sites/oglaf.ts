@@ -67,6 +67,7 @@ export class OglafAggregator extends FullWebsiteAggregator {
   }
 
   override async processContent(htmlContent: string, article: RawArticle): Promise<string> {
+    const labels = await this.chromeLabels();
     const options = (this.feed.options as Record<string, unknown> | null) || {};
     const showAltText = options.show_alt_text !== false;
 
@@ -115,6 +116,6 @@ export class OglafAggregator extends FullWebsiteAggregator {
       newHtml = htmlContent;
     }
 
-    return formatArticleContent(newHtml, article.name, article.identifier);
+    return formatArticleContent(newHtml, article.name, article.identifier, labels);
   }
 }

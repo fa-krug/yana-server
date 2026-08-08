@@ -10,6 +10,7 @@
 
 import type { CheerioAPI } from "cheerio";
 import type { Element } from "domhandler";
+import type { ChromeLabels } from "../chrome-labels";
 import type { EmbedBlock } from "../blocks/types";
 import { storeImageRefFromUrl } from "../images/store";
 import { registerEmbedProvider, type ExtractionContext } from "./registry";
@@ -249,7 +250,10 @@ function numberField(obj: Record<string, unknown>, key: string): number {
  * that case -- matching the Python original, which never falls back to a
  * bare link.
  */
-export async function buildBlueskyEmbedHtml(url: string): Promise<string | null> {
+export async function buildBlueskyEmbedHtml(
+  url: string,
+  labels: ChromeLabels,
+): Promise<string | null> {
   const info = extractBlueskyPostInfo(url);
   if (!info) return null;
 
@@ -280,8 +284,8 @@ export async function buildBlueskyEmbedHtml(url: string): Promise<string | null>
   const authorDisplay = displayName || (handle ? `@${handle}` : "");
   const handleSuffix = displayName && handle ? ` (@${handle})` : "";
   const linkHtml = isSafeUrl(cleanUrl)
-    ? `<a href="${escapeHtml(cleanUrl)}" target="_blank" rel="noopener">View on Bluesky</a>`
-    : "View on Bluesky";
+    ? `<a href="${escapeHtml(cleanUrl)}" target="_blank" rel="noopener">${labels.viewOnBluesky}</a>`
+    : labels.viewOnBluesky;
   parts.push(
     `<p style="margin: 0 0 8px 0;"><strong>${escapeHtml(authorDisplay)}</strong>` +
       `${escapeHtml(handleSuffix)} · ${linkHtml}</p>`,

@@ -31,6 +31,14 @@ const FORUM_HTML = `
   </body></html>
 `;
 
+const FORUM_HTML_NO_AUTHOR = `
+  <html><body>
+    <li class="posting_element" id="posting_1">
+      <a class="posting_subject" href="/forum/x/y/1">A reply</a>
+    </li>
+  </body></html>
+`;
+
 describe("HeiseAggregator.extractComments", () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -67,5 +75,18 @@ describe("HeiseAggregator.extractComments", () => {
     expect(html).toContain(">Kommentare</a></h3>");
     expect(html).toContain(">Quelle</a>");
     expect(html).not.toContain(">source<");
+  });
+
+  it("falls back to the locale's unknownAuthor label when no author element is found", async () => {
+    const { fetchHtml } = await import("../http/fetcher");
+    vi.mocked(fetchHtml).mockResolvedValue(FORUM_HTML_NO_AUTHOR);
+
+    const agg = aggregatorFor();
+    const html = await agg.extractComments("https://www.heise.de/a", ARTICLE_HTML, 5, {
+      ...DEFAULT_CHROME_LABELS,
+      unknownAuthor: "Unbekannt",
+    });
+
+    expect(html).toContain("<strong>Unbekannt</strong>");
   });
 });
