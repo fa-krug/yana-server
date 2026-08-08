@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as cheerio from "cheerio";
+import { DEFAULT_CHROME_LABELS } from "../../chrome-labels";
 import { processEmbeds } from "./embeds";
 
 vi.mock("../../embeds/bluesky", async (importOriginal) => {
@@ -26,7 +27,7 @@ describe("processEmbeds - Bluesky", () => {
     );
     const $content = $(".entry-content");
 
-    await processEmbeds($content, $);
+    await processEmbeds($content, $, DEFAULT_CHROME_LABELS);
 
     expect($content.find("figure").length).toBe(0);
     expect($content.html()).toContain("Bluesky post text");
@@ -43,7 +44,7 @@ describe("processEmbeds - Bluesky", () => {
     );
     const $content = $(".entry-content");
 
-    await processEmbeds($content, $);
+    await processEmbeds($content, $, DEFAULT_CHROME_LABELS);
 
     expect($content.find("figure").length).toBe(0);
     expect($content.find('div[data-sanitized-class="bluesky-embed"]').length).toBe(0);
@@ -60,7 +61,7 @@ describe("processEmbeds - other processors still run under the async loop", () =
     );
     const $content = $(".entry-content");
 
-    await processEmbeds($content, $);
+    await processEmbeds($content, $, DEFAULT_CHROME_LABELS);
 
     expect($content.find("figure").length).toBe(0);
     expect($content.find('div[data-sanitized-class="youtube-embed"]').length).toBe(1);
@@ -75,7 +76,7 @@ describe("processEmbeds - other processors still run under the async loop", () =
     );
     const $content = $(".entry-content");
 
-    await processEmbeds($content, $);
+    await processEmbeds($content, $, DEFAULT_CHROME_LABELS);
 
     expect($content.find("figure").length).toBe(0);
     expect($content.find("img").attr("src")).toBe("https://reddit.com/thumb.jpg");

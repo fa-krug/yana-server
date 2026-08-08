@@ -601,6 +601,14 @@
     "commentsDisabled": "Comments disabled.",
     "commentsUnavailable": "Comments unavailable.",
     "viewVideoOnYoutube": "▶ View Video on YouTube",
-    "viewVideo": "▶ View Video"
+    "viewVideo": "▶ View Video",
+    "unknownAuthor": "Unknown",
+    "watchOnYoutube": "Watch on YouTube",
+    "watchOnDailymotion": "Watch on Dailymotion",
+    "showNotes": "Show Notes",
+    "downloadEpisode": "Download Episode",
+    "viewOnBluesky": "View on Bluesky",
+    "viewOnReddit": "View on Reddit",
+    "viewOnTwitter": "View on X/Twitter"
   }
 }

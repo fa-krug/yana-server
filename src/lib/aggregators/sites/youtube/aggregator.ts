@@ -26,8 +26,12 @@ export interface YouTubeSourceData {
   channel_title: string;
 }
 
-export function safeCommentAuthorHtml(name?: string | null, channelUrl?: string | null): string {
-  const escapedName = escapeHtml(name || "Unknown");
+export function safeCommentAuthorHtml(
+  labels: ChromeLabels,
+  name?: string | null,
+  channelUrl?: string | null,
+): string {
+  const escapedName = escapeHtml(name || labels.unknownAuthor);
   if (channelUrl && isSafeUrl(channelUrl)) {
     return `<a href="${escapeHtml(channelUrl)}">${escapedName}</a>`;
   }
@@ -308,7 +312,7 @@ export class YouTubeAggregator extends BaseAggregator {
 
         const commentUrl = `https://www.youtube.com/watch?v=${videoId}&lc=${escapeHtml(String(commentId))}`;
 
-        const authorHtml = safeCommentAuthorHtml(author, channelUrl);
+        const authorHtml = safeCommentAuthorHtml(labels, author, channelUrl);
         const sanitizedBody = sanitizeCommentBodyHtml(body);
 
         htmlContent += `\n<blockquote>\n<p><strong>${authorHtml}</strong> | <a href="${commentUrl}" target="_blank" rel="noopener">${labels.source}</a></p>\n<div>${sanitizedBody}</div>\n</blockquote>\n`;
@@ -406,6 +410,7 @@ export class YouTubeAggregator extends BaseAggregator {
   }
 
   override async processContent(content: string, article: RawArticle): Promise<string> {
+    const labels = await this.chromeLabels();
     let videoId: string | null = null;
     if (this._last_reloaded_video) {
       const vid = this._last_reloaded_video.id;
@@ -420,10 +425,10 @@ export class YouTubeAggregator extends BaseAggregator {
     let embedHtml = "";
     if (videoId) {
       const thumbnailRef = await localizeThumbnail(videoId);
-      embedHtml = createYoutubeEmbedHtml(videoId, "", thumbnailRef);
+      embedHtml = createYoutubeEmbedHtml(videoId, labels, "", thumbnailRef);
     }
 
-    const processed = formatArticleContent(content, article.name, article.identifier);
+    const processed = formatArticleContent(content, article.name, article.identifier, labels);
     return embedHtml + processed;
   }
 }

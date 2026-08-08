@@ -69,7 +69,7 @@ describe("FullWebsiteAggregator", () => {
     expect(extracted).not.toContain("Navigation");
   });
 
-  it("replaces youtube iframe with facade in processContent", () => {
+  it("replaces youtube iframe with facade in processContent", async () => {
     const feed: FeedLike = { identifier: "https://example.com", dailyLimit: 20 };
     const agg = new FullWebsiteAggregator(feed);
 
@@ -82,10 +82,11 @@ describe("FullWebsiteAggregator", () => {
       date: new Date(),
     };
 
-    const processed = agg.processContent(html, article);
+    const processed = await agg.processContent(html, article);
     expect(processed).toContain("youtube-embed-container");
     expect(processed).toContain("dQw4w9WgXcQ");
     expect(processed).not.toContain("<iframe");
+    expect(processed).toContain("Watch on YouTube");
   });
 });
 
@@ -127,7 +128,7 @@ describe("FullWebsiteAggregator.enrichArticles", () => {
         return html;
       }
 
-      processContent(html: string): string {
+      async processContent(html: string): Promise<string> {
         return html;
       }
     }
@@ -172,7 +173,7 @@ describe("FullWebsiteAggregator.enrichArticles", () => {
         return html;
       }
 
-      processContent(html: string): string {
+      async processContent(html: string): Promise<string> {
         return html;
       }
     }
@@ -218,7 +219,7 @@ describe("FullWebsiteAggregator.enrichArticles", () => {
         return html;
       }
 
-      processContent(html: string): string {
+      async processContent(html: string): Promise<string> {
         return html;
       }
     }

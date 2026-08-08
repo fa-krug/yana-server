@@ -41,7 +41,7 @@ function processComment(
   _$: cheerio.CheerioAPI,
   labels: ChromeLabels,
 ): string | null {
-  let author = "Unknown";
+  let author = labels.unknownAuthor;
   const authorEl = commentEl.find("div.wpd-comment-author").first();
   if (authorEl.length > 0) {
     const link = authorEl.find("a").first();

@@ -41,6 +41,8 @@ describe("resolveChromeLabels", () => {
     expect(labels).toEqual(chromeLabels.DEFAULT_CHROME_LABELS);
     expect(labels.comments).toBe("Comments");
     expect(labels.source).toBe("source");
+    expect(labels.unknownAuthor).toBe("Unknown");
+    expect(labels.watchOnYoutube).toBe("Watch on YouTube");
   });
 
   it("returns English defaults for null userId", async () => {
@@ -74,6 +76,14 @@ describe("resolveChromeLabels", () => {
     expect(labels.commentsUnavailable).toBe("Kommentare nicht verfügbar.");
     expect(labels.viewVideoOnYoutube).toBe("▶ Video auf YouTube ansehen");
     expect(labels.viewVideo).toBe("▶ Video ansehen");
+    expect(labels.unknownAuthor).toBe("Unbekannt");
+    expect(labels.watchOnYoutube).toBe("Auf YouTube ansehen");
+    expect(labels.watchOnDailymotion).toBe("Auf Dailymotion ansehen");
+    expect(labels.showNotes).toBe("Shownotes");
+    expect(labels.downloadEpisode).toBe("Episode herunterladen");
+    expect(labels.viewOnBluesky).toBe("Auf Bluesky ansehen");
+    expect(labels.viewOnReddit).toBe("Auf Reddit ansehen");
+    expect(labels.viewOnTwitter).toBe("Auf X/Twitter ansehen");
   });
 
   it("matches DEFAULT_CHROME_LABELS for an explicitly-English user", async () => {

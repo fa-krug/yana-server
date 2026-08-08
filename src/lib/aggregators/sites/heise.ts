@@ -100,7 +100,7 @@ function processListItemComment(
   labels: ChromeLabels,
 ): string | null {
   const $el = $(el);
-  let author = "Unknown";
+  let author = labels.unknownAuthor;
   const authorEl = $el.find(".tree_thread_list--written_by_user, .pseudonym").first();
   if (authorEl.length > 0) {
     const text = authorEl.text().trim();
@@ -138,7 +138,7 @@ function processFullViewComment(
   labels: ChromeLabels,
 ): string | null {
   const $el = $(el);
-  let author = "Unknown";
+  let author = labels.unknownAuthor;
   const authorSelectors = [
     'a[href*="/forum/heise-online/Meinungen"]',
     ".pseudonym",
@@ -334,9 +334,10 @@ export class HeiseAggregator extends FullWebsiteAggregator {
   }
 
   override async processContent(html: string, article: RawArticle): Promise<string> {
+    const labels = await this.chromeLabels();
     const $ = cheerio.load(html);
 
-    proxyYoutubeEmbeds($);
+    proxyYoutubeEmbeds($, labels);
 
     const headerData = article.header_data;
     if (headerData?.imageUrl) {
@@ -391,7 +392,6 @@ export class HeiseAggregator extends FullWebsiteAggregator {
       try {
         const rawHtml = article.raw_content || "";
         if (rawHtml) {
-          const labels = await this.chromeLabels();
           commentsHtml = await this.extractComments(
             article.identifier,
             rawHtml,
@@ -408,6 +408,7 @@ export class HeiseAggregator extends FullWebsiteAggregator {
       cleaned,
       article.name,
       article.identifier,
+      labels,
       headerImageUrl,
       null,
       commentsHtml,

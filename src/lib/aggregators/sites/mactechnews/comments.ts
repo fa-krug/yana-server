@@ -42,7 +42,7 @@ function processComment(
   labels: ChromeLabels,
 ): string | null {
   const authorEl = commentEl.find("span.MtnCommentAccountName").first();
-  const author = authorEl.length > 0 ? authorEl.text().trim() : "Unknown";
+  const author = authorEl.length > 0 ? authorEl.text().trim() : labels.unknownAuthor;
 
   const timeEl = commentEl.find("span.MtnCommentTime").first();
   let timestamp = "";

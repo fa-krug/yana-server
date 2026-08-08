@@ -111,7 +111,7 @@ export class MerkurAggregator extends FullWebsiteAggregator {
     return extracted;
   }
 
-  override processContent(html: string, article: RawArticle): string | Promise<string> {
+  override async processContent(html: string, article: RawArticle): Promise<string> {
     const options = (this.feed.options as Record<string, unknown> | null) || {};
     const removeEmpty = options.remove_empty_elements !== false;
 
@@ -121,7 +121,8 @@ export class MerkurAggregator extends FullWebsiteAggregator {
       removeEmptyElements($, ["p", "div", "span"]);
     }
 
-    proxyYoutubeEmbeds($);
+    const labels = await this.chromeLabels();
+    proxyYoutubeEmbeds($, labels);
 
     sanitizeHtmlAttributes($);
 

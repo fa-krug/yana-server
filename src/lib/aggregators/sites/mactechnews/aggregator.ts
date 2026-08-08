@@ -137,6 +137,7 @@ export class MactechnewsAggregator extends FullWebsiteAggregator {
   }
 
   override async processContent(html: string, article: RawArticle): Promise<string> {
+    const labels = await this.chromeLabels();
     const $ = cheerio.load(html);
     const baseUrl = article.identifier;
 
@@ -193,7 +194,7 @@ export class MactechnewsAggregator extends FullWebsiteAggregator {
     });
 
     // Replace YouTube iframes with click-through facades
-    proxyYoutubeEmbeds($);
+    proxyYoutubeEmbeds($, labels);
 
     // Remove header image from content if extracted
     if (headerData?.imageUrl) {
@@ -219,7 +220,6 @@ export class MactechnewsAggregator extends FullWebsiteAggregator {
       try {
         const rawHtml = article.raw_content || "";
         if (rawHtml) {
-          const labels = await this.chromeLabels();
           commentsHtml = extractComments(rawHtml, article.identifier, maxComments, labels);
         }
       } catch {
@@ -231,6 +231,7 @@ export class MactechnewsAggregator extends FullWebsiteAggregator {
       cleaned,
       article.name,
       article.identifier,
+      labels,
       headerImageUrl,
       null,
       commentsHtml,

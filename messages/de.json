@@ -601,6 +601,14 @@
     "commentsDisabled": "Kommentare deaktiviert.",
     "commentsUnavailable": "Kommentare nicht verfügbar.",
     "viewVideoOnYoutube": "▶ Video auf YouTube ansehen",
-    "viewVideo": "▶ Video ansehen"
+    "viewVideo": "▶ Video ansehen",
+    "unknownAuthor": "Unbekannt",
+    "watchOnYoutube": "Auf YouTube ansehen",
+    "watchOnDailymotion": "Auf Dailymotion ansehen",
+    "showNotes": "Shownotes",
+    "downloadEpisode": "Episode herunterladen",
+    "viewOnBluesky": "Auf Bluesky ansehen",
+    "viewOnReddit": "Auf Reddit ansehen",
+    "viewOnTwitter": "Auf X/Twitter ansehen"
   }
 }

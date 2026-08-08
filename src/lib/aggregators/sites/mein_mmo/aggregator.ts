@@ -124,14 +124,16 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
   }
 
   override async extractContent(html: string, article: RawArticle): Promise<string> {
-    return extractMeinMmoContent(html, article, this.getIgnoreSelectors());
+    const labels = await this.chromeLabels();
+    return extractMeinMmoContent(html, article, this.getIgnoreSelectors(), labels);
   }
 
   override async processContent(html: string, article: RawArticle): Promise<string> {
+    const labels = await this.chromeLabels();
     const $ = cheerio.load(html);
 
     // Replace YouTube iframes with click-through facades
-    proxyYoutubeEmbeds($);
+    proxyYoutubeEmbeds($, labels);
 
     // Remove header image from content if extracted
     const headerData = article.header_data;
@@ -172,7 +174,6 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
       try {
         const commentSource = firstPageHtml || article.raw_content || "";
         if (commentSource) {
-          const labels = await this.chromeLabels();
           commentsHtml = extractComments(commentSource, article.identifier, maxComments, labels);
         }
       } catch {
@@ -184,6 +185,7 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
       cleaned,
       article.name,
       article.identifier,
+      labels,
       headerImageUrl,
       null,
       commentsHtml,

@@ -114,6 +114,29 @@ describe("YouTubeAggregator.buildContentHtml", () => {
     expect(html).not.toContain(">Comments<");
     expect(html).not.toContain(">source<");
   });
+
+  it("falls back to the locale's unknownAuthor label when a comment has no author", () => {
+    const agg = aggregatorFor();
+    const comments: YouTubeCommentThread[] = [
+      {
+        id: "c1",
+        snippet: {
+          topLevelComment: {
+            snippet: {
+              textDisplay: "nice video",
+            },
+          },
+        },
+      },
+    ];
+
+    const html = agg.buildContentHtml("hello", comments, "vid1", {
+      ...DEFAULT_CHROME_LABELS,
+      unknownAuthor: "Unbekannt",
+    });
+
+    expect(html).toContain("<strong>Unbekannt</strong>");
+  });
 });
 
 describe("YouTubeAggregator.finalizeArticles", () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_CHROME_LABELS } from "../chrome-labels";
 import {
   buildDailymotionFacadeHtml,
   buildHeaderHtml,
@@ -30,30 +31,45 @@ describe("content format utilities", () => {
 
   describe("buildDailymotionFacadeHtml", () => {
     it("builds dailymotion facade HTML container", () => {
-      const html = buildDailymotionFacadeHtml("x81234");
+      const html = buildDailymotionFacadeHtml("x81234", DEFAULT_CHROME_LABELS);
       expect(html).toContain('class="dailymotion-embed-container"');
       expect(html).toContain('data-embed="https://www.dailymotion.com/embed/video/x81234"');
       expect(html).toContain('href="https://www.dailymotion.com/video/x81234"');
+      expect(html).toContain("Watch on Dailymotion");
+    });
+
+    it("uses the passed-in locale's label", () => {
+      const html = buildDailymotionFacadeHtml("x81234", {
+        ...DEFAULT_CHROME_LABELS,
+        watchOnDailymotion: "Auf Dailymotion ansehen",
+      });
+      expect(html).toContain("Auf Dailymotion ansehen");
     });
   });
 
   describe("buildHeaderHtml", () => {
     it("returns null when headerImageUrl is null or empty", () => {
-      expect(buildHeaderHtml(null, "Title")).toBeNull();
-      expect(buildHeaderHtml("", "Title")).toBeNull();
+      expect(buildHeaderHtml(DEFAULT_CHROME_LABELS, null, "Title")).toBeNull();
+      expect(buildHeaderHtml(DEFAULT_CHROME_LABELS, "", "Title")).toBeNull();
     });
 
     it("builds Youtube video header when URL is Youtube", () => {
-      const header = buildHeaderHtml("https://youtu.be/dQw4w9WgXcQ", "Title");
+      const header = buildHeaderHtml(
+        DEFAULT_CHROME_LABELS,
+        "https://youtu.be/dQw4w9WgXcQ",
+        "Title",
+      );
       expect(header).not.toBeNull();
       expect(header).toContain(
         '<header class="media-header" style="margin-bottom: 1.5em; text-align: center;">',
       );
       expect(header).toContain('data-embed="https://www.youtube.com/embed/dQw4w9WgXcQ"');
+      expect(header).toContain("Watch on YouTube");
     });
 
     it("builds image header with escaped attributes and optional caption", () => {
       const header = buildHeaderHtml(
+        DEFAULT_CHROME_LABELS,
         "https://example.com/img.jpg?a=1&b=2",
         'My "Title"',
         "<figcaption>Photo credit</figcaption>",
@@ -75,6 +91,7 @@ describe("content format utilities", () => {
         "<p>Hello world</p>",
         "My Article",
         "https://example.com/art",
+        DEFAULT_CHROME_LABELS,
         "https://example.com/header.jpg",
         null,
         "<p>Comment 1</p>",
@@ -95,6 +112,7 @@ describe("content format utilities", () => {
         "<p>Content</p>",
         "Title",
         "https://example.com",
+        DEFAULT_CHROME_LABELS,
         "https://example.com/img.jpg",
         null,
         null,
