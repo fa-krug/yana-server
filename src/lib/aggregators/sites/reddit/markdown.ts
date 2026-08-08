@@ -303,6 +303,13 @@ export function convertRedditMarkdown(text: string): string {
   const MAX_TEXT_LENGTH = 100000;
   let input = text.length > MAX_TEXT_LENGTH ? text.slice(0, MAX_TEXT_LENGTH) : text;
 
+  // Reddit's "invisible paragraph spacer" idiom. Left in place, it round-trips
+  // through escapeHtml() inside a code span/block (below) as a double-escaped
+  // entity that decodes only one level in the browser, printing the literal
+  // text "&#x200B;" instead of vanishing. It adds no visual value either way,
+  // so it's removed outright rather than decoded.
+  input = input.replace(/&#x200[Bb];|\u200B/g, "");
+
   input = input.replace(
     /\[([^\]]{0,200})\]\((https?:\/\/preview\.redd\.it\/[^\s)]{1,500})\)/g,
     (_, caption, url) =>
