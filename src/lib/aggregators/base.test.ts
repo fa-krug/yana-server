@@ -153,6 +153,31 @@ describe("BaseAggregator", () => {
     expect(passedSettings).toBe(mockSettings);
   });
 
+  it("reports coarse progress after each pipeline stage, in increasing order", async () => {
+    const feed: FeedLike = { identifier: "https://example.com/rss", dailyLimit: 20 };
+    const agg = new TestAggregator(feed);
+    const reported: number[] = [];
+
+    await agg.aggregate(undefined, 0, undefined, (percent) => reported.push(percent));
+
+    expect(reported).toEqual([10, 20, 60, 80]);
+  });
+
+  it("reports no progress at all when the run limit is 0", async () => {
+    const feed: FeedLike = { identifier: "https://example.com/rss", dailyLimit: 5 };
+    const agg = new TestAggregator(feed);
+    const reported: number[] = [];
+
+    await agg.aggregate(
+      () => new Date(),
+      5,
+      undefined,
+      (percent) => reported.push(percent),
+    );
+
+    expect(reported).toEqual([]);
+  });
+
   describe("chromeLabels", () => {
     let dbPath: string;
     let client: typeof import("../db/client");

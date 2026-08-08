@@ -1316,6 +1316,66 @@ describe("src/lib/jobs/handlers", () => {
       const [, , settingsArg] = aggregateMock.mock.calls[0]!;
       expect(settingsArg).toMatchObject({ userId: "ai-user", activeAiProvider: "openai" });
     });
+
+    it("passes today's already-collected article count as collectedToday, not always 0", async () => {
+      vi.resetModules();
+      const aggregateMock = vi.fn().mockResolvedValue([]);
+      vi.doMock("@/lib/aggregators/factory", () => ({
+        createAggregator: () => ({ aggregate: aggregateMock }),
+      }));
+      handlers = await import("./index");
+
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        db.insert(schema.users).values({ id: "pacing-user", email: "pacing@example.com" }).run();
+        const feed = db
+          .insert(schema.feeds)
+          .values({
+            name: "Test Feed",
+            userId: "pacing-user",
+            aggregator: "full_website",
+            enabled: true,
+          })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedId = feed.id;
+
+        // Two articles already collected earlier today for this feed, one
+        // yesterday (must not count), and one for a different feed (must not
+        // count either).
+        const otherFeed = db
+          .insert(schema.feeds)
+          .values({ name: "Other Feed", userId: "pacing-user", enabled: true })
+          .returning({ id: schema.feeds.id })
+          .get();
+
+        db.insert(schema.articles)
+          .values([
+            { name: "A", identifier: "a1", feedId, date: new Date() },
+            { name: "B", identifier: "a2", feedId, date: new Date() },
+          ])
+          .run();
+        const yesterday = db
+          .insert(schema.articles)
+          .values({ name: "C", identifier: "a3", feedId, date: new Date() })
+          .returning({ id: schema.articles.id })
+          .get();
+        db.run(
+          sql`UPDATE articles SET created_at = ${Math.floor(Date.now() / 1000) - 90_000} WHERE id = ${yesterday.id}`,
+        );
+        db.insert(schema.articles)
+          .values({ name: "D", identifier: "a4", feedId: otherFeed.id, date: new Date() })
+          .run();
+      });
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+      const job = makeJob("aggregate", { feedId });
+      await aggregateHandler!(job);
+
+      expect(aggregateMock).toHaveBeenCalledTimes(1);
+      const [, collectedTodayArg] = aggregateMock.mock.calls[0]!;
+      expect(collectedTodayArg).toBe(2);
+    });
   });
 
   describe("reload", () => {
