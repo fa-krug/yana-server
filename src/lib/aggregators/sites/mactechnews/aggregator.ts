@@ -136,7 +136,7 @@ export class MactechnewsAggregator extends FullWebsiteAggregator {
     return combinedHtml;
   }
 
-  override processContent(html: string, article: RawArticle): string | Promise<string> {
+  override async processContent(html: string, article: RawArticle): Promise<string> {
     const $ = cheerio.load(html);
     const baseUrl = article.identifier;
 
@@ -219,7 +219,8 @@ export class MactechnewsAggregator extends FullWebsiteAggregator {
       try {
         const rawHtml = article.raw_content || "";
         if (rawHtml) {
-          commentsHtml = extractComments(rawHtml, article.identifier, maxComments);
+          const labels = await this.chromeLabels();
+          commentsHtml = extractComments(rawHtml, article.identifier, maxComments, labels);
         }
       } catch {
         // ignore comment extraction errors

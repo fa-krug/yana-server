@@ -3,6 +3,7 @@ import type { Element } from "domhandler";
 import { isSafeUrl } from "../../blocks/parser";
 import { cleanHtml, removeSanitizedAttributes, sanitizeHtmlAttributes } from "../../extract/clean";
 import { escapeHtml } from "../../extract/format";
+import type { ChromeLabels } from "../../chrome-labels";
 
 function commentLink(url: string, label: string): string {
   if (isSafeUrl(url)) {
@@ -38,6 +39,7 @@ function processComment(
   commentEl: cheerio.Cheerio<Element>,
   articleUrl: string,
   $: cheerio.CheerioAPI,
+  labels: ChromeLabels,
 ): string | null {
   const authorEl = commentEl.find("span.MtnCommentAccountName").first();
   const author = authorEl.length > 0 ? authorEl.text().trim() : "Unknown";
@@ -68,7 +70,7 @@ function processComment(
   return (
     `<blockquote>` +
     `<p><strong>${escapeHtml(author)}</strong>${tsDisplay} | ` +
-    `${commentLink(anchorUrl, "source")}</p>` +
+    `${commentLink(anchorUrl, labels.source)}</p>` +
     `<div>${sanitizeCommentHtml(commentText)}</div>` +
     `</blockquote>`
   );
@@ -85,7 +87,12 @@ function processComment(
  * @param maxComments - Maximum number of comments to extract
  * @returns HTML string with formatted comments, or null if no comments found
  */
-export function extractComments(html: string, articleUrl: string, maxComments = 5): string | null {
+export function extractComments(
+  html: string,
+  articleUrl: string,
+  maxComments: number,
+  labels: ChromeLabels,
+): string | null {
   if (maxComments <= 0) {
     return null;
   }
@@ -109,7 +116,7 @@ export function extractComments(html: string, articleUrl: string, maxComments = 
 
   for (let i = 0; i < limit; i++) {
     const commentEl = $(comments.get(i)!);
-    const commentHtml = processComment(commentEl, articleUrl, $);
+    const commentHtml = processComment(commentEl, articleUrl, $, labels);
     if (commentHtml) {
       commentParts.push(commentHtml);
     }
@@ -121,6 +128,6 @@ export function extractComments(html: string, articleUrl: string, maxComments = 
 
   // Build comments section with header
   const commentsUrl = `${articleUrl}#comments`;
-  const header = `<h3>${commentLink(commentsUrl, "Comments")}</h3>`;
+  const header = `<h3>${commentLink(commentsUrl, labels.comments)}</h3>`;
   return `<section>${header}${commentParts.join("")}</section>`;
 }
