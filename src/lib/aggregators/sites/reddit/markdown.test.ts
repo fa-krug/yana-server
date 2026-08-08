@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { markdownToHtml } from "./markdown";
+import { convertRedditMarkdown, markdownToHtml } from "./markdown";
 
 describe("markdownToHtml tables", () => {
   it("converts a GFM table into an HTML table", () => {
@@ -24,5 +24,24 @@ describe("markdownToHtml tables", () => {
     const html = markdownToHtml("just a | pipe, not a table");
     expect(html).not.toContain("<table>");
     expect(html).toContain("<p>");
+  });
+});
+
+describe("convertRedditMarkdown zero-width-space entity", () => {
+  it("removes the standalone paragraph-spacer entity", () => {
+    const html = convertRedditMarkdown("Paragraph one.\n\n&#x200B;\n\nParagraph two.");
+    expect(html).not.toContain("&#x200B;");
+    expect(html).not.toContain("&amp;#x200B;");
+  });
+
+  it("removes the entity when it appears inside a code span", () => {
+    const html = convertRedditMarkdown("Here is `code&#x200B;span` example.");
+    expect(html).not.toContain("&#x200B;");
+    expect(html).not.toContain("&amp;#x200B;");
+  });
+
+  it("removes a literal zero-width space character", () => {
+    const html = convertRedditMarkdown("before​after");
+    expect(html).not.toContain("​");
   });
 });
