@@ -6,6 +6,7 @@
 
 import * as cheerio from "cheerio";
 import { AggregatorUserSettings, BaseAggregator, FeedLike, RawArticle } from "../../base";
+import type { ChromeLabels } from "../../chrome-labels";
 import { mapWithConcurrency } from "../../concurrency";
 import { AggregatorError, ArticleSkipError } from "../../errors";
 import { getHeaderImageRef, HeaderElementData } from "../../header/context";
@@ -371,10 +372,12 @@ export class RedditAggregator extends BaseAggregator {
             accessToken,
           );
 
+          const labels = await this.chromeLabels();
           const content = await buildPostContent(
             postData,
             commentLimit,
             subreddit,
+            labels,
             this.feed.userId,
             isCrossPost,
             comments,
@@ -437,7 +440,8 @@ export class RedditAggregator extends BaseAggregator {
           let headerCaptionHtml: string | null = null;
           const videoUrl = article._reddit_video_url as string | null;
           if (videoUrl && !isYoutubeHeader) {
-            headerCaptionHtml = `<p>${safeLinkHtml(videoUrl, "▶ View Video")}</p>`;
+            const labels = await this.chromeLabels();
+            headerCaptionHtml = `<p>${safeLinkHtml(videoUrl, labels.viewVideo)}</p>`;
           }
 
           headerHtml = buildHeaderHtml(renderUrl, article.name, headerCaptionHtml);
@@ -597,17 +601,19 @@ export class RedditAggregator extends BaseAggregator {
       accessToken,
     );
 
+    const labels = await this.chromeLabels();
     return buildPostContent(
       effectivePostData,
       commentLimit,
       effectiveSubreddit,
+      labels,
       this.feed.userId,
       isCrossPost,
       comments,
     );
   }
 
-  override extractContent(html: string, _article: RawArticle): string {
+  override async extractContent(html: string, _article: RawArticle): Promise<string> {
     if (!html) return "";
 
     const trimmed = html.trim();
@@ -650,6 +656,7 @@ export class RedditAggregator extends BaseAggregator {
           const isCrossPost = Boolean(
             postData.crosspost_parent_list && postData.crosspost_parent_list.length > 0,
           );
+          const labels = await this.chromeLabels();
 
           const contentParts: string[] = [];
 
@@ -701,7 +708,7 @@ export class RedditAggregator extends BaseAggregator {
               const fixedUrl = fixRedditMediaUrl(url);
               if (fixedUrl) contentParts.push(`<p>${safeLinkHtml(fixedUrl, fixedUrl)}</p>`);
             } else if (urlLower.includes("youtube.com") || urlLower.includes("youtu.be")) {
-              contentParts.push(`<p>${safeLinkHtml(url, "▶ View Video on YouTube")}</p>`);
+              contentParts.push(`<p>${safeLinkHtml(url, labels.viewVideoOnYoutube)}</p>`);
             } else if (
               !isCrossPost &&
               !postData.is_self &&
@@ -715,18 +722,20 @@ export class RedditAggregator extends BaseAggregator {
 
           const decodedPermalink = decodeHtmlEntitiesInUrl(postData.permalink);
           const permalink = `https://reddit.com${decodedPermalink}`;
-          const commentSectionParts: string[] = [`<h3>${safeLinkHtml(permalink, "Comments")}</h3>`];
+          const commentSectionParts: string[] = [
+            `<h3>${safeLinkHtml(permalink, labels.comments)}</h3>`,
+          ];
 
           if (commentLimit > 0) {
             if (commentsList && commentsList.length > 0) {
               const sliced = commentsList.slice(0, commentLimit);
-              const commentHtmls = sliced.map((c: RedditComment) => formatCommentHtml(c));
+              const commentHtmls = sliced.map((c: RedditComment) => formatCommentHtml(c, labels));
               commentSectionParts.push(commentHtmls.join(""));
             } else {
-              commentSectionParts.push("<p><em>No comments yet.</em></p>");
+              commentSectionParts.push(`<p><em>${labels.noCommentsYet}</em></p>`);
             }
           } else {
-            commentSectionParts.push("<p><em>Comments disabled.</em></p>");
+            commentSectionParts.push(`<p><em>${labels.commentsDisabled}</em></p>`);
           }
 
           contentParts.push(`<section>${commentSectionParts.join("")}</section>`);
