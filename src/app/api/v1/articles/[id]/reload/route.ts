@@ -3,6 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { ApiError, apiErrorResponse, requireApiUser } from "@/lib/api/auth";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, feeds, jobs } from "@/lib/db/schema";
+import { PRIORITY_IMMEDIATE } from "@/lib/jobs/queue";
 
 /**
  * The native client's single-article reload endpoint -- the same
@@ -41,7 +42,12 @@ export async function POST(
 
       const inserted = tx
         .insert(jobs)
-        .values({ kind: "article.reload", payload: { articleId }, userId: user.id })
+        .values({
+          kind: "article.reload",
+          payload: { articleId },
+          userId: user.id,
+          priority: PRIORITY_IMMEDIATE,
+        })
         .returning({ id: jobs.id })
         .get();
       return inserted.id;

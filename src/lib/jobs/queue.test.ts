@@ -118,6 +118,22 @@ describe("src/lib/jobs/queue", () => {
       expect(queue.claim()?.id).toBe(newer);
     });
 
+    it("claims a higher-priority job ahead of an older, lower-priority one", () => {
+      const olderLowPriority = queue.enqueue(
+        "noop",
+        { n: 1 },
+        { runAt: new Date(Date.now() - 2000) },
+      );
+      const newerHighPriority = queue.enqueue(
+        "noop",
+        { n: 2 },
+        { runAt: new Date(Date.now() - 1000), priority: queue.PRIORITY_IMMEDIATE },
+      );
+
+      expect(queue.claim()?.id).toBe(newerHighPriority);
+      expect(queue.claim()?.id).toBe(olderLowPriority);
+    });
+
     it("resets a job orphaned by a crash", () => {
       const id = queue.enqueue("noop", {});
       queue.claim();
@@ -543,6 +559,27 @@ describe("src/lib/jobs/queue", () => {
       const runJobs = jobList.filter((j) => j.runId === runId);
       expect(runJobs).toHaveLength(2);
       expect(runJobs.every((j) => j.userId === userId)).toBe(true);
+    });
+
+    it("enqueueRun() defaults every job's priority to 0", () => {
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(userId, "aggregate", [{ feedId: 1 }]);
+      const { jobs: jobList } = queue.listJobs({});
+      expect(jobList.find((j) => j.runId === runId)?.priority).toBe(0);
+    });
+
+    it("enqueueRun() stamps every job it creates with the given priority", () => {
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(
+        userId,
+        "article.reload",
+        [{ articleId: 1 }, { articleId: 2 }],
+        queue.PRIORITY_IMMEDIATE,
+      );
+      const { jobs: jobList } = queue.listJobs({});
+      const runJobs = jobList.filter((j) => j.runId === runId);
+      expect(runJobs).toHaveLength(2);
+      expect(runJobs.every((j) => j.priority === queue.PRIORITY_IMMEDIATE)).toBe(true);
     });
 
     it("listJobs() filters by userId when given one", () => {

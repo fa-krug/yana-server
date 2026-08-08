@@ -71,6 +71,28 @@ describe("src/lib/jobs/worker", () => {
     expect(job?.status).toBe("completed");
   });
 
+  it("runs a job enqueued at PRIORITY_IMMEDIATE before older, lower-priority jobs already queued", async () => {
+    const order: number[] = [];
+    handlers.registerHandler("test.job", async (job) => {
+      order.push(job.id);
+    });
+
+    const older1 = queue.enqueue("test.job", { n: 1 }, { runAt: new Date(Date.now() - 2000) });
+    const older2 = queue.enqueue("test.job", { n: 2 }, { runAt: new Date(Date.now() - 1000) });
+    const urgent = queue.enqueue(
+      "test.job",
+      { n: 3 },
+      { runAt: new Date(), priority: queue.PRIORITY_IMMEDIATE },
+    );
+
+    const loopPromise = worker.runWorkerLoop({ pollIntervalMs: 50 });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    worker.stopWorker();
+    await loopPromise;
+
+    expect(order).toEqual([urgent, older1, older2]);
+  });
+
   it("fails job if no handler is registered", async () => {
     const id = queue.enqueue("unhandled.job", {});
 
