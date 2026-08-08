@@ -26,7 +26,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { removeProvider, saveProvider, setActiveProvider, testProvider } from "@/lib/ai/actions";
+import {
+  listOpenrouterModels,
+  removeProvider,
+  saveProvider,
+  setActiveProvider,
+  testProvider,
+} from "@/lib/ai/actions";
 import {
   AI_PROVIDERS,
   OPENAI_DEFAULT_API_URL,
@@ -36,6 +42,7 @@ import {
 } from "@/lib/ai/providers";
 import type { AiProviderStatus } from "@/lib/ai/queries";
 import { attempt } from "@/lib/ai/result";
+import { attemptCall } from "@/lib/attempt";
 
 /**
  * The provider card: which provider the AI features run on, and its
@@ -116,6 +123,16 @@ export function ProviderSection({
   const [saving, startSave] = useTransition();
   const [testing, startTest] = useTransition();
   const busy = saving || testing;
+  // The live OpenRouter catalog, once fetched -- `null` until "Refresh models"
+  // is pressed, so `modelItems` below falls back to the static two-entry list
+  // (`provider.models`) until then. A third transition rather than folding
+  // into `busy`: Save and Test disable each other, but a refresh in flight
+  // has no reason to block either of them, only the model select and its own
+  // button.
+  const [fetchedModels, setFetchedModels] = useState<{ value: string; label: string }[] | null>(
+    null,
+  );
+  const [refreshingModels, startRefreshModels] = useTransition();
 
   const provider = selected === "" ? null : (providerByKey(selected) ?? null);
   const status = provider ? providers[provider.key] : null;
@@ -128,7 +145,15 @@ export function ProviderSection({
     // literal, like "Yana".
     ...AI_PROVIDERS.map((entry) => ({ value: entry.key as Selection, label: entry.label })),
   ];
-  const modelItems = provider ? provider.models.map(({ value, label }) => ({ value, label })) : [];
+  // The fetched catalog wins over the static fallback, but only for the
+  // provider that declares one -- `fetchedModels` is reset to `null` on every
+  // provider switch (see `choose()`), so this can never show OpenRouter's live
+  // list under a different provider's picker value.
+  const modelItems = provider
+    ? (provider.hasDynamicModels && fetchedModels ? fetchedModels : provider.models).map(
+        ({ value, label }) => ({ value, label }),
+      )
+    : [];
 
   /**
    * The line under the picker: what the server is acting on, against what is on
@@ -161,6 +186,10 @@ export function ProviderSection({
     setApiKey("");
     setModel(next === "" ? "" : providers[next].model);
     setApiUrl(next === "" ? "" : providers[next].apiUrl);
+    // So switching away from OpenRouter and back doesn't show a stale fetch
+    // from a previous selection on screen -- it re-shows the static fallback
+    // until refreshed again.
+    setFetchedModels(null);
   }
 
   /**
@@ -256,6 +285,47 @@ export function ProviderSection({
     });
   }
 
+  /**
+   * The live OpenRouter catalog, on demand. Not routed through the `ai`
+   * namespace's `attempt()`/`report()`: it takes no credential and writes
+   * nothing, so the credential-worded reporter vocabulary does not apply -- a
+   * plain toast on failure is the whole contract, and `listOpenrouterModels()`
+   * already collapses every failure to one catalog key (see its doc comment in
+   * `@/lib/ai/actions`).
+   *
+   * **It still goes through `attemptCall()`, never a bare `await` (CLAUDE.md).**
+   * `listOpenrouterModels()` itself never rejects -- it collapses every
+   * failure to `{ ok: false, errorKey }` -- but the network layer between this
+   * click and the server action can still reject on its own (a dropped
+   * connection, the container restarting, an over-sized response), and an
+   * unhandled rejection inside this `useTransition` scope would escalate to
+   * the nearest error boundary and replace the whole `/ai` page -- including
+   * any half-typed credentials -- with "Something went wrong." `attemptCall()`
+   * is the namespace-free layer the CRUD kit's own backstops
+   * (`confirm-destructive.tsx`, `bulk-action-bar.tsx`) use for exactly this
+   * reason; on a `"rejected"` status it has already logged the failure and, if
+   * the session turned out to be the cause, navigated to `/login` itself, so
+   * this only needs one toast to cover the plain "the request never came back"
+   * case.
+   */
+  function refreshModels() {
+    if (!provider?.hasDynamicModels) return;
+    startRefreshModels(async () => {
+      const attempted = await attemptCall(listOpenrouterModels, {
+        label: "Fetching the OpenRouter model catalog rejected instead of reporting",
+      });
+      if (attempted.status !== "returned") {
+        toast.error(t("openrouter.modelsFetchFailed"));
+        return;
+      }
+      if (attempted.result.ok) {
+        setFetchedModels(attempted.result.models);
+      } else {
+        toast.error(t(attempted.result.errorKey));
+      }
+    });
+  }
+
   /** `true` only on success -- anything else keeps the dialog open. */
   async function remove(): Promise<boolean> {
     if (!provider) return false;
@@ -272,7 +342,14 @@ export function ProviderSection({
         <Select
           items={providerItems}
           value={selected}
-          disabled={busy}
+          // `refreshingModels` too, not just `busy`: `choose()` resets
+          // `fetchedModels` to `null` synchronously, but it cannot cancel an
+          // in-flight `refreshModels()` transition. Left enabled, a
+          // switch-away-and-back before that fetch resolves would let its
+          // `setFetchedModels(result.models)` land after the reset and
+          // silently repopulate the catalog with a stale request's answer --
+          // defeating the very reset this picker's own `choose()` performs.
+          disabled={busy || refreshingModels}
           onValueChange={(value) => {
             // Base UI reports `null` for a clearable selection, which this
             // one never is. `""` is a listed item, not an absence.
@@ -297,26 +374,40 @@ export function ProviderSection({
       providerHint={t(hintKey)}
       modelControl={
         provider ? (
-          <Select
-            items={modelItems}
-            value={model}
-            disabled={busy}
-            onValueChange={(value) => {
-              if (value === null) return;
-              setModel(value);
-            }}
-          >
-            <SelectTrigger id="ai-model" className="w-full sm:w-64">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {modelItems.map((item) => (
-                <SelectItem key={item.value} value={item.value}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Select
+              items={modelItems}
+              value={model}
+              disabled={busy || refreshingModels}
+              onValueChange={(value) => {
+                if (value === null) return;
+                setModel(value);
+              }}
+            >
+              <SelectTrigger id="ai-model" className="w-full sm:w-64">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {modelItems.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {/* Only the provider with a live catalog gets this -- every other
+                provider's `models` is the whole list there is. */}
+            {provider.hasDynamicModels ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy || refreshingModels}
+                onClick={refreshModels}
+              >
+                {refreshingModels ? t("provider.refreshingModels") : t("provider.refreshModels")}
+              </Button>
+            ) : null}
+          </div>
         ) : null
       }
       apiKeyControl={

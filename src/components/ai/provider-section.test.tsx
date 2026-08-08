@@ -8,13 +8,16 @@ import { renderWithProviders } from "@/test/render";
 
 import { ProviderSection } from "./provider-section";
 
-const { removeProvider, saveProvider, setActiveProvider, testProvider } = vi.hoisted(() => ({
-  removeProvider: vi.fn(),
-  saveProvider: vi.fn(),
-  setActiveProvider: vi.fn(),
-  testProvider: vi.fn(),
-}));
+const { listOpenrouterModels, removeProvider, saveProvider, setActiveProvider, testProvider } =
+  vi.hoisted(() => ({
+    listOpenrouterModels: vi.fn(),
+    removeProvider: vi.fn(),
+    saveProvider: vi.fn(),
+    setActiveProvider: vi.fn(),
+    testProvider: vi.fn(),
+  }));
 vi.mock("@/lib/ai/actions", () => ({
+  listOpenrouterModels,
   removeProvider,
   saveProvider,
   setActiveProvider,
@@ -49,6 +52,7 @@ const PROVIDERS: Record<AiProviderKey, AiProviderStatus> = {
   mistral: { enabled: false, apiKeyMasked: "", apiUrl: "", model: "mistral-small-latest" },
   qwen: { enabled: false, apiKeyMasked: "", apiUrl: "", model: "qwen3.5-flash" },
   deepseek: { enabled: false, apiKeyMasked: "", apiUrl: "", model: "deepseek-v4-flash" },
+  openrouter: { enabled: false, apiKeyMasked: "", apiUrl: "", model: "openrouter/free" },
 };
 
 function render(active: AiProviderKey | "", locale: "en" | "de" = "de") {
@@ -99,6 +103,7 @@ describe("<ProviderSection>", () => {
     testProvider.mockResolvedValue({ ok: true });
     removeProvider.mockResolvedValue({ ok: true });
     setActiveProvider.mockResolvedValue({ ok: true });
+    listOpenrouterModels.mockResolvedValue({ ok: true, models: [] });
   });
 
   describe('the "None (disabled)" option', () => {
@@ -409,6 +414,172 @@ describe("<ProviderSection>", () => {
           model: "claude-opus-5",
         }),
       );
+    });
+  });
+
+  describe("OpenRouter's refresh-models control", () => {
+    it("is offered only for the provider with a live catalog", () => {
+      render("gemini");
+
+      expect(screen.queryByRole("button", { name: "Modelle aktualisieren" })).toBe(null);
+    });
+
+    it("replaces the static fallback with the fetched catalog on success", async () => {
+      listOpenrouterModels.mockResolvedValue({
+        ok: true,
+        models: [{ value: "some/live-model", label: "Some Live Model" }],
+      });
+      const { container } = render("openrouter");
+
+      // Before the refresh: the two-entry static fallback from `providers.ts`.
+      expect(triggerText(container, "ai-model")).toBe("Free (auto-routed)");
+
+      fireEvent.click(screen.getByRole("button", { name: "Modelle aktualisieren" }));
+      // The button's own label is back (rather than "Wird aktualisiert") once
+      // the transition -- and the `setFetchedModels` inside it -- has
+      // committed, which is the signal to wait on rather than the bare
+      // `listOpenrouterModels` call: that resolves a tick before React
+      // re-renders with the new list.
+      await screen.findByRole("button", { name: "Modelle aktualisieren" });
+
+      // Opened after the fetch settles, so the popup reflects `fetchedModels`
+      // rather than a stale render of the static list.
+      fireEvent.click(document.querySelector<HTMLElement>("#ai-model")!);
+      const item = await screen.findByRole("option", { name: "Some Live Model" });
+      fireEvent.pointerDown(item);
+      fireEvent.click(item);
+
+      expect(triggerText(container, "ai-model")).toBe("Some Live Model");
+    });
+
+    it("keeps the currently selected model's value even if the refreshed list omits it", async () => {
+      // A refresh that no longer lists the model already selected must not
+      // silently swap the selection out from under the operator -- `model`
+      // state is untouched by `refreshModels()`, only `fetchedModels` is. The
+      // trigger falls back to printing the raw id in this case (the `<Select>`
+      // trap CLAUDE.md documents: it resolves a label from `items` alone), but
+      // what Save would submit is the real proof the value survived.
+      listOpenrouterModels.mockResolvedValue({
+        ok: true,
+        models: [{ value: "some/other-model", label: "Some Other Model" }],
+      });
+      render("openrouter");
+
+      fireEvent.click(screen.getByRole("button", { name: "Modelle aktualisieren" }));
+      await waitFor(() => expect(listOpenrouterModels).toHaveBeenCalled());
+
+      submit();
+
+      await waitFor(() =>
+        expect(saveProvider).toHaveBeenCalledWith("openrouter", {
+          apiKey: KEEP_EXISTING,
+          model: "openrouter/free",
+        }),
+      );
+    });
+
+    it("disables the provider picker while a refresh is in flight", async () => {
+      // `choose()` resets `fetchedModels` synchronously but cannot cancel an
+      // already-in-flight `refreshModels()` transition -- so a switch away
+      // and back to OpenRouter before that fetch resolves would otherwise let
+      // its `setFetchedModels(result.models)` land *after* the reset and
+      // silently repopulate the catalog with a stale request's answer,
+      // defeating the very reset the switch just performed. Disabling the
+      // picker for the duration of the refresh is what closes that window;
+      // this test proves the window is closed rather than merely asserting
+      // the reset happens (the earlier "re-shows the static fallback" test
+      // already does that, with a fetch that resolves before the switch).
+      let resolveFetch!: (result: { ok: true; models: { value: string; label: string }[] }) => void;
+      listOpenrouterModels.mockReturnValue(
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        }),
+      );
+      render("openrouter");
+
+      fireEvent.click(screen.getByRole("button", { name: "Modelle aktualisieren" }));
+
+      await waitFor(() =>
+        expect(document.querySelector<HTMLButtonElement>("#ai-provider")!.disabled).toBe(true),
+      );
+
+      resolveFetch({ ok: true, models: [{ value: "some/live-model", label: "Some Live Model" }] });
+
+      await waitFor(() =>
+        expect(document.querySelector<HTMLButtonElement>("#ai-provider")!.disabled).toBe(false),
+      );
+    });
+
+    it("survives a refresh that rejects instead of returning, without crashing into an error boundary", async () => {
+      // Unhandled, this rejection would escalate to the (app) error boundary
+      // and replace the whole page -- the exact failure `attemptCall()` exists
+      // to prevent. `listOpenrouterModels()` itself never rejects in
+      // production, but the network layer between the click and the server
+      // action can, so this drives the component with a rejecting mock rather
+      // than a `{ ok: false }` result.
+      listOpenrouterModels.mockRejectedValue(new Error("the container restarted"));
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      try {
+        const { container } = render("openrouter");
+
+        fireEvent.click(screen.getByRole("button", { name: "Modelle aktualisieren" }));
+
+        await waitFor(() =>
+          expect(toastError).toHaveBeenCalledWith(
+            "Die aktuelle Modellliste konnte nicht von OpenRouter geladen werden. Versuche es gleich noch einmal.",
+          ),
+        );
+        // Still on the page, still showing the static fallback -- not an error
+        // boundary's fallback UI, and the button is interactive again.
+        expect(triggerText(container, "ai-model")).toBe("Free (auto-routed)");
+        expect(
+          screen.getByRole<HTMLButtonElement>("button", { name: "Modelle aktualisieren" }).disabled,
+        ).toBe(false);
+      } finally {
+        logged.mockRestore();
+      }
+    });
+
+    it("reports a fetch failure without touching the model list", async () => {
+      listOpenrouterModels.mockResolvedValue({
+        ok: false,
+        errorKey: "openrouter.modelsFetchFailed",
+      });
+      const { container } = render("openrouter");
+
+      fireEvent.click(screen.getByRole("button", { name: "Modelle aktualisieren" }));
+
+      await waitFor(() =>
+        expect(toastError).toHaveBeenCalledWith(
+          "Die aktuelle Modellliste konnte nicht von OpenRouter geladen werden. Versuche es gleich noch einmal.",
+        ),
+      );
+      expect(triggerText(container, "ai-model")).toBe("Free (auto-routed)");
+    });
+
+    it("re-shows the static fallback after switching away from OpenRouter and back", async () => {
+      listOpenrouterModels.mockResolvedValue({
+        ok: true,
+        models: [{ value: "some/live-model", label: "Some Live Model" }],
+      });
+      const { container } = render("openrouter");
+
+      fireEvent.click(screen.getByRole("button", { name: "Modelle aktualisieren" }));
+      // The provider picker is disabled for the duration of the refresh (see
+      // the "disables the provider picker while a refresh is in flight"
+      // test), so switching has to wait for it to re-enable rather than just
+      // for the call to have been made.
+      await waitFor(() =>
+        expect(document.querySelector<HTMLButtonElement>("#ai-provider")!.disabled).toBe(false),
+      );
+
+      choose("ai-provider", "Gemini");
+      choose("ai-provider", "OpenRouter");
+
+      // The stale fetch from before the round trip is gone: back to the
+      // static fallback until refreshed again.
+      expect(triggerText(container, "ai-model")).toBe("Free (auto-routed)");
     });
   });
 

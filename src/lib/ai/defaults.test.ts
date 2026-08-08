@@ -83,7 +83,8 @@ describe("a freshly provisioned user_settings row", () => {
       row.mistral_enabled,
       row.qwen_enabled,
       row.deepseek_enabled,
-    ]).toEqual([0, 0, 0, 0, 0, 0]);
+      row.openrouter_enabled,
+    ]).toEqual([0, 0, 0, 0, 0, 0, 0]);
   });
 
   it("starts new providers on their correct default models", () => {
@@ -91,5 +92,6 @@ describe("a freshly provisioned user_settings row", () => {
     expect(row.mistral_model).toBe("mistral-small-latest");
     expect(row.qwen_model).toBe("qwen3.5-flash");
     expect(row.deepseek_model).toBe("deepseek-v4-flash");
+    expect(row.openrouter_model).toBe("openrouter/free");
   });
 });

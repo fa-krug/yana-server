@@ -424,6 +424,8 @@
       "turnedOff": "KI-Funktionen ausgeschaltet.",
       "turnOff": "KI ausschalten",
       "turningOff": "Wird ausgeschaltet",
+      "refreshModels": "Modelle aktualisieren",
+      "refreshingModels": "Wird aktualisiert",
       "removeTitle": "Diese Zugangsdaten entfernen?",
       "removeDescription": "Der gespeicherte API-Schlüssel wird gelöscht, und dieser Anbieter lässt sich erst wieder verwenden, wenn du einen Schlüssel für ihn einträgst."
     },
@@ -463,6 +465,13 @@
       "rejected": "DeepSeek hat diese Zugangsdaten nicht akzeptiert. Prüfe den API-Schlüssel, ob das Konto noch Guthaben hat und ob es das gewählte Modell nutzen darf.",
       "quota": "Der Schlüssel ist gültig — DeepSeek begrenzt ihn gerade. In Kürze funktioniert er wieder.",
       "modelUnknown": "Wähle eines der Modelle, die Yana für DeepSeek anbietet."
+    },
+    "openrouter": {
+      "required": "Trage zuerst einen API-Schlüssel ein.",
+      "rejected": "OpenRouter hat diese Zugangsdaten nicht akzeptiert. Prüfe den API-Schlüssel, ob das Konto noch Guthaben hat oder ein kostenloses Modell verwendet wird, und ob es das gewählte Modell nutzen darf.",
+      "rateLimited": "Der Schlüssel ist gültig — OpenRouter begrenzt ihn gerade. In Kürze funktioniert er wieder.",
+      "modelUnknown": "Wähle eines der Modelle, die Yana für OpenRouter anbietet.",
+      "modelsFetchFailed": "Die aktuelle Modellliste konnte nicht von OpenRouter geladen werden. Versuche es gleich noch einmal."
     },
     "advanced": {
       "title": "Erweitert",

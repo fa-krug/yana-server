@@ -7,19 +7,20 @@
  * module's `queries.ts`: everything here is rendered by the `/ai` page's client
  * components -- the provider tabs, the model `<Select>`, whether a base-URL
  * field appears at all -- so anything reachable from here reaches the browser
- * bundle. The six live probes are `fetch` calls that only a server action ever
- * makes, and they are one import away in `./probes`, keyed by the same
+ * bundle. The seven live probes are `fetch` calls that only a server action
+ * ever makes, and they are one import away in `./probes`, keyed by the same
  * `AiProviderKey`. Splitting them was a human ruling; keep the halves apart.
  *
- * **Why a registry rather than six hand-written sections.** Phase 6 shipped
+ * **Why a registry rather than seven hand-written sections.** Phase 6 shipped
  * two credential providers as two near-twin sequences and phase 7's refactor
  * turned that into `defineIntegrationIn()` precisely because five copies is a
- * drift problem rather than a length one. These six are declared the same
- * way: adding a seventh provider is an entry in `AI_PROVIDERS` plus an entry in
- * `AI_PROBES`, not an edit to the form, the action and the client.
+ * drift problem rather than a length one. These seven are declared the same
+ * way: adding an eighth provider is an entry in `AI_PROVIDERS` plus an entry
+ * in `AI_PROBES`, not an edit to the form, the action and the client.
  */
 
-export type AiProviderKey = "openai" | "anthropic" | "gemini" | "mistral" | "qwen" | "deepseek";
+export type AiProviderKey =
+  "openai" | "anthropic" | "gemini" | "mistral" | "qwen" | "deepseek" | "openrouter";
 
 /**
  * Where an OpenAI credential is probed, and what a fresh `user_settings` row
@@ -57,6 +58,15 @@ export const MISTRAL_API_URL = "https://api.mistral.ai/v1";
 export const QWEN_API_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
 export const DEEPSEEK_API_URL = "https://api.deepseek.com/v1";
 
+/**
+ * OpenRouter's fixed base URL -- same reason as the three above: both sides
+ * that need it (the probe in `./openrouter` and `run.ts`'s matching
+ * `callOpenrouter` method) must agree, and a client-safe constant is the only
+ * place both can import from without a probe module reaching the browser
+ * bundle. Not an operator setting -- no column, no form field, one literal.
+ */
+export const OPENROUTER_API_URL = "https://openrouter.ai/api/v1";
+
 /** One entry in a provider's model select. `label` is a brand name, never translated. */
 export type AiModel = { value: string; label: string };
 
@@ -68,6 +78,18 @@ export type AiProvider = {
   defaultModel: string;
   /** Whether this provider's base URL is an operator setting. */
   hasCustomUrl: boolean;
+  /**
+   * Whether this provider's model list is fetched live rather than fixed.
+   *
+   * `true` only for OpenRouter: it aggregates hundreds of models that change
+   * continuously (including a rotating set of free `:free`-tagged ones), so a
+   * static list would be wrong the day it ships. `models`/`defaultModel` still
+   * exist and are still required even when this is `true` -- they are the safe
+   * fallback shown before any refresh and what `resolveModel()` falls back to.
+   * See `listOpenrouterModels()` in `./actions` for the live fetch, and
+   * `provider-section.tsx` for the "Refresh models" control it is wired to.
+   */
+  hasDynamicModels: boolean;
   /**
    * **Does a rate-limit answer from this provider prove the credential was
    * accepted?**
@@ -88,7 +110,7 @@ export type AiProvider = {
    * divergence in the *values* fails a test even though a divergence in the
    * prose cannot.
    *
-   * All six answers, and why they are not the same:
+   * All seven answers, and why they are not the same:
    *
    * - **OpenAI: `false`.** Two independent reasons, either of which is
    *   sufficient. This is the one provider whose base URL is an operator
@@ -136,12 +158,19 @@ export type AiProvider = {
    *   pass (see "Carried forward from phase 7's review" in this repository's
    *   `CLAUDE.md`) must check for Qwen specifically before `/ai` reaches a
    *   user with Qwen configured.
+   * - **OpenRouter: `false`.** It is itself an aggregator in front of many
+   *   upstream providers and applies its own rate limiting -- including extra
+   *   throttling specific to free-tier `:free` models -- independent of
+   *   whether the submitted key is valid. A 429 from it does not prove the
+   *   credential was accepted, the same reasoning as OpenAI's `false` above
+   *   (for a different underlying cause: OpenAI's is an operator-configurable
+   *   gateway, OpenRouter's own edge is the gateway).
    */
   quotaMeansVerified: boolean;
 };
 
 /**
- * The six providers, in the order the page renders them.
+ * The seven providers, in the order the page renders them.
  *
  * **Model lists were looked up, not carried over, and they go stale.** Each
  * entry carries the date and the vendor page it was read from, because the
@@ -155,11 +184,15 @@ export type AiProvider = {
  * **Each list is ordered cheapest-capable first, and each `defaultModel` is its
  * first entry,** because the workload is summarising one article.
  *
- * **Six providers now, matching yana-ios.** The direction record originally
- * deferred expansion beyond the initial three (OpenAI, Anthropic, Gemini); that
- * was widened to six to match yana-ios's full provider list. Apple Intelligence
- * (the seventh in yana-ios) is deliberately excluded here as it is on-device
- * only with no server-side equivalent.
+ * **Six providers now, matching yana-ios, plus OpenRouter as a seventh.** The
+ * direction record originally deferred expansion beyond the initial three
+ * (OpenAI, Anthropic, Gemini); that was widened to six to match yana-ios's
+ * full provider list. Apple Intelligence (the seventh in yana-ios) is
+ * deliberately excluded here as it is on-device only with no server-side
+ * equivalent. OpenRouter is added independently of yana-ios parity -- it has
+ * no yana-ios equivalent -- because it is an aggregator in front of hundreds
+ * of upstream models rather than a single vendor's API, which is also why it
+ * is the one entry with `hasDynamicModels: true`.
  */
 export const AI_PROVIDERS: readonly AiProvider[] = [
   {
@@ -178,6 +211,7 @@ export const AI_PROVIDERS: readonly AiProvider[] = [
     // gateways. That single fact is also why its probe checks the 200 body and
     // why `quotaMeansVerified` is false -- both above.
     hasCustomUrl: true,
+    hasDynamicModels: false,
     quotaMeansVerified: false,
   },
   {
@@ -195,6 +229,7 @@ export const AI_PROVIDERS: readonly AiProvider[] = [
     ],
     defaultModel: "claude-haiku-4-5",
     hasCustomUrl: false,
+    hasDynamicModels: false,
     quotaMeansVerified: true,
   },
   {
@@ -219,6 +254,7 @@ export const AI_PROVIDERS: readonly AiProvider[] = [
     ],
     defaultModel: "gemini-3.5-flash-lite",
     hasCustomUrl: false,
+    hasDynamicModels: false,
     quotaMeansVerified: true,
   },
   {
@@ -238,6 +274,7 @@ export const AI_PROVIDERS: readonly AiProvider[] = [
     // gateway in front of it (a deliberate choice — see the design spec),
     // so nothing can shed load before the real provider evaluates the key.
     hasCustomUrl: false,
+    hasDynamicModels: false,
     // Fixed endpoint, same reasoning as Anthropic/Gemini's `true`: a 429 can
     // only come from Mistral itself having already accepted the key.
     quotaMeansVerified: true,
@@ -253,6 +290,7 @@ export const AI_PROVIDERS: readonly AiProvider[] = [
     ],
     defaultModel: "qwen3.5-flash",
     hasCustomUrl: false,
+    hasDynamicModels: false,
     quotaMeansVerified: true,
   },
   {
@@ -265,7 +303,44 @@ export const AI_PROVIDERS: readonly AiProvider[] = [
     ],
     defaultModel: "deepseek-v4-flash",
     hasCustomUrl: false,
+    hasDynamicModels: false,
     quotaMeansVerified: true,
+  },
+  {
+    key: "openrouter",
+    label: "OpenRouter",
+    // Both entries are OpenRouter's own routing aliases, not a specific
+    // vendor's model id -- confirmed live against openrouter.ai/api/v1/models
+    // and https://openrouter.ai/openrouter/free on 2026-08-08. Neither can go
+    // stale the way a pinned model id can, which is why they are the *only*
+    // two entries in this static fallback: the full live catalog (hundreds of
+    // models, including free ones) is fetched on demand by
+    // `listOpenrouterModels()` in `./actions` -- see `hasDynamicModels` above.
+    models: [
+      // "selects free models at random from the models available on
+      // OpenRouter" and "smartly filters for models that support features
+      // needed for your request" (OpenRouter's own description). Guarantees
+      // $0 cost on every request, which is why it is the default: this page
+      // is often configured with a free-tier key.
+      { value: "openrouter/free", label: "Free (auto-routed)" },
+      // OpenRouter's general auto-router. Best-available routing, but may
+      // pick a paid model -- offered for a user who wants quality over a
+      // guaranteed-free request.
+      { value: "openrouter/auto", label: "Auto (any model, may cost)" },
+    ],
+    defaultModel: "openrouter/free",
+    // Fixed endpoint, like Mistral/Qwen/DeepSeek: not an operator setting.
+    hasCustomUrl: false,
+    hasDynamicModels: true,
+    // Unlike Mistral/Qwen/DeepSeek's direct-endpoint `true`: OpenRouter is
+    // itself an aggregator in front of many upstream providers and applies
+    // its own rate limiting -- including extra throttling specific to
+    // free-tier `:free` models -- independent of whether the submitted key is
+    // valid. A 429 from it does not prove the credential was accepted, the
+    // same reasoning as OpenAI's `false` above (for a different underlying
+    // cause: OpenAI's is an operator-configurable gateway, OpenRouter's own
+    // edge is the gateway).
+    quotaMeansVerified: false,
   },
 ];
 

@@ -14,6 +14,7 @@ import { AI_COLUMNS } from "./columns";
 import { AI_PROBES } from "./probes";
 import {
   OPENAI_DEFAULT_API_URL,
+  OPENROUTER_API_URL,
   providerByKey,
   type AiProvider,
   type AiProviderKey,
@@ -21,28 +22,28 @@ import {
 import type { AiKey, AiResult, AiSaveResult } from "./result";
 
 /**
- * Everything `/ai` writes: six provider credentials, which provider is
+ * Everything `/ai` writes: seven provider credentials, which provider is
  * active, and the nine global tuning values.
  *
- * **The six providers are a table, not six sequences.** Parse, load the row,
- * resolve each secret, guard the empty case, probe, log, judge, write -- all of
- * that lives once in `@/lib/integrations/define`, extracted in task R2 for
- * exactly this moment. What a provider *is* lives here as a declaration. Phase
- * 6's two credential cards plus these six is eight, and the risk in eight
- * near-twin sequences is not their length but the drift *between* them, which no
- * test of any one of them can see.
+ * **The seven providers are a table, not seven sequences.** Parse, load the
+ * row, resolve each secret, guard the empty case, probe, log, judge, write --
+ * all of that lives once in `@/lib/integrations/define`, extracted in task R2
+ * for exactly this moment. What a provider *is* lives here as a declaration.
+ * Phase 6's two credential cards plus these seven is nine, and the risk in
+ * nine near-twin sequences is not their length but the drift *between* them,
+ * which no test of any one of them can see.
  *
  * Every rule the integrations actions live under applies here unchanged -- read
  * that file's header for them -- plus two this page adds:
  *
  * 1. **`quotaMeansVerified` is read from the registry, never typed in here.**
- *    The six providers do not all give the same answer -- `false` for OpenAI,
- *    `true` for the other five, each for its own reason -- and the reasoning
- *    lives beside the field in `./providers` and, duplicated on purpose for
- *    the three whose probes classify a 429 themselves, at each probe's 429
- *    branch. A literal in this file would be a copy able to drift from any of
- *    the six, which is the precise failure the field was made required to
- *    prevent.
+ *    The seven providers do not all give the same answer -- `false` for
+ *    OpenAI and OpenRouter, `true` for the other five, each for its own
+ *    reason -- and the reasoning lives beside the field in `./providers` and,
+ *    duplicated on purpose for the three whose probes classify a 429
+ *    themselves, at each probe's 429 branch. A literal in this file would be a
+ *    copy able to drift from any of the seven, which is the precise failure
+ *    the field was made required to prevent.
  * 2. **`active_ai_provider` is a preference; the `*Enabled` flag is the
  *    permission.** Nothing here erases the preference when a flag goes false --
  *    which provider is *actually* active is derived on the read side by
@@ -173,10 +174,21 @@ function isStorableBaseUrl(value: string): boolean {
 }
 
 /**
+ * OpenRouter's model field, deliberately **not** `modelField()`'s
+ * enum-membership check. That helper validates against `provider.models`, a
+ * static array -- correct for the other six providers, wrong here: a valid
+ * OpenRouter model id comes from a live catalog (`listOpenrouterModels()`
+ * below) the server does not re-fetch at submit time. An actually-invalid id
+ * is still refused, by OpenRouter itself at probe time, surfacing through the
+ * existing generic `unexpected` probe-failure path.
+ */
+const openrouterModelField = z.string().trim().min(1).max(200);
+
+/**
  * The registry entry for a provider key that is already known to be one.
  *
  * Unreachable in practice -- `providers.test.ts` pins `AI_PROVIDERS` to exactly
- * these six keys -- and it throws rather than substituting a default because
+ * these seven keys -- and it throws rather than substituting a default because
  * inventing a `quotaMeansVerified` here is precisely the inheritance the
  * required field exists to prevent.
  */
@@ -191,14 +203,16 @@ function registryEntry(key: AiProviderKey): AiProvider {
  * empty credential and the one for an unlisted model.
  *
  * **`quota` is named per its arm, not per its cause**, which is why the wording
- * splits in two rather than six ways. For Anthropic, Gemini, Mistral, Qwen and
- * DeepSeek -- every `quotaMeansVerified: true` provider -- a rate limit is a
- * *notice on a success* -- the key was accepted, only the budget is gone -- so
- * the key reads "the key is valid, and…". For OpenAI, the one `false`, the same
- * cause lands in the arm that writes nothing, because its base URL is an
- * operator setting and a gateway can shed load before reading the
- * `Authorization` header, so the key reads "could not be verified". Which arm
- * each one lands in is `quotaMeansVerified` below, read from the registry.
+ * splits in two rather than seven ways. For Anthropic, Gemini, Mistral, Qwen
+ * and DeepSeek -- every `quotaMeansVerified: true` provider -- a rate limit is
+ * a *notice on a success* -- the key was accepted, only the budget is gone --
+ * so the key reads "the key is valid, and…". For OpenAI and OpenRouter, the
+ * two `false` providers, the same cause lands in the arm that writes nothing,
+ * for their own separate reasons (OpenAI's base URL is an operator setting and
+ * a gateway can shed load before reading the `Authorization` header;
+ * OpenRouter's own edge is itself that gateway), so the key reads "could not
+ * be verified" for both. Which arm each one lands in is `quotaMeansVerified`
+ * below, read from the registry.
  *
  * **`rejected` is worded broadly on purpose.** Three quite different answers
  * reach it: a key the provider does not know, OpenAI's `insufficient_quota` and
@@ -245,6 +259,17 @@ const PROVIDER_KEYS = {
     rejected: "deepseek.rejected",
     quota: "deepseek.quota",
     modelUnknown: "deepseek.modelUnknown",
+  },
+  openrouter: {
+    required: "openrouter.required",
+    rejected: "openrouter.rejected",
+    quota: "openrouter.rateLimited",
+    // Declared for shape-consistency with the other six providers'
+    // `Record<AiProviderKey, ...>` entry, but never wired into a provider's
+    // `fieldErrorKeys` below: there is no static model list to validate
+    // against before the probe runs, so an unknown OpenRouter model id is
+    // reported through the generic `unexpected` probe-failure path instead.
+    modelUnknown: "openrouter.modelUnknown",
   },
 } satisfies Record<
   AiProviderKey,
@@ -390,6 +415,26 @@ const deepseek = defineIntegration({
   },
 });
 
+const openrouter = defineIntegration({
+  provider: "openrouter",
+  schema: z.object({ apiKey: secretField, model: openrouterModelField }),
+  fields: {
+    apiKey: { column: AI_COLUMNS.openrouter.apiKey, secret: true },
+    model: { column: AI_COLUMNS.openrouter.model, secret: false },
+  },
+  flagColumn: AI_COLUMNS.openrouter.enabled,
+  requiredKey: PROVIDER_KEYS.openrouter.required,
+  // No `fieldErrorKeys` entry: `openrouterModelField` has no `.refine()`, so
+  // it never produces a `custom` zod issue to map, unlike the other six
+  // providers' `"model:custom"` -> `modelUnknown` mapping.
+  probe: AI_PROBES.openrouter,
+  keys: {
+    rejected: PROVIDER_KEYS.openrouter.rejected,
+    quota: PROVIDER_KEYS.openrouter.quota,
+    quotaMeansVerified: registryEntry("openrouter").quotaMeansVerified,
+  },
+});
+
 const PROVIDER_ACTIONS: Record<AiProviderKey, IntegrationActions<AiKey>> = {
   openai,
   anthropic,
@@ -397,6 +442,7 @@ const PROVIDER_ACTIONS: Record<AiProviderKey, IntegrationActions<AiKey>> = {
   mistral,
   qwen,
   deepseek,
+  openrouter,
 };
 
 /**
@@ -676,4 +722,91 @@ export async function saveAdvanced(input: unknown): Promise<AiResult> {
 
   revalidatePath(AI_PATH);
   return { ok: true };
+}
+
+/** One entry OpenRouter's `/models` endpoint reports, normalized for the select. */
+export type OpenrouterModelOption = { value: string; label: string };
+
+export type OpenrouterModelsResult =
+  { ok: true; models: OpenrouterModelOption[] } | { ok: false; errorKey: AiKey };
+
+/** Every field this reads off one entry of OpenRouter's public `/models` response. */
+type OpenrouterModelEntry = {
+  id?: unknown;
+  name?: unknown;
+  pricing?: { prompt?: unknown; completion?: unknown };
+};
+
+/**
+ * The live OpenRouter model catalog, fetched on demand -- never cached, since
+ * the refresh is button-triggered (see the design spec). The upstream endpoint
+ * itself is public and unauthenticated -- no credential is sent to OpenRouter
+ * and this is safe to call before any OpenRouter key has been saved -- but the
+ * caller still has to be a signed-in Yana user, like every other export in
+ * this file: without the `currentUserId()` gate below, an unauthenticated POST
+ * to this server action would make the instance issue outbound requests to
+ * `openrouter.ai` on a stranger's behalf.
+ *
+ * Every failure -- no session, network, timeout, a non-200, an unparseable
+ * body -- collapses to one outcome. Unlike the credential probes' `unreachable`/
+ * `timedOut`/`unexpected` catalog keys, this does **not** reuse them: those
+ * are worded "...these credentials could not be verified," which is wrong
+ * here -- no credential is involved in listing models.
+ */
+export async function listOpenrouterModels(): Promise<OpenrouterModelsResult> {
+  try {
+    // Same gate every other export here sits behind, just not via
+    // `defineIntegrationIn()` (there is no credential and nothing to save).
+    // `currentUserId()` throws -- including Next's own `redirect()` control
+    // flow for "no session" -- rather than returning a falsy value, so it is
+    // enough to call it and let this function's existing catch-all handle the
+    // failure the same way it handles a network error.
+    await currentUserId();
+
+    const response = await fetch(`${OPENROUTER_API_URL}/models`, {
+      method: "GET",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) {
+      return { ok: false, errorKey: "openrouter.modelsFetchFailed" };
+    }
+    const body = (await response.json().catch(() => null)) as { data?: unknown } | null;
+    if (!body || !Array.isArray(body.data)) {
+      return { ok: false, errorKey: "openrouter.modelsFetchFailed" };
+    }
+
+    const entries: { value: string; label: string; isFree: boolean }[] = [];
+    for (const entry of body.data as OpenrouterModelEntry[]) {
+      if (typeof entry.id !== "string" || typeof entry.name !== "string") continue;
+      const isFree = entry.pricing?.prompt === "0" && entry.pricing?.completion === "0";
+      // OpenRouter's own vendor-supplied `name` sometimes already ends in
+      // "(free)" (confirmed live, e.g. "NVIDIA: Nemotron 3 Ultra (free)") --
+      // appending another suffix unconditionally produced a visible
+      // double-labeled "... (free) (Free)". Checked case-insensitively because
+      // the casing of OpenRouter's own suffix is not guaranteed either.
+      const alreadyLabeledFree = /\(free\)$/i.test(entry.name);
+      const label = isFree && !alreadyLabeledFree ? `${entry.name} (Free)` : entry.name;
+      entries.push({ value: entry.id, label, isFree });
+    }
+    // Free entries first: a user hunting for a $0 model should not have to
+    // scroll past hundreds of paid ones to find one. Sorted on the computed
+    // boolean rather than re-derived from the label's text, so a name that
+    // happens to end in "(Free)" without actually being free-priced (or one
+    // that skipped the suffix above because it already carried its own) is
+    // never misread as the other thing.
+    entries.sort((a, b) => Number(b.isFree) - Number(a.isFree));
+
+    if (entries.length === 0) {
+      // An empty-but-well-formed catalog response is treated the same as a
+      // fetch failure: "no models to show" and "couldn't load models" want the
+      // same operator-facing message, and there is no separate catalog key for
+      // "OpenRouter returned nothing."
+      return { ok: false, errorKey: "openrouter.modelsFetchFailed" };
+    }
+    const models: OpenrouterModelOption[] = entries.map(({ value, label }) => ({ value, label }));
+    return { ok: true, models };
+  } catch {
+    return { ok: false, errorKey: "openrouter.modelsFetchFailed" };
+  }
 }

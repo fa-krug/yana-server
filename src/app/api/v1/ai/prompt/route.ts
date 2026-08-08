@@ -70,6 +70,13 @@ export async function POST(request: Request): Promise<Response> {
       if (result.reason === "noProvider") {
         throw new ApiError(409, "no_active_provider", "No AI provider is configured.");
       }
+      if (result.reason === "providerUnauthorized") {
+        throw new ApiError(
+          502,
+          "provider_unauthorized",
+          "The configured AI provider rejected the stored credentials.",
+        );
+      }
       throw new ApiError(502, "provider_error", "The AI provider could not fulfil this prompt.");
     }
 

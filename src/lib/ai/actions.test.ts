@@ -1042,4 +1042,113 @@ describe("the AI actions", () => {
       );
     });
   });
+
+  /**
+   * `listOpenrouterModels()`'s own tests. Nested here rather than standing
+   * alone, because the auth gate it carries (an unauthenticated caller must be
+   * refused) needs exactly this suite's per-test signed-in session; the fetch
+   * to OpenRouter's `/models` itself is still unauthenticated -- no credential
+   * of the caller's ever reaches it -- which is why the successful-fetch tests
+   * below need no `apiKey` anywhere.
+   */
+  describe("listOpenrouterModels", () => {
+    it("returns the parsed catalog with free entries labeled and sorted first", async () => {
+      stubFetch(
+        () =>
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "vendor/paid-model",
+                  name: "Paid Model",
+                  pricing: { prompt: "0.001", completion: "0.002" },
+                },
+                {
+                  id: "vendor/free-model:free",
+                  name: "Free Model",
+                  pricing: { prompt: "0", completion: "0" },
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+      );
+
+      const result = await actions.listOpenrouterModels();
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.models[0]).toEqual({
+          value: "vendor/free-model:free",
+          label: "Free Model (Free)",
+        });
+        expect(result.models[1]).toEqual({ value: "vendor/paid-model", label: "Paid Model" });
+      }
+    });
+
+    it('does not double-suffix a name that already ends in "(free)"', async () => {
+      // Confirmed live: OpenRouter's own vendor-supplied `name` sometimes
+      // already carries this suffix (e.g. "NVIDIA: Nemotron 3 Ultra (free)"),
+      // and unconditionally appending another one produced a visible
+      // "... (free) (Free)".
+      stubFetch(
+        () =>
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "nvidia/nemotron-3-ultra:free",
+                  name: "NVIDIA: Nemotron 3 Ultra (free)",
+                  pricing: { prompt: "0", completion: "0" },
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+      );
+
+      const result = await actions.listOpenrouterModels();
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.models[0]).toEqual({
+          value: "nvidia/nemotron-3-ultra:free",
+          label: "NVIDIA: Nemotron 3 Ultra (free)",
+        });
+      }
+    });
+
+    it("reports modelsFetchFailed on a non-200 response", async () => {
+      stubFetch(() => new Response("", { status: 500 }));
+      const result = await actions.listOpenrouterModels();
+      expect(result).toEqual({ ok: false, errorKey: "openrouter.modelsFetchFailed" });
+    });
+
+    it("reports modelsFetchFailed when the fetch rejects", async () => {
+      vi.stubGlobal("fetch", () => Promise.reject(new Error("network down")));
+      const result = await actions.listOpenrouterModels();
+      expect(result).toEqual({ ok: false, errorKey: "openrouter.modelsFetchFailed" });
+    });
+
+    it("reports modelsFetchFailed on an unparseable body", async () => {
+      stubFetch(() => new Response("not json", { status: 200 }));
+      const result = await actions.listOpenrouterModels();
+      expect(result).toEqual({ ok: false, errorKey: "openrouter.modelsFetchFailed" });
+    });
+
+    it("refuses an unauthenticated caller before ever reaching OpenRouter", async () => {
+      // No cookie at all -- not merely a different user's -- so
+      // `currentUserId()`'s `requireUser()` has nothing to resolve a session
+      // from.
+      requestHeaders.current = new Headers();
+      stubFetch(() => {
+        throw new Error("must not be reached without a session");
+      });
+
+      const result = await actions.listOpenrouterModels();
+
+      expect(result).toEqual({ ok: false, errorKey: "openrouter.modelsFetchFailed" });
+      expect(requests).toHaveLength(0);
+    });
+  });
 });

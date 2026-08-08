@@ -424,6 +424,8 @@
       "turnedOff": "AI features switched off.",
       "turnOff": "Switch AI off",
       "turningOff": "Switching off",
+      "refreshModels": "Refresh models",
+      "refreshingModels": "Refreshing",
       "removeTitle": "Remove these credentials?",
       "removeDescription": "The stored API key is deleted, and this provider cannot be used again until you enter a key for it."
     },
@@ -463,6 +465,13 @@
       "rejected": "DeepSeek would not accept these credentials. Check the API key, that the account still has credit, and that it may use the selected model.",
       "quota": "The key is valid — DeepSeek is rate limiting it right now. It works again shortly.",
       "modelUnknown": "Choose one of the models Yana offers for DeepSeek."
+    },
+    "openrouter": {
+      "required": "Enter an API key first.",
+      "rejected": "OpenRouter would not accept these credentials. Check the API key, that the account still has credit or is using a free model, and that it may use the selected model.",
+      "rateLimited": "The key is valid — OpenRouter is rate limiting it right now. It works again shortly.",
+      "modelUnknown": "Choose one of the models Yana offers for OpenRouter.",
+      "modelsFetchFailed": "Could not load the current model list from OpenRouter. Try again in a moment."
     },
     "advanced": {
       "title": "Advanced",

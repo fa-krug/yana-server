@@ -3,7 +3,7 @@ import * as cheerio from "cheerio";
 import { writeTransaction } from "@/lib/db/client";
 import type { UserSettings } from "@/lib/db/schema";
 
-import { DEEPSEEK_API_URL, MISTRAL_API_URL, QWEN_API_URL } from "./providers";
+import { DEEPSEEK_API_URL, MISTRAL_API_URL, OPENROUTER_API_URL, QWEN_API_URL } from "./providers";
 import { checkAndRecordAiUsage } from "./usage";
 
 export interface ArticleInput {
@@ -57,16 +57,34 @@ export type AiRuntimeSettings = Partial<UserSettings> & {
   deepseek_enabled?: boolean;
   deepseek_api_key?: string;
   deepseek_model?: string;
+  openrouter_enabled?: boolean;
+  openrouter_api_key?: string;
+  openrouter_model?: string;
 };
 
 /** The JSON body an AI provider's chat/completion endpoint is POSTed. */
 export type AiRequestBody = Record<string, unknown>;
 
+/**
+ * Thrown by `requestWithRetry()` on a 401 or 403 from the provider -- the
+ * credential itself was rejected, not a transient failure. Not retried (same
+ * as every other non-429 status), and deliberately a distinct type from a
+ * plain failure so `generateResponse()`'s catch can tell "the stored key is
+ * bad" from "something else went wrong" without threading a status code
+ * through every intermediate `callXxx()` method.
+ */
+export class ProviderUnauthorizedError extends Error {}
+
 export type AiGenerationResult =
   | { ok: true; text: string }
   | {
       ok: false;
-      reason: "noProvider" | "dailyLimitExceeded" | "monthlyLimitExceeded" | "providerError";
+      reason:
+        | "noProvider"
+        | "dailyLimitExceeded"
+        | "monthlyLimitExceeded"
+        | "providerUnauthorized"
+        | "providerError";
     };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -161,9 +179,16 @@ export class AIClient {
           continue;
         }
 
+        if (response.status === 401 || response.status === 403) {
+          throw new ProviderUnauthorizedError(
+            `AI provider rejected the credentials (status ${response.status}).`,
+          );
+        }
+
         console.warn(`AI API call failed with status ${response.status}: ${response.statusText}`);
         return null;
       } catch (err: unknown) {
+        if (err instanceof ProviderUnauthorizedError) throw err;
         if (attempt < maxRetries && errorStatus(err) === 429) {
           const waitSeconds = retryDelay ? retryDelay * Math.pow(2, attempt) : 0;
           const elapsedSeconds = (Date.now() - startTime) / 1000;
@@ -241,12 +266,18 @@ export class AIClient {
         text = await this.callQwen(prompt, jsonMode);
       } else if (this.provider === "deepseek") {
         text = await this.callDeepseek(prompt, jsonMode);
+      } else if (this.provider === "openrouter") {
+        text = await this.callOpenrouter(prompt, jsonMode);
       } else {
         console.warn(`Unknown AI provider: ${this.provider}`);
         return { ok: false, reason: "providerError" };
       }
       return text === null ? { ok: false, reason: "providerError" } : { ok: true, text };
     } catch (e: unknown) {
+      if (e instanceof ProviderUnauthorizedError) {
+        console.warn(`AI provider rejected the stored credentials: ${describeError(e)}`);
+        return { ok: false, reason: "providerUnauthorized" };
+      }
       console.warn(`AI API call failed: ${describeError(e)}`);
       return { ok: false, reason: "providerError" };
     }
@@ -429,6 +460,19 @@ export class AIClient {
       this.settings.deepseekModel ?? this.settings.deepseek_model ?? "deepseek-v4-flash";
     const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
     return this.callOpenaiCompatible(DEEPSEEK_API_URL, apiKey, model, prompt, jsonMode, timeout);
+  }
+
+  private async callOpenrouter(prompt: string, jsonMode: boolean): Promise<string | null> {
+    const enabled = this.settings.openrouterEnabled ?? this.settings.openrouter_enabled;
+    const apiKey = this.settings.openrouterApiKey ?? this.settings.openrouter_api_key;
+    if (!enabled || !apiKey) {
+      console.warn("OpenRouter is not enabled or configured.");
+      return null;
+    }
+    const model =
+      this.settings.openrouterModel ?? this.settings.openrouter_model ?? "openrouter/free";
+    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
+    return this.callOpenaiCompatible(OPENROUTER_API_URL, apiKey, model, prompt, jsonMode, timeout);
   }
 }
 

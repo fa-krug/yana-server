@@ -36,12 +36,12 @@ describe("the providers module's dependency contract", () => {
 });
 
 describe("AI_PROVIDERS", () => {
-  it("covers exactly the six supported providers", () => {
-    // Six providers, matching yana-ios's server-callable list. Apple
-    // Intelligence is the iOS client's seventh provider but is on-device-only
-    // with no network call, so it has no server-side equivalent and is
-    // deliberately excluded here. A seventh *server* entry would be a scope
-    // change, not a tweak.
+  it("covers exactly the seven supported providers", () => {
+    // Six providers match yana-ios's server-callable list; OpenRouter is a
+    // seventh added independently (yana-ios has no OpenRouter entry). Apple
+    // Intelligence is the iOS client's own extra provider but is
+    // on-device-only with no network call, so it has no server-side
+    // equivalent and is deliberately excluded here.
     expect(AI_PROVIDERS.map((provider) => provider.key)).toEqual([
       "openai",
       "anthropic",
@@ -49,6 +49,7 @@ describe("AI_PROVIDERS", () => {
       "mistral",
       "qwen",
       "deepseek",
+      "openrouter",
     ]);
   });
 
@@ -107,7 +108,7 @@ describe("AI_PROVIDERS", () => {
    *
    * `quotaMeansVerified` is what `judge()` in `@/lib/integrations/define` reads
    * to decide whether a 429 stores and enables the credential or writes nothing
-   * at all. The six answers differ; the reasoning lives beside the field in
+   * at all. The seven answers differ; the reasoning lives beside the field in
    * `providers.ts`, and -- for OpenAI, Anthropic and Gemini, whose probes
    * classify the 429 case themselves -- is deliberately duplicated at each
    * one's own 429 branch. Mistral, Qwen and DeepSeek route through the shared
@@ -141,5 +142,17 @@ describe("AI_PROVIDERS", () => {
     // true: api.deepseek.com is DeepSeek's own direct, fixed endpoint --
     // independently the same argument as Mistral's, not inherited from it.
     expect(providerByKey("deepseek")?.quotaMeansVerified).toBe(true);
+    // false: OpenRouter is itself an aggregator in front of many upstream
+    // providers and applies its own rate limiting -- including extra
+    // throttling specific to free-tier `:free` models -- independent of
+    // whether the submitted key is valid. Same shape as OpenAI's `false`,
+    // different underlying cause (its own edge, not an operator gateway).
+    expect(providerByKey("openrouter")?.quotaMeansVerified).toBe(false);
+  });
+
+  it("marks hasDynamicModels true only for openrouter", () => {
+    for (const provider of AI_PROVIDERS) {
+      expect(provider.hasDynamicModels).toBe(provider.key === "openrouter");
+    }
   });
 });
