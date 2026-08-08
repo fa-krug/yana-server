@@ -29,9 +29,9 @@ export interface RawArticle {
 
 /**
  * Per-user preferences threaded through to AI post-processing
- * (`applyAiOptions` in `../ai/run`). No job handler wires a real value in yet
- * -- `src/lib/jobs/handlers/aggregate.ts` calls `aggregate()` with no
- * userSettings at all -- so this models the eventual caller: the real,
+ * (`applyAiOptions` in `../ai/run`). Both `src/lib/jobs/handlers/aggregate.ts`
+ * and `reload.ts` read the feed owner's row directly (there is no session to
+ * call `getSettings()` from in a job handler) and pass it in here: the real,
  * camelCase `UserSettings` row from `src/lib/db/schema/users.ts` (the same
  * type `getSettings()` returns), plus the snake_case fallback keys `AIClient`
  * (`../ai/run`) also reads for parity with the retired Django settings object.

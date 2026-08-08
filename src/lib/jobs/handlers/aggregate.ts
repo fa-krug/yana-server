@@ -5,7 +5,7 @@ import { writeBlocks } from "@/lib/aggregators/blocks/storage";
 import { resolveFeedCredentials } from "@/lib/aggregators/credential-resolution";
 import { createAggregator } from "@/lib/aggregators/factory";
 import { getDb, writeTransaction } from "@/lib/db/client";
-import { articles, feeds, type Job } from "@/lib/db/schema";
+import { articles, feeds, userSettings, type Job } from "@/lib/db/schema";
 import { JobCancelledError } from "../errors";
 import { appendLogLine, isCancelRequested, progress } from "../queue";
 
@@ -23,9 +23,16 @@ export async function handleAggregateJob(job: Job): Promise<void> {
     return;
   }
 
+  // Without this, `aggregate()` -> `finalizeArticles()` -> `applyAiProcessing()`
+  // calls `applyAiOptions()` with `userSettings` undefined, which is an early
+  // return (see its own "No userSettings provided" guard) -- so a feed's
+  // summarize/improve-writing/translate options never ran on a freshly
+  // aggregated article at all, not just on reload.
+  const settings = db.select().from(userSettings).where(eq(userSettings.userId, feed.userId)).get();
+
   appendLogLine(job.id, "stdout", `aggregating feed "${feed.name}" (${feed.aggregator})`);
   const aggregator = createAggregator(resolveFeedCredentials(feed));
-  const rawArticles = await aggregator.aggregate();
+  const rawArticles = await aggregator.aggregate(undefined, undefined, settings);
   appendLogLine(job.id, "stdout", `fetched ${rawArticles.length} articles`);
 
   if (rawArticles.length === 0) {

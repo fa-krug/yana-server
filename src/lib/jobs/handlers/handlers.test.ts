@@ -1279,6 +1279,43 @@ describe("src/lib/jobs/handlers", () => {
       expect(article!.rawContent).toContain("Hauptnavigation");
       expect(article!.rawContent).toContain("Real article body");
     });
+
+    it("passes the feed owner's real user_settings row into aggregate(), not undefined", async () => {
+      vi.resetModules();
+      const aggregateMock = vi.fn().mockResolvedValue([]);
+      vi.doMock("@/lib/aggregators/factory", () => ({
+        createAggregator: () => ({ aggregate: aggregateMock }),
+      }));
+      handlers = await import("./index");
+
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        db.insert(schema.users).values({ id: "ai-user", email: "ai@example.com" }).run();
+        db.insert(schema.userSettings)
+          .values({ userId: "ai-user", activeAiProvider: "openai", openaiEnabled: true })
+          .run();
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({
+            name: "Test Feed",
+            userId: "ai-user",
+            aggregator: "full_website",
+            enabled: true,
+          })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedId = feed.id;
+      });
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+      const job = makeJob("aggregate", { feedId });
+      await aggregateHandler!(job);
+
+      expect(aggregateMock).toHaveBeenCalledTimes(1);
+      const [, , settingsArg] = aggregateMock.mock.calls[0]!;
+      expect(settingsArg).toMatchObject({ userId: "ai-user", activeAiProvider: "openai" });
+    });
   });
 
   describe("reload", () => {
