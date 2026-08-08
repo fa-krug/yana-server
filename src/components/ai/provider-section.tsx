@@ -26,7 +26,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { removeProvider, saveProvider, setActiveProvider, testProvider } from "@/lib/ai/actions";
+import {
+  listOpenrouterModels,
+  removeProvider,
+  saveProvider,
+  setActiveProvider,
+  testProvider,
+} from "@/lib/ai/actions";
 import {
   AI_PROVIDERS,
   OPENAI_DEFAULT_API_URL,
@@ -116,6 +122,16 @@ export function ProviderSection({
   const [saving, startSave] = useTransition();
   const [testing, startTest] = useTransition();
   const busy = saving || testing;
+  // The live OpenRouter catalog, once fetched -- `null` until "Refresh models"
+  // is pressed, so `modelItems` below falls back to the static two-entry list
+  // (`provider.models`) until then. A third transition rather than folding
+  // into `busy`: Save and Test disable each other, but a refresh in flight
+  // has no reason to block either of them, only the model select and its own
+  // button.
+  const [fetchedModels, setFetchedModels] = useState<{ value: string; label: string }[] | null>(
+    null,
+  );
+  const [refreshingModels, startRefreshModels] = useTransition();
 
   const provider = selected === "" ? null : (providerByKey(selected) ?? null);
   const status = provider ? providers[provider.key] : null;
@@ -128,7 +144,15 @@ export function ProviderSection({
     // literal, like "Yana".
     ...AI_PROVIDERS.map((entry) => ({ value: entry.key as Selection, label: entry.label })),
   ];
-  const modelItems = provider ? provider.models.map(({ value, label }) => ({ value, label })) : [];
+  // The fetched catalog wins over the static fallback, but only for the
+  // provider that declares one -- `fetchedModels` is reset to `null` on every
+  // provider switch (see `choose()`), so this can never show OpenRouter's live
+  // list under a different provider's picker value.
+  const modelItems = provider
+    ? (provider.hasDynamicModels && fetchedModels ? fetchedModels : provider.models).map(
+        ({ value, label }) => ({ value, label }),
+      )
+    : [];
 
   /**
    * The line under the picker: what the server is acting on, against what is on
@@ -161,6 +185,10 @@ export function ProviderSection({
     setApiKey("");
     setModel(next === "" ? "" : providers[next].model);
     setApiUrl(next === "" ? "" : providers[next].apiUrl);
+    // So switching away from OpenRouter and back doesn't show a stale fetch
+    // from a previous selection on screen -- it re-shows the static fallback
+    // until refreshed again.
+    setFetchedModels(null);
   }
 
   /**
@@ -256,6 +284,26 @@ export function ProviderSection({
     });
   }
 
+  /**
+   * The live OpenRouter catalog, on demand. Not routed through `attempt()`/
+   * `report()`: it takes no credential and writes nothing, so neither the
+   * session-probe-and-redirect behaviour nor the credential-worded reporter
+   * vocabulary applies -- a plain toast on failure is the whole contract, and
+   * `listOpenrouterModels()` already collapses every failure to one catalog
+   * key (see its doc comment in `@/lib/ai/actions`).
+   */
+  function refreshModels() {
+    if (!provider?.hasDynamicModels) return;
+    startRefreshModels(async () => {
+      const result = await listOpenrouterModels();
+      if (result.ok) {
+        setFetchedModels(result.models);
+      } else {
+        toast.error(t(result.errorKey));
+      }
+    });
+  }
+
   /** `true` only on success -- anything else keeps the dialog open. */
   async function remove(): Promise<boolean> {
     if (!provider) return false;
@@ -297,26 +345,40 @@ export function ProviderSection({
       providerHint={t(hintKey)}
       modelControl={
         provider ? (
-          <Select
-            items={modelItems}
-            value={model}
-            disabled={busy}
-            onValueChange={(value) => {
-              if (value === null) return;
-              setModel(value);
-            }}
-          >
-            <SelectTrigger id="ai-model" className="w-full sm:w-64">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {modelItems.map((item) => (
-                <SelectItem key={item.value} value={item.value}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Select
+              items={modelItems}
+              value={model}
+              disabled={busy || refreshingModels}
+              onValueChange={(value) => {
+                if (value === null) return;
+                setModel(value);
+              }}
+            >
+              <SelectTrigger id="ai-model" className="w-full sm:w-64">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {modelItems.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {/* Only the provider with a live catalog gets this -- every other
+                provider's `models` is the whole list there is. */}
+            {provider.hasDynamicModels ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy || refreshingModels}
+                onClick={refreshModels}
+              >
+                {refreshingModels ? t("provider.refreshingModels") : t("provider.refreshModels")}
+              </Button>
+            ) : null}
+          </div>
         ) : null
       }
       apiKeyControl={
