@@ -70,13 +70,24 @@ export const jobs = sqliteTable(
     /** 0-100, for progress reporting on bulk actions. */
     progress: integer("progress").notNull().default(0),
     error: text("error").notNull().default(""),
+    /**
+     * Higher claims first (see `claim()`'s `ORDER BY`). `0` is every
+     * background kind (`aggregate`, `retention`, `feed.logo`, `feed.update`,
+     * `feed.restore`) -- nobody is watching those run. `article.reload` is
+     * enqueued from a user actively staring at a spinner for that one
+     * article, so it is enqueued at `PRIORITY_IMMEDIATE` and jumps ahead of
+     * whatever background work already sits in the queue, rather than
+     * waiting its turn behind it in FIFO order.
+     */
+    priority: integer("priority").notNull().default(0),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
   },
   (table) => [
-    // The claim query's index: pending jobs whose runAt has passed, oldest first.
-    index("jobs_claim_idx").on(table.status, table.runAt),
+    // The claim query's index: pending jobs whose runAt has passed, highest
+    // priority first, oldest first within a priority tier.
+    index("jobs_claim_idx").on(table.status, table.priority, table.runAt),
     index("jobs_kind_idx").on(table.kind),
     index("jobs_run_idx").on(table.runId),
     index("jobs_user_idx").on(table.userId),

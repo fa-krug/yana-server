@@ -71,6 +71,28 @@ describe("src/lib/jobs/worker", () => {
     expect(job?.status).toBe("completed");
   });
 
+  it("runs a job enqueued at PRIORITY_IMMEDIATE before older, lower-priority jobs already queued", async () => {
+    const order: number[] = [];
+    handlers.registerHandler("test.job", async (job) => {
+      order.push(job.id);
+    });
+
+    const older1 = queue.enqueue("test.job", { n: 1 }, { runAt: new Date(Date.now() - 2000) });
+    const older2 = queue.enqueue("test.job", { n: 2 }, { runAt: new Date(Date.now() - 1000) });
+    const urgent = queue.enqueue(
+      "test.job",
+      { n: 3 },
+      { runAt: new Date(), priority: queue.PRIORITY_IMMEDIATE },
+    );
+
+    const loopPromise = worker.runWorkerLoop({ pollIntervalMs: 50 });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    worker.stopWorker();
+    await loopPromise;
+
+    expect(order).toEqual([urgent, older1, older2]);
+  });
+
   it("fails job if no handler is registered", async () => {
     const id = queue.enqueue("unhandled.job", {});
 
@@ -200,6 +222,147 @@ describe("src/lib/jobs/worker", () => {
     expect(stderrLines[0]!.line).toContain("kaboom");
     // A real Error's .stack includes a "at ..." frame beneath the message.
     expect(stderrLines.some((l) => l.line.includes("at "))).toBe(true);
+  });
+
+  it("runs jobs from two loops concurrently, not serially", async () => {
+    // A single loop cannot claim job 2 until job 1's handler has returned, so
+    // if job 2 starts while job 1 is still blocked mid-handler, that proves
+    // two independent claim/execute loops are really running side by side --
+    // not just that startWorker() accepted a `concurrency` option.
+    const started: number[] = [];
+    let releaseFirst: () => void = () => {};
+    const firstBlocked = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    handlers.registerHandler("test.job", async (job) => {
+      started.push(job.payload.n as number);
+      if (job.payload.n === 1) {
+        await firstBlocked;
+      }
+    });
+
+    const id1 = queue.enqueue("test.job", { n: 1 });
+    const id2 = queue.enqueue("test.job", { n: 2 });
+
+    const loop1 = worker.runWorkerLoop({ pollIntervalMs: 20 });
+    const loop2 = worker.runWorkerLoop({ pollIntervalMs: 20 });
+
+    await vi.waitFor(() => expect(started).toContain(2), { timeout: 1000 });
+    // Job 1's handler is still awaiting `firstBlocked` at this point -- job 2
+    // only got to run because loop2 claimed it independently of loop1.
+    expect(queue.getJob(id1)?.status).toBe("running");
+
+    releaseFirst();
+    worker.stopWorker();
+    await Promise.all([loop1, loop2]);
+
+    expect(queue.getJob(id1)?.status).toBe("completed");
+    expect(queue.getJob(id2)?.status).toBe("completed");
+  });
+
+  it("startWorker() honors an explicit concurrency, running that many loops", async () => {
+    const started: number[] = [];
+    let releaseAll: () => void = () => {};
+    const blocked = new Promise<void>((resolve) => {
+      releaseAll = resolve;
+    });
+
+    handlers.registerHandler("test.job", async (job) => {
+      started.push(job.id);
+      await blocked;
+    });
+
+    const ids = [
+      queue.enqueue("test.job", {}),
+      queue.enqueue("test.job", {}),
+      queue.enqueue("test.job", {}),
+    ];
+
+    worker.startWorker({ pollIntervalMs: 20, concurrency: 3 });
+
+    // All three jobs claimed and blocked in their handlers at once -- only
+    // possible with three independent loops, since one loop can hold at most
+    // one job "running" at a time.
+    await vi.waitFor(() => expect(started).toHaveLength(3), { timeout: 1000 });
+    expect(new Set(started)).toEqual(new Set(ids));
+
+    releaseAll();
+    worker.stopWorker();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    for (const id of ids) {
+      expect(queue.getJob(id)?.status).toBe("completed");
+    }
+  });
+
+  it("reads its loop count from WORKER_CONCURRENCY when no explicit option is given", async () => {
+    process.env.WORKER_CONCURRENCY = "2";
+
+    const started: number[] = [];
+    let releaseAll: () => void = () => {};
+    const blocked = new Promise<void>((resolve) => {
+      releaseAll = resolve;
+    });
+
+    handlers.registerHandler("test.job", async (job) => {
+      started.push(job.id);
+      await blocked;
+    });
+
+    const ids = [queue.enqueue("test.job", {}), queue.enqueue("test.job", {})];
+
+    worker.startWorker({ pollIntervalMs: 20 });
+
+    await vi.waitFor(() => expect(started).toHaveLength(2), { timeout: 1000 });
+    expect(new Set(started)).toEqual(new Set(ids));
+
+    releaseAll();
+    worker.stopWorker();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    delete process.env.WORKER_CONCURRENCY;
+  });
+
+  it("falls back to DEFAULT_WORKER_CONCURRENCY (4) when WORKER_CONCURRENCY is not a valid positive integer", async () => {
+    process.env.WORKER_CONCURRENCY = "not-a-number";
+
+    const started: number[] = [];
+    let releaseAll: () => void = () => {};
+    const blocked = new Promise<void>((resolve) => {
+      releaseAll = resolve;
+    });
+
+    handlers.registerHandler("test.job", async (job) => {
+      started.push(job.id);
+      await blocked;
+    });
+
+    const ids = Array.from({ length: 4 }, () => queue.enqueue("test.job", {}));
+    // A fifth job stays untouched -- proving the fallback is exactly 4 loops,
+    // not "invalid input means unbounded".
+    const fifth = queue.enqueue("test.job", {});
+
+    worker.startWorker({ pollIntervalMs: 20 });
+    await vi.waitFor(() => expect(started).toHaveLength(4), { timeout: 1000 });
+    expect(new Set(started)).toEqual(new Set(ids));
+    expect(queue.getJob(fifth)?.status).toBe("pending");
+
+    releaseAll();
+    worker.stopWorker();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    delete process.env.WORKER_CONCURRENCY;
+  });
+
+  it("notifies admins once, not once per loop, when every loop crashes at once", async () => {
+    vi.spyOn(queue, "claim").mockImplementation(() => {
+      throw new Error("claim exploded");
+    });
+
+    worker.startWorker({ concurrency: 3 });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(notifyAdminsMock).toHaveBeenCalledTimes(1);
+    expect(worker.isWorkerRunning()).toBe(false);
   });
 
   it("guards against starting multiple worker loops", () => {

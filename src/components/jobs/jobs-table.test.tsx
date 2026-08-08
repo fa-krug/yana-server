@@ -50,6 +50,7 @@ function job(overrides: Partial<JobWithOwner> = {}): JobWithOwner {
     status: "completed",
     attempts: 1,
     maxAttempts: 3,
+    priority: 0,
     runAt: new Date("2026-08-01T00:00:00Z"),
     startedAt: new Date("2026-08-01T00:00:01Z"),
     finishedAt: new Date("2026-08-01T00:00:02Z"),

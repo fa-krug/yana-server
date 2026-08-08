@@ -11,7 +11,15 @@ export interface EnqueueOptions {
   runAt?: Date;
   maxAttempts?: number;
   userId?: string;
+  priority?: number;
 }
+
+/**
+ * `claim()`'s `ORDER BY priority DESC` tier for work a user is actively
+ * waiting on -- currently `article.reload` only. Every other kind stays at
+ * the column's default `0`.
+ */
+export const PRIORITY_IMMEDIATE = 10;
 
 export function enqueue(
   kind: string,
@@ -28,6 +36,7 @@ export function enqueue(
         runAt: options?.runAt ?? new Date(),
         maxAttempts: options?.maxAttempts ?? 3,
         userId: options?.userId,
+        priority: options?.priority ?? 0,
       })
       .returning({ id: jobs.id })
       .get();
@@ -43,7 +52,7 @@ export function claim(): Job | null {
       .select({ id: jobs.id })
       .from(jobs)
       .where(and(eq(jobs.status, "pending"), lte(jobs.runAt, now)))
-      .orderBy(asc(jobs.runAt), asc(jobs.id))
+      .orderBy(desc(jobs.priority), asc(jobs.runAt), asc(jobs.id))
       .limit(1)
       .get();
 
@@ -302,6 +311,7 @@ export function enqueueRun(
   userId: string,
   kind: string,
   payloads: Record<string, unknown>[],
+  priority = 0,
 ): number {
   return writeTransaction((db) => {
     const isEmpty = payloads.length === 0;
@@ -318,7 +328,7 @@ export function enqueueRun(
 
     if (!isEmpty) {
       db.insert(jobs)
-        .values(payloads.map((payload) => ({ kind, payload, runId: run.id, userId })))
+        .values(payloads.map((payload) => ({ kind, payload, runId: run.id, userId, priority })))
         .run();
     }
 
@@ -506,6 +516,7 @@ export function listJobs(options: ListJobsOptions = {}): { jobs: JobWithOwner[];
         status: jobs.status,
         attempts: jobs.attempts,
         maxAttempts: jobs.maxAttempts,
+        priority: jobs.priority,
         runAt: jobs.runAt,
         startedAt: jobs.startedAt,
         finishedAt: jobs.finishedAt,

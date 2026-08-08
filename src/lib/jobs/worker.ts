@@ -19,12 +19,44 @@ interface GlobalWithWorker {
 
 let isLoopActive = false;
 
+/**
+ * How many `runWorkerLoop()` instances `startWorker()` runs concurrently when
+ * no explicit `concurrency` and no `WORKER_CONCURRENCY` env var is given.
+ * Matches `feeds.concurrency`'s own default (see `schema/feeds.ts`) -- there
+ * is no reason job-level concurrency should be more conservative than the
+ * per-feed article concurrency this same process already runs unattended.
+ * Still overridable per instance via `WORKER_CONCURRENCY` for a host that
+ * genuinely can't sustain four concurrent handlers (e.g. a single-core box).
+ */
+const DEFAULT_WORKER_CONCURRENCY = 4;
+
+/**
+ * Each loop independently `claim()`s and executes jobs -- safe to run
+ * concurrently because `claim()`'s conditional `UPDATE ... WHERE status =
+ * 'pending'` (inside `BEGIN IMMEDIATE`) is a compare-and-swap: two loops
+ * racing for the same row can never both win it (see `schema/jobs.ts` and
+ * `queue.ts`'s `claim()`). An invalid or unset `WORKER_CONCURRENCY` falls back
+ * to `DEFAULT_WORKER_CONCURRENCY` rather than throwing, matching this
+ * codebase's other env-configured numbers (e.g. `SMTP_PORT`).
+ */
+function resolveConcurrency(explicit?: number): number {
+  if (explicit !== undefined) {
+    return Math.max(1, Math.floor(explicit));
+  }
+  const fromEnv = Number(process.env.WORKER_CONCURRENCY);
+  return Number.isInteger(fromEnv) && fromEnv >= 1 ? fromEnv : DEFAULT_WORKER_CONCURRENCY;
+}
+
 export function isWorkerRunning(): boolean {
   const g = globalThis as GlobalWithWorker;
   return Boolean(g[WORKER_STARTED] && isLoopActive);
 }
 
-export function startWorker(options?: { pollIntervalMs?: number; timeoutMs?: number }): void {
+export function startWorker(options?: {
+  pollIntervalMs?: number;
+  timeoutMs?: number;
+  concurrency?: number;
+}): void {
   const g = globalThis as GlobalWithWorker;
   if (g[WORKER_STARTED]) {
     return;
@@ -33,19 +65,36 @@ export function startWorker(options?: { pollIntervalMs?: number; timeoutMs?: num
   g[WORKER_STARTED] = true;
   isLoopActive = true;
 
-  // Startup: reset orphaned running rows whose startedAt predates this process
+  // Startup: reset orphaned running rows whose startedAt predates this
+  // process. Safe to run once here, before any loop below starts claiming --
+  // every loop this process spawns starts after this point, so there is no
+  // live claim of this process's own to clobber.
   resetOrphaned(new Date());
 
-  runWorkerLoop(options).catch((err) => {
-    console.error("[Worker] Fatal error in worker loop:", err);
-    notifyAdmins({
-      category: "worker",
-      message: err instanceof Error ? (err.stack ?? err.message) : String(err),
-      occurredAt: new Date(),
+  const concurrency = resolveConcurrency(options?.concurrency);
+
+  // One promise per loop. `reportedFatal` is shared across every loop's
+  // `.catch()` so N loops crashing at once (or in quick succession) still
+  // notifies admins once, not N times for what reads as a single incident --
+  // and any one loop escaping its own try/catch (which, per runWorkerLoop's
+  // comments, should never happen) stops every other loop in this process
+  // too, rather than silently running on reduced, unannounced capacity.
+  let reportedFatal = false;
+  for (let i = 0; i < concurrency; i++) {
+    runWorkerLoop(options).catch((err) => {
+      console.error("[Worker] Fatal error in worker loop:", err);
+      if (!reportedFatal) {
+        reportedFatal = true;
+        notifyAdmins({
+          category: "worker",
+          message: err instanceof Error ? (err.stack ?? err.message) : String(err),
+          occurredAt: new Date(),
+        });
+      }
+      g[WORKER_STARTED] = false;
+      isLoopActive = false;
     });
-    g[WORKER_STARTED] = false;
-    isLoopActive = false;
-  });
+  }
 }
 
 export function stopWorker(): void {

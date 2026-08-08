@@ -859,6 +859,29 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   including every aggregator's — pay for a failed IPv6 connection attempt
   before falling back to IPv4. This is a global Node setting, not scoped to
   any one caller.
+- **`startWorker()` (`src/lib/jobs/worker.ts`) runs `WORKER_CONCURRENCY`
+  independent `runWorkerLoop()` instances in this one process, default `4`.**
+  `4` matches `feeds.concurrency`'s own default (`schema/feeds.ts`) — no
+  reason job-level throughput should be more conservative than the per-feed
+  article concurrency this same process already runs unattended. Each loop
+  polls and executes jobs on its own; running several concurrently is safe
+  only because `claim()`'s `UPDATE ... WHERE status = 'pending'` (inside
+  `BEGIN IMMEDIATE` — see `queue.ts`) is a compare-and-swap, so two loops
+  racing for the same row can never both win it. An invalid or unset
+  `WORKER_CONCURRENCY` falls back to `4` rather than throwing, and a host that
+  cannot sustain that (a single-core box) can set it lower. `resetOrphaned()`
+  still runs exactly once per process, before any loop starts — correct
+  because every loop this process spawns starts after that point, so there is
+  no in-flight claim of this process's own for it to clobber. **This
+  reasoning does not extend to running `startWorker()` from more than one
+  process** (e.g. a second container/replica): `resetOrphaned(new Date())`
+  resets every `running` row with `startedAt` at or before _now_, which is
+  only safe when a `running` row can only mean "orphaned by a crashed prior
+  process" — a second live process would have its own boot yank away a job
+  the first process is legitimately still executing. Multi-process workers
+  need that scoped (e.g. tagging claimed rows with an owning process/worker
+  id) before they are safe; today there is exactly one app service in
+  `docker-compose.yml`/`docker-compose.production.yml`, and that stays true.
 - **Route protection is `src/proxy.ts` — Next 16's rename of `middleware.ts`,
   and it is not cosmetic.** The old name still works but warns on every build,
   and a Proxy defaults to the **Node.js** runtime where middleware was compiled

@@ -7,7 +7,7 @@ import { z } from "zod";
 import { currentUserId } from "@/lib/auth/session";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, feeds } from "@/lib/db/schema";
-import { enqueueRun } from "@/lib/jobs/queue";
+import { enqueueRun, PRIORITY_IMMEDIATE } from "@/lib/jobs/queue";
 
 const updateArticleSchema = z.object({
   name: z.string().min(1, "Name is required").optional(),
@@ -164,6 +164,7 @@ export async function reloadArticles(
     userId,
     "article.reload",
     validArticles.map((a) => ({ articleId: a.id })),
+    PRIORITY_IMMEDIATE,
   );
 
   return { ok: true, enqueued: validArticles.length, runId };

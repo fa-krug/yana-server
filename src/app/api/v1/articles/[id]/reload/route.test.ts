@@ -95,6 +95,10 @@ describe("POST /api/v1/articles/[id]/reload", () => {
     expect(job?.kind).toBe("article.reload");
     expect(job?.payload).toMatchObject({ articleId });
     expect(job?.userId).toBe(owner.id);
+    // A user is actively waiting on this one -- see PRIORITY_IMMEDIATE in
+    // src/lib/jobs/queue.ts -- so it must jump ahead of background work
+    // already queued, rather than waiting its turn in FIFO order.
+    expect(job?.priority).toBe(10);
   });
 
   it("404s for another user's article and enqueues no job", async () => {

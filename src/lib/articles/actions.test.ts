@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { signInCookie } from "@/lib/auth/test-support";
 import { applyMigrationsAt } from "@/lib/db/test-support";
+import { PRIORITY_IMMEDIATE } from "@/lib/jobs/queue";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
@@ -225,6 +226,22 @@ describe("articles actions", () => {
         .where(eq(schema.jobs.kind, "article.reload"))
         .get();
       expect(job?.userId).toBe(userId);
+    });
+
+    it("enqueues at PRIORITY_IMMEDIATE, ahead of background work already queued", async () => {
+      await currentUserId();
+      const feedId = seedFeed();
+      const art = seedArticle(feedId);
+
+      await actions.reloadArticles([art.id]);
+
+      const job = client
+        .getDb()
+        .select({ priority: schema.jobs.priority })
+        .from(schema.jobs)
+        .where(eq(schema.jobs.kind, "article.reload"))
+        .get();
+      expect(job?.priority).toBe(PRIORITY_IMMEDIATE);
     });
   });
 
