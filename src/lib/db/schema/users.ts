@@ -166,9 +166,7 @@ export const userSettings = sqliteTable(
     deepseekApiKey: text("deepseek_api_key").notNull().default(""),
     deepseekModel: text("deepseek_model").notNull().default("deepseek-v4-flash"),
 
-    openrouterEnabled: integer("openrouter_enabled", { mode: "boolean" })
-      .notNull()
-      .default(false),
+    openrouterEnabled: integer("openrouter_enabled", { mode: "boolean" }).notNull().default(false),
     openrouterApiKey: text("openrouter_api_key").notNull().default(""),
     openrouterModel: text("openrouter_model").notNull().default("openrouter/free"),
 
