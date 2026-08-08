@@ -137,6 +137,13 @@ export function ArticleForm({
           value={date}
           onChange={(e) => setDate(e.target.value)}
           required
+          // iOS Safari/WKWebView renders `type="date"` as `display: inline-block`
+          // and sizes its shadow content by intrinsic width, ignoring the
+          // percentage `width: 100%` the base Input class already sets in that
+          // formatting context -- the field overflows its container and forces a
+          // horizontal scrollbar on the whole page. `block` removes the
+          // ambiguity; a block box's 100% width is unambiguous.
+          className="block max-w-full"
         />
       </div>
 
