@@ -17,7 +17,10 @@ labels the application itself added.
 
 ## Scope
 
-**In scope** -- the six hardcoded strings found across five site aggregators:
+**In scope** -- the seven hardcoded strings found across five site aggregators
+(a closer read of `reddit/content.ts` while writing the implementation plan
+turned up `"Comments unavailable."`, the fetch-error branch, missed by the
+original grep for the exact literal `"Comments"`):
 
 | String | Where |
 |---|---|
@@ -25,6 +28,7 @@ labels the application itself added.
 | `"source"` | mein_mmo, mactechnews, heise, reddit, youtube |
 | `"No comments yet."` | reddit |
 | `"Comments disabled."` | reddit |
+| `"Comments unavailable."` | reddit (`content.ts` only -- the duplicate branch in `aggregator.ts` has no fetch call of its own, so no error path to translate) |
 | `"▶ View Video on YouTube"` | reddit |
 | `"▶ View Video"` | reddit |
 
@@ -52,6 +56,7 @@ settings row can't be found or `userId` is unset.
   "source": "source",
   "noCommentsYet": "No comments yet.",
   "commentsDisabled": "Comments disabled.",
+  "commentsUnavailable": "Comments unavailable.",
   "viewVideoOnYoutube": "▶ View Video on YouTube",
   "viewVideo": "▶ View Video"
 }
@@ -65,6 +70,7 @@ German:
   "source": "Quelle",
   "noCommentsYet": "Noch keine Kommentare.",
   "commentsDisabled": "Kommentare deaktiviert.",
+  "commentsUnavailable": "Kommentare nicht verfügbar.",
   "viewVideoOnYoutube": "▶ Video auf YouTube ansehen",
   "viewVideo": "▶ Video ansehen"
 }
@@ -81,6 +87,7 @@ export interface ChromeLabels {
   source: string;
   noCommentsYet: string;
   commentsDisabled: string;
+  commentsUnavailable: string;
   viewVideoOnYoutube: string;
   viewVideo: string;
 }
@@ -138,19 +145,24 @@ Touched files:
 - **`src/lib/aggregators/sites/reddit/comments.ts`** -- `formatCommentHtml()`
   gains a `labels` parameter for its `"source"` link.
 - **`src/lib/aggregators/sites/reddit/content.ts`** -- `buildPostContent()`
-  gains a `labels` parameter, threaded into `addCommentsSection()`'s
-  `"Comments"` header, `"No comments yet."`, and its `formatCommentHtml()`
-  calls. (`"Comments disabled."` and the two view-video labels aren't on this
-  path -- see below.)
-- **`src/lib/aggregators/sites/reddit/aggregator.ts`** -- two independent
-  spots:
-  - `fetchArticleContent()` (the real refetch path, also what
-    `reload.ts` now calls) resolves `labels` and passes them into its
-    `buildPostContent()` call.
+  gains a `labels` parameter, threaded into `addLinkMedia()`'s
+  `"▶ View Video on YouTube"` label and `addCommentsSection()`'s `"Comments"`
+  header, `"No comments yet."`, `"Comments unavailable."`,
+  `"Comments disabled."`, and its `formatCommentHtml()` calls.
+- **`src/lib/aggregators/sites/reddit/aggregator.ts`** -- three independent
+  spots, none of which call into `content.ts` (each reimplements its own
+  version of the same content-building inline):
+  - `fetchArticleContent()` (the real refetch path, also what `reload.ts` now
+    calls) resolves `labels` and passes them into its `buildPostContent()`
+    call.
+  - A header-caption builder around line 440 uses `"▶ View Video"` (note:
+    singular, no "on YouTube" -- a distinct label from the other two
+    view-video strings) and needs `labels` threaded to its call site.
   - The legacy JSON-shaped `extractContent()` override reimplements its own
-    version of `buildPostContent()`'s content-building inline (including the
-    two view-video labels and `"Comments disabled."`, which don't otherwise
-    appear on the `content.ts` path) -- it becomes `async` (the base class
+    version of `buildPostContent()`'s content-building inline (including
+    `"▶ View Video on YouTube"`, `"No comments yet."`, and
+    `"Comments disabled."` -- it has no fetch call of its own, so no
+    `"Comments unavailable."` branch) -- it becomes `async` (the base class
     already types this as `string | Promise<string>`, and both call sites
     already `await` it) so it can resolve `await this.chromeLabels()` too.
 - **`src/lib/aggregators/sites/youtube/aggregator.ts`** -- `buildContentHtml()`
