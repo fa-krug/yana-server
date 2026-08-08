@@ -4,7 +4,8 @@ import type { FeedLike } from "../base";
 import { DEFAULT_CHROME_LABELS } from "../chrome-labels";
 import { HeiseAggregator } from "./heise";
 
-vi.mock("../http/fetcher", () => ({
+vi.mock("../http/fetcher", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../http/fetcher")>()),
   fetchHtml: vi.fn(),
 }));
 

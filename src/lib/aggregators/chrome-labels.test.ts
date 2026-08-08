@@ -76,6 +76,16 @@ describe("resolveChromeLabels", () => {
     expect(labels.viewVideo).toBe("▶ Video ansehen");
   });
 
+  it("matches DEFAULT_CHROME_LABELS for an explicitly-English user", async () => {
+    client.writeTransaction((db) => {
+      db.insert(schema.users).values({ id: "user-en", email: "en@example.com" }).run();
+      db.insert(schema.userSettings).values({ userId: "user-en", language: "en" }).run();
+    });
+
+    const labels = await chromeLabels.resolveChromeLabels("user-en");
+    expect(labels).toEqual(chromeLabels.DEFAULT_CHROME_LABELS);
+  });
+
   it("falls back to English when there is no user_settings row for the given id", async () => {
     const labels = await chromeLabels.resolveChromeLabels("no-such-user");
     expect(labels).toEqual(chromeLabels.DEFAULT_CHROME_LABELS);

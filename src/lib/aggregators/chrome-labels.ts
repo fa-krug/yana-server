@@ -5,6 +5,10 @@ import { FALLBACK_LOCALE, type AppLocale } from "@/i18n/locale";
 import { getDb } from "@/lib/db/client";
 import { userSettings } from "@/lib/db/schema";
 
+// These values are spliced into article HTML unescaped (matching how the
+// literals they replaced were also spliced in unescaped), so every catalog
+// value in the `aggregatorChrome` namespace must never contain HTML special
+// characters (`&`, `<`, `>`).
 export interface ChromeLabels {
   comments: string;
   source: string;
@@ -15,7 +19,7 @@ export interface ChromeLabels {
   viewVideo: string;
 }
 
-export const DEFAULT_CHROME_LABELS: ChromeLabels = {
+export const DEFAULT_CHROME_LABELS: ChromeLabels = Object.freeze({
   comments: "Comments",
   source: "source",
   noCommentsYet: "No comments yet.",
@@ -23,7 +27,7 @@ export const DEFAULT_CHROME_LABELS: ChromeLabels = {
   commentsUnavailable: "Comments unavailable.",
   viewVideoOnYoutube: "▶ View Video on YouTube",
   viewVideo: "▶ View Video",
-};
+});
 
 /**
  * Resolves the chrome labels aggregators splice into article content

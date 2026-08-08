@@ -51,6 +51,7 @@ describe("BaseAggregator", () => {
     const feed: FeedLike = { identifier: "test", dailyLimit: 5 };
     const agg = new TestAggregator(feed);
     expect(agg.getCurrentRunLimit(() => new Date(), 5)).toBe(0);
+    expect(agg.getCurrentRunLimit(undefined, 12)).toBe(0);
   });
 
   it("filters articles older than maxArticleAgeDays", async () => {
@@ -60,6 +61,14 @@ describe("BaseAggregator", () => {
     const filtered = await agg.filterArticles(articles);
     expect(filtered).toHaveLength(1);
     expect(filtered[0].name).toBe("Recent Article");
+  });
+
+  it("filters articles older than 30 days by default", async () => {
+    const feed: FeedLike = { identifier: "https://example.com/rss", dailyLimit: 20 };
+    const agg = new TestAggregator(feed);
+    const articles = await agg.aggregate();
+    expect(articles).toHaveLength(1);
+    expect(articles[0].name).toBe("Recent Article");
   });
 
   it("applies morning aggression before 10 AM", () => {

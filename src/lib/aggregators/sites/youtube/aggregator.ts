@@ -360,8 +360,6 @@ export class YouTubeAggregator extends BaseAggregator {
   }
 
   override async extractContent(html: string, article: RawArticle): Promise<string> {
-    const labels = await this.chromeLabels();
-
     if (this._last_reloaded_video) {
       const video = this._last_reloaded_video;
       const comments = this._last_reloaded_comments;
@@ -371,6 +369,7 @@ export class YouTubeAggregator extends BaseAggregator {
       }
       const description = video.snippet?.description || "";
       if (typeof videoId === "string") {
+        const labels = await this.chromeLabels();
         return this.buildContentHtml(description, comments, videoId, labels);
       }
     }
@@ -393,6 +392,7 @@ export class YouTubeAggregator extends BaseAggregator {
             const description = video.snippet?.description || "";
             const comments = Array.isArray(data.comments) ? data.comments : [];
             if (typeof videoId === "string" && videoId) {
+              const labels = await this.chromeLabels();
               return this.buildContentHtml(description, comments, videoId, labels);
             }
           }

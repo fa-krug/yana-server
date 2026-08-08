@@ -260,7 +260,14 @@ describe("RedditAggregator.finalizeArticles header-image concurrency", () => {
 
 describe("RedditAggregator.finalizeArticles video-link header caption", () => {
   it("renders the View Video caption", async () => {
-    const agg = aggregatorFor({});
+    class StubHeaderImageAggregator extends RedditAggregator {
+      protected async _storeHeaderImage(headerImageUrl: string): Promise<string> {
+        return headerImageUrl;
+      }
+    }
+
+    const feed: FeedLike = { identifier: "test", dailyLimit: 20, options: {} };
+    const agg = new StubHeaderImageAggregator(feed);
 
     const [finalized] = await agg.finalizeArticles([
       article({
