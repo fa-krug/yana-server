@@ -118,13 +118,15 @@ behavior ever needs to be reconstructed.
 │   │   ├── ai/                    # providers.ts (client-safe registry — imports
 │   │   │                          #   nothing), bounds.ts (the nine tuning bounds,
 │   │   │                          #   read by the form and the schema — likewise),
-│   │   │                          #   columns.ts (provider -> columns),
+│   │   │                          #   columns.ts (provider -> columns, and
+│   │   │                          #   resolveModel()'s hasDynamicModels split),
 │   │   │                          #   probes.ts + openai/anthropic/gemini/mistral/
-│   │   │                          #   qwen/deepseek.ts (live probes, SERVER-ONLY by
-│   │   │                          #   lint rule), queries.ts (SERVER-ONLY, masked
-│   │   │                          #   only), actions.ts (six defineIntegration()
-│   │   │                          #   declarations, the active provider, the nine
-│   │   │                          #   tuning values), result.ts
+│   │   │                          #   qwen/deepseek/openrouter.ts (live probes,
+│   │   │                          #   SERVER-ONLY by lint rule), queries.ts
+│   │   │                          #   (SERVER-ONLY, masked only), actions.ts (seven
+│   │   │                          #   defineIntegration() declarations, the active
+│   │   │                          #   provider, the nine tuning values,
+│   │   │                          #   listOpenrouterModels()), result.ts
 │   │   ├── users/                 # fields.ts (client-safe constants — imports only
 │   │   │                          #   auth/roles), queries.ts (SERVER-ONLY reads),
 │   │   │                          #   actions.ts (writes), result.ts (attempt() binding)
@@ -1097,7 +1099,7 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     named here.
 - **A probe never rejects, and its `detail` is log-only prose built from
   constants.** `ProbeResult` (`src/lib/integrations/probe.ts`) is the shape both
-  live probes report and all six AI providers report; every
+  live probes report and all seven AI providers report; every
   probe resolves to it for _every_ input, which is why URL building and Basic-auth
   encoding happen **inside** the `try` — the guarantee has to be structural, not
   an argument about which characters a credential can contain. `detail` is what
@@ -1161,7 +1163,9 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   functions, which is why the factory cannot live there — the same constraint
   that put `attempt` in `result.ts`). Phase 7's three AI providers were three
   more declarations; the 2026-08-04 AI provider expansion added Mistral, Qwen
-  and DeepSeek as three more again, for six declarations total.
+  and DeepSeek as three more again, for six declarations total; OpenRouter
+  added a seventh afterward, on the same branch that gave `run.ts` its
+  `ProviderUnauthorizedError` (see the `/ai` bullets below).
 
   **Extracting it out of `"use server"` cost it a safety net, so the net is now
   a lint rule.** Inside `actions.ts` a stray client import was harmless by
@@ -1281,7 +1285,7 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     the cases it does name are the ones an operator reaches. Revisit if that
     reporter ever takes values.
 
-- **`/ai` has six providers, not three.** The direction record's "Carried
+- **`/ai` has seven providers, not three.** The direction record's "Carried
   forward from phase 7's review" originally deferred provider expansion; the
   2026-08-04 AI provider expansion plan
   (`docs/superpowers/specs/2026-08-04-ai-provider-expansion-and-prompt-endpoint-design.md`)
@@ -1318,6 +1322,60 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     branches (`callMistral`, `callQwen`, `callDeepseek`) all call it rather
     than repeating the request-building and response-parsing block four
     times.
+
+  **OpenRouter was added afterward, independently of the 2026-08-04 plan and
+  of yana-ios parity — it has no yana-ios equivalent at all.** It reuses both
+  helpers above (`openaiCompatibleChatProbe()` for its probe, a `callOpenrouter()`
+  branch calling `callOpenaiCompatible()` for the runtime call) and is, like
+  Mistral/Qwen/DeepSeek, a fixed, non-configurable endpoint
+  (`OPENROUTER_API_URL` in `src/lib/ai/providers.ts`) — but its
+  `quotaMeansVerified` is **`false`, not `true`**, the one place it does not
+  follow those three's pattern. The three's `true` rests on "a fixed endpoint
+  has nothing positioned to shed load before the provider's own auth check
+  runs" — but OpenRouter's fixed endpoint is not a single vendor's API, it is
+  an aggregator's own edge in front of hundreds of upstream providers, and that
+  edge applies its own rate limiting (including extra throttling specific to
+  free-tier `:free` models) independently of whether the submitted key is
+  valid. So a 429 from it does not prove the credential was accepted — the same
+  conclusion OpenAI's `false` reaches, but for a different underlying cause:
+  OpenAI's is an operator-configurable gateway that can shed load in front of
+  it, OpenRouter's own edge _is_ the gateway. Both `false` providers' `quota`
+  answers land in the same "could not be verified" arm in
+  `src/lib/ai/actions.ts`'s `PROVIDER_KEYS`, for the same reason.
+
+  **`hasDynamicModels` is the other way OpenRouter breaks the six-provider
+  pattern, and it is the more surprising one.** Every other provider's
+  `models` array in `src/lib/ai/providers.ts` (`AiProvider`) _is_ the whole
+  valid set — a fixed, hand-maintained list looked up against the vendor's own
+  docs and refreshed by editing this file. OpenRouter aggregates hundreds of
+  continuously-changing models (including a rotating set of free `:free`-tagged
+  ones), so a static list would be wrong the day it shipped; `models` for this
+  one entry is instead a **2-entry fallback** (`openrouter/free`,
+  `openrouter/auto`, OpenRouter's own routing aliases, which cannot go stale
+  the way a pinned model id can) shown before any refresh, and the real catalog
+  is fetched on demand by `listOpenrouterModels()` (`src/lib/ai/actions.ts`)
+  behind a manual "Refresh models" button in `provider-section.tsx` — never
+  automatically, and never cached. This is why `resolveModel()`
+  (`src/lib/ai/columns.ts`) has a special case keyed on
+  `AiProvider.hasDynamicModels`: for the six fixed-catalog providers, a stored
+  model id absent from `provider.models` really is stale (a retired id, a
+  pre-migration default) and falls back to `provider.defaultModel` — but for
+  OpenRouter that same absence is the _normal_ case for a perfectly valid,
+  freshly-saved live id, because `provider.models` was never the full valid set
+  to begin with. Checking a dynamic provider's stored id against its static
+  fallback and reverting on a miss was a real, shipped bug: an operator would
+  refresh, pick a real catalog model, save it successfully, and have the very
+  next page load silently substitute `openrouter/free` back in — both
+  mis-showing the picker and risking the next Save overwriting the real stored
+  value with the default. `resolveModel()` therefore trusts a non-empty stored
+  value outright for a `hasDynamicModels` provider, without checking it against
+  `provider.models` at all: it already passed the permissive
+  `openrouterModelField` schema (length only, no enum check — see
+  `src/lib/ai/actions.ts`) and a live probe at save time, which together are
+  the validation the static-list check performs for everyone else. An empty
+  stored value is still not trusted and still falls back to the default, the
+  same as every other provider's unconfigured case.
+
 - **`aiDefaultDailyLimit`/`aiDefaultMonthlyLimit` went from decorative to
   enforced, at one chokepoint.** Both settings have existed among the nine
   tuning values (with bounds in `src/lib/ai/bounds.ts`) since phase 7, but
@@ -1347,9 +1405,19 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   and both proceed. `generateResponse()`'s return type changed from
   `string | null` to `AiGenerationResult` —
   `{ ok: true; text } | { ok: false; reason }`, `reason` one of `noProvider` /
-  `dailyLimitExceeded` / `monthlyLimitExceeded` / `providerError` — so a caller
-  can tell a rate limit from a provider failure instead of both collapsing to
-  `null`.
+  `dailyLimitExceeded` / `monthlyLimitExceeded` / `providerUnauthorized` /
+  `providerError` — so a caller can tell a rate limit from a provider failure
+  instead of both collapsing to `null`. **`providerUnauthorized` is a fourth
+  reason, added with OpenRouter rather than by the 2026-08-04 plan**: it is
+  thrown as `ProviderUnauthorizedError` (`src/lib/ai/run.ts`) from
+  `requestWithRetry()` on a 401 or 403 from the provider — the credential
+  itself was rejected, not a transient failure — and caught in
+  `generateResponse()`'s own catch, distinctly from every other failure, which
+  still collapses to the generic `providerError`. The distinction exists for
+  the same reason `/ai`'s own probes separate `rejected` from `unreachable`/
+  `unexpected`: "your key is wrong" and "something went wrong" want different
+  advice, and a native client polling this reason can tell someone to fix
+  their OpenRouter key rather than just retry.
 - **`POST /api/v1/ai/prompt`** (`src/app/api/v1/ai/prompt/route.ts`) is the
   native client's server-mediated "ask AI" call, added by the same plan: a
   free-form prompt run against the caller's active provider, using their
@@ -1361,9 +1429,12 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   `src/lib/jobs/handlers/retention.ts` reads a settings row directly outside a
   session context. Its failure modes are machine-readable `ApiError` codes
   (`invalid_prompt`, `prompt_too_long`, `no_active_provider`,
-  `daily_limit_exceeded`, `monthly_limit_exceeded`, `provider_error`) for the
-  native client to branch on — never provider prose, per this API's existing
-  no-echo convention.
+  `daily_limit_exceeded`, `monthly_limit_exceeded`, `provider_unauthorized`,
+  `provider_error`) for the native client to branch on — never provider prose,
+  per this API's existing no-echo convention. `provider_unauthorized` (502) is
+  the `providerUnauthorized` reason above, given its own code rather than
+  falling into the generic `provider_error` (502) — both answer 502 because
+  neither is this API's own fault, but only one names a fixable cause.
 
 - **`/login` is the whole unauthenticated UI, and five things about it are
   load-bearing.** It lives at `src/app/login/page.tsx`, deliberately outside
@@ -1598,21 +1669,28 @@ provider as that section demands: the UI half is
 `src/lib/integrations/define.ts` (see the two bullets above them), and phase 7
 consumed both. Its third item — deciding each AI provider's two probe answers
 rather than copying a neighbour's — is `quotaMeansVerified` in
-`src/lib/ai/providers.ts`, where all six answers differ in reasoning even
+`src/lib/ai/providers.ts`, where all seven answers differ in reasoning even
 though the three added by the 2026-08-04 AI provider expansion (see the `/ai`
 bullets above) all resolve to `true`, for the fixed-endpoint reason Anthropic's
-and Gemini's already state. **"Carried forward from phase 7's review" holds
-one item that gates a release rather than a phase**: no live call has ever
-been made to OpenAI, Anthropic or Gemini, so nothing proves those three probes
-send request shapes those providers accept — and a shape one of them refuses
-lands in `judge()`'s write-nothing arm, which leaves that provider
-unconfigurable from the UI. **The same gap now applies to Mistral, Qwen and
-DeepSeek too** — the 2026-08-04 plan added them and their shared
-`openaiCompatibleChatProbe()` helper without a live call against any of the
-three, for the identical reason: nothing but documentation says they accept
-the shape the shared probe sends. `/ai` must not reach a user before one
-manual pass per provider — all six now, not three; the section lists what the
-pass covers. Phase 12 reads the same section for `redirect: "error"`.
+and Gemini's already state — and OpenRouter, added afterward, resolves to
+`false` for its own separate reason (an aggregator's own edge, not an
+operator-configurable gateway; see the `/ai` bullets above). **"Carried
+forward from phase 7's review" holds one item that gates a release rather than
+a phase**: no live call has ever been made to OpenAI, Anthropic or Gemini, so
+nothing proves those three probes send request shapes those providers accept —
+and a shape one of them refuses lands in `judge()`'s write-nothing arm, which
+leaves that provider unconfigurable from the UI. **The same gap applied to
+Mistral, Qwen and DeepSeek too** — the 2026-08-04 plan added them and their
+shared `openaiCompatibleChatProbe()` helper without a live call against any of
+the three, for the identical reason: nothing but documentation says they
+accept the shape the shared probe sends. `/ai` must not reach a user before
+one manual pass per provider — all seven now, not three. **OpenRouter's pass
+has been completed**: a real API key was used during this branch's development
+to confirm `testOpenrouterKey()` returns `{ ok: true }` against it and that
+`listOpenrouterModels()` returns real catalog data, both verified working
+against the live OpenRouter API. OpenAI, Anthropic, Gemini, Mistral, Qwen and
+DeepSeek remain unverified live and still gate a release; the section lists
+what each pass covers. Phase 12 reads the same section for `redirect: "error"`.
 Phase 8 still starts from "Carried
 forward from phase 5's review", where the CRUD kit's contracts are.
 
@@ -1623,7 +1701,11 @@ design at
 shipped the provider expansion to six (openai/anthropic/gemini/mistral/qwen/deepseek),
 the first real enforcement of the daily/monthly AI request limits, and the new
 `POST /api/v1/ai/prompt` mobile endpoint — see the `/ai` bullets above for what
-changed and why.
+changed and why. **OpenRouter was added on a later, separate branch**, taking
+the total to seven: a seventh `defineIntegration()` declaration, the
+`hasDynamicModels`/live-catalog machinery, and `ProviderUnauthorizedError` /
+`providerUnauthorized` / `provider_unauthorized` threaded from `run.ts` through
+to `POST /api/v1/ai/prompt` — see the `/ai` bullets above for all of it.
 
 **Four plans are amended, not authoritative.**
 `docs/superpowers/plans/nextjs-04-auth.md` was written before three human
