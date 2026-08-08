@@ -5,6 +5,7 @@ import { testDeepseekKey } from "./deepseek";
 import { testGeminiKey } from "./gemini";
 import { testMistralKey } from "./mistral";
 import { testOpenaiKey } from "./openai";
+import { testOpenrouterKey } from "./openrouter";
 import { testQwenKey } from "./qwen";
 import type { AiProviderKey } from "./providers";
 
@@ -57,4 +58,5 @@ export const AI_PROBES: Record<AiProviderKey, AiProbe> = {
   mistral: ({ apiKey, model }) => testMistralKey({ apiKey, model }),
   qwen: ({ apiKey, model }) => testQwenKey({ apiKey, model }),
   deepseek: ({ apiKey, model }) => testDeepseekKey({ apiKey, model }),
+  openrouter: ({ apiKey, model }) => testOpenrouterKey({ apiKey, model }),
 };
