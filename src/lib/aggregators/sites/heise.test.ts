@@ -61,12 +61,7 @@ describe("HeiseAggregator.extractComments", () => {
       comments: "Kommentare",
       source: "Quelle",
     };
-    const html = await agg.extractComments(
-      "https://www.heise.de/a",
-      ARTICLE_HTML,
-      5,
-      germanLabels,
-    );
+    const html = await agg.extractComments("https://www.heise.de/a", ARTICLE_HTML, 5, germanLabels);
 
     expect(html).toContain(">Kommentare</a></h3>");
     expect(html).toContain(">Quelle</a>");

@@ -23,7 +23,12 @@ function pageWithOneComment(): string {
 
 describe("extractComments", () => {
   it("renders the Comments heading and source link in English by default", () => {
-    const html = extractComments(pageWithOneComment(), "https://mein-mmo.de/a", 5, DEFAULT_CHROME_LABELS);
+    const html = extractComments(
+      pageWithOneComment(),
+      "https://mein-mmo.de/a",
+      5,
+      DEFAULT_CHROME_LABELS,
+    );
 
     expect(html).toContain(">Comments</a></h3>");
     expect(html).toContain(">source</a>");
