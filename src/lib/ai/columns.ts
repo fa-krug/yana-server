@@ -79,6 +79,11 @@ export const AI_COLUMNS = {
     apiKey: "deepseekApiKey",
     model: "deepseekModel",
   },
+  openrouter: {
+    enabled: "openrouterEnabled",
+    apiKey: "openrouterApiKey",
+    model: "openrouterModel",
+  },
 } satisfies Record<AiProviderKey, AiColumns>;
 
 /**
