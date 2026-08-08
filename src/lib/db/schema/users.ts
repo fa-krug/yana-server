@@ -117,7 +117,7 @@ export const userSettings = sqliteTable(
     activeAiProvider: text("active_ai_provider").notNull().default(""),
 
     /**
-     * **The seven defaults below (one base URL plus each of the six providers'
+     * **The eight defaults below (one base URL plus each of the seven providers'
      * default model) are hand-maintained duplicates of
      * `src/lib/ai/providers.ts`**, and `src/lib/ai/defaults.test.ts` is what
      * keeps them honest: it migrates a real database, inserts a bare row, and
@@ -165,6 +165,12 @@ export const userSettings = sqliteTable(
     deepseekEnabled: integer("deepseek_enabled", { mode: "boolean" }).notNull().default(false),
     deepseekApiKey: text("deepseek_api_key").notNull().default(""),
     deepseekModel: text("deepseek_model").notNull().default("deepseek-v4-flash"),
+
+    openrouterEnabled: integer("openrouter_enabled", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    openrouterApiKey: text("openrouter_api_key").notNull().default(""),
+    openrouterModel: text("openrouter_model").notNull().default("openrouter/free"),
 
     // --- Global AI tuning (phase 7's advanced section) ---
     aiTemperature: real("ai_temperature").notNull().default(0.3),
