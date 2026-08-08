@@ -172,7 +172,8 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
       try {
         const commentSource = firstPageHtml || article.raw_content || "";
         if (commentSource) {
-          commentsHtml = extractComments(commentSource, article.identifier, maxComments);
+          const labels = await this.chromeLabels();
+          commentsHtml = extractComments(commentSource, article.identifier, maxComments, labels);
         }
       } catch {
         // ignore comment extraction errors
