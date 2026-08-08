@@ -510,6 +510,38 @@ describe("<ProviderSection>", () => {
       );
     });
 
+    it("survives a refresh that rejects instead of returning, without crashing into an error boundary", async () => {
+      // Unhandled, this rejection would escalate to the (app) error boundary
+      // and replace the whole page -- the exact failure `attemptCall()` exists
+      // to prevent. `listOpenrouterModels()` itself never rejects in
+      // production, but the network layer between the click and the server
+      // action can, so this drives the component with a rejecting mock rather
+      // than a `{ ok: false }` result.
+      listOpenrouterModels.mockRejectedValue(new Error("the container restarted"));
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      try {
+        const { container } = render("openrouter");
+
+        fireEvent.click(screen.getByRole("button", { name: "Modelle aktualisieren" }));
+
+        await waitFor(() =>
+          expect(toastError).toHaveBeenCalledWith(
+            "Die aktuelle Modellliste konnte nicht von OpenRouter geladen werden. Versuche es gleich noch einmal.",
+          ),
+        );
+        // Still on the page, still showing the static fallback -- not an error
+        // boundary's fallback UI, and the button is interactive again.
+        expect(triggerText(container, "ai-model")).toBe("Free (auto-routed)");
+        expect(
+          screen.getByRole<HTMLButtonElement>("button", { name: "Modelle aktualisieren" })
+            .disabled,
+        ).toBe(false);
+      } finally {
+        logged.mockRestore();
+      }
+    });
+
     it("reports a fetch failure without touching the model list", async () => {
       listOpenrouterModels.mockResolvedValue({
         ok: false,

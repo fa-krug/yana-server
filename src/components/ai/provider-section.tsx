@@ -42,6 +42,7 @@ import {
 } from "@/lib/ai/providers";
 import type { AiProviderStatus } from "@/lib/ai/queries";
 import { attempt } from "@/lib/ai/result";
+import { attemptCall } from "@/lib/attempt";
 
 /**
  * The provider card: which provider the AI features run on, and its
@@ -285,21 +286,42 @@ export function ProviderSection({
   }
 
   /**
-   * The live OpenRouter catalog, on demand. Not routed through `attempt()`/
-   * `report()`: it takes no credential and writes nothing, so neither the
-   * session-probe-and-redirect behaviour nor the credential-worded reporter
-   * vocabulary applies -- a plain toast on failure is the whole contract, and
-   * `listOpenrouterModels()` already collapses every failure to one catalog
-   * key (see its doc comment in `@/lib/ai/actions`).
+   * The live OpenRouter catalog, on demand. Not routed through the `ai`
+   * namespace's `attempt()`/`report()`: it takes no credential and writes
+   * nothing, so the credential-worded reporter vocabulary does not apply -- a
+   * plain toast on failure is the whole contract, and `listOpenrouterModels()`
+   * already collapses every failure to one catalog key (see its doc comment in
+   * `@/lib/ai/actions`).
+   *
+   * **It still goes through `attemptCall()`, never a bare `await` (CLAUDE.md).**
+   * `listOpenrouterModels()` itself never rejects -- it collapses every
+   * failure to `{ ok: false, errorKey }` -- but the network layer between this
+   * click and the server action can still reject on its own (a dropped
+   * connection, the container restarting, an over-sized response), and an
+   * unhandled rejection inside this `useTransition` scope would escalate to
+   * the nearest error boundary and replace the whole `/ai` page -- including
+   * any half-typed credentials -- with "Something went wrong." `attemptCall()`
+   * is the namespace-free layer the CRUD kit's own backstops
+   * (`confirm-destructive.tsx`, `bulk-action-bar.tsx`) use for exactly this
+   * reason; on a `"rejected"` status it has already logged the failure and, if
+   * the session turned out to be the cause, navigated to `/login` itself, so
+   * this only needs one toast to cover the plain "the request never came back"
+   * case.
    */
   function refreshModels() {
     if (!provider?.hasDynamicModels) return;
     startRefreshModels(async () => {
-      const result = await listOpenrouterModels();
-      if (result.ok) {
-        setFetchedModels(result.models);
+      const attempted = await attemptCall(listOpenrouterModels, {
+        label: "Fetching the OpenRouter model catalog rejected instead of reporting",
+      });
+      if (attempted.status !== "returned") {
+        toast.error(t("openrouter.modelsFetchFailed"));
+        return;
+      }
+      if (attempted.result.ok) {
+        setFetchedModels(attempted.result.models);
       } else {
-        toast.error(t(result.errorKey));
+        toast.error(t(attempted.result.errorKey));
       }
     });
   }
