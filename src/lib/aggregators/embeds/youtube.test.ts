@@ -1,13 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   youtubeIdFrom,
   thumbnailUrlFor,
   isYoutubeUrl,
   detectYoutube,
   convertYoutube,
+  localizeThumbnail,
 } from "./youtube";
 import * as cheerio from "cheerio";
 import { clearEmbedProviders } from "./registry";
+import { storeImageRefFromUrl } from "../images/store";
 
 // Mock image store to avoid actual network calls
 vi.mock("../images/store", () => ({
@@ -153,5 +155,21 @@ describe("convertYoutube", () => {
     const result = await convertYoutube(el, $, {});
     expect(result).not.toBeNull();
     expect(result!.externalUrl).toBe("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+  });
+});
+
+describe("localizeThumbnail failure visibility", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("logs a warning naming the video id when every quality fetch fails, instead of failing silently", async () => {
+    vi.mocked(storeImageRefFromUrl).mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const ref = await localizeThumbnail("deadbeef123");
+
+    expect(ref).toBe("");
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("deadbeef123"));
   });
 });

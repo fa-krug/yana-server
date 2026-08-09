@@ -161,6 +161,15 @@ export async function localizeThumbnail(videoId: string): Promise<string> {
     const ref = await storeImageRefFromUrl(url, { isHeader: true });
     if (ref) return ref;
   }
+  // Every call site (a fresh aggregation, a reload, an embedded-video
+  // facade) treats "" as "render the facade with no image" and moves on
+  // silently -- there was previously no signal anywhere that this had
+  // happened, which is exactly why a persistently-imageless facade (e.g.
+  // this video's own thumbnail genuinely being unreachable from this host)
+  // looked indistinguishable from "reload didn't do anything."
+  console.warn(
+    `[youtube] localizeThumbnail(${videoId}): both ${THUMBNAIL_QUALITIES.join(" and ")} thumbnail fetches failed or were rejected`,
+  );
   return "";
 }
 
