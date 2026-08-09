@@ -1099,6 +1099,95 @@ describe("src/lib/jobs/handlers", () => {
       expect(reloaded?.rawContent).toBe("<p>Fresh from the source</p>");
     });
 
+    it("fails the job when the feed's AI options are configured but AI processing did not complete -- while still keeping the freshly fetched content", async () => {
+      vi.resetModules();
+      const fetchArticleContent = vi.fn().mockResolvedValue("<p>Fresh from the source</p>");
+      vi.doMock("@/lib/aggregators/factory", () => ({
+        createAggregator: () => ({
+          fetchArticleContent,
+          extractHeaderElement: async () => null,
+          extractContent: (html: string) => html,
+          processContent: (html: string) => html,
+        }),
+      }));
+      handlers = await import("./index");
+
+      // AI provider replies 429 on every attempt -- applyAiOptions() must
+      // report this as a failure the job propagates, not a silent skip.
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        statusText: "Too Many Requests",
+        json: async () => ({}),
+      } as Response);
+
+      let articleId = 0;
+      client.writeTransaction((db) => {
+        const user = db
+          .insert(schema.users)
+          .values({ id: "ai-user", email: "ai-user@example.com" })
+          .returning({ id: schema.users.id })
+          .get();
+        db.insert(schema.userSettings)
+          .values({
+            userId: user.id,
+            activeAiProvider: "gemini",
+            geminiEnabled: true,
+            geminiApiKey: "test-key",
+            aiMaxRetries: 0,
+          })
+          .run();
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({
+            name: "Feed",
+            userId: user.id,
+            options: { ai_translate: true, ai_translate_language: "German" },
+          })
+          .returning({ id: schema.feeds.id })
+          .get();
+
+        const article = db
+          .insert(schema.articles)
+          .values({
+            name: "Has Content",
+            identifier: "https://example.com/art-1",
+            feedId: feed.id,
+            rawContent: "<p>Stale, previously stored</p>",
+            plainText: "stale",
+            date: new Date(),
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        articleId = article.id;
+      });
+
+      const reloadHandler = handlers.getHandler("article.reload");
+      const job = makeJob("article.reload", { articleId });
+
+      try {
+        await expect(reloadHandler!(job)).rejects.toThrow(/AI processing did not complete/);
+
+        // The refetch itself succeeded and was saved -- only the AI step failed.
+        const reloaded = client
+          .getDb()
+          .select()
+          .from(schema.articles)
+          .where(eq(schema.articles.id, articleId))
+          .get();
+        expect(reloaded?.rawContent).toBe("<p>Fresh from the source</p>");
+        expect(reloaded?.plainText).toContain("Fresh from the source");
+
+        const lines = logLines(job.id);
+        expect(lines).toContain("reloaded article content");
+        expect(lines.some((l) => l.includes("providerError"))).toBe(true);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
     it("re-fetches the original page and logs after reloading article content", async () => {
       vi.resetModules();
       const fetchArticleContent = vi.fn().mockResolvedValue("<p>Fresh from the source</p>");

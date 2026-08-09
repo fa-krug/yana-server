@@ -673,6 +673,45 @@ describe("applyAiOptions & AIClient processing", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    it("bypassUsageLimit skips both the check and the recording, even at the limit", async () => {
+      const settings = makeSettings({
+        activeAiProvider: "gemini",
+        aiDefaultDailyLimit: 1,
+        aiDefaultMonthlyLimit: 1000,
+      });
+
+      const { writeTransaction } = await import("@/lib/db/client");
+      const { aiRequests } = await import("@/lib/db/schema");
+      writeTransaction((tx) => {
+        tx.insert(aiRequests).values({ userId: "test-user", createdAt: new Date() }).run();
+      });
+
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: "ok" }] } }],
+        }),
+      } as Response);
+      globalThis.fetch = fetchMock;
+
+      const client = new AIClient(settings);
+      const result = await client.generateResponse("test prompt", false, undefined, true);
+
+      expect(result).toEqual({ ok: true, text: "ok" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Bypassing must not record the call either -- otherwise a reload
+      // would quietly eat into the same budget aggregation relies on.
+      const { getDb } = await import("@/lib/db/client");
+      const count = getDb()
+        .select()
+        .from(aiRequests)
+        .all()
+        .filter((r) => r.userId === "test-user").length;
+      expect(count).toBe(1); // only the pre-seeded row, nothing added
+    });
+
     it("proceeds unmetered and warns when settings carry no userId", async () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const settings = makeSettings({ activeAiProvider: "gemini", userId: undefined });
@@ -853,6 +892,61 @@ describe("applyAiOptions & AIClient processing", () => {
       await applyAiOptions(article, { ai_translate: true }, userSettings, onLog);
 
       expect(onLog).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("ApplyAiOutcome: distinguishing skipped from failed", () => {
+    it("reports 'skipped' when no AI options are configured", async () => {
+      const userSettings = makeSettings();
+      const article = { name: "Title", content: "<p>Content</p>" };
+
+      const outcome = await applyAiOptions(article, {}, userSettings);
+
+      expect(outcome).toEqual({ status: "skipped" });
+    });
+
+    it("reports 'failed' (not 'skipped') when AI was requested but no provider is active", async () => {
+      const userSettings = makeSettings({ activeAiProvider: "" });
+      const article = { name: "Title", content: "<p>Content</p>" };
+
+      const outcome = await applyAiOptions(article, { ai_translate: true }, userSettings);
+
+      expect(outcome).toEqual({ status: "failed", reason: "noProvider" });
+    });
+
+    it("reports 'applied' on a successful generation", async () => {
+      const userSettings = makeSettings();
+      const article = { name: "Title", content: "<p>Content</p>" };
+
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [
+            { content: { parts: [{ text: JSON.stringify({ title: "T", content: "<p>C</p>" }) }] } },
+          ],
+        }),
+      } as Response);
+
+      const outcome = await applyAiOptions(article, { ai_translate: true }, userSettings);
+
+      expect(outcome).toEqual({ status: "applied" });
+    });
+
+    it("reports 'failed' with the provider's reason on a rate limit", async () => {
+      const userSettings = makeSettings();
+      const article = { name: "Title", content: "<p>Content</p>" };
+
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        statusText: "Too Many Requests",
+        json: async () => ({}),
+      } as Response);
+
+      const outcome = await applyAiOptions(article, { ai_translate: true }, userSettings);
+
+      expect(outcome).toEqual({ status: "failed", reason: "providerError" });
     });
   });
 });

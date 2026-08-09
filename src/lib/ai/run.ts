@@ -228,10 +228,21 @@ export class AIClient {
     return null;
   }
 
+  /**
+   * `bypassUsageLimit` skips both the check and the recording of this call
+   * against the daily/monthly caps -- used for a user-triggered single-article
+   * reload (see `applyAiOptions()`'s own `bypassUsageLimit` parameter), which
+   * is a deliberate, one-off action the operator asked for right now, not the
+   * unattended bulk processing those caps exist to bound. It must not merely
+   * skip *enforcement* while still recording the call: doing so would spend
+   * part of the same budget background aggregation relies on, silently
+   * tightening the effective cap for every other AI call that day.
+   */
   public async generateResponse(
     prompt: string,
     jsonMode = false,
     jsonSchema?: Record<string, unknown>,
+    bypassUsageLimit = false,
   ): Promise<AiGenerationResult> {
     if (!this.provider) {
       this.warn("No AI provider selected.");
@@ -239,7 +250,7 @@ export class AIClient {
     }
 
     const userId = this.settings.userId;
-    if (userId) {
+    if (userId && !bypassUsageLimit) {
       const dailyLimit = this.settings.aiDefaultDailyLimit ?? 200;
       const monthlyLimit = this.settings.aiDefaultMonthlyLimit ?? 2000;
       let usage: ReturnType<typeof checkAndRecordAiUsage>;
@@ -254,7 +265,7 @@ export class AIClient {
       if (usage === "dailyLimitExceeded" || usage === "monthlyLimitExceeded") {
         return { ok: false, reason: usage };
       }
-    } else {
+    } else if (!userId) {
       // No settings row carried a userId (nothing in production hits this
       // today -- both real call sites read a full `user_settings` row --
       // but a caller that omits one gets the call through unmetered rather
@@ -487,35 +498,52 @@ export class AIClient {
   }
 }
 
+/**
+ * What `applyAiOptions()` actually did, distinct from the `ArticleInput` it
+ * mutates in place -- a caller that asked for AI processing (a feed's
+ * summarize/improve-writing/translate options) and didn't get it needs to be
+ * able to tell that apart from "no AI options were configured at all," which
+ * is a normal, silent no-op rather than a failure.
+ */
+export type ApplyAiOutcome =
+  { status: "skipped" } | { status: "applied" } | { status: "failed"; reason: string };
+
 export async function applyAiOptions(
   article: ArticleInput,
   options?: Record<string, unknown> | null,
   userSettings?: AiRuntimeSettings,
   onLog?: (message: string) => void,
-): Promise<ArticleInput> {
+  /**
+   * Set by `reload.ts` for a user-triggered single-article reload -- see the
+   * doc comment on `AIClient.generateResponse()`'s own parameter of the same
+   * name for why a reload doesn't count against the daily/monthly caps the
+   * way unattended aggregation does.
+   */
+  bypassUsageLimit = false,
+): Promise<ApplyAiOutcome> {
   const opts = options || {};
   const aiEnabled = Boolean(opts.ai_summarize || opts.ai_improve_writing || opts.ai_translate);
 
   if (!aiEnabled) {
-    return article;
+    return { status: "skipped" };
   }
 
   if (!userSettings) {
     console.warn("No userSettings provided for AI processing.");
-    return article;
+    return { status: "failed", reason: "noProvider" };
   }
 
   const provider = userSettings.activeAiProvider ?? userSettings.active_ai_provider;
   if (!provider) {
     console.warn("No active AI provider selected.");
-    return article;
+    return { status: "failed", reason: "noProvider" };
   }
 
   const client = new AIClient(userSettings, onLog);
 
   const content = article.content || "";
   if (!content) {
-    return article;
+    return { status: "skipped" };
   }
 
   // Parse HTML and strip headers, footers, navs, scripts, styles
@@ -575,7 +603,7 @@ export async function applyAiOptions(
     required: ["title", "content"],
   };
 
-  const generation = await client.generateResponse(fullPrompt, true, jsonSchema);
+  const generation = await client.generateResponse(fullPrompt, true, jsonSchema, bypassUsageLimit);
 
   if (generation.ok) {
     const result = generation.text;
@@ -607,10 +635,12 @@ export async function applyAiOptions(
       if (typeof parsedResult.content === "string") {
         article.content = parsedResult.content;
       }
+      return { status: "applied" };
     } else {
       const message = `AI returned invalid JSON for article '${article.name || ""}': ${result.slice(0, 100)}...`;
       console.warn(message);
       onLog?.(message);
+      return { status: "failed", reason: "invalidJson" };
     }
   } else {
     // `generation.reason` is one of noProvider/dailyLimitExceeded/
@@ -621,7 +651,6 @@ export async function applyAiOptions(
     const message = `AI processing failed for article '${article.name || ""}' (${generation.reason}). Keeping original content.`;
     console.warn(message);
     onLog?.(message);
+    return { status: "failed", reason: generation.reason };
   }
-
-  return article;
 }
