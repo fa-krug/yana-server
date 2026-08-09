@@ -183,7 +183,13 @@ export class FullWebsiteAggregator extends RssAggregator {
             // Skip article on HTTP 4xx errors
             return null;
           }
-          // Keep original RSS article on fetch/extraction errors
+          // Keep original RSS article on fetch/extraction errors -- but log
+          // it, since silently falling back here looked identical to a
+          // successful enrichment that just happened to find nothing.
+          const detail = err instanceof Error ? err.message : String(err);
+          const message = `[website] enrichment failed for ${url}, keeping original: ${detail}`;
+          console.warn(message);
+          this.onLog?.(message);
           return article;
         }
       },

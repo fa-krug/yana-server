@@ -76,6 +76,15 @@ export abstract class BaseAggregator {
   public usesFirstContentMatch = false;
   private chromeLabelsPromise?: Promise<ChromeLabels>;
 
+  /**
+   * The job handler's own job-output channel (`appendLogLine`), set by
+   * `reload.ts`/`aggregate.ts` right after `createAggregator()`. Extraction
+   * failures deep in `header/extractor.ts` and `images/extractor.ts` were
+   * previously only ever `console.warn`ed to the server log -- invisible to
+   * whoever is watching the job that triggered them.
+   */
+  public onLog?: (message: string) => void;
+
   constructor(public feed: FeedLike) {
     this.identifier = feed.identifier || "";
     this.dailyLimit = feed.dailyLimit ?? 20;
@@ -209,7 +218,7 @@ export abstract class BaseAggregator {
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
-      await applyAiOptions(articles[i], this.feed.options, userSettings);
+      await applyAiOptions(articles[i], this.feed.options, userSettings, this.onLog);
     }
     return articles;
   }
@@ -224,7 +233,7 @@ export abstract class BaseAggregator {
         : typeof this.feed.userId === "string"
           ? parseInt(this.feed.userId, 10) || null
           : null;
-    return extractHeaderElement(url, alt, userId);
+    return extractHeaderElement(url, alt, userId, this.onLog);
   }
 
   fetchArticleContent(_url: string): Promise<string> {

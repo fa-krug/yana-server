@@ -154,7 +154,7 @@ export class GenericImageStrategy implements HeaderElementStrategy {
   async create(context: HeaderElementContext): Promise<HeaderElementData | null> {
     try {
       const extractor = new ImageExtractor();
-      const imageResult = await extractor.extractImageFromUrl(context.url, true);
+      const imageResult = await extractor.extractImageFromUrl(context.url, true, context.onLog);
 
       if (!imageResult) return null;
 

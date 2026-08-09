@@ -51,6 +51,7 @@ export async function handleAggregateJob(job: Job): Promise<void> {
 
   appendLogLine(job.id, "stdout", `aggregating feed "${feed.name}" (${feed.aggregator})`);
   const aggregator = createAggregator(resolveFeedCredentials(feed, settings ?? null));
+  aggregator.onLog = (message) => appendLogLine(job.id, "stdout", message);
   const rawArticles = await aggregator.aggregate(undefined, collectedToday, settings, (percent) =>
     progress(job.id, percent),
   );

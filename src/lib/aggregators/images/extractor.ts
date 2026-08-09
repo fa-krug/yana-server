@@ -45,6 +45,7 @@ export class ImageExtractor {
   async extractImageFromUrl(
     url: string,
     isHeaderImage = false,
+    onLog?: (message: string) => void,
   ): Promise<FetchedImageResultWithUrl | null> {
     if (!url) return null;
 
@@ -83,6 +84,15 @@ export class ImageExtractor {
       }
     } catch {}
 
+    // Every strategy either could not handle this URL, threw (swallowed
+    // above), or found nothing -- log the definitive failure so it is
+    // visible instead of looking like an unrelated no-op elsewhere. `onLog`,
+    // when given, is the caller's job-output channel (see
+    // reload.ts/aggregate.ts) -- console.warn alone only ever reached the
+    // server log, never the job the operator is actually looking at.
+    const message = `[images] could not extract an image from ${url}`;
+    console.warn(message);
+    onLog?.(message);
     return null;
   }
 
@@ -109,7 +119,8 @@ export class ImageExtractor {
 export async function extractImages(
   url: string,
   isHeaderImage = false,
+  onLog?: (message: string) => void,
 ): Promise<FetchedImageResultWithUrl | null> {
   const extractor = new ImageExtractor();
-  return extractor.extractImageFromUrl(url, isHeaderImage);
+  return extractor.extractImageFromUrl(url, isHeaderImage, onLog);
 }

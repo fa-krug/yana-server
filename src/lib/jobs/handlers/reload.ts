@@ -21,14 +21,22 @@ function buildErrorBlocks(message: string): Block[] {
 }
 
 /**
- * Reload re-fetches the article's original page through the same
+ * Reload re-fetches the article from source through the same
  * `fetchArticleContent()` a fresh aggregation run would call, then re-runs
- * `extractContent()`/`processContent()` on that fresh page -- not on the
+ * `extractContent()`/`processContent()` on that fresh result -- not on the
  * previously stored `rawContent`, which is exactly the stale copy the user
- * is asking to be replaced. A stored `rawContent` is what gates reload to
- * feeds whose aggregator genuinely fetches a full page (website-based,
- * YouTube, Reddit -- see `fetchArticleContent()` on each); a plain RSS feed
- * never populates it, so it is never reached here.
+ * is asking to be replaced. This always calls `fetchArticleContent()`,
+ * regardless of whether the article already has a stored `rawContent`.
+ * What "source" means depends on the aggregator: a full-page aggregator
+ * (`FullWebsiteAggregator` and its site-specific subclasses -- Heise,
+ * Tagesschau, ...) refetches the article's own page; a plain RSS/"Feed
+ * Content" feed (`RssAggregator`) has no page of its own to fetch -- its
+ * `fetchArticleContent()` instead re-fetches the *feed* and looks up this
+ * article's entry again by link, since the entry's `summary` is, and always
+ * was, the article's content (see `parseToRawArticles()` in `rss.ts`).
+ * Either way, an empty result means source no longer has this article (page
+ * gone, or the entry aged out of the feed) and lands in the error-notice
+ * branch below.
  *
  * When the source page can no longer be fetched (removed, gone offline,
  * ...), the article's content is replaced with a short error notice instead:
@@ -61,8 +69,8 @@ export async function handleReloadJob(job: Job): Promise<void> {
 
   const db = getDb();
   const article = db.select().from(articles).where(eq(articles.id, articleId)).get();
-  if (!article || !article.rawContent) {
-    appendLogLine(job.id, "stdout", "article not found or has no stored content, skipping");
+  if (!article) {
+    appendLogLine(job.id, "stdout", "article not found, skipping");
     return;
   }
 
@@ -77,6 +85,7 @@ export async function handleReloadJob(job: Job): Promise<void> {
   const settings = db.select().from(userSettings).where(eq(userSettings.userId, feed.userId)).get();
 
   const aggregator = createAggregator(resolveFeedCredentials(feed, settings ?? null));
+  aggregator.onLog = (message) => appendLogLine(job.id, "stdout", message);
 
   let freshHtml: string;
   try {
@@ -118,8 +127,11 @@ export async function handleReloadJob(job: Job): Promise<void> {
   if (headerData) rawArticle.header_data = headerData;
 
   rawArticle.content = await aggregator.extractContent(freshHtml, rawArticle);
+  if (!rawArticle.content) {
+    appendLogLine(job.id, "stdout", "extracted content is empty");
+  }
 
-  await applyAiOptions(rawArticle, feed.options, settings);
+  await applyAiOptions(rawArticle, feed.options, settings, aggregator.onLog);
 
   const processed = await aggregator.processContent(rawArticle.content || "", rawArticle);
 

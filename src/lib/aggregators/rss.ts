@@ -38,6 +38,26 @@ export class RssAggregator extends BaseAggregator {
     }
   }
 
+  /**
+   * A plain RSS/"Feed Content" feed never fetches a full page -- the entry's
+   * own `summary` *is* the article's content, both on first aggregation
+   * (`parseToRawArticles()` below) and here on reload. So "fetch from
+   * source" for this aggregator means re-fetching the feed itself and
+   * finding this article's entry again by its link, not fetching `url` as a
+   * page. Returns "" (reload.ts's existing "could not be reloaded" branch)
+   * when the feed can no longer be reached or no longer lists this entry --
+   * e.g. it aged out of the feed's own window.
+   */
+  async fetchArticleContent(url: string): Promise<string> {
+    try {
+      const feed = await this.fetchSourceData();
+      const entry = feed.entries.find((e) => e.link === url);
+      return entry?.summary || "";
+    } catch {
+      return "";
+    }
+  }
+
   async parseToRawArticles(sourceData: unknown): Promise<RawArticle[]> {
     const feed = sourceData as ParsedFeed;
     const entries = feed?.entries || [];

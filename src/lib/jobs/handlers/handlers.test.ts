@@ -1029,7 +1029,31 @@ describe("src/lib/jobs/handlers", () => {
       expect(lines).toEqual(["no articleId in payload, skipping"]);
     });
 
-    it("logs and returns when the article is not found or has no stored content", async () => {
+    it("logs and returns when the article is not found", async () => {
+      const reloadHandler = handlers.getHandler("article.reload");
+      expect(reloadHandler).toBeDefined();
+
+      const job = makeJob("article.reload", { articleId: 999999 });
+
+      await reloadHandler!(job);
+
+      const lines = logLines(job.id);
+      expect(lines).toEqual(["article not found, skipping"]);
+    });
+
+    it("still fetches from source when the article has no previously stored rawContent", async () => {
+      vi.resetModules();
+      const fetchArticleContent = vi.fn().mockResolvedValue("<p>Fresh from the source</p>");
+      vi.doMock("@/lib/aggregators/factory", () => ({
+        createAggregator: () => ({
+          fetchArticleContent,
+          extractHeaderElement: async () => null,
+          extractContent: (html: string) => html,
+          processContent: (html: string) => html,
+        }),
+      }));
+      handlers = await import("./index");
+
       let articleId = 0;
       client.writeTransaction((db) => {
         let user = db.select().from(schema.users).limit(1).get();
@@ -1048,7 +1072,7 @@ describe("src/lib/jobs/handlers", () => {
           .insert(schema.articles)
           .values({
             name: "No Content",
-            identifier: "art-1",
+            identifier: "https://example.com/art-1",
             feedId: feed.id,
             rawContent: "",
             date: new Date(),
@@ -1059,14 +1083,20 @@ describe("src/lib/jobs/handlers", () => {
       });
 
       const reloadHandler = handlers.getHandler("article.reload");
-      expect(reloadHandler).toBeDefined();
-
       const job = makeJob("article.reload", { articleId });
 
       await reloadHandler!(job);
 
-      const lines = logLines(job.id);
-      expect(lines).toEqual(["article not found or has no stored content, skipping"]);
+      expect(fetchArticleContent).toHaveBeenCalledWith("https://example.com/art-1");
+
+      const reloaded = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, articleId))
+        .get();
+      expect(reloaded?.plainText).toContain("Fresh from the source");
+      expect(reloaded?.rawContent).toBe("<p>Fresh from the source</p>");
     });
 
     it("re-fetches the original page and logs after reloading article content", async () => {

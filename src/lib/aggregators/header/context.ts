@@ -7,6 +7,7 @@ export interface HeaderElementContext {
   url: string;
   alt?: string;
   userId?: number | null;
+  onLog?: (message: string) => void;
 }
 
 /**

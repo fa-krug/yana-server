@@ -114,10 +114,21 @@ function describeError(err: unknown): string {
 export class AIClient {
   private settings: AiRuntimeSettings;
   private provider: string;
+  private onLog?: (message: string) => void;
 
-  constructor(settings: AiRuntimeSettings) {
+  constructor(settings: AiRuntimeSettings, onLog?: (message: string) => void) {
     this.settings = settings || {};
     this.provider = this.settings.activeAiProvider ?? this.settings.active_ai_provider ?? "";
+    this.onLog = onLog;
+  }
+
+  /** Every AI-side failure/retry goes through here so it reaches both the
+   * server log and (when set) the triggering job's own output -- otherwise a
+   * provider rate limit or outage was indistinguishable from AI silently
+   * doing nothing. */
+  private warn(message: string): void {
+    console.warn(message);
+    this.onLog?.(message);
   }
 
   private async requestWithRetry(
@@ -161,7 +172,7 @@ export class AIClient {
           const elapsedSeconds = (Date.now() - startTime) / 1000;
 
           if (waitSeconds > 0 && elapsedSeconds + waitSeconds > maxRetryTime) {
-            console.warn(
+            this.warn(
               `Rate limited (429), but retrying would exceed time budget (${Math.round(
                 elapsedSeconds,
               )}s elapsed, ${waitSeconds}s wait, ${maxRetryTime}s max). Giving up.`,
@@ -169,7 +180,7 @@ export class AIClient {
             return null;
           }
 
-          console.warn(
+          this.warn(
             `Rate limited (429), retrying in ${waitSeconds}s (attempt ${attempt + 1}/${maxRetries})`,
           );
 
@@ -185,7 +196,7 @@ export class AIClient {
           );
         }
 
-        console.warn(`AI API call failed with status ${response.status}: ${response.statusText}`);
+        this.warn(`AI API call failed with status ${response.status}: ${response.statusText}`);
         return null;
       } catch (err: unknown) {
         if (err instanceof ProviderUnauthorizedError) throw err;
@@ -193,14 +204,14 @@ export class AIClient {
           const waitSeconds = retryDelay ? retryDelay * Math.pow(2, attempt) : 0;
           const elapsedSeconds = (Date.now() - startTime) / 1000;
           if (waitSeconds > 0 && elapsedSeconds + waitSeconds > maxRetryTime) {
-            console.warn(
+            this.warn(
               `Rate limited (429), but retrying would exceed time budget (${Math.round(
                 elapsedSeconds,
               )}s elapsed, ${waitSeconds}s wait, ${maxRetryTime}s max). Giving up.`,
             );
             return null;
           }
-          console.warn(
+          this.warn(
             `Rate limited (429), retrying in ${waitSeconds}s (attempt ${attempt + 1}/${maxRetries})`,
           );
           if (waitSeconds > 0) {
@@ -209,7 +220,7 @@ export class AIClient {
           continue;
         }
 
-        console.warn(`AI API request error: ${describeError(err)}`);
+        this.warn(`AI API request error: ${describeError(err)}`);
         return null;
       }
     }
@@ -223,7 +234,7 @@ export class AIClient {
     jsonSchema?: Record<string, unknown>,
   ): Promise<AiGenerationResult> {
     if (!this.provider) {
-      console.warn("No AI provider selected.");
+      this.warn("No AI provider selected.");
       return { ok: false, reason: "noProvider" };
     }
 
@@ -237,7 +248,7 @@ export class AIClient {
           checkAndRecordAiUsage(tx, userId, dailyLimit, monthlyLimit),
         );
       } catch (error) {
-        console.warn(`AI usage check failed: ${describeError(error)}`);
+        this.warn(`AI usage check failed: ${describeError(error)}`);
         return { ok: false, reason: "providerError" };
       }
       if (usage === "dailyLimitExceeded" || usage === "monthlyLimitExceeded") {
@@ -249,7 +260,7 @@ export class AIClient {
       // but a caller that omits one gets the call through unmetered rather
       // than a thrown error, matching this class's warn-and-continue style
       // for misconfiguration elsewhere).
-      console.warn("No user id on AI settings; usage limit not enforced for this call.");
+      this.warn("No user id on AI settings; usage limit not enforced for this call.");
     }
 
     try {
@@ -269,16 +280,16 @@ export class AIClient {
       } else if (this.provider === "openrouter") {
         text = await this.callOpenrouter(prompt, jsonMode);
       } else {
-        console.warn(`Unknown AI provider: ${this.provider}`);
+        this.warn(`Unknown AI provider: ${this.provider}`);
         return { ok: false, reason: "providerError" };
       }
       return text === null ? { ok: false, reason: "providerError" } : { ok: true, text };
     } catch (e: unknown) {
       if (e instanceof ProviderUnauthorizedError) {
-        console.warn(`AI provider rejected the stored credentials: ${describeError(e)}`);
+        this.warn(`AI provider rejected the stored credentials: ${describeError(e)}`);
         return { ok: false, reason: "providerUnauthorized" };
       }
-      console.warn(`AI API call failed: ${describeError(e)}`);
+      this.warn(`AI API call failed: ${describeError(e)}`);
       return { ok: false, reason: "providerError" };
     }
   }
@@ -480,12 +491,12 @@ export async function applyAiOptions(
   article: ArticleInput,
   options?: Record<string, unknown> | null,
   userSettings?: AiRuntimeSettings,
+  onLog?: (message: string) => void,
 ): Promise<ArticleInput> {
   const opts = options || {};
   const aiEnabled = Boolean(opts.ai_summarize || opts.ai_improve_writing || opts.ai_translate);
 
   if (!aiEnabled) {
-    console.warn("AI processing disabled or no AI options selected.");
     return article;
   }
 
@@ -500,7 +511,7 @@ export async function applyAiOptions(
     return article;
   }
 
-  const client = new AIClient(userSettings);
+  const client = new AIClient(userSettings, onLog);
 
   const content = article.content || "";
   if (!content) {
@@ -597,12 +608,19 @@ export async function applyAiOptions(
         article.content = parsedResult.content;
       }
     } else {
-      console.warn(
-        `AI returned invalid JSON for article '${article.name || ""}': ${result.slice(0, 100)}...`,
-      );
+      const message = `AI returned invalid JSON for article '${article.name || ""}': ${result.slice(0, 100)}...`;
+      console.warn(message);
+      onLog?.(message);
     }
   } else {
-    console.warn(`AI processing failed for article '${article.name || ""}'. Skipping.`);
+    // `generation.reason` is one of noProvider/dailyLimitExceeded/
+    // monthlyLimitExceeded/providerUnauthorized/providerError -- surfacing it
+    // (not just "failed") is what tells an operator a 429 apart from a
+    // misconfigured key, without which this looked identical to AI silently
+    // doing nothing.
+    const message = `AI processing failed for article '${article.name || ""}' (${generation.reason}). Keeping original content.`;
+    console.warn(message);
+    onLog?.(message);
   }
 
   return article;

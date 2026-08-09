@@ -810,4 +810,49 @@ describe("applyAiOptions & AIClient processing", () => {
       expect(article.name).toBe("Title");
     });
   });
+
+  describe("onLog: surfacing failures to the triggering job's own output", () => {
+    it("reports a rate limit (429) to onLog, not just the server console", async () => {
+      const userSettings = makeSettings();
+      const article = { name: "Title", content: "<p>Content</p>" };
+      const onLog = vi.fn();
+
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        statusText: "Too Many Requests",
+        json: async () => ({}),
+      } as Response);
+      globalThis.fetch = fetchMock;
+
+      await applyAiOptions(article, { ai_translate: true }, userSettings, onLog);
+
+      const logged = onLog.mock.calls.map((c) => c[0] as string);
+      expect(logged.some((line) => line.includes("Rate limited (429)"))).toBe(true);
+      expect(logged.some((line) => line.includes("providerError"))).toBe(true);
+      // The article is left untouched, not corrupted with a partial/failed result.
+      expect(article.name).toBe("Title");
+    });
+
+    it("does not call onLog on a successful generation", async () => {
+      const userSettings = makeSettings();
+      const article = { name: "Title", content: "<p>Content</p>" };
+      const onLog = vi.fn();
+
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [
+            { content: { parts: [{ text: JSON.stringify({ title: "T", content: "<p>C</p>" }) }] } },
+          ],
+        }),
+      } as Response);
+      globalThis.fetch = fetchMock;
+
+      await applyAiOptions(article, { ai_translate: true }, userSettings, onLog);
+
+      expect(onLog).not.toHaveBeenCalled();
+    });
+  });
 });

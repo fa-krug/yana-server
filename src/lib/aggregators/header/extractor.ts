@@ -28,6 +28,7 @@ export class HeaderElementExtractor {
     url: string,
     alt = "Article image",
     userId?: number | null,
+    onLog?: (message: string) => void,
   ): Promise<HeaderElementData | null> {
     if (!url) return null;
 
@@ -36,7 +37,7 @@ export class HeaderElementExtractor {
       return overrideResult;
     }
 
-    const context: HeaderElementContext = { url, alt, userId };
+    const context: HeaderElementContext = { url, alt, userId, onLog };
 
     for (const strategy of this.strategies) {
       if (!strategy.canHandle(url)) continue;
@@ -53,6 +54,16 @@ export class HeaderElementExtractor {
       }
     }
 
+    // Every strategy that could handle this URL either threw (swallowed
+    // above) or returned null -- with nothing logged anywhere in that chain,
+    // a persistently missing header image looked indistinguishable from a
+    // reload that did nothing at all. `onLog`, when given, is the caller's
+    // job-output channel (see reload.ts/aggregate.ts) -- console.warn alone
+    // only ever reached the server log, never the job the operator is
+    // actually looking at.
+    const message = `[header] could not find a header image for ${url}`;
+    console.warn(message);
+    onLog?.(message);
     return null;
   }
 
@@ -81,7 +92,8 @@ export async function extractHeaderElement(
   url: string,
   alt = "Article image",
   userId?: number | null,
+  onLog?: (message: string) => void,
 ): Promise<HeaderElementData | null> {
   const extractor = new HeaderElementExtractor();
-  return extractor.extractHeaderElement(url, alt, userId);
+  return extractor.extractHeaderElement(url, alt, userId, onLog);
 }
