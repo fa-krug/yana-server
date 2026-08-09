@@ -299,6 +299,58 @@ describe("RedditAggregator.finalizeArticles YouTube-link header thumbnail", () =
   });
 });
 
+describe("RedditAggregator reload facade parity", () => {
+  it("rebuilds the real YouTube-thumbnail facade, not the generic header, on reload's fetch/extractHeaderElement/extractContent/processContent sequence", async () => {
+    vi.mocked(fetchPostComments).mockResolvedValue([]);
+
+    const listingResponse = [
+      {
+        data: {
+          children: [
+            {
+              kind: "t3",
+              data: {
+                ...postData("vid1"),
+                url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                is_self: false,
+              },
+            },
+          ],
+        },
+      },
+      { data: { children: [] } },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => listingResponse,
+      }),
+    );
+
+    const feed: FeedLike = { identifier: "test", dailyLimit: 20, options: {} };
+    const agg = new RedditAggregator(feed);
+
+    // This mirrors reload.ts's handleReloadJob() exactly: fetchArticleContent()
+    // -> extractHeaderElement() -> extractContent() -> processContent(), with
+    // no finalizeArticles() call anywhere in between -- reload never calls it.
+    const identifier = "https://reddit.com/r/test/comments/vid1/a_video_post/";
+    const freshHtml = await agg.fetchArticleContent(identifier);
+
+    const rawArticle: RawArticle = article({ identifier, raw_content: freshHtml, content: "" });
+    const headerData = await agg.extractHeaderElement(rawArticle);
+    if (headerData) rawArticle.header_data = headerData;
+    rawArticle.content = await agg.extractContent(freshHtml, rawArticle);
+    const processed = await agg.processContent(rawArticle.content || "", rawArticle);
+
+    expect(processed).toContain('data-embed="https://www.youtube.com/embed/dQw4w9WgXcQ"');
+    expect(processed).toContain('<img src="yana-img://abc123hash"');
+
+    vi.unstubAllGlobals();
+  });
+});
+
 describe("RedditAggregator.extractContent legacy JSON locale", () => {
   let dbPath: string;
   let client: typeof import("../../../db/client");

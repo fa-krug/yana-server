@@ -9,7 +9,6 @@ import { AggregatorUserSettings, BaseAggregator, FeedLike, RawArticle } from "..
 import { mapWithConcurrency } from "../../concurrency";
 import { AggregatorError, ArticleSkipError } from "../../errors";
 import { getHeaderImageRef, HeaderElementData } from "../../header/context";
-import { extractHeaderElement } from "../../header/extractor";
 import {
   buildHeaderHtml,
   extractYoutubeVideoId,
@@ -113,6 +112,16 @@ export class RedditAggregator extends BaseAggregator {
       },
     };
   }
+
+  // Populated by fetchArticleContent() (the reload path only -- a normal
+  // aggregation run gets the same information from parseToRawArticles()
+  // instead) so that processContent() can rebuild the real header/video/
+  // YouTube-thumbnail facade below without finalizeArticles() ever running.
+  // `undefined` means "fetchArticleContent() has not run on this instance",
+  // distinct from `null` ("ran, found nothing") -- see processContent().
+  private _lastReloadedHeaderImageUrl?: string | null;
+  private _lastReloadedVideoUrl?: string | null;
+  private _lastReloadedVideoInfo?: { hlsUrl?: string; fallbackUrl?: string } | null;
 
   constructor(feed: FeedLike) {
     super(feed);
@@ -411,73 +420,31 @@ export class RedditAggregator extends BaseAggregator {
       this.concurrency,
       async (article): Promise<RawArticle> => {
         const includeHeaderImage = (this.feed.options?.include_header_image as boolean) ?? true;
-        const headerSourceUrl = includeHeaderImage
-          ? (article._reddit_header_image_url as string | null)
-          : null;
-
-        let headerHtml: string | null = null;
-        const redditVideo = article._reddit_video_info as
-          { hlsUrl?: string; fallbackUrl?: string } | null | undefined;
-
         // `include_header_image: false` suppresses the video header too, not just
         // the image one: both are headers, and a user who turned headers off got a
         // `<video>` anyway. Nothing is lost -- `addLinkMedia()` in `./content.ts`
         // still renders the post's own `v.redd.it` link in the body.
-        if (includeHeaderImage && redditVideo) {
-          headerHtml = await buildVideoHeaderHtml(redditVideo, headerSourceUrl);
-          if (headerHtml && article.content) {
-            article.content = this._stripImageFromContent(article.content, headerSourceUrl || "");
-          }
-        } else if (headerSourceUrl) {
-          const labels = await this.chromeLabels();
-          const isYoutubeHeader = Boolean(extractYoutubeVideoId(headerSourceUrl));
-          const isTwitterHeader = isTwitterUrl(headerSourceUrl);
+        const headerSourceUrl = includeHeaderImage
+          ? (article._reddit_header_image_url as string | null)
+          : null;
+        const redditVideo = includeHeaderImage
+          ? ((article._reddit_video_info as
+              { hlsUrl?: string; fallbackUrl?: string } | null | undefined) ?? null)
+          : null;
+        const videoUrl = (article._reddit_video_url as string | null | undefined) ?? null;
 
-          let renderUrl = headerSourceUrl;
-          if (!(isYoutubeHeader || isTwitterHeader)) {
-            renderUrl = await this._storeHeaderImage(headerSourceUrl, article);
-          }
+        const built = await this._buildHeaderForArticle(
+          article.content || "",
+          article.name,
+          headerSourceUrl,
+          videoUrl,
+          redditVideo,
+        );
+        article.content = built.content;
+        article.header_html = built.headerHtml;
 
-          let headerCaptionHtml: string | null = null;
-          const videoUrl = article._reddit_video_url as string | null;
-          if (videoUrl && !isYoutubeHeader) {
-            headerCaptionHtml = `<p>${safeLinkHtml(videoUrl, labels.viewVideo)}</p>`;
-          }
-
-          // A YouTube-link post's headerSourceUrl is the watch URL itself, not an
-          // image -- createYoutubeEmbedHtml() renders no thumbnail at all unless
-          // one is passed in, so without this every such post showed a bare
-          // play button on black. Same localizeThumbnail() the YouTube aggregator
-          // uses for its own embeds (src/lib/aggregators/embeds/youtube.ts).
-          let youtubeThumbnailRef: string | null = null;
-          if (isYoutubeHeader) {
-            const youtubeVideoId = extractYoutubeVideoId(headerSourceUrl);
-            if (youtubeVideoId) {
-              youtubeThumbnailRef = (await localizeThumbnail(youtubeVideoId)) || null;
-            }
-          }
-
-          headerHtml = buildHeaderHtml(
-            labels,
-            renderUrl,
-            article.name,
-            headerCaptionHtml,
-            youtubeThumbnailRef,
-          );
-
-          if (headerHtml && article.content) {
-            article.content = this._stripImageFromContent(article.content, headerSourceUrl);
-            if (isYoutubeHeader) {
-              article.content = this._stripYoutubeLinkFromContent(article.content, headerSourceUrl);
-            }
-          }
-        }
-
-        article.header_html = headerHtml;
-
-        const content = article.content || "";
-        if (content || headerHtml) {
-          article.content = await this.processContent(content, article);
+        if (article.content || built.headerHtml) {
+          article.content = await this.processContent(article.content, article);
         }
 
         delete article._reddit_post_data;
@@ -494,7 +461,77 @@ export class RedditAggregator extends BaseAggregator {
     );
   }
 
-  protected async _storeHeaderImage(headerImageUrl: string, _article: RawArticle): Promise<string> {
+  /**
+   * The real header-building logic: video header, YouTube-link thumbnail
+   * facade, or a stored header image, plus the matching de-dup strip of that
+   * same content out of the body. Shared by `finalizeArticles()` (the normal
+   * aggregation path, whose inputs come from `parseToRawArticles()`) and
+   * `processContent()`'s reload branch (whose inputs come from
+   * `fetchArticleContent()` instead, since reload never calls
+   * `finalizeArticles()` -- see `reload.ts`).
+   */
+  private async _buildHeaderForArticle(
+    content: string,
+    articleName: string,
+    headerSourceUrl: string | null,
+    videoUrl: string | null,
+    redditVideo: { hlsUrl?: string; fallbackUrl?: string } | null,
+  ): Promise<{ headerHtml: string | null; content: string }> {
+    let headerHtml: string | null = null;
+
+    if (redditVideo) {
+      headerHtml = await buildVideoHeaderHtml(redditVideo, headerSourceUrl);
+      if (headerHtml && content) {
+        content = this._stripImageFromContent(content, headerSourceUrl || "");
+      }
+    } else if (headerSourceUrl) {
+      const labels = await this.chromeLabels();
+      const isYoutubeHeader = Boolean(extractYoutubeVideoId(headerSourceUrl));
+      const isTwitterHeader = isTwitterUrl(headerSourceUrl);
+
+      let renderUrl = headerSourceUrl;
+      if (!(isYoutubeHeader || isTwitterHeader)) {
+        renderUrl = await this._storeHeaderImage(headerSourceUrl);
+      }
+
+      let headerCaptionHtml: string | null = null;
+      if (videoUrl && !isYoutubeHeader) {
+        headerCaptionHtml = `<p>${safeLinkHtml(videoUrl, labels.viewVideo)}</p>`;
+      }
+
+      // A YouTube-link post's headerSourceUrl is the watch URL itself, not an
+      // image -- createYoutubeEmbedHtml() renders no thumbnail at all unless
+      // one is passed in, so without this every such post showed a bare
+      // play button on black. Same localizeThumbnail() the YouTube aggregator
+      // uses for its own embeds (src/lib/aggregators/embeds/youtube.ts).
+      let youtubeThumbnailRef: string | null = null;
+      if (isYoutubeHeader) {
+        const youtubeVideoId = extractYoutubeVideoId(headerSourceUrl);
+        if (youtubeVideoId) {
+          youtubeThumbnailRef = (await localizeThumbnail(youtubeVideoId)) || null;
+        }
+      }
+
+      headerHtml = buildHeaderHtml(
+        labels,
+        renderUrl,
+        articleName,
+        headerCaptionHtml,
+        youtubeThumbnailRef,
+      );
+
+      if (headerHtml && content) {
+        content = this._stripImageFromContent(content, headerSourceUrl);
+        if (isYoutubeHeader) {
+          content = this._stripYoutubeLinkFromContent(content, headerSourceUrl);
+        }
+      }
+    }
+
+    return { headerHtml, content };
+  }
+
+  protected async _storeHeaderImage(headerImageUrl: string): Promise<string> {
     if (!headerImageUrl.startsWith("http")) {
       return headerImageUrl;
     }
@@ -610,6 +647,24 @@ export class RedditAggregator extends BaseAggregator {
       effectiveSubreddit = originalPost.subreddit || subreddit;
       effectivePostData = new RedditPostData(originalPost);
     }
+
+    // Same derivation as parseToRawArticles() -- reload never calls
+    // finalizeArticles(), so processContent() reads these back off the
+    // instance instead of off the _reddit_* fields a normal aggregation run
+    // would have set on the article.
+    this._lastReloadedHeaderImageUrl = await extractHeaderImageUrl(effectivePostData);
+    this._lastReloadedVideoUrl = null;
+    if (effectivePostData.url) {
+      const urlLower = effectivePostData.url.toLowerCase();
+      if (
+        urlLower.includes("v.redd.it") ||
+        urlLower.includes("youtube.com") ||
+        urlLower.includes("youtu.be")
+      ) {
+        this._lastReloadedVideoUrl = effectivePostData.url;
+      }
+    }
+    this._lastReloadedVideoInfo = extractRedditVideo(effectivePostData);
 
     const commentLimit = 10;
     const comments = await fetchPostComments(
@@ -772,10 +827,31 @@ export class RedditAggregator extends BaseAggregator {
     const labels = await this.chromeLabels();
     let headerHtml = article.header_html as string | null | undefined;
 
-    if (headerHtml === undefined && (this.feed.options?.include_header_image ?? true)) {
-      const headerData = article.header_data;
-      if (headerData) {
-        headerHtml = buildHeaderHtml(labels, getHeaderImageRef(headerData), article.name);
+    if (headerHtml === undefined) {
+      const includeHeaderImage = (this.feed.options?.include_header_image as boolean) ?? true;
+
+      if (this._lastReloadedHeaderImageUrl !== undefined) {
+        // Reload path: finalizeArticles() never ran (see reload.ts), so the
+        // _reddit_* fields it would key off of were never on this article --
+        // fetchArticleContent() stashed the same information on the instance
+        // instead. Rebuild the real header/video/YouTube-thumbnail facade
+        // from that, rather than falling through to header_data below, which
+        // would otherwise just be article.identifier's og:image (the
+        // subreddit icon for a bare post permalink -- see extractHeaderElement()).
+        const built = await this._buildHeaderForArticle(
+          content,
+          article.name,
+          includeHeaderImage ? (this._lastReloadedHeaderImageUrl ?? null) : null,
+          this._lastReloadedVideoUrl ?? null,
+          includeHeaderImage ? (this._lastReloadedVideoInfo ?? null) : null,
+        );
+        headerHtml = built.headerHtml;
+        content = built.content;
+      } else if (includeHeaderImage) {
+        const headerData = article.header_data;
+        if (headerData) {
+          headerHtml = buildHeaderHtml(labels, getHeaderImageRef(headerData), article.name);
+        }
       }
     }
 
@@ -791,14 +867,15 @@ export class RedditAggregator extends BaseAggregator {
     );
   }
 
-  override async extractHeaderElement(article: RawArticle): Promise<HeaderElementData | null> {
-    const url = article.identifier;
-    const alt = article.name || "Reddit post image";
-    if (!url) return null;
-    const userId =
-      typeof this.feed.userId === "string"
-        ? parseInt(this.feed.userId, 10) || null
-        : (this.feed.userId as number | null | undefined);
-    return extractHeaderElement(url, alt, userId);
+  // The real per-post header (video, YouTube-thumbnail facade, stored header
+  // image) is built by processContent() above, from either finalizeArticles()'s
+  // _reddit_* fields or fetchArticleContent()'s stashed instance state on
+  // reload -- never from here. Returning the generic og:image scrape here
+  // would resolve to the *subreddit's* icon for a bare post permalink
+  // (RedditPostStrategy in header/strategies.ts), which is wrong in both
+  // cases and, on reload, is exactly the bug this no-op prevents. Same
+  // reasoning as youtube/aggregator.ts's override.
+  override async extractHeaderElement(_article: RawArticle): Promise<HeaderElementData | null> {
+    return null;
   }
 }
