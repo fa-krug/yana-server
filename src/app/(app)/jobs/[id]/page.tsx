@@ -9,7 +9,7 @@ import { StatusBadge } from "@/components/jobs/jobs-table";
 import { isAdminRole } from "@/lib/auth/roles";
 import { requireUserFreshRole } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
-import { feeds } from "@/lib/db/schema";
+import { articles, feeds } from "@/lib/db/schema";
 import { getJob, listJobLogs } from "@/lib/jobs/queue";
 
 export default async function JobDetailPage({
@@ -45,6 +45,15 @@ export default async function JobDetailPage({
         .get()
     : undefined;
 
+  const articleId = Number(job.payload?.articleId);
+  const article = articleId
+    ? getDb()
+        .select({ id: articles.id, name: articles.name })
+        .from(articles)
+        .where(eq(articles.id, articleId))
+        .get()
+    : undefined;
+
   return (
     <div className="max-w-3xl space-y-6">
       <div className="flex items-center justify-between">
@@ -67,6 +76,20 @@ export default async function JobDetailPage({
                 </Link>
               ) : (
                 <span className="text-muted-foreground">{t("feedGone", { id: feedId })}</span>
+              )}
+            </dd>
+          </div>
+        )}
+        {articleId > 0 && (
+          <div>
+            <dt className="text-muted-foreground">{t("article")}</dt>
+            <dd>
+              {article ? (
+                <Link href={`/articles/${article.id}`} className="hover:underline">
+                  {article.name}
+                </Link>
+              ) : (
+                <span className="text-muted-foreground">{t("articleGone", { id: articleId })}</span>
               )}
             </dd>
           </div>

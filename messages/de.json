@@ -17,6 +17,8 @@
     "systemOwner": "System",
     "feed": "Feed",
     "feedGone": "Feed Nr. {id} (existiert nicht mehr)",
+    "article": "Artikel",
+    "articleGone": "Artikel Nr. {id} (existiert nicht mehr)",
     "status": "Status",
     "attempts": "Versuche",
     "progress": "Fortschritt",
