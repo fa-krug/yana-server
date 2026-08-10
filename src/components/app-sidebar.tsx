@@ -17,6 +17,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
 
 /**
@@ -31,11 +32,13 @@ type SidebarUser = AvatarUser & { image: string | null };
 export function AppSidebar({ isAdmin, user }: { isAdmin: boolean; user: SidebarUser }) {
   const pathname = usePathname();
   const t = useTranslations();
+  const { setOpenMobile } = useSidebar();
+  const closeMobileSidebar = () => setOpenMobile(false);
 
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <Link href="/" className="px-2 py-1 font-semibold">
+        <Link href="/" className="px-2 py-1 font-semibold" onClick={closeMobileSidebar}>
           Yana
         </Link>
       </SidebarHeader>
@@ -47,7 +50,7 @@ export function AppSidebar({ isAdmin, user }: { isAdmin: boolean; user: SidebarU
                 {/* This sidebar is on Base UI's render prop, not Radix's asChild --
                     the target element goes in `render`, contents stay as children. */}
                 <SidebarMenuButton
-                  render={<Link href={item.href} />}
+                  render={<Link href={item.href} onClick={closeMobileSidebar} />}
                   isActive={pathname.startsWith(item.href)}
                 >
                   <item.icon />
@@ -69,7 +72,7 @@ export function AppSidebar({ isAdmin, user }: { isAdmin: boolean; user: SidebarU
                 here. */}
             <SidebarMenuButton
               size="lg"
-              render={<Link href="/account" />}
+              render={<Link href="/account" onClick={closeMobileSidebar} />}
               isActive={pathname.startsWith("/account")}
               tooltip={displayNameFor(user)}
             >
