@@ -1,4 +1,4 @@
-import type { Article, Feed, Tag } from "@/lib/db/schema";
+import type { Article, Feed, Tag, UserSettings } from "@/lib/db/schema";
 
 export interface ArticleSummaryWire {
   id: number;
@@ -68,4 +68,24 @@ export interface TagWire {
 
 export function serializeTag(tag: Tag): TagWire {
   return { id: tag.id, name: tag.name, color: tag.color };
+}
+
+export interface ReadingPositionWire {
+  articleId: number | null;
+  updatedAt: string | null;
+}
+
+/**
+ * `settings` is typed to the two columns this needs rather than the whole
+ * `UserSettings` row, so a caller can pass either a full row (`GET`) or the
+ * narrower `.select({...})` projection `PATCH` re-reads after its `UPDATE`
+ * (`src/app/api/v1/reading-position/route.ts`) without a cast.
+ */
+export function serializeReadingPosition(
+  settings: Pick<UserSettings, "readingPositionArticleId" | "readingPositionUpdatedAt">,
+): ReadingPositionWire {
+  return {
+    articleId: settings.readingPositionArticleId,
+    updatedAt: settings.readingPositionUpdatedAt?.toISOString() ?? null,
+  };
 }

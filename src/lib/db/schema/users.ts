@@ -182,6 +182,26 @@ export const userSettings = sqliteTable(
     /** Seconds between AI calls, to stay under provider rate limits. */
     aiRequestDelay: integer("ai_request_delay").notNull().default(2),
 
+    // --- Reading position: the client's cross-device "current article" sync ---
+    /**
+     * The article the client last set as "current", or NULL if never set.
+     * Deliberately **not** a `.references()` FK: retention and feed-delete
+     * hard-delete `articles` rows outright (see `articleTombstones`, which
+     * denormalizes `articleId` the same way rather than enforcing one), and
+     * this pointer is meant to go stale rather than block that delete or
+     * cascade into silently clearing itself. The client already falls back to
+     * its normal anchor when a synced id doesn't resolve locally.
+     */
+    readingPositionArticleId: integer("reading_position_article_id"),
+    /**
+     * Stamped only by `PATCH /api/v1/reading-position`, never by the
+     * `$onUpdate` on this row's own `updatedAt` below -- that one fires on
+     * *any* write to this settings row (a theme change, an AI key save), which
+     * would misreport "just synced" for a write that never touched the
+     * reading position at all.
+     */
+    readingPositionUpdatedAt: integer("reading_position_updated_at", { mode: "timestamp" }),
+
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
