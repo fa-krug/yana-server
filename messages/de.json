@@ -324,7 +324,9 @@
     "importStatusDuplicate": "Bereits vorhanden",
     "importStatusInvalid": "Kann nicht importiert werden",
     "importConfirm": "{count, plural, one {# Feed importieren} other {# Feeds importieren}}",
-    "importResult": "{imported, plural, one {# Feed importiert} other {# Feeds importiert}}, {skipped} übersprungen"
+    "importResult": "{imported, plural, one {# Feed importiert} other {# Feeds importiert}}, {skipped} übersprungen",
+    "exportOpml": "Alle exportieren",
+    "bulkExportOpml": "OPML exportieren"
   },
   "settings": {
     "title": "Einstellungen",

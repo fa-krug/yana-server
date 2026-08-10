@@ -7,6 +7,7 @@ import { SearchFilterBar } from "@/components/crud/search-filter-bar";
 import { TableRowsSkeleton } from "@/components/data-skeleton";
 import { buttonVariants } from "@/components/ui/button";
 import { FeedsTableBody, FeedsTableShell } from "@/components/feeds/feeds-table";
+import { ImportOpmlButton } from "@/components/feeds/import-opml-button";
 import { requireUser } from "@/lib/auth/session";
 import { parseListParams, type ListParams } from "@/lib/crud/params";
 import { listFeeds } from "@/lib/feeds/actions";
@@ -67,9 +68,15 @@ export default async function FeedsPage({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-semibold">{t("title")}</h1>
-        <Link href="/feeds/new" className={buttonVariants()}>
-          {t("new")}
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <a href="/api/feeds/export" className={buttonVariants({ variant: "outline" })}>
+            {t("exportOpml")}
+          </a>
+          <ImportOpmlButton />
+          <Link href="/feeds/new" className={buttonVariants()}>
+            {t("new")}
+          </Link>
+        </div>
       </div>
 
       <SearchFilterBar placeholder={t("searchPlaceholder")} filters={filters} />
