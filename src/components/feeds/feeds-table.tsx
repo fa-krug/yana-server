@@ -188,6 +188,14 @@ function FeedsTableChrome({ children }: { children: React.ReactNode }) {
     return true;
   }
 
+  function exportSelected(): Promise<boolean> {
+    if (selected.length === 0) return Promise.resolve(false);
+    const params = new URLSearchParams({ ids: selected.join(",") });
+    window.location.href = `/api/feeds/export?${params.toString()}`;
+    onSelectedChange([]);
+    return Promise.resolve(true);
+  }
+
   const count = selected.length;
   const actions: BulkAction[] = [
     {
@@ -201,6 +209,12 @@ function FeedsTableChrome({ children }: { children: React.ReactNode }) {
       label: t("bulkRunAggregation"),
       destructive: false,
       run: runAggregation,
+    },
+    {
+      key: "export-opml",
+      label: t("bulkExportOpml"),
+      destructive: false,
+      run: exportSelected,
     },
     {
       key: "delete",

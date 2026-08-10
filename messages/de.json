@@ -313,7 +313,20 @@
     "bulkDeleteDescription": "{count, plural, one {Der Feed} other {Die # Feeds}} und alle zugehörigen Artikel werden dauerhaft entfernt.",
     "deleteConfirm": "Löschen",
     "deleted": "{count, plural, one {# Feed gelöscht} other {# Feeds gelöscht}}",
-    "deletedNone": "Nichts wurde gelöscht — diese Feeds gibt es nicht mehr."
+    "deletedNone": "Nichts wurde gelöscht — diese Feeds gibt es nicht mehr.",
+    "invalidOpmlFile": "Das ist keine gültige OPML-Datei",
+    "importReasonMissingIdentifier": "Feed-URL fehlt",
+    "importReasonCapabilityUnavailable": "Integration nicht konfiguriert",
+    "importReasonInvalidOptions": "Gespeicherte Optionen sind ungültig",
+    "importOpml": "OPML importieren",
+    "importPreviewTitle": "{count, plural, one {# Feed gefunden} other {# Feeds gefunden}}",
+    "importStatusNew": "Neu",
+    "importStatusDuplicate": "Bereits vorhanden",
+    "importStatusInvalid": "Kann nicht importiert werden",
+    "importConfirm": "{count, plural, one {# Feed importieren} other {# Feeds importieren}}",
+    "importResult": "{imported, plural, one {# Feed importiert} other {# Feeds importiert}}, {skipped} übersprungen",
+    "exportOpml": "Alle exportieren",
+    "bulkExportOpml": "OPML exportieren"
   },
   "settings": {
     "title": "Einstellungen",

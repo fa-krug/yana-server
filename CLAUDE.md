@@ -407,9 +407,10 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   `src/app/api/auth/[...all]/route.ts`, whose comment _explains why it has no
   call_. Add a new route here in the same commit. A new page that reads anything
   needs its own line — unless it already awaits a Dynamic API, which opts the
-  route out just as well. **The seven that do**: `src/app/(app)/layout.tsx`,
+  route out just as well. **The eight that do**: `src/app/(app)/layout.tsx`,
   because `requireUser()` awaits `headers()` before anything touches SQLite;
-  `src/app/media/avatars/[userId]/route.ts`, for the same reason;
+  `src/app/media/avatars/[userId]/route.ts` and
+  `src/app/api/feeds/export/route.ts`, for the same reason;
   `src/app/(app)/jobs/[id]/page.tsx` and
   `src/app/api/jobs/[id]/log-stream/route.ts`, likewise (the job live-log
   feature's detail page and its SSE route, both gated by
