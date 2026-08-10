@@ -974,6 +974,39 @@ describe("previewOpmlImport", () => {
 
     expect(result).toEqual({ ok: false, errorKey: "invalidOpmlFile" });
   });
+
+  it("classifies a foreign outline with neither an identifier nor an aggregatorType as invalid", async () => {
+    await currentUserId();
+
+    const xml = `${OPML_HEADER}<outline text="Tech" />${OPML_FOOTER}`;
+    const result = await actions.previewOpmlImport(xml);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.entries).toEqual([
+      expect.objectContaining({
+        name: "Tech",
+        status: "invalid",
+        reasonKey: "importReasonMissingIdentifier",
+      }),
+    ]);
+  });
+
+  it("snaps an off-list choice-mode identifier to the aggregator's default", async () => {
+    await currentUserId();
+
+    const xml = `${OPML_HEADER}<outline text="Heise" xmlUrl="https://heise.de/not-a-real-feed" yana:aggregatorType="heise" />${OPML_FOOTER}`;
+    const result = await actions.previewOpmlImport(xml);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.entries).toEqual([
+      expect.objectContaining({
+        status: "new",
+        identifier: "https://www.heise.de/rss/heise.rdf",
+      }),
+    ]);
+  });
 });
 
 describe("importOpmlFeeds", () => {
@@ -1084,6 +1117,27 @@ describe("importOpmlFeeds", () => {
     const db = client.getDb();
     const tagRows = db.select().from(schema.tags).where(eq(schema.tags.userId, userId)).all();
     expect(tagRows).toHaveLength(1);
+  });
+
+  it("imports successfully when yana:tags names collide case-insensitively", async () => {
+    const userId = await currentUserId();
+
+    const xml = `${OPML_HEADER}<outline text="Heise" xmlUrl="https://heise.de/rss" yana:aggregatorType="full_website" yana:tags="Tech,tech" />${OPML_FOOTER}`;
+    const result = await actions.importOpmlFeeds(xml);
+
+    expect(result).toEqual({ ok: true, imported: 1, skipped: 0 });
+
+    const db = client.getDb();
+    const row = db.select().from(schema.feeds).where(eq(schema.feeds.userId, userId)).get();
+
+    const feedTagNames = db
+      .select({ name: schema.tags.name })
+      .from(schema.feedTags)
+      .innerJoin(schema.tags, eq(schema.feedTags.tagId, schema.tags.id))
+      .where(eq(schema.feedTags.feedId, row!.id))
+      .all()
+      .map((t) => t.name);
+    expect(feedTagNames).toEqual(["Tech"]);
   });
 
   it("skips duplicates and invalid entries, and only counts what was actually created", async () => {

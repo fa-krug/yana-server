@@ -620,15 +620,32 @@ async function resolveOpmlEntries(
       ? AGGREGATOR_SPECS[entry.aggregatorType as AggregatorKey]
       : undefined;
     const spec = requestedSpec ?? AGGREGATOR_SPECS.full_website;
+    const identifier = normalizeIdentifier(spec, entry.identifier);
     const base = {
       name: entry.name,
-      identifier: entry.identifier,
+      identifier,
       aggregatorKey: spec.key,
       aggregatorLabel: spec.label,
       tags: entry.tags,
     };
 
-    if (spec.identifierRequired && !entry.identifier) {
+    /**
+     * An outline with neither an `xmlUrl` nor a `yana:aggregatorType` is
+     * foreign-reader junk (an empty folder, a separator, a text-only note),
+     * not a real feed -- it would otherwise fall back to `full_website`,
+     * whose `identifierRequired: false` lets it through as a `new` feed
+     * that can never aggregate anything. A deliberately identifier-less
+     * Yana `full_website` export always carries `yana:aggregatorType`, so
+     * gating on the *combination* (not identifier alone) is what tells
+     * "real Yana feed with an optional empty identifier" apart from this.
+     * This must run before the `identifierRequired` check below, which
+     * would otherwise never see this case for `full_website`.
+     */
+    if (!entry.identifier && !entry.aggregatorType) {
+      return { ...base, status: "invalid", reasonKey: "importReasonMissingIdentifier" };
+    }
+
+    if (spec.identifierRequired && !identifier) {
       return { ...base, status: "invalid", reasonKey: "importReasonMissingIdentifier" };
     }
 
@@ -646,7 +663,7 @@ async function resolveOpmlEntries(
       options = stripUnavailable(spec.key, parsed.data as Record<string, unknown>, capabilities);
     }
 
-    const key = `${spec.key}:${entry.identifier}`;
+    const key = `${spec.key}:${identifier}`;
     if (seen.has(key)) {
       return { ...base, status: "duplicate" };
     }
@@ -742,9 +759,15 @@ export async function importOpmlFeeds(
         .returning({ id: feeds.id })
         .get();
 
-      if (tagIds.length > 0) {
+      // `resolveTagId` matches case-insensitively, so two `yana:tags` entries
+      // differing only by case (e.g. "Tech,tech") resolve to the same tag id
+      // twice -- deduping here is what keeps the `feedTags` insert from
+      // trying to write the same `(feedId, tagId)` composite primary key
+      // twice and rolling back the whole import.
+      const uniqueTagIds = [...new Set(tagIds)];
+      if (uniqueTagIds.length > 0) {
         tx.insert(feedTags)
-          .values(tagIds.map((tagId) => ({ feedId: feed.id, tagId })))
+          .values(uniqueTagIds.map((tagId) => ({ feedId: feed.id, tagId })))
           .run();
       }
 

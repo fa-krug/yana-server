@@ -72,6 +72,8 @@ export async function GET(request: Request): Promise<Response> {
     headers: {
       "Content-Type": "text/x-opml+xml; charset=utf-8",
       "Content-Disposition": 'attachment; filename="yana-feeds.opml"',
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }

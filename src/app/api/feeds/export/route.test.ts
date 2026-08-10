@@ -102,6 +102,8 @@ describe("GET /api/feeds/export", () => {
     expect(response.headers.get("content-disposition")).toBe(
       'attachment; filename="yana-feeds.opml"',
     );
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
 
     const entries = decodeOpml(await response.text());
     expect(entries.map((e) => e.name).sort()).toEqual(["FeedA", "FeedB"]);
