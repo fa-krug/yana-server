@@ -975,3 +975,148 @@ describe("previewOpmlImport", () => {
     expect(result).toEqual({ ok: false, errorKey: "invalidOpmlFile" });
   });
 });
+
+describe("importOpmlFeeds", () => {
+  let dbPath: string;
+  let actions: typeof import("./actions");
+  let tagsActions: typeof import("@/lib/tags/actions");
+  let auth: typeof import("@/lib/auth/server").auth;
+  let createUserWithPassword: typeof import("@/lib/auth/server").createUserWithPassword;
+  let client: typeof import("@/lib/db/client");
+  let schema: typeof import("@/lib/db/schema");
+  let actingUserId: string | undefined;
+
+  function raw(db: unknown): Database.Database {
+    return (db as { $client: Database.Database }).$client;
+  }
+
+  function requestAs(cookie: string): void {
+    requestHeaders.current = new Headers({ cookie });
+  }
+
+  async function seedUser(input: { email: string }): Promise<string> {
+    const user = await createUserWithPassword({
+      email: input.email,
+      password: PASSWORD,
+      firstName: "",
+      lastName: "",
+      role: "user",
+    });
+    raw(client.getDb()).exec(`INSERT INTO user_settings (user_id) VALUES ('${user.id}')`);
+    return user.id;
+  }
+
+  async function currentUserId(): Promise<string> {
+    if (actingUserId) return actingUserId;
+    actingUserId = await seedUser({ email: "user@example.com" });
+    const cookie = await signInCookie(auth, { email: "user@example.com", password: PASSWORD });
+    requestAs(cookie);
+    cookieJar.clear();
+    return actingUserId;
+  }
+
+  beforeEach(async () => {
+    vi.resetModules();
+    requestHeaders.current = new Headers();
+    cookieJar.clear();
+    actingUserId = undefined;
+
+    const stamp = `${process.pid}-${Math.random().toString(36).slice(2)}`;
+    dbPath = path.join(os.tmpdir(), `yana-feeds-opml-import-${stamp}.db`);
+    applyMigrationsAt(dbPath);
+    process.env.DATABASE_PATH = dbPath;
+    process.env.BETTER_AUTH_SECRET = "test-secret-not-used-outside-this-file-0123456789";
+
+    ({ auth, createUserWithPassword } = await import("@/lib/auth/server"));
+    actions = await import("./actions");
+    tagsActions = await import("@/lib/tags/actions");
+    client = await import("@/lib/db/client");
+    schema = await import("@/lib/db/schema");
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_PATH;
+    delete process.env.BETTER_AUTH_SECRET;
+    const connection = raw(client.getDb());
+    if (connection.open) connection.close();
+    for (const suffix of ["", "-shm", "-wal"]) {
+      fs.rmSync(`${dbPath}${suffix}`, { force: true });
+    }
+  });
+
+  const OPML_HEADER = `<?xml version="1.0"?>\n<opml version="2.0" xmlns:yana="urn:yana:opml"><body>`;
+  const OPML_FOOTER = `</body></opml>`;
+
+  it("creates new feeds, resolves tags by name, and enqueues a feed.logo job per feed", async () => {
+    const userId = await currentUserId();
+
+    const xml = `${OPML_HEADER}<outline text="Heise" xmlUrl="https://heise.de/rss" yana:aggregatorType="full_website" yana:tags="Tech,News" />${OPML_FOOTER}`;
+    const result = await actions.importOpmlFeeds(xml);
+
+    expect(result).toEqual({ ok: true, imported: 1, skipped: 0 });
+
+    const db = client.getDb();
+    const row = db.select().from(schema.feeds).where(eq(schema.feeds.userId, userId)).get();
+    expect(row?.name).toBe("Heise");
+    expect(row?.aggregator).toBe("full_website");
+
+    const feedTagNames = db
+      .select({ name: schema.tags.name })
+      .from(schema.feedTags)
+      .innerJoin(schema.tags, eq(schema.feedTags.tagId, schema.tags.id))
+      .where(eq(schema.feedTags.feedId, row!.id))
+      .all()
+      .map((t) => t.name)
+      .sort();
+    expect(feedTagNames).toEqual(["News", "Tech"]);
+
+    const job = db.select().from(schema.jobs).where(eq(schema.jobs.kind, "feed.logo")).get();
+    expect(job?.payload).toEqual({ feedId: row!.id });
+  });
+
+  it("reuses an existing tag by case-insensitive name instead of creating a duplicate", async () => {
+    const userId = await currentUserId();
+    await tagsActions.createTag({ name: "Tech" });
+
+    const xml = `${OPML_HEADER}<outline text="Heise" xmlUrl="https://heise.de/rss" yana:aggregatorType="full_website" yana:tags="tech" />${OPML_FOOTER}`;
+    await actions.importOpmlFeeds(xml);
+
+    const db = client.getDb();
+    const tagRows = db.select().from(schema.tags).where(eq(schema.tags.userId, userId)).all();
+    expect(tagRows).toHaveLength(1);
+  });
+
+  it("skips duplicates and invalid entries, and only counts what was actually created", async () => {
+    await currentUserId();
+    await actions.createFeed({
+      name: "Existing",
+      aggregator: "full_website",
+      identifier: "https://heise.de/rss",
+    });
+
+    const badOptions = Buffer.from(JSON.stringify({ ai_summarize: "nope" })).toString("base64");
+    const xml = `${OPML_HEADER}<outline text="Heise" xmlUrl="https://heise.de/rss" yana:aggregatorType="full_website" /><outline text="Broken" xmlUrl="https://broken.example" yana:aggregatorType="full_website" yana:options="${badOptions}" /><outline text="Fresh" xmlUrl="https://fresh.example" yana:aggregatorType="full_website" />${OPML_FOOTER}`;
+
+    const result = await actions.importOpmlFeeds(xml);
+    expect(result).toEqual({ ok: true, imported: 1, skipped: 2 });
+
+    const db = client.getDb();
+    const names = db
+      .select({ name: schema.feeds.name })
+      .from(schema.feeds)
+      .all()
+      .map((f) => f.name)
+      .sort();
+    expect(names).toEqual(["Existing", "Fresh"]);
+  });
+
+  it("reports invalidOpmlFile without writing anything for an unparseable file", async () => {
+    await currentUserId();
+
+    const result = await actions.importOpmlFeeds("not xml at all");
+    expect(result).toEqual({ ok: false, errorKey: "invalidOpmlFile" });
+
+    const db = client.getDb();
+    expect(db.select().from(schema.feeds).all()).toEqual([]);
+  });
+});

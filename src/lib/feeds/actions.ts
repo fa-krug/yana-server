@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, inArray, count, desc, asc, like } from "drizzle-orm";
+import { and, eq, inArray, count, desc, asc, like, sql } from "drizzle-orm";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -21,6 +21,7 @@ import {
   type Capabilities,
 } from "@/lib/aggregators/specs";
 import { providerByKey } from "@/lib/ai/providers";
+import { DEFAULT_TAG_COLOR } from "@/lib/tags/colors";
 import type { AggregatorKey } from "@/lib/db/schema/enums";
 import type { ActionFailure } from "@/lib/attempt";
 import type { NamespaceKey } from "@/i18n/next-intl";
@@ -689,4 +690,72 @@ export async function previewOpmlImport(
       reasonKey: entry.reasonKey,
     })),
   };
+}
+
+export async function importOpmlFeeds(
+  content: string,
+): Promise<{ ok: true; imported: number; skipped: number } | ActionFailure<"feeds">> {
+  const userId = await currentUserId();
+  const resolved = await resolveOpmlEntries(content, userId);
+  if (!resolved.ok) return resolved;
+
+  const newEntries = resolved.classified.filter((entry) => entry.status === "new");
+  const skipped = resolved.classified.length - newEntries.length;
+
+  if (newEntries.length === 0) {
+    return { ok: true, imported: 0, skipped };
+  }
+
+  const imported = writeTransaction((tx) => {
+    function resolveTagId(name: string): number {
+      const existing = tx
+        .select({ id: tags.id })
+        .from(tags)
+        .where(and(eq(tags.userId, userId), sql`lower(${tags.name}) = lower(${name})`))
+        .get();
+      if (existing) return existing.id;
+
+      return tx
+        .insert(tags)
+        .values({ name, userId, color: DEFAULT_TAG_COLOR })
+        .returning({ id: tags.id })
+        .get().id;
+    }
+
+    for (const entry of newEntries) {
+      const tagIds = entry.tags.map(resolveTagId);
+
+      const feed = tx
+        .insert(feeds)
+        .values({
+          name: entry.name,
+          aggregator: entry.aggregatorKey,
+          identifier: entry.identifier,
+          options: entry.options ?? {},
+          enabled: entry.enabled ?? true,
+          dailyLimit: entry.dailyLimit ?? 20,
+          updateIntervalMinutes: entry.updateIntervalMinutes ?? 30,
+          concurrency: entry.concurrency ?? 4,
+          maxArticleAgeDays: entry.maxArticleAgeDays ?? 30,
+          userId,
+        })
+        .returning({ id: feeds.id })
+        .get();
+
+      if (tagIds.length > 0) {
+        tx.insert(feedTags)
+          .values(tagIds.map((tagId) => ({ feedId: feed.id, tagId })))
+          .run();
+      }
+
+      tx.insert(jobs)
+        .values({ kind: "feed.logo", payload: { feedId: feed.id }, userId })
+        .run();
+    }
+
+    revalidatePath("/feeds");
+    return newEntries.length;
+  });
+
+  return { ok: true, imported, skipped };
 }
