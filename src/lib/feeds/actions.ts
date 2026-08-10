@@ -21,6 +21,10 @@ import {
   type Capabilities,
 } from "@/lib/aggregators/specs";
 import { providerByKey } from "@/lib/ai/providers";
+import type { AggregatorKey } from "@/lib/db/schema/enums";
+import type { ActionFailure } from "@/lib/attempt";
+import type { NamespaceKey } from "@/i18n/next-intl";
+import { decodeOpml, decodeOpmlOptions } from "./opml";
 
 // Helper to determine active AI provider
 function activeProvider(settings: Record<string, unknown>): string {
@@ -541,4 +545,148 @@ export async function restoreFeedsBulk(ids: number[]): Promise<{ ok: boolean; en
 
     return { ok: true, enqueued: validFeeds.length };
   });
+}
+
+type FeedsKey = NamespaceKey<"feeds">;
+
+export type OpmlPreviewEntry = {
+  name: string;
+  identifier: string;
+  aggregatorLabel: string;
+  tags: string[];
+  status: "new" | "duplicate" | "invalid";
+  reasonKey?: FeedsKey;
+};
+
+type OpmlClassified = {
+  name: string;
+  identifier: string;
+  aggregatorKey: AggregatorKey;
+  aggregatorLabel: string;
+  tags: string[];
+  status: "new" | "duplicate" | "invalid";
+  reasonKey?: FeedsKey;
+  options?: Record<string, unknown>;
+  enabled?: boolean;
+  dailyLimit?: number;
+  updateIntervalMinutes?: number;
+  concurrency?: number;
+  maxArticleAgeDays?: number;
+};
+
+function clampInt(value: number | undefined, fallback: number, min: number, max: number): number {
+  if (value === undefined || !Number.isFinite(value)) return fallback;
+  const rounded = Math.trunc(value);
+  return rounded < min || rounded > max ? fallback : rounded;
+}
+
+/**
+ * Shared by `previewOpmlImport` and `importOpmlFeeds` so the two can never
+ * disagree about what a file contains: the preview shows exactly what the
+ * import would do, because both call this.
+ *
+ * A "new" entry within the file that repeats an earlier "new" entry's
+ * `(aggregator, identifier)` is classified `duplicate`, not `new` — `seen`
+ * starts from the caller's existing feeds and grows as entries are
+ * classified, so the second of two identical outlines in one file is caught
+ * even though neither is in the database yet.
+ */
+async function resolveOpmlEntries(
+  content: string,
+  userId: string,
+): Promise<{ ok: true; classified: OpmlClassified[] } | ActionFailure<"feeds">> {
+  let entries: ReturnType<typeof decodeOpml>;
+  try {
+    entries = decodeOpml(content);
+  } catch {
+    return { ok: false, errorKey: "invalidOpmlFile" };
+  }
+
+  const db = getDb();
+  const capabilities = await capabilitiesFor();
+
+  const seen = new Set(
+    db
+      .select({ aggregator: feeds.aggregator, identifier: feeds.identifier })
+      .from(feeds)
+      .where(eq(feeds.userId, userId))
+      .all()
+      .map((row) => `${row.aggregator}:${row.identifier}`),
+  );
+
+  const classified = entries.map((entry): OpmlClassified => {
+    const requestedSpec = entry.aggregatorType
+      ? AGGREGATOR_SPECS[entry.aggregatorType as AggregatorKey]
+      : undefined;
+    const spec = requestedSpec ?? AGGREGATOR_SPECS.full_website;
+    const base = {
+      name: entry.name,
+      identifier: entry.identifier,
+      aggregatorKey: spec.key,
+      aggregatorLabel: spec.label,
+      tags: entry.tags,
+    };
+
+    if (spec.identifierRequired && !entry.identifier) {
+      return { ...base, status: "invalid", reasonKey: "importReasonMissingIdentifier" };
+    }
+
+    if (spec.identifierSearch && !capabilities[spec.identifierSearch]) {
+      return { ...base, status: "invalid", reasonKey: "importReasonCapabilityUnavailable" };
+    }
+
+    let options: Record<string, unknown> = {};
+    if (entry.optionsBase64) {
+      const decoded = decodeOpmlOptions(entry.optionsBase64);
+      const parsed = decoded === null ? null : schemaFor(spec.key).safeParse(decoded);
+      if (!parsed || !parsed.success) {
+        return { ...base, status: "invalid", reasonKey: "importReasonInvalidOptions" };
+      }
+      options = stripUnavailable(spec.key, parsed.data as Record<string, unknown>, capabilities);
+    }
+
+    const key = `${spec.key}:${entry.identifier}`;
+    if (seen.has(key)) {
+      return { ...base, status: "duplicate" };
+    }
+    seen.add(key);
+
+    return {
+      ...base,
+      status: "new",
+      options,
+      enabled: entry.enabled ?? true,
+      dailyLimit: clampInt(entry.dailyLimit, 20, 0, 1_000_000),
+      updateIntervalMinutes: clampInt(
+        entry.updateIntervalMinutes,
+        spec.recommendedIntervalMinutes,
+        0,
+        1440,
+      ),
+      concurrency: clampInt(entry.concurrency, spec.recommendedConcurrency, 1, 10),
+      maxArticleAgeDays: clampInt(entry.maxArticleAgeDays, 30, 0, 3650),
+    };
+  });
+
+  return { ok: true, classified };
+}
+
+export async function previewOpmlImport(
+  content: string,
+): Promise<{ ok: true; entries: OpmlPreviewEntry[] } | ActionFailure<"feeds">> {
+  const userId = await currentUserId();
+  const resolved = await resolveOpmlEntries(content, userId);
+  if (!resolved.ok) return resolved;
+
+  return {
+    ok: true,
+    entries: resolved.classified.map((entry) => ({
+      name: entry.name,
+      identifier: entry.identifier,
+      aggregatorLabel: entry.aggregatorLabel,
+      tags: entry.tags,
+      status: entry.status,
+      reasonKey: entry.reasonKey,
+    })),
+  };
 }
