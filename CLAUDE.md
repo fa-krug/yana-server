@@ -181,7 +181,9 @@ npx drizzle-kit push         # apply schema directly (local only, no migration f
 docker compose up --build    # build and run the image
 ```
 
-Before committing, run the same four checks CI runs:
+**Before pushing anything, run the same four checks CI runs** — CI fails the
+build on any of them, `format:check` included (an unformatted file is a build
+failure, not a warning):
 
 ```bash
 npm run lint && npm run format:check && npm run typecheck && npm test

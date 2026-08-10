@@ -57,11 +57,11 @@ yana --port 3001 --data-dir /var/lib/yana
 ```
 
 | Flag                    | Environment variable | Default   | Meaning                                        |
-| ----------------------- | --------------------- | --------- | ----------------------------------------------- |
-| `-p, --port <number>`   | `PORT`                | `3000`    | Port to listen on                               |
-| `-d, --data-dir <path>` | `YANA_DATA_DIR`       | `~/.yana` | Where the SQLite database and media are stored  |
-| `-v, --version`         |                        |           | Print the installed version                     |
-| `-h, --help`            |                        |           | Print usage                                     |
+| ----------------------- | -------------------- | --------- | ---------------------------------------------- |
+| `-p, --port <number>`   | `PORT`               | `3000`    | Port to listen on                              |
+| `-d, --data-dir <path>` | `YANA_DATA_DIR`      | `~/.yana` | Where the SQLite database and media are stored |
+| `-v, --version`         |                      |           | Print the installed version                    |
+| `-h, --help`            |                      |           | Print usage                                    |
 
 The SQLite file lands at `<data-dir>/yana.db`, article images and feed logos at `<data-dir>/media/`. Migrations run automatically on every start, whether you're on Docker or npm, so there's no separate migration command to remember.
 
@@ -69,7 +69,7 @@ The SQLite file lands at `<data-dir>/yana.db`, article images and feed logos at 
 
 The first start against a fresh, empty database bootstraps an administrator account and prints its credentials to the log: `admin@admin.com` / `admin`. Sign in at `/login` and change the password right away. Until you do, anyone who can reach the server is an administrator.
 
-A few things about this account are worth knowing. Every later start checks whether *any* admin exists, not whether this particular address exists, so if you rename the account (change its email) it never comes back on a later start; that's how you make it yours for good. If you delete it while it's the only admin, the next start creates it again with the same published password, because an instance should never be left with no administrator at all. Promote someone else to admin first if you actually want it gone. And if you demote or ban it while it's the only admin, the next start restores its role (and logs that it did) rather than locking you out, though its password is left untouched either way. Promoting another user first avoids all of this.
+A few things about this account are worth knowing. Every later start checks whether _any_ admin exists, not whether this particular address exists, so if you rename the account (change its email) it never comes back on a later start; that's how you make it yours for good. If you delete it while it's the only admin, the next start creates it again with the same published password, because an instance should never be left with no administrator at all. Promote someone else to admin first if you actually want it gone. And if you demote or ban it while it's the only admin, the next start restores its role (and logs that it did) rather than locking you out, though its password is left untouched either way. Promoting another user first avoids all of this.
 
 There's no public sign-up. Every account is created by an administrator from the Users page in the web UI.
 
@@ -87,22 +87,22 @@ Changing the secret later signs everyone out.
 
 [.env.example](.env.example) has the full list. Copy it to `.env` (or set the same variables in your compose file or hosting platform) and adjust as needed. The ones you're most likely to touch:
 
-| Variable                          | Purpose                                                                          |
-| ---------------------------------- | --------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`               | Signs session cookies. Set this.                                                  |
-| `DATABASE_PATH` / `MEDIA_PATH`     | Where the database and uploaded media live                                       |
-| `PASSKEY_RP_ID` / `PUBLIC_URL`     | The domain/origin passkeys are bound to; required if you're not on `localhost`   |
-| `TZ`                                | Time zone used to format dates in the UI                                         |
-| `SMTP_HOST` (+ related `SMTP_*`)   | Turns on error-notification email; leave it unset to disable the feature         |
+| Variable                         | Purpose                                                                        |
+| -------------------------------- | ------------------------------------------------------------------------------ |
+| `BETTER_AUTH_SECRET`             | Signs session cookies. Set this.                                               |
+| `DATABASE_PATH` / `MEDIA_PATH`   | Where the database and uploaded media live                                     |
+| `PASSKEY_RP_ID` / `PUBLIC_URL`   | The domain/origin passkeys are bound to; required if you're not on `localhost` |
+| `TZ`                             | Time zone used to format dates in the UI                                       |
+| `SMTP_HOST` (+ related `SMTP_*`) | Turns on error-notification email; leave it unset to disable the feature       |
 
 If you're running Yana behind a real domain, pay attention to `PASSKEY_RP_ID`/`PUBLIC_URL`. A mismatch between these and the domain your browser actually shows is the most common passkey problem, and browsers report it with a generic error that doesn't name the cause.
 
 ## Data & backups
 
-| Path                              | Contents                                                 |
-| ----------------------------------- | ----------------------------------------------------------- |
-| `data/yana.db` (+ `-wal`/`-shm`)   | The SQLite database: users, feeds, articles, settings    |
-| `media/`                            | Hosted article images and feed logos, content-addressed  |
+| Path                             | Contents                                                |
+| -------------------------------- | ------------------------------------------------------- |
+| `data/yana.db` (+ `-wal`/`-shm`) | The SQLite database: users, feeds, articles, settings   |
+| `media/`                         | Hosted article images and feed logos, content-addressed |
 
 Both live under the data directory (`./data`/`./media` for Docker Compose, or wherever `--data-dir` points for npm) and both start out empty. Back up that directory before upgrading. Migrations run automatically and unattended against a live database, and nothing here takes a backup for you. Stopping the server and copying the directory is enough.
 
