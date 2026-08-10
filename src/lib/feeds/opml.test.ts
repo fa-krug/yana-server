@@ -78,6 +78,50 @@ describe("encodeOpml / decodeOpml", () => {
   it("throws on a file with no <opml>/<body> structure", () => {
     expect(() => decodeOpml("<html><body>not opml</body></html>")).toThrow();
   });
+
+  it("preserves tag names containing commas on round-trip", () => {
+    const feed: OpmlExportFeed = {
+      name: "Tech News",
+      aggregator: "full_website",
+      identifier: "https://example.com/feed.xml",
+      enabled: true,
+      dailyLimit: 20,
+      updateIntervalMinutes: 30,
+      concurrency: 4,
+      maxArticleAgeDays: 30,
+      options: {},
+      tags: ["AI, ML", "Tech", "News, Updates"],
+    };
+
+    const xml = encodeOpml([feed]);
+    const [entry] = decodeOpml(xml);
+
+    expect(entry.tags).toEqual(["AI, ML", "Tech", "News, Updates"]);
+  });
+
+  it("skips nested category outlines and only emits leaf feed entries", () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <body>
+    <outline text="Tech" type="folder">
+      <outline text="Hacker News" xmlUrl="https://news.ycombinator.com/rss" type="rss" />
+    </outline>
+    <outline text="News" type="folder">
+      <outline text="Reuters" xmlUrl="https://www.reuters.com/feed/" type="rss" />
+    </outline>
+    <outline text="Standalone" xmlUrl="https://example.com/feed" type="rss" />
+  </body>
+</opml>`;
+
+    const entries = decodeOpml(xml);
+
+    expect(entries).toHaveLength(3);
+    expect(entries.map((e) => e.identifier)).toEqual([
+      "https://news.ycombinator.com/rss",
+      "https://www.reuters.com/feed/",
+      "https://example.com/feed",
+    ]);
+  });
 });
 
 describe("decodeOpmlOptions", () => {

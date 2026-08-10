@@ -70,7 +70,8 @@ export function encodeOpml(feeds: OpmlExportFeed[]): string {
         `yana:maxArticleAgeDays="${feed.maxArticleAgeDays}"`,
       ];
       if (feed.tags.length > 0) {
-        attrs.push(`yana:tags="${escapeAttr(feed.tags.join(","))}"`);
+        const encodedTags = feed.tags.map((tag) => encodeURIComponent(tag)).join(",");
+        attrs.push(`yana:tags="${escapeAttr(encodedTags)}"`);
       }
       if (Object.keys(feed.options).length > 0) {
         const encoded = Buffer.from(JSON.stringify(feed.options), "utf-8").toString("base64");
@@ -113,6 +114,9 @@ export function decodeOpml(xml: string): OpmlEntry[] {
 
   $("outline").each((_, el) => {
     const $el = $(el);
+    // Skip category/folder outlines that have child outlines
+    if ($el.children("outline").length > 0) return;
+
     const identifier = $el.attr("xmlUrl") ?? "";
     const name = $el.attr("text") || $el.attr("title") || identifier;
     if (!name) return;
@@ -120,7 +124,8 @@ export function decodeOpml(xml: string): OpmlEntry[] {
     const tags = ($el.attr("yana:tags") ?? "")
       .split(",")
       .map((tag) => tag.trim())
-      .filter(Boolean);
+      .filter(Boolean)
+      .map((tag) => decodeURIComponent(tag));
 
     entries.push({
       name,
