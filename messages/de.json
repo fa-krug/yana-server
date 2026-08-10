@@ -317,7 +317,14 @@
     "invalidOpmlFile": "Das ist keine gültige OPML-Datei",
     "importReasonMissingIdentifier": "Feed-URL fehlt",
     "importReasonCapabilityUnavailable": "Integration nicht konfiguriert",
-    "importReasonInvalidOptions": "Gespeicherte Optionen sind ungültig"
+    "importReasonInvalidOptions": "Gespeicherte Optionen sind ungültig",
+    "importOpml": "OPML importieren",
+    "importPreviewTitle": "{count, plural, one {# Feed gefunden} other {# Feeds gefunden}}",
+    "importStatusNew": "Neu",
+    "importStatusDuplicate": "Bereits vorhanden",
+    "importStatusInvalid": "Kann nicht importiert werden",
+    "importConfirm": "{count, plural, one {# Feed importieren} other {# Feeds importieren}}",
+    "importResult": "{imported, plural, one {# Feed importiert} other {# Feeds importiert}}, {skipped} übersprungen"
   },
   "settings": {
     "title": "Einstellungen",
