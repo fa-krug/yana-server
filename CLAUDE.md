@@ -1461,6 +1461,31 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   the `providerUnauthorized` reason above, given its own code rather than
   falling into the generic `provider_error` (502) — both answer 502 because
   neither is this API's own fault, but only one names a fixable cause.
+- **`GET`/`PATCH /api/v1/reading-position`**
+  (`src/app/api/v1/reading-position/route.ts`) is the native client's
+  cross-device "current article" pointer, letting every paired device
+  converge on the same article. It is **two columns on `user_settings`**
+  (`readingPositionArticleId`/`readingPositionUpdatedAt` in
+  `src/lib/db/schema/users.ts`), not a dedicated table: every user already has
+  exactly one settings row, and this is the same shape as every other
+  per-user preference already living there (`activeAiProvider`, `theme`).
+  `readingPositionArticleId` deliberately carries **no `.references()` FK** —
+  the same choice `articleTombstones.articleId` already made — so retention
+  and feed-delete can hard-delete the pointed-at article without a constraint
+  violation or a cascade that would clear the pointer; the client already
+  falls back to its normal anchor when a synced id doesn't resolve locally,
+  so a stale pointer is simply left in place rather than special-cased.
+  `readingPositionUpdatedAt` is a **second, dedicated timestamp column**, not
+  the row's shared `updatedAt` — that one's `$onUpdate` fires on _any_ write to
+  the settings row (a theme change, an AI key save), which would misreport
+  "just synced" for a write that never touched the reading position.
+  `PATCH` validates ownership the same way `PATCH /api/v1/articles/[id]` does
+  (`articles.feedId IN (SELECT id FROM feeds WHERE userId = ?)`) and answers
+  the same `not_found` for an unowned or nonexistent id, never a 403;
+  concurrent writes from two devices get no special handling, because
+  last-write-wins is exactly what both the server and the client already
+  assume. `GET` before any `PATCH` (or for a user whose pointer was never
+  set) returns `{ articleId: null, updatedAt: null }`.
 
 - **`/login` is the whole unauthenticated UI, and five things about it are
   load-bearing.** It lives at `src/app/login/page.tsx`, deliberately outside
