@@ -1749,8 +1749,12 @@ to `POST /api/v1/ai/prompt` — see the `/ai` bullets above for all of it.
 native client to reach `ManagementWebView`'s cookie session, without ever
 handling a password or passkey inside a `WKWebView`. **`POST
 /api/v1/auth/webview-session-token`** (`src/app/api/v1/auth/webview-session-token/route.ts`)
-is a Bearer-authenticated route — `requireApiUser()`, same as every other
-`/api/v1/**` route — that mints a short-lived, single-use token scoped to the
+is a Bearer-authenticated route — `requireApiBearerSession()`, not the
+`requireApiUser()` every other `/api/v1/**` route uses, because it must
+refuse the cookie fallback `requireApiUser()` allows: the minted token has
+to bind to the exact device session the Bearer token names, not whatever
+session a stray browser cookie on the request happens to carry — that
+mints a short-lived, single-use token scoped to the
 _calling device's own session_, via a hand-written wrapper
 (`src/lib/auth/webview-session.ts`) around Better Auth's `oneTimeToken`
 plugin rather than the plugin's own mint endpoint, because that endpoint
@@ -1762,20 +1766,25 @@ string and calls `auth.api.verifyOneTimeToken()` — the plugin's _verify_
 side is reused unmodified, since the trust boundary there is a token, not a
 cookie, so the built-in handler needs no adjustment — which sets a real
 session cookie and redirects to `next`, exactly the cookie `ManagementWebView`
-already expects. `next` is validated the same way `/login`'s
-`safeNextPath()` is (see the `/login` bullet below): resolved against the
-request URL and checked by origin, not by a string-prefix heuristic, because
-a prefix check alone is exactly what let `/login`'s original `next` guard
-ship a working open redirect (WHATWG URL normalization turns
-`/\evil.com`-shaped input into an off-origin URL after parsing). Any
-missing, invalid, expired or already-used token falls back to `/login`,
-indistinguishable from a plain signed-out visit. **This route is public in
-`src/proxy.ts`'s `PUBLIC_PREFIXES`** — see the proxy bullet above for why:
-the whole point is that the caller has no session cookie yet, so gating it
-behind one is a contradiction, not an oversight. **The token itself is
+already expects. `next` is validated via `next-path.ts`'s `safeNextPath()`,
+the same hardened helper `/login` uses (see the `/login` bullet below),
+rather than a route-local reimplementation: resolved and checked by origin,
+not by a string-prefix heuristic, because a prefix check alone is exactly
+what let `/login`'s original `next` guard ship a working open redirect
+(WHATWG URL normalization turns `/\evil.com`-shaped input into an
+off-origin URL after parsing). Any missing, invalid, expired or
+already-used token falls back to `/login`, indistinguishable from a plain
+signed-out visit. **This route is public in `src/proxy.ts`'s
+`PUBLIC_PREFIXES`** — see the proxy bullet above for why: the whole point
+is that the caller has no session cookie yet, so gating it behind one is a
+contradiction, not an oversight. **The redirect response itself is
 built with `new Response(null, { status, headers })`, never
 `Response.redirect()`**, because `Response.redirect()`'s headers are
 immutable and a `Set-Cookie` cannot be appended onto one afterward.
+Revoking a device's session invalidates its web session too, but not
+instantly: Better Auth's 5-minute signed session-cookie cache (see the
+`cookieCache` comment in `src/lib/auth/server.ts`) can keep serving a
+just-revoked session without a database read for up to that long.
 
 **Four plans are amended, not authoritative.**
 `docs/superpowers/plans/nextjs-04-auth.md` was written before three human
