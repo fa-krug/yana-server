@@ -267,6 +267,10 @@ export const auth = betterAuth({
      */
     admin({ defaultRole: "user", adminRoles: ADMIN_ROLES }),
     oneTimeToken({
+      // `expiresIn` only governs the plugin's own `generateOneTimeToken`
+      // endpoint, which this app never calls (see `disabledPaths` above and
+      // `disableClientRequest` below) -- the mint path is hand-written in
+      // `./webview-session.ts`, whose `WEBVIEW_TOKEN_TTL_MS` is the real TTL.
       expiresIn: 1, // minutes; the shortest granularity the plugin supports
       disableClientRequest: true, // belt-and-suspenders alongside disabledPaths below
     }),

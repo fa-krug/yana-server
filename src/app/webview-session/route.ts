@@ -1,3 +1,4 @@
+import { DEFAULT_NEXT_PATH as LOGIN_DEFAULT_NEXT_PATH, safeNextPath } from "@/lib/auth/next-path";
 import { auth } from "@/lib/auth/server";
 
 const DEFAULT_NEXT_PATH = "/feeds";
@@ -12,34 +13,21 @@ const DEFAULT_NEXT_PATH = "/feeds";
  * `src/lib/auth/webview-session.ts`'s module doc for why the mint side is
  * hand-written but the verify side reuses the plugin unmodified.
  *
- * `next` is restricted to an in-app, same-origin target -- validated by
- * actually resolving it against the request URL and checking the resulting
- * origin, not by a string-prefix heuristic -- so a crafted `next` cannot
- * turn this into an open redirect. Two things matter here, both learned the
- * hard way across two rounds of security review:
+ * `next` is validated by `safeNextPath()` (`@/lib/auth/next-path`) -- the
+ * same hardened, well-tested guard `/login` uses -- rather than a
+ * second, hand-rolled same-origin check. That module's doc explains in
+ * detail why a naive check is insufficient (backslash/tab normalization,
+ * protocol-relative spellings, and the "network-path reference" bypass
+ * where a same-origin absolute URL's `.pathname` starts with `//` and
+ * re-parses as off-origin). `safeNextPath()` guarantees its returned path
+ * never starts with `//`, which is exactly what makes it safe to feed
+ * directly into `new URL(path, url)` below -- do not replace this with a
+ * route-local reimplementation of the same guard.
  *
- * 1. A string-prefix check (`startsWith("/")`, reject `startsWith("//")`) is
- *    insufficient on its own: the WHATWG URL parser normalizes backslashes
- *    to forward slashes and strips TAB/LF/CR for special schemes, so e.g.
- *    `"/\\evil.com"` passes a naive prefix check but resolves to
- *    `https://evil.com/` once parsed -- exactly what the browser would
- *    actually navigate to. Resolving first and comparing the *origin*
- *    closes that gap.
- * 2. It is NOT safe to take the validated `URL`'s `pathname`/`search`/`hash`,
- *    concatenate them back into a string, and feed that string into a
- *    *second* `new URL(x, base)` call. A same-origin absolute URL whose
- *    path happens to start with `//` right after the authority (e.g.
- *    `https://example.com//evil.example.com`) passes the origin check on
- *    first resolution, but `.pathname` for that URL is the literal string
- *    `"//evil.example.com"` -- a WHATWG "network-path reference" that, when
- *    it is itself the *input* to a fresh `new URL(..., base)` call, replaces
- *    the authority outright regardless of `base`'s origin, escaping to
- *    `https://evil.example.com/` on the second resolution. `pathname` is a
- *    safe *property of* an already-resolved URL; it is not safe as *input*
- *    to another resolution. So `resolveSameOriginTarget` below returns the
- *    validated `URL` object itself, and every consumer must use it directly
- *    (`.toString()`, or its `.pathname`/`.search`/`.hash` embedded as an
- *    *opaque, percent-encoded* value -- never re-parsed as a URL again).
+ * `safeNextPath()`'s own default is `/` (`login`'s landing page); this
+ * route's default is `/feeds` instead, so an invalid/absent/unsafe `next`
+ * (including one that points at `/login`, which `safeNextPath()` also
+ * refuses) is translated from its default to this route's own.
  *
  * Falls back to `/login?next=...` on any missing/invalid/expired/already-used
  * token, exactly like a plain visitor who isn't signed in yet, so a stale
@@ -53,7 +41,7 @@ const DEFAULT_NEXT_PATH = "/feeds";
 export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const token = url.searchParams.get("token");
-  const target = resolveSameOriginTarget(url.searchParams.get("next"), url);
+  const target = resolveTarget(url.searchParams.get("next"), url);
 
   if (!token) {
     return redirectToLogin(url, target);
@@ -91,21 +79,15 @@ function redirectToLogin(url: URL, target: URL): Response {
 }
 
 /**
- * Resolves `rawNext` against `requestUrl` and returns it as a `URL` only if
- * the resolved origin matches `requestUrl`'s origin; otherwise returns the
- * default in-app target. Returning a `URL` object (not a string) is
- * deliberate: callers must use this value directly rather than
- * re-serializing part of it and re-parsing that string as a URL, which is
- * exactly the bypass described in the module doc above.
+ * Resolves `rawNext` into a same-origin `URL` via `safeNextPath()`, this
+ * route's own `DEFAULT_NEXT_PATH` (`/feeds`) standing in wherever
+ * `safeNextPath()` would have used its own default (`/`). `safeNextPath()`
+ * already guarantees the returned path never starts with `//`, so passing
+ * it as the first argument to `new URL(path, requestUrl)` here is safe --
+ * see the module doc above.
  */
-function resolveSameOriginTarget(rawNext: string | null, requestUrl: URL): URL {
-  const fallback = new URL(DEFAULT_NEXT_PATH, requestUrl);
-  if (!rawNext) return fallback;
-  let resolved: URL;
-  try {
-    resolved = new URL(rawNext, requestUrl);
-  } catch {
-    return fallback;
-  }
-  return resolved.origin === requestUrl.origin ? resolved : fallback;
+function resolveTarget(rawNext: string | null, requestUrl: URL): URL {
+  const safePath = safeNextPath(rawNext);
+  const path = safePath === LOGIN_DEFAULT_NEXT_PATH ? DEFAULT_NEXT_PATH : safePath;
+  return new URL(path, requestUrl);
 }
