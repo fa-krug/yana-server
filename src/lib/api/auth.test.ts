@@ -216,7 +216,9 @@ describe("requireApiBearerSession", () => {
     const { token } = await createDeviceSession(owner.id, "Test Device");
 
     const result = await requireApiBearerSession(
-      new Request("https://example.com/api/v1/x", { headers: { authorization: `Bearer ${token}` } }),
+      new Request("https://example.com/api/v1/x", {
+        headers: { authorization: `Bearer ${token}` },
+      }),
     );
 
     expect(result.user.id).toBe(owner.id);

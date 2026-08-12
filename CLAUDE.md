@@ -1751,14 +1751,14 @@ handling a password or passkey inside a `WKWebView`. **`POST
 /api/v1/auth/webview-session-token`** (`src/app/api/v1/auth/webview-session-token/route.ts`)
 is a Bearer-authenticated route — `requireApiUser()`, same as every other
 `/api/v1/**` route — that mints a short-lived, single-use token scoped to the
-*calling device's own session*, via a hand-written wrapper
+_calling device's own session_, via a hand-written wrapper
 (`src/lib/auth/webview-session.ts`) around Better Auth's `oneTimeToken`
 plugin rather than the plugin's own mint endpoint, because that endpoint
 reads the session from a cookie and this caller only ever has a Bearer
 token — the same "authenticates itself" mismatch `/api/v1` as a whole
 exists to cover. **`GET /webview-session`** (`src/app/webview-session/route.ts`)
 is the other half: it takes that token plus a `next` path in its query
-string and calls `auth.api.verifyOneTimeToken()` — the plugin's *verify*
+string and calls `auth.api.verifyOneTimeToken()` — the plugin's _verify_
 side is reused unmodified, since the trust boundary there is a token, not a
 cookie, so the built-in handler needs no adjustment — which sets a real
 session cookie and redirects to `next`, exactly the cookie `ManagementWebView`
