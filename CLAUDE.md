@@ -1499,7 +1499,19 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   concurrent writes from two devices get no special handling, because
   last-write-wins is exactly what both the server and the client already
   assume. `GET` before any `PATCH` (or for a user whose pointer was never
-  set) returns `{ articleId: null, updatedAt: null }`.
+  set) returns `{ articleId: null, updatedAt: null }`. `PATCH` also publishes
+  a `readingPosition` event (`src/lib/api/events.ts`'s `ApiEvent` union,
+  `publishUserEvent`) right after the commit, using the DB-round-tripped
+  `updatedAt` rather than a fresh `new Date()` -- the column truncates to
+  whole seconds, so a value stamped in-process would disagree with what a
+  later `GET` returns for the same write. This rides the same per-user SSE
+  bus `GET /api/v1/jobs/events` (`src/app/api/v1/jobs/events/route.ts`)
+  already forwards job/run events on -- that route's generic `send(event.type,
+event.payload)` needed no change at all to carry the new event type, since
+  it never switches on which `ApiEvent` variant it's relaying. No extra
+  broadcast-side throttling: the native client already debounces its own
+  pushes to roughly one every two idle seconds, so the publish rate this
+  route ever sees is already the rate worth broadcasting.
 
 - **`/login` is the whole unauthenticated UI, and five things about it are
   load-bearing.** It lives at `src/app/login/page.tsx`, deliberately outside
