@@ -1507,7 +1507,7 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   later `GET` returns for the same write. This rides the same per-user SSE
   bus `GET /api/v1/jobs/events` (`src/app/api/v1/jobs/events/route.ts`)
   already forwards job/run events on -- that route's generic `send(event.type,
-  event.payload)` needed no change at all to carry the new event type, since
+event.payload)` needed no change at all to carry the new event type, since
   it never switches on which `ApiEvent` variant it's relaying. No extra
   broadcast-side throttling: the native client already debounces its own
   pushes to roughly one every two idle seconds, so the publish rate this
