@@ -97,4 +97,40 @@ describe("GET /webview-session", () => {
 
     expect(response.headers.get("location")).toBe("https://example.com/feeds");
   });
+
+  it("cannot be used to redirect off-site via a backslash that the URL parser normalizes to a slash", async () => {
+    const owner = await createUserWithPassword({
+      email: "wv-owner-4@example.com",
+      password: "correct horse battery staple",
+      name: "WV Owner",
+    });
+    const { token: sessionToken } = await createDeviceSession(owner.id, "Test Device");
+    const { token } = await mintWebviewSessionToken(sessionToken);
+
+    const response = await GET(
+      new Request(
+        `https://example.com/webview-session?token=${token}&next=${encodeURIComponent("/\\evil.example.com")}`,
+      ),
+    );
+
+    expect(response.headers.get("location")).toBe("https://example.com/feeds");
+  });
+
+  it("cannot be used to redirect off-site via an embedded tab that the URL parser strips", async () => {
+    const owner = await createUserWithPassword({
+      email: "wv-owner-5@example.com",
+      password: "correct horse battery staple",
+      name: "WV Owner",
+    });
+    const { token: sessionToken } = await createDeviceSession(owner.id, "Test Device");
+    const { token } = await mintWebviewSessionToken(sessionToken);
+
+    const response = await GET(
+      new Request(
+        `https://example.com/webview-session?token=${token}&next=${encodeURIComponent("/\t/evil.example.com")}`,
+      ),
+    );
+
+    expect(response.headers.get("location")).toBe("https://example.com/feeds");
+  });
 });

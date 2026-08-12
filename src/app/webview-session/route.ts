@@ -12,12 +12,20 @@ const DEFAULT_NEXT_PATH = "/feeds";
  * `src/lib/auth/webview-session.ts`'s module doc for why the mint side is
  * hand-written but the verify side reuses the plugin unmodified.
  *
- * `next` is restricted to an in-app relative path -- never followed as an
- * absolute or protocol-relative URL -- so a crafted `next` cannot turn this
- * into an open redirect. Falls back to `/login?next=...` on any
- * missing/invalid/expired/already-used token, exactly like a plain visitor
- * who isn't signed in yet, so a stale bootstrap token degrades to a normal
- * login screen instead of an opaque error.
+ * `next` is restricted to an in-app relative path -- validated by actually
+ * resolving it against the request URL and checking the resulting origin,
+ * not by a string-prefix heuristic -- so a crafted `next` cannot turn this
+ * into an open redirect. A string-prefix check (`startsWith("/")`, reject
+ * `startsWith("//")`) is insufficient on its own: the WHATWG URL parser
+ * normalizes backslashes to forward slashes and strips TAB/LF/CR for
+ * special schemes, so e.g. `"/\\evil.com"` passes a naive prefix check but
+ * resolves to `https://evil.com/` once parsed -- exactly what the browser
+ * would actually navigate to. Resolving first and comparing the origin
+ * closes that gap by validating the same resolution the browser performs.
+ * Falls back to `/login?next=...` on any missing/invalid/expired/already-used
+ * token, exactly like a plain visitor who isn't signed in yet, so a stale
+ * bootstrap token degrades to a normal login screen instead of an opaque
+ * error.
  *
  * Built with `new Response(null, { status, headers })` rather than
  * `Response.redirect()` -- the latter returns a `Response` with **immutable
@@ -26,7 +34,7 @@ const DEFAULT_NEXT_PATH = "/feeds";
 export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const token = url.searchParams.get("token");
-  const next = sanitizeNextPath(url.searchParams.get("next"));
+  const next = sanitizeNextPath(url.searchParams.get("next"), url);
 
   if (!token) {
     return redirectToLogin(url, next);
@@ -54,8 +62,14 @@ function redirectToLogin(url: URL, next: string): Response {
   return new Response(null, { status: 302, headers: { location: location.toString() } });
 }
 
-function sanitizeNextPath(rawNext: string | null): string {
+function sanitizeNextPath(rawNext: string | null, requestUrl: URL): string {
   if (!rawNext) return DEFAULT_NEXT_PATH;
-  if (!rawNext.startsWith("/") || rawNext.startsWith("//")) return DEFAULT_NEXT_PATH;
-  return rawNext;
+  let resolved: URL;
+  try {
+    resolved = new URL(rawNext, requestUrl);
+  } catch {
+    return DEFAULT_NEXT_PATH;
+  }
+  if (resolved.origin !== requestUrl.origin) return DEFAULT_NEXT_PATH;
+  return resolved.pathname + resolved.search + resolved.hash;
 }
