@@ -3,6 +3,7 @@ import { connection } from "next/server";
 import { z } from "zod";
 
 import { ApiError, apiErrorResponse, requireApiUser } from "@/lib/api/auth";
+import { publishUserEvent } from "@/lib/api/events";
 import { serializeReadingPosition } from "@/lib/api/serializers";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, feeds, userSettings } from "@/lib/db/schema";
@@ -60,6 +61,15 @@ const patchBody = z.object({ articleId: z.number().int() });
  * -- `articles.feedId IN (SELECT id FROM feeds WHERE userId = ?)` -- and an
  * id that doesn't resolve to a row the caller owns answers the same
  * `not_found` as one that doesn't exist at all, never a 403.
+ *
+ * Publishes a `readingPosition` event (`src/lib/api/events.ts`) after the
+ * commit so every OTHER device with an open `GET /api/v1/jobs/events`
+ * connection jumps live, without waiting for its next poll of this endpoint.
+ * No extra broadcast-side throttling here: the native client already
+ * debounces its own pushes to roughly one every two idle seconds
+ * (`ReadingPositionSync`), so the publish rate this endpoint ever sees is
+ * already exactly the rate worth broadcasting -- adding a second debounce
+ * server-side would just delay the same events, not reduce their count.
  */
 export async function PATCH(request: Request): Promise<Response> {
   try {
@@ -105,7 +115,16 @@ export async function PATCH(request: Request): Promise<Response> {
       throw new Error(`no user_settings row for user "${user.id}"`);
     }
 
-    return Response.json(serializeReadingPosition(updated));
+    const wire = serializeReadingPosition(updated);
+    // Publish the DB-round-tripped `updatedAt`, not a fresh `new Date()` --
+    // the column truncates to whole seconds, so a value stamped in-process
+    // would disagree with what a later `GET` returns for the same write.
+    publishUserEvent(user.id, {
+      type: "readingPosition",
+      payload: { articleId, updatedAt: wire.updatedAt! },
+    });
+
+    return Response.json(wire);
   } catch (error) {
     if (error instanceof ApiError) return apiErrorResponse(error);
     throw error;

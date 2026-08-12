@@ -61,6 +61,20 @@ export type ApiEvent =
         completedJobs: number;
         failedJobs: number;
       };
+    }
+  | {
+      // The cross-device "current article" pointer changing (`PATCH
+      // /api/v1/reading-position`) -- lets every OTHER open device jump live
+      // instead of waiting for its next poll of that endpoint. Same
+      // best-effort contract as `job`/`run`: a device with no open
+      // connection at publish time (or offline entirely) simply falls back
+      // to its next `GET /api/v1/reading-position`, which remains the
+      // source of truth this is just a low-latency nudge for.
+      type: "readingPosition";
+      payload: {
+        articleId: number;
+        updatedAt: string;
+      };
     };
 
 function channel(userId: string): string {

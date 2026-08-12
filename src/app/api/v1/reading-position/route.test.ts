@@ -15,6 +15,7 @@ describe("GET/PATCH /api/v1/reading-position", () => {
   let createDeviceSession: typeof import("@/lib/auth/server").createDeviceSession;
   let client: typeof import("@/lib/db/client");
   let schema: typeof import("@/lib/db/schema");
+  let subscribeUserEvents: typeof import("@/lib/api/events").subscribeUserEvents;
 
   beforeEach(async () => {
     // A fresh module registry per test: `getDb()` is a lazy module-level
@@ -31,6 +32,7 @@ describe("GET/PATCH /api/v1/reading-position", () => {
     ({ createUserWithPassword, createDeviceSession } = await import("@/lib/auth/server"));
     client = await import("@/lib/db/client");
     schema = await import("@/lib/db/schema");
+    ({ subscribeUserEvents } = await import("@/lib/api/events"));
     ({ GET, PATCH } = await import("./route"));
   });
 
@@ -130,6 +132,44 @@ describe("GET/PATCH /api/v1/reading-position", () => {
     expect(getResponse.status).toBe(200);
     const getBody = await getResponse.json();
     expect(getBody).toEqual(patchBody);
+  });
+
+  it("PATCH publishes a readingPosition event for other devices' SSE connections", async () => {
+    const owner = await createUserWithPassword({
+      email: "o@example.com",
+      password: "correct horse battery staple",
+    });
+    seedSettings(owner.id);
+    const { token } = await createDeviceSession(owner.id, "Test");
+    const articleId = await seedArticle(owner.id);
+
+    const received: unknown[] = [];
+    const unsubscribe = subscribeUserEvents(owner.id, (event) => received.push(event));
+
+    const response = await patchRequest({ articleId }, token);
+    const body = await response.json();
+    unsubscribe();
+
+    expect(received).toEqual([
+      { type: "readingPosition", payload: { articleId, updatedAt: body.updatedAt } },
+    ]);
+  });
+
+  it("a failed PATCH (404/400) publishes no readingPosition event", async () => {
+    const owner = await createUserWithPassword({
+      email: "o@example.com",
+      password: "correct horse battery staple",
+    });
+    const { token } = await createDeviceSession(owner.id, "Test");
+
+    const received: unknown[] = [];
+    const unsubscribe = subscribeUserEvents(owner.id, (event) => received.push(event));
+
+    await patchRequest({ articleId: 999999 }, token); // 404: no such article
+    await patchRequest({}, token); // 400: missing articleId
+    unsubscribe();
+
+    expect(received).toEqual([]);
   });
 
   it("a second PATCH overwrites the pointer (last write wins)", async () => {
