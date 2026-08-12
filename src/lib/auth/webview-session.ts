@@ -18,6 +18,12 @@ const WEBVIEW_TOKEN_TTL_MS = 60_000;
  * plugin's own verify handler -- which sets the real session cookie via
  * `setSessionCookie()` -- does the actual login unmodified.
  *
+ * Revoking the underlying device session invalidates any web session minted
+ * from it too, but not instantly: Better Auth's 5-minute signed
+ * session-cookie cache (`cookieCache` in `./server.ts`) can keep serving an
+ * already-established browser session without a database read for up to
+ * that long after the device session is revoked.
+ *
  * Written by hand rather than calling `auth.api.generateOneTimeToken()`
  * because that endpoint resolves its caller via `sessionMiddleware`
  * (cookie-only), and this app has no `bearer()` plugin installed -- it would
