@@ -33,6 +33,22 @@ const DECLARED_ADMIN_PATHS: string[] = [
   ),
 ].toSorted();
 
+const DECLARED_ONE_TIME_TOKEN_PATHS: string[] = [
+  ...new Set(
+    [
+      ...fs
+        .readFileSync(
+          path.join(
+            path.resolve(import.meta.dirname, "../../.."),
+            "node_modules/better-auth/dist/plugins/one-time-token/index.mjs",
+          ),
+          "utf8",
+        )
+        .matchAll(/createAuthEndpoint\(\s*"(\/one-time-token\/[a-z-]+)"/g),
+    ].map((match) => match[1]),
+  ),
+].toSorted();
+
 /**
  * Real-database test, no driver mocks -- the convention in CLAUDE.md, and here
  * it is the only kind of test worth writing. Two things are under test and
@@ -263,6 +279,24 @@ describe("the Better Auth instance", () => {
     const { ADMIN_PLUGIN_PATHS } = await import("./server");
 
     expect(ADMIN_PLUGIN_PATHS.toSorted()).toEqual(DECLARED_ADMIN_PATHS);
+  });
+
+  it.each(DECLARED_ONE_TIME_TOKEN_PATHS)("refuses to route %s", async (ottPath) => {
+    const request = new Request(`http://localhost:3000/api/auth${ottPath}`, {
+      method: ottPath === "/one-time-token/generate" ? "GET" : "POST",
+      headers: { "content-type": "application/json" },
+      body: ottPath === "/one-time-token/generate" ? undefined : "{}",
+    });
+    const response =
+      ottPath === "/one-time-token/generate" ? await route.GET(request) : await route.POST(request);
+
+    expect(response.status).toBe(404);
+  });
+
+  it("names every one-time-token endpoint the installed plugin declares", async () => {
+    const { ONE_TIME_TOKEN_PLUGIN_PATHS } = await import("./server");
+
+    expect(ONE_TIME_TOKEN_PLUGIN_PATHS.toSorted()).toEqual(DECLARED_ONE_TIME_TOKEN_PATHS);
   });
 
   it("cannot be talked into the role list that used to brick the next restart", async () => {

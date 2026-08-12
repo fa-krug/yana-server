@@ -172,3 +172,56 @@ describe("requireApiUser", () => {
     expect(body).toEqual({ error: { code: "unauthorized", message: "Sign in required." } });
   });
 });
+
+describe("requireApiBearerSession", () => {
+  let dbPath: string;
+  let requireApiBearerSession: typeof import("./auth").requireApiBearerSession;
+  let createUserWithPassword: typeof import("@/lib/auth/server").createUserWithPassword;
+  let createDeviceSession: typeof import("@/lib/auth/server").createDeviceSession;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    const stamp = `${process.pid}-${Math.random().toString(36).slice(2)}`;
+    dbPath = path.join(os.tmpdir(), `yana-api-auth-${stamp}.db`);
+    applyMigrationsAt(dbPath);
+    process.env.DATABASE_PATH = dbPath;
+    process.env.BETTER_AUTH_SECRET = "test-secret-not-used-outside-this-file-0123456789";
+
+    ({ createUserWithPassword, createDeviceSession } = await import("@/lib/auth/server"));
+    ({ requireApiBearerSession } = await import("./auth"));
+  });
+
+  afterEach(() => fs.rmSync(dbPath, { force: true }));
+
+  it("rejects a request with no Authorization header", async () => {
+    await expect(
+      requireApiBearerSession(new Request("https://example.com/api/v1/x")),
+    ).rejects.toMatchObject({ status: 401, code: "unauthorized" });
+  });
+
+  it("rejects a non-bearer scheme", async () => {
+    await expect(
+      requireApiBearerSession(
+        new Request("https://example.com/api/v1/x", { headers: { authorization: "Basic abc" } }),
+      ),
+    ).rejects.toMatchObject({ status: 401, code: "unauthorized" });
+  });
+
+  it("returns the user and the raw session token for a valid bearer", async () => {
+    const owner = await createUserWithPassword({
+      email: "device-owner@example.com",
+      password: "correct horse battery staple",
+      name: "Device Owner",
+    });
+    const { token } = await createDeviceSession(owner.id, "Test Device");
+
+    const result = await requireApiBearerSession(
+      new Request("https://example.com/api/v1/x", {
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    );
+
+    expect(result.user.id).toBe(owner.id);
+    expect(result.token).toBe(token);
+  });
+});

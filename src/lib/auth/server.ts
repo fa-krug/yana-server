@@ -2,7 +2,7 @@ import { passkey } from "@better-auth/passkey";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
-import { admin } from "better-auth/plugins";
+import { admin, oneTimeToken } from "better-auth/plugins";
 
 import { getDb } from "@/lib/db/client";
 import * as schema from "@/lib/db/schema";
@@ -106,6 +106,19 @@ export const ADMIN_PLUGIN_PATHS = [
   "/admin/update-user",
 ];
 
+/**
+ * Every `/one-time-token/*` path the installed `oneTimeToken()` plugin
+ * declares. Closed via `disabledPaths` below for the same reason
+ * `ADMIN_PLUGIN_PATHS` is: this app never calls either endpoint over HTTP.
+ * `generate` is unusable over HTTP here anyway (see the module doc on
+ * `mintWebviewSessionToken` in `src/lib/auth/webview-session.ts` for why:
+ * it resolves its caller via `sessionMiddleware`, cookie-only, and this app
+ * has no `bearer()` plugin installed). `verify` is called exclusively via
+ * `auth.api.verifyOneTimeToken()` from `src/app/webview-session/route.ts`.
+ * Pinned against the installed library by `server.test.ts`.
+ */
+export const ONE_TIME_TOKEN_PLUGIN_PATHS = ["/one-time-token/generate", "/one-time-token/verify"];
+
 export const auth = betterAuth({
   database: drizzleAdapter(lazyDb, {
     provider: "sqlite",
@@ -188,7 +201,7 @@ export const auth = betterAuth({
    * `/admin/update-user` used to be the other routable way in and is now closed
    * with the rest of `ADMIN_PLUGIN_PATHS` above.
    */
-  disabledPaths: ["/update-user", ...ADMIN_PLUGIN_PATHS],
+  disabledPaths: ["/update-user", ...ADMIN_PLUGIN_PATHS, ...ONE_TIME_TOKEN_PLUGIN_PATHS],
 
   session: {
     expiresIn: 60 * 60 * 24 * 30,
@@ -253,6 +266,10 @@ export const auth = betterAuth({
      * it.
      */
     admin({ defaultRole: "user", adminRoles: ADMIN_ROLES }),
+    oneTimeToken({
+      expiresIn: 1, // minutes; the shortest granularity the plugin supports
+      disableClientRequest: true, // belt-and-suspenders alongside disabledPaths below
+    }),
     /**
      * **Must stay last, and it is not cosmetic.** Better Auth writes its
      * cookies into `ctx.context.responseHeaders`; the HTTP route at

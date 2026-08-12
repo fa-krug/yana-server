@@ -97,3 +97,26 @@ export async function requireApiUser(request: Request): Promise<User> {
   if (!session?.user) throw new ApiError(401, "unauthorized", "Sign in required.");
   return session.user as User;
 }
+
+/**
+ * Like `requireApiUser`, but only accepts a Bearer device session -- never
+ * falls back to a browser cookie -- and returns the raw session token
+ * alongside the user. For endpoints that need the token itself, not just the
+ * identity it resolves to: minting a webview-session bootstrap token
+ * (`src/lib/auth/webview-session.ts`) has to bind the resulting one-time
+ * token to this *exact* session, not a freshly created one, so the WKWebView
+ * ends up sharing literally the same session a revoked/unpaired device loses
+ * access to as well.
+ */
+export async function requireApiBearerSession(
+  request: Request,
+): Promise<{ user: User; token: string }> {
+  const authHeader = request.headers.get("authorization");
+  if (!authHeader?.toLowerCase().startsWith("bearer ")) {
+    throw new ApiError(401, "unauthorized", "Bearer token required.");
+  }
+  const token = authHeader.slice("bearer ".length).trim();
+  const user = token ? userForBearerToken(token) : null;
+  if (!user) throw new ApiError(401, "unauthorized", "Invalid or expired token.");
+  return { user, token };
+}

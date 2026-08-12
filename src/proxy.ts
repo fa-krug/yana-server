@@ -23,13 +23,22 @@ import { NextResponse, type NextRequest } from "next/server";
  * here the handler has no layout above it either, and checks a credential
  * shape this file was never meant to understand.
  *
+ * `/webview-session` is the same "authenticates itself" case as `/api/v1`,
+ * not the "genuinely unauthenticated" case `/login` and `/health` are: the
+ * WKWebView hitting it has no session cookie yet -- bootstrapping one is the
+ * entire point -- so it authenticates via the one-time token in its own
+ * `?token=` query param instead (see `src/app/webview-session/route.ts`'s
+ * module doc). Without this entry the request never reaches that handler:
+ * it 307-redirects to `/login` first, and that redirect drops `url.search`
+ * (below), discarding the token so not even a manual retry can recover it.
+ *
  * Prefix matching, so `/api/auth/sign-in/email` and `/api/v1/articles/sync`
  * alike are covered. Nothing else may be added here without a reason of the
  * same kind: this list is every route that must reach its handler without
  * this proxy's cookie check standing in the way -- either because it is
  * genuinely unauthenticated, or because it authenticates itself.
  */
-const PUBLIC_PREFIXES = ["/login", "/health", "/api/auth", "/api/v1"];
+const PUBLIC_PREFIXES = ["/login", "/health", "/api/auth", "/api/v1", "/webview-session"];
 
 /**
  * Is this one of the public routes -- **at a path boundary**?
