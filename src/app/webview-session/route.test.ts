@@ -133,4 +133,26 @@ describe("GET /webview-session", () => {
 
     expect(response.headers.get("location")).toBe("https://example.com/feeds");
   });
+
+  it("cannot be used to redirect off-site via a same-origin absolute next whose pathname is a network-path reference", async () => {
+    const owner = await createUserWithPassword({
+      email: "wv-owner-6@example.com",
+      password: "correct horse battery staple",
+      name: "WV Owner",
+    });
+    const { token: sessionToken } = await createDeviceSession(owner.id, "Test Device");
+    const { token } = await mintWebviewSessionToken(sessionToken);
+
+    const response = await GET(
+      new Request(
+        `https://example.com/webview-session?token=${token}&next=${encodeURIComponent("https://example.com//evil.example.com")}`,
+      ),
+    );
+
+    const location = response.headers.get("location");
+    // The resolved target keeps `example.com` as its origin -- the embedded
+    // "evil.example.com" segment, if present at all, must land inside the
+    // same-origin path, never let the browser navigate to a different host.
+    expect(new URL(location!).origin).toBe("https://example.com");
+  });
 });
