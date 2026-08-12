@@ -155,4 +155,20 @@ describe("GET /webview-session", () => {
     // same-origin path, never let the browser navigate to a different host.
     expect(new URL(location!).origin).toBe("https://example.com");
   });
+
+  it("refuses /login as a next target, falling back to this route's own default", async () => {
+    const owner = await createUserWithPassword({
+      email: "wv-owner-7@example.com",
+      password: "correct horse battery staple",
+      name: "WV Owner",
+    });
+    const { token: sessionToken } = await createDeviceSession(owner.id, "Test Device");
+    const { token } = await mintWebviewSessionToken(sessionToken);
+
+    const response = await GET(
+      new Request(`https://example.com/webview-session?token=${token}&next=/login`),
+    );
+
+    expect(response.headers.get("location")).toBe("https://example.com/feeds");
+  });
 });
