@@ -88,11 +88,15 @@ describe("proxy", () => {
     "/health",
     "/api/auth/sign-in/email",
     "/api/v1/articles/sync",
+    "/webview-session",
   ])("leaves %s reachable without a session", (url) => {
     // Guarding any of these breaks the application outright: no login form,
-    // no health probe, no endpoint for the login form to post to, and -- for
+    // no health probe, no endpoint for the login form to post to, -- for
     // /api/v1 -- no way for a Bearer-token-only native client to ever reach a
-    // route handler, since this proxy has no session cookie to find for it.
+    // route handler, since this proxy has no session cookie to find for it,
+    // and -- for /webview-session -- no way to ever bootstrap the session
+    // cookie in the first place, since the whole point is that the caller
+    // doesn't have one yet.
     expect(isPassThrough(proxy(request(url)))).toBe(true);
   });
 
