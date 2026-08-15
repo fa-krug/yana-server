@@ -29,6 +29,20 @@ import {
  */
 type SidebarUser = AvatarUser & { image: string | null };
 
+/**
+ * Whether `pathname` counts as "on" `href`, for the sidebar's active
+ * highlight.
+ *
+ * `"/"` is a prefix of every path, so a bare `pathname.startsWith(item.href)`
+ * would light up the dashboard entry on `/articles`, `/settings` -- every
+ * route in the app. The root is therefore an exact match; every other item
+ * keeps the prefix match, which is what lets `/articles/42` still highlight
+ * `/articles`.
+ */
+function isNavItemActive(pathname: string, href: string): boolean {
+  return href === "/" ? pathname === "/" : pathname.startsWith(href);
+}
+
 export function AppSidebar({ isAdmin, user }: { isAdmin: boolean; user: SidebarUser }) {
   const pathname = usePathname();
   const t = useTranslations();
@@ -51,7 +65,7 @@ export function AppSidebar({ isAdmin, user }: { isAdmin: boolean; user: SidebarU
                     the target element goes in `render`, contents stay as children. */}
                 <SidebarMenuButton
                   render={<Link href={item.href} onClick={closeMobileSidebar} />}
-                  isActive={pathname.startsWith(item.href)}
+                  isActive={isNavItemActive(pathname, item.href)}
                 >
                   <item.icon />
                   <span>{t(item.labelKey)}</span>

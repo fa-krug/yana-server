@@ -1,5 +1,6 @@
 import {
   Bot,
+  LayoutDashboard,
   Newspaper,
   Plug,
   Rss,
@@ -28,8 +29,16 @@ export type NavItem = {
   adminOnly: boolean;
 };
 
-/** The single source for both sidebar navigation and breadcrumb labels. */
+/**
+ * The single source for both sidebar navigation and breadcrumb labels.
+ *
+ * `/` is first, ahead of `/articles`. `breadcrumbsFor("/")` returns `[]` --
+ * the root has no path segments to split -- and that is correct: the
+ * dashboard shows no breadcrumb trail, the same as every other top-level
+ * page shows only its own label.
+ */
 export const NAV_ITEMS: readonly NavItem[] = [
+  { href: "/", labelKey: "nav.dashboard", icon: LayoutDashboard, adminOnly: false },
   { href: "/articles", labelKey: "nav.articles", icon: Newspaper, adminOnly: false },
   { href: "/feeds", labelKey: "nav.feeds", icon: Rss, adminOnly: false },
   { href: "/tags", labelKey: "nav.tags", icon: Tags, adminOnly: false },
