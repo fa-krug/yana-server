@@ -1,8 +1,8 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { connection } from "next/server";
-import { z } from "zod";
 
 import { ApiError, apiErrorResponse, requireApiUser } from "@/lib/api/auth";
+import { ReadingPositionPatchBodySchema } from "@/lib/api/docs/schemas";
 import { publishUserEvent } from "@/lib/api/events";
 import { serializeReadingPosition } from "@/lib/api/serializers";
 import { getDb, writeTransaction } from "@/lib/db/client";
@@ -49,8 +49,6 @@ export async function GET(request: Request): Promise<Response> {
   }
 }
 
-const patchBody = z.object({ articleId: z.number().int() });
-
 /**
  * Sets the pointer to `articleId`, stamping `readingPositionUpdatedAt` with
  * the server's own clock -- last-writer-wins is exactly what both the server
@@ -76,7 +74,7 @@ export async function PATCH(request: Request): Promise<Response> {
     const user = await requireApiUser(request);
 
     const json = await request.json().catch(() => null);
-    const parsed = patchBody.safeParse(json);
+    const parsed = ReadingPositionPatchBodySchema.safeParse(json);
     if (!parsed.success) {
       throw new ApiError(400, "invalid_body", "articleId is required.");
     }
