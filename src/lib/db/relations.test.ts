@@ -48,7 +48,7 @@ describe("relations", () => {
       .values({ id: 2, articleId: 1, parentId: 1, position: 0, kind: "list_item" })
       .run();
     db.insert(schema.articleInlineRuns)
-      .values({ id: 1, blockId: 2, position: 0, text: "hello", bold: true })
+      .values({ blockId: 2, position: 0, text: "hello", bold: true })
       .run();
     // Better Auth's satellite rows, inserted the way its adapter does: string
     // ids it generated itself, not autoincrement.

@@ -76,7 +76,7 @@ export interface ImageBlock {
 
 export interface EmbedBlock {
   kind: "embed";
-  provider: EmbedProvider | string;
+  provider: EmbedProvider;
   /** Where a tap navigates, or -- for `video` -- the direct stream URL. */
   externalUrl: string;
   thumbnailRef: string;

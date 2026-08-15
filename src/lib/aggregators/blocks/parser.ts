@@ -792,9 +792,14 @@ function convert(
 
     if (tag === "pre") {
       flush();
-      const text = $(node as Element).text();
+      const $pre = $(node as Element);
+      const text = $pre.text();
       if (text.trim()) {
-        blocks.push({ kind: "code_block", text, language: "" });
+        // The `language-*` (and shorter `lang-*`) class on `<pre><code>` is the
+        // de-facto fenced-code convention (highlight.js, Prism, CommonMark output).
+        const codeClass = $pre.find("code").first().attr("class") ?? "";
+        const languageMatch = /(?:^|\s)(?:language|lang)-([A-Za-z0-9_+-]+)/.exec(codeClass);
+        blocks.push({ kind: "code_block", text, language: languageMatch?.[1] ?? "" });
       }
       continue;
     }

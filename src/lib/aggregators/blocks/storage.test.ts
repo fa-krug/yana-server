@@ -483,4 +483,43 @@ describe("block storage", () => {
     const loaded = await storage.readBlocks(articleId);
     expect(loaded).toEqual(tree);
   });
+
+  it("threads the article's own id onto every row at every depth", async () => {
+    await storage.writeBlocks(articleId, TREE);
+
+    const rows = client.getDb().select().from(schema.articleBlocks).all();
+
+    // The fixture nests three levels deep (list -> list_item -> list), so this
+    // exercises the threading, not just the root insert.
+    expect(rows.some((row) => row.parentId !== null)).toBe(true);
+    for (const row of rows) {
+      expect(row.articleId).toBe(articleId);
+    }
+  });
+
+  it("indexes embedThumbnailRef for the images ownership query, not embedProvider", () => {
+    const names = raw(client.getDb())
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'article_blocks'`,
+      )
+      .all()
+      .map((row) => (row as { name: string }).name);
+    expect(names).toContain("article_blocks_embed_thumbnail_ref_idx");
+    expect(names).not.toContain("article_blocks_embed_provider_idx");
+  });
+
+  it("refuses two runs at the same (blockId, position)", async () => {
+    await storage.writeBlocks(articleId, TREE);
+
+    const firstRun = client.getDb().select().from(schema.articleInlineRuns).all()[0];
+    expect(firstRun).toBeDefined();
+
+    expect(() =>
+      client.writeTransaction((tx) => {
+        tx.insert(schema.articleInlineRuns)
+          .values({ blockId: firstRun.blockId, position: firstRun.position, text: "dup" })
+          .run();
+      }),
+    ).toThrow(/UNIQUE|PRIMARY/i);
+  });
 });
