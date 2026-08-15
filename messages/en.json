@@ -1,5 +1,6 @@
 {
   "nav": {
+    "dashboard": "Dashboard",
     "feeds": "Feeds",
     "articles": "Articles",
     "tags": "Tags",
@@ -625,5 +626,32 @@
     "viewOnBluesky": "View on Bluesky",
     "viewOnReddit": "View on Reddit",
     "viewOnTwitter": "View on X/Twitter"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "stats": {
+      "unreadArticles": "Unread articles",
+      "totalArticles": "Total articles",
+      "feeds": "Feeds",
+      "feedsValue": "{enabled} of {total}",
+      "tags": "Tags",
+      "activeJobs": "Active jobs"
+    },
+    "recent": {
+      "heading": "Recently added",
+      "empty": "No unread articles yet.",
+      "emptyCta": "Add a feed"
+    },
+    "sections": {
+      "heading": "Manage",
+      "articles": "Browse, search and read your articles.",
+      "feeds": "Add, edit and organise the feeds you follow.",
+      "tags": "Organise your articles with tags.",
+      "users": "Manage user accounts on this instance.",
+      "integrations": "Connect YouTube and Reddit credentials.",
+      "ai": "Configure your AI provider and its settings.",
+      "jobs": "Monitor background aggregation and maintenance jobs.",
+      "settings": "Adjust your language, theme and library preferences."
+    }
   }
 }

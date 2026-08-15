@@ -1,5 +1,6 @@
 {
   "nav": {
+    "dashboard": "Dashboard",
     "feeds": "Feeds",
     "articles": "Artikel",
     "tags": "Tags",
@@ -625,5 +626,32 @@
     "viewOnBluesky": "Auf Bluesky ansehen",
     "viewOnReddit": "Auf Reddit ansehen",
     "viewOnTwitter": "Auf X/Twitter ansehen"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "stats": {
+      "unreadArticles": "Ungelesene Artikel",
+      "totalArticles": "Artikel insgesamt",
+      "feeds": "Feeds",
+      "feedsValue": "{enabled} von {total}",
+      "tags": "Tags",
+      "activeJobs": "Laufende Aufgaben"
+    },
+    "recent": {
+      "heading": "Zuletzt hinzugefügt",
+      "empty": "Noch keine ungelesenen Artikel.",
+      "emptyCta": "Feed hinzufügen"
+    },
+    "sections": {
+      "heading": "Verwalten",
+      "articles": "Artikel durchsuchen und lesen.",
+      "feeds": "Abonnierte Feeds hinzufügen und bearbeiten.",
+      "tags": "Artikel mit Tags organisieren.",
+      "users": "Benutzerkonten dieser Instanz verwalten.",
+      "integrations": "YouTube- und Reddit-Zugangsdaten verbinden.",
+      "ai": "KI-Anbieter und dessen Einstellungen konfigurieren.",
+      "jobs": "Hintergrundaufgaben für Aggregation und Wartung überwachen.",
+      "settings": "Sprache, Design und Bibliothekseinstellungen anpassen."
+    }
   }
 }
