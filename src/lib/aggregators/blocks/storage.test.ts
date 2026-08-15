@@ -483,4 +483,15 @@ describe("block storage", () => {
     const loaded = await storage.readBlocks(articleId);
     expect(loaded).toEqual(tree);
   });
+
+  it("indexes embedThumbnailRef for the images ownership query, not embedProvider", () => {
+    const names = raw(client.getDb())
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'article_blocks'`,
+      )
+      .all()
+      .map((row) => (row as { name: string }).name);
+    expect(names).toContain("article_blocks_embed_thumbnail_ref_idx");
+    expect(names).not.toContain("article_blocks_embed_provider_idx");
+  });
 });

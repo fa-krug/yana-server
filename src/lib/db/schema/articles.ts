@@ -107,8 +107,8 @@ export type NewArticleTombstone = typeof articleTombstones.$inferInsert;
  * One node of an article body in the Yana content format.
  *
  * Typed rows rather than an opaque JSON document, so the database understands
- * the data: imageRef is indexed (orphan pruning becomes a join) and
- * embedProvider is indexed ("articles containing video" becomes answerable).
+ * the data: imageRef and embedThumbnailRef are indexed because the images
+ * route's ownership check joins on them (orphan pruning too, for imageRef).
  */
 export const articleBlocks = sqliteTable(
   "article_blocks",
@@ -145,7 +145,9 @@ export const articleBlocks = sqliteTable(
     uniqueIndex("uniq_block_position").on(table.articleId, table.parentId, table.position),
     index("article_blocks_tree_idx").on(table.articleId, table.parentId, table.position),
     index("article_blocks_image_ref_idx").on(table.imageRef),
-    index("article_blocks_embed_provider_idx").on(table.embedProvider),
+    // GET /api/v1/images/[hash] ownership path 3 queries embedThumbnailRef on
+    // equality (an embed's localized poster is stored there); without this it scans.
+    index("article_blocks_embed_thumbnail_ref_idx").on(table.embedThumbnailRef),
     // Django's PositiveIntegerField / PositiveSmallIntegerField emitted these
     // as real CHECK constraints on SQLite; they are part of the schema, not an
     // ORM nicety. `level` is nullable, and `NULL >= 0` evaluates to NULL,
