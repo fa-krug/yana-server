@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import {
   AiPromptResponseSchema,
-  ApiEventSchema,
+  ApiEventPayloadSchema,
   ArticleContentSchema,
   ArticlePatchBodySchema,
   ArticleSummarySchema,
@@ -108,7 +108,22 @@ export const ENDPOINT_REGISTRY: EndpointDoc[] = [
         when: "the article doesn't exist, or its feed isn't owned by the caller.",
       },
     ],
-    example: { request: { starred: true }, response: null },
+    example: {
+      request: { starred: true },
+      response: {
+        id: 1,
+        feedId: 2,
+        name: "An article headline",
+        identifier: "https://example.com/articles/an-article-headline",
+        date: "2026-08-10T12:00:00.000Z",
+        author: "Jane Doe",
+        icon: null,
+        read: false,
+        starred: true,
+        createdAt: "2026-08-10T12:05:00.000Z",
+        updatedAt: "2026-08-15T09:30:00.000Z",
+      },
+    },
   }),
 
   defineEndpoint({
@@ -212,8 +227,11 @@ export const ENDPOINT_REGISTRY: EndpointDoc[] = [
     auth: "bearer-or-cookie",
     response: {
       status: 200,
-      schema: ApiEventSchema,
-      description: "One event per SSE `data:` frame (see the SSE events overview).",
+      schema: ApiEventPayloadSchema,
+      description:
+        "One event per SSE `data:` frame -- the bare payload only; the event name " +
+        "(`job`/`run`/`readingPosition`) is carried in the SSE `event:` line, never in the " +
+        "JSON body. See the SSE events overview.",
       contentType: "text/event-stream",
     },
     errors: [{ status: 401, code: "unauthorized", when: "no valid Bearer token or session." }],
@@ -375,8 +393,10 @@ export const ENDPOINT_REGISTRY: EndpointDoc[] = [
     errors: [
       {
         status: 400,
-        code: "(no code -- empty body)",
-        when: "state is missing, or scheme is not an allowed scheme.",
+        code: "no_code_empty_body",
+        when:
+          "state is missing, or scheme is not an allowed scheme -- a plain 400 with no " +
+          "JSON error body.",
       },
     ],
   }),
@@ -405,5 +425,28 @@ export const ENDPOINT_REGISTRY: EndpointDoc[] = [
       description: "Redirect to `next` with the session cookie set, or to /login on failure.",
     },
     errors: [],
+  }),
+
+  defineEndpoint({
+    method: "GET",
+    path: "/api/v1/openapi.json",
+    tag: "Meta",
+    summary: "Fetch this OpenAPI document",
+    description:
+      "Returns the OpenAPI 3.1 document describing this entire API -- what `/api-docs` " +
+      "renders. Signed-in only, same as the rendered reference page.",
+    // The route (`src/app/api/v1/openapi.json/route.ts`) calls `requireUser()`, the ordinary
+    // signed-in-user session -- not `requireApiUser()` -- so unlike every other /api/v1 route
+    // there is no Bearer path here at all: this is documentation reachable from inside the
+    // app, not a client-API data endpoint.
+    auth: "session-cookie",
+    response: {
+      status: 200,
+      // The document's own shape isn't itself one of this registry's zod schemas, so `null`
+      // documents it the same way `images/{hash}`'s non-JSON-schema-able response does.
+      schema: null,
+      description: "The OpenAPI 3.1 document as JSON.",
+    },
+    errors: [{ status: 401, code: "unauthorized", when: "no valid session (redirects to /login)." }],
   }),
 ];

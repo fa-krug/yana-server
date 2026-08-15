@@ -1,5 +1,16 @@
 # API documentation: generated, drift-checked, rendered in-app
 
+**Amended after implementation.** Section 5 ("Rendering") originally specified
+`/api-docs` as a `page.tsx` rendering `<ApiReference>` as a React component,
+added to `UNLISTED_ROUTES`, with a `nav.apiDocs` catalog key.
+`@scalar/nextjs-api-reference@0.11.14` turned out to export a Route Handler
+factory, not a component (confirmed against the package's own README), so
+`/api-docs` is a `route.ts` instead -- it does not render inside `(app)`'s
+sidebar/breadcrumb chrome, and the `UNLISTED_ROUTES`/`nav.apiDocs` additions
+described below were never shipped (or were shipped then removed once they
+were seen to be dead code). Read Section 5 below as describing the plan's
+original intent, not the shipped shape.
+
 ## Goal
 
 `/api/v1/**` (13 routes) plus the three flows a native-client author needs to
@@ -57,6 +68,14 @@ reviewer's attention catches.
 schema *from* `schemas.ts` instead of declaring it inline, so the schema the
 docs describe and the schema the route validates against are the same object,
 not two values a test has to prove equal.
+
+This guarantee currently covers the four schemas with a real serializer
+function to invert (`ArticleSummarySchema`, `FeedSchema`, `TagSchema`,
+`ReadingPositionSchema`) — schemas describing a shape with no dedicated
+serializer function (run/event/AI-response schemas, and every ad-hoc inline
+response wrapper in the registry) are hand-written and unchecked against their
+real route; a mismatch there is caught only by a reviewer or a dedicated
+round-trip test, not the compiler.
 
 ## 2. Registry (`src/lib/api/docs/define.ts` + `registry.ts`)
 

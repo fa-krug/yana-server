@@ -52,7 +52,7 @@ export const SyncResyncRequiredSchema = z.object({
 
 export const RunSchema = z.object({
   runId: z.number().int(),
-  status: z.enum(["running", "completed"]),
+  status: z.enum(["running", "completed", "failed"]),
   totalJobs: z.number().int(),
   completedJobs: z.number().int(),
   failedJobs: z.number().int(),
@@ -146,9 +146,39 @@ export const ApiEventSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-// Request bodies -- imported by the routes themselves (Step 5 below), not
-// duplicated there, so the schema the docs describe and the schema a route
-// validates against are the same object.
+/**
+ * The bare payload union `GET /api/v1/jobs/events` actually sends in each SSE
+ * `data:` frame -- the three shapes above, minus the `{ type, payload }`
+ * wrapper. The route's `send(event.type, event.payload)` puts `type` in the
+ * SSE `event:` line and JSON-encodes only `payload` in `data:`; `ApiEventSchema`
+ * above is a correct description of the logical event (useful for narrative
+ * prose) but not of what crosses the wire in any single frame, so the registry
+ * documents the response with this schema instead.
+ */
+export const ApiEventPayloadSchema = z.union([
+  z.object({
+    jobId: z.number().int(),
+    runId: z.number().int().nullable(),
+    kind: z.string(),
+    status: z.string(),
+    progress: z.number(),
+  }),
+  z.object({
+    runId: z.number().int(),
+    status: z.string(),
+    totalJobs: z.number().int(),
+    completedJobs: z.number().int(),
+    failedJobs: z.number().int(),
+  }),
+  z.object({
+    articleId: z.number().int(),
+    updatedAt: z.iso.datetime(),
+  }),
+]);
+
+// Request bodies -- imported by the routes themselves, not duplicated there,
+// so the schema the docs describe and the schema a route validates against
+// are the same object.
 export const ReadingPositionPatchBodySchema = z.object({ articleId: z.number().int() });
 
 export const ArticlePatchBodySchema = z

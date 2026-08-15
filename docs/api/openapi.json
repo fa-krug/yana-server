@@ -3,7 +3,7 @@
   "info": {
     "title": "Yana Client API",
     "version": "1",
-    "description": "# Yana Client API\n\nThe versioned HTTP API a native client (or the web UI itself, for images)\nuses to read and modify a signed-in user's feeds, tags, articles and AI\nconfiguration. `v1` is the only version today.\n\n**Base URL**: this server's own origin, e.g. `https://yana.example.com`.\n\n**Errors** always take the shape `{ \"error\": { \"code\": \"...\", \"message\": \"...\" } }`.\n`code` is stable and machine-readable; `message` is written by the server\nfor a human and never echoes anything the caller submitted. See the Errors\nsection below for the full code index.\n\n**Dates** are always ISO 8601 (`Date.prototype.toISOString()`).\n\n## Errors\n\nEvery error takes the shape `{ \"error\": { \"code\": \"...\", \"message\": \"...\" } }`. `message` is server-authored prose for a human and never echoes anything the caller submitted.\n\n| Code | Emitted by |\n|---|---|\n| `(no code -- empty body)` | `GET /device/pair` |\n| `daily_limit_exceeded` | `POST /api/v1/ai/prompt` |\n| `invalid_body` | `PATCH /api/v1/articles/{id}`, `PATCH /api/v1/reading-position` |\n| `invalid_prompt` | `POST /api/v1/ai/prompt` |\n| `monthly_limit_exceeded` | `POST /api/v1/ai/prompt` |\n| `no_active_provider` | `POST /api/v1/ai/prompt` |\n| `not_found` | `PATCH /api/v1/articles/{id}`, `GET /api/v1/articles/{id}/content`, `POST /api/v1/articles/{id}/reload`, `GET /api/v1/runs/{id}`, `GET /api/v1/images/{hash}`, `PATCH /api/v1/reading-position` |\n| `prompt_too_long` | `POST /api/v1/ai/prompt` |\n| `provider_error` | `POST /api/v1/ai/prompt` |\n| `provider_unauthorized` | `POST /api/v1/ai/prompt` |\n| `unauthorized` | `GET /api/v1/feeds`, `GET /api/v1/tags`, `GET /api/v1/articles/sync`, `PATCH /api/v1/articles/{id}`, `GET /api/v1/articles/{id}/content`, `POST /api/v1/articles/{id}/reload`, `POST /api/v1/aggregate`, `GET /api/v1/runs/{id}`, `GET /api/v1/jobs/events`, `GET /api/v1/images/{hash}`, `GET /api/v1/reading-position`, `PATCH /api/v1/reading-position`, `POST /api/v1/ai/prompt`, `POST /api/v1/auth/webview-session-token` |\n\n## Conventions\n\n- **Dates** are always ISO 8601 (`Date.prototype.toISOString()`).\n- **Pagination**: `GET /api/v1/articles/sync` is the only paginated endpoint. `limit`\n  caps rows *per stream* per call (default 200, clamped to `[1, 500]`), and `cursor` is\n  opaque -- pass back the previous response's `nextCursor` to continue.\n- **Not found vs. forbidden**: every ownership check answers 404, never 403, for a row\n  that exists but isn't the caller's -- this prevents an authenticated caller from\n  learning that a given id exists at all through the response code alone."
+    "description": "# Yana Client API\n\nThe versioned HTTP API a native client (or the web UI itself, for images)\nuses to read and modify a signed-in user's feeds, tags, articles and AI\nconfiguration. `v1` is the only version today.\n\n**Base URL**: this server's own origin, e.g. `https://yana.example.com`.\n\n**Errors** always take the shape `{ \"error\": { \"code\": \"...\", \"message\": \"...\" } }`.\n`code` is stable and machine-readable; `message` is written by the server\nfor a human and never echoes anything the caller submitted. See the Errors\nsection below for the full code index.\n\n**Dates** are always ISO 8601 (`Date.prototype.toISOString()`).\n\n## Errors\n\nEvery error takes the shape `{ \"error\": { \"code\": \"...\", \"message\": \"...\" } }`. `message` is server-authored prose for a human and never echoes anything the caller submitted.\n\n| Code | Emitted by |\n|---|---|\n| `daily_limit_exceeded` | `POST /api/v1/ai/prompt` |\n| `invalid_body` | `PATCH /api/v1/articles/{id}`, `PATCH /api/v1/reading-position` |\n| `invalid_prompt` | `POST /api/v1/ai/prompt` |\n| `monthly_limit_exceeded` | `POST /api/v1/ai/prompt` |\n| `no_active_provider` | `POST /api/v1/ai/prompt` |\n| `no_code_empty_body` | `GET /device/pair` |\n| `not_found` | `PATCH /api/v1/articles/{id}`, `GET /api/v1/articles/{id}/content`, `POST /api/v1/articles/{id}/reload`, `GET /api/v1/runs/{id}`, `GET /api/v1/images/{hash}`, `PATCH /api/v1/reading-position` |\n| `prompt_too_long` | `POST /api/v1/ai/prompt` |\n| `provider_error` | `POST /api/v1/ai/prompt` |\n| `provider_unauthorized` | `POST /api/v1/ai/prompt` |\n| `unauthorized` | `GET /api/v1/feeds`, `GET /api/v1/tags`, `GET /api/v1/articles/sync`, `PATCH /api/v1/articles/{id}`, `GET /api/v1/articles/{id}/content`, `POST /api/v1/articles/{id}/reload`, `POST /api/v1/aggregate`, `GET /api/v1/runs/{id}`, `GET /api/v1/jobs/events`, `GET /api/v1/images/{hash}`, `GET /api/v1/reading-position`, `PATCH /api/v1/reading-position`, `POST /api/v1/ai/prompt`, `POST /api/v1/auth/webview-session-token`, `GET /api/v1/openapi.json` |\n\n## Conventions\n\n- **Dates** are always ISO 8601 (`Date.prototype.toISOString()`).\n- **Pagination**: `GET /api/v1/articles/sync` is the only paginated endpoint. `limit`\n  caps rows *per stream* per call (default 200, clamped to `[1, 500]`), and `cursor` is\n  opaque -- pass back the previous response's `nextCursor` to continue.\n- **Not found vs. forbidden**: every ownership check answers 404, never 403, for a row\n  that exists but isn't the caller's -- this prevents an authenticated caller from\n  learning that a given id exists at all through the response code alone."
   },
   "tags": [
     {
@@ -28,7 +28,7 @@
     },
     {
       "name": "Jobs",
-      "description": "`GET /api/v1/jobs/events` is a single long-lived Server-Sent-Events\nconnection carrying three event types for the caller:\n\n- `job` -- one background job's status/progress changed.\n- `run` -- a run's aggregate counters changed (see `POST /api/v1/aggregate`).\n- `readingPosition` -- another device moved the reading-position pointer.\n\nThis is a best-effort, low-latency notification layer, not the source of\ntruth: a dropped connection loses nothing except immediacy. A reconnecting\nclient should always re-poll `GET /api/v1/runs/{id}` (or\n`GET /api/v1/reading-position`) to recover its actual current state, since\nevents missed while disconnected are not replayed. The server sends an SSE\ncomment ping every 15 seconds to keep intermediary proxies from treating a\nquiet connection as dead; conforming SSE clients ignore comment lines."
+      "description": "`GET /api/v1/jobs/events` is a single long-lived Server-Sent-Events\nconnection carrying three event types for the caller:\n\n- `job` -- one background job's status/progress changed.\n- `run` -- a run's aggregate counters changed (see `POST /api/v1/aggregate`).\n- `readingPosition` -- another device moved the reading-position pointer.\n\nThis is a best-effort, low-latency notification layer, not the source of\ntruth: a dropped connection loses nothing except immediacy. A reconnecting\nclient should always re-poll `GET /api/v1/runs/{id}` (or\n`GET /api/v1/reading-position`) to recover its actual current state, since\nevents missed while disconnected are not replayed. The server sends an SSE\ncomment ping every 15 seconds to keep intermediary proxies from treating a\nquiet connection as dead; conforming SSE clients ignore comment lines.\n\n**The event type is carried in the SSE `event:` line, never in the JSON\nbody.** Each `data:` frame is the bare payload only (job/run/reading-position\nfields, with no `type` discriminant) -- read which of the three event types\nit is from `event:`, not from the parsed JSON."
     },
     {
       "name": "Images",
@@ -45,6 +45,10 @@
     {
       "name": "Auth & pairing",
       "description": "The native client obtains a device session via `GET /device/pair`, reached\nfrom `/login`'s `next` parameter after the user signs in through the\nordinary web form inside a pairing webview. The resulting Bearer token is\nwhat every other `/api/v1/**` route (except `/device/pair` itself, which\nuses the signed-in web session) accepts in `Authorization: Bearer <token>`.\n\n`state` is generated by the app and never validated server-side beyond\npresence -- CSRF protection is the app's own responsibility (only the\napp's own callback handler knows the `state` value it's currently\nexpecting).\n\n`POST /api/v1/auth/webview-session-token` + `GET /webview-session` is a\nsecond, independent flow: it lets the native client bootstrap the *same*\ndevice session into a `WKWebView`'s cookie jar, so `ManagementWebView`\ncan reach the web UI directly without the app ever touching a password or\npasskey."
+    },
+    {
+      "name": "Meta",
+      "description": ""
     }
   ],
   "paths": {
@@ -175,7 +179,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/tags": {
@@ -259,7 +268,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/articles/sync": {
@@ -447,6 +461,16 @@
                       "additionalProperties": false
                     }
                   ]
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "new": [],
+                      "updated": [],
+                      "removed": [],
+                      "nextCursor": "eyJuZXdQb3MiOlswLDBdfQ"
+                    }
+                  }
                 }
               }
             }
@@ -484,6 +508,11 @@
             }
           }
         },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "cursor",
@@ -582,6 +611,23 @@
                     "updatedAt"
                   ],
                   "additionalProperties": false
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "id": 1,
+                      "feedId": 2,
+                      "name": "An article headline",
+                      "identifier": "https://example.com/articles/an-article-headline",
+                      "date": "2026-08-10T12:00:00.000Z",
+                      "author": "Jane Doe",
+                      "icon": null,
+                      "read": false,
+                      "starred": true,
+                      "createdAt": "2026-08-10T12:05:00.000Z",
+                      "updatedAt": "2026-08-15T09:30:00.000Z"
+                    }
+                  }
                 }
               }
             }
@@ -683,6 +729,11 @@
             }
           }
         },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -708,6 +759,13 @@
                   }
                 },
                 "additionalProperties": false
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "starred": true
+                  }
+                }
               }
             }
           }
@@ -1083,6 +1141,11 @@
             }
           }
         },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -1189,6 +1252,11 @@
             }
           }
         },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -1262,7 +1330,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/runs/{id}": {
@@ -1289,7 +1362,8 @@
                       "type": "string",
                       "enum": [
                         "running",
-                        "completed"
+                        "completed",
+                        "failed"
                       ]
                     },
                     "totalJobs": {
@@ -1385,6 +1459,11 @@
             }
           }
         },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -1406,145 +1485,97 @@
         ],
         "responses": {
           "200": {
-            "description": "One event per SSE `data:` frame (see the SSE events overview).",
+            "description": "One event per SSE `data:` frame -- the bare payload only; the event name (`job`/`run`/`readingPosition`) is carried in the SSE `event:` line, never in the JSON body. See the SSE events overview.",
             "content": {
               "text/event-stream": {
                 "schema": {
-                  "oneOf": [
+                  "anyOf": [
                     {
                       "type": "object",
                       "properties": {
-                        "type": {
-                          "type": "string",
-                          "enum": [
-                            "job"
-                          ]
+                        "jobId": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
                         },
-                        "payload": {
-                          "type": "object",
-                          "properties": {
-                            "jobId": {
-                              "type": "integer",
-                              "minimum": -9007199254740991,
-                              "maximum": 9007199254740991
-                            },
-                            "runId": {
-                              "nullable": true,
-                              "type": "integer",
-                              "minimum": -9007199254740991,
-                              "maximum": 9007199254740991
-                            },
-                            "kind": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            },
-                            "progress": {
-                              "type": "number"
-                            }
-                          },
-                          "required": [
-                            "jobId",
-                            "runId",
-                            "kind",
-                            "status",
-                            "progress"
-                          ],
-                          "additionalProperties": false
+                        "runId": {
+                          "nullable": true,
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "kind": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "progress": {
+                          "type": "number"
                         }
                       },
                       "required": [
-                        "type",
-                        "payload"
+                        "jobId",
+                        "runId",
+                        "kind",
+                        "status",
+                        "progress"
                       ],
                       "additionalProperties": false
                     },
                     {
                       "type": "object",
                       "properties": {
-                        "type": {
-                          "type": "string",
-                          "enum": [
-                            "run"
-                          ]
+                        "runId": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
                         },
-                        "payload": {
-                          "type": "object",
-                          "properties": {
-                            "runId": {
-                              "type": "integer",
-                              "minimum": -9007199254740991,
-                              "maximum": 9007199254740991
-                            },
-                            "status": {
-                              "type": "string"
-                            },
-                            "totalJobs": {
-                              "type": "integer",
-                              "minimum": -9007199254740991,
-                              "maximum": 9007199254740991
-                            },
-                            "completedJobs": {
-                              "type": "integer",
-                              "minimum": -9007199254740991,
-                              "maximum": 9007199254740991
-                            },
-                            "failedJobs": {
-                              "type": "integer",
-                              "minimum": -9007199254740991,
-                              "maximum": 9007199254740991
-                            }
-                          },
-                          "required": [
-                            "runId",
-                            "status",
-                            "totalJobs",
-                            "completedJobs",
-                            "failedJobs"
-                          ],
-                          "additionalProperties": false
+                        "status": {
+                          "type": "string"
+                        },
+                        "totalJobs": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "completedJobs": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "failedJobs": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
                         }
                       },
                       "required": [
-                        "type",
-                        "payload"
+                        "runId",
+                        "status",
+                        "totalJobs",
+                        "completedJobs",
+                        "failedJobs"
                       ],
                       "additionalProperties": false
                     },
                     {
                       "type": "object",
                       "properties": {
-                        "type": {
-                          "type": "string",
-                          "enum": [
-                            "readingPosition"
-                          ]
+                        "articleId": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
                         },
-                        "payload": {
-                          "type": "object",
-                          "properties": {
-                            "articleId": {
-                              "type": "integer",
-                              "minimum": -9007199254740991,
-                              "maximum": 9007199254740991
-                            },
-                            "updatedAt": {
-                              "type": "string",
-                              "format": "date-time",
-                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
-                            }
-                          },
-                          "required": [
-                            "articleId",
-                            "updatedAt"
-                          ],
-                          "additionalProperties": false
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
                         }
                       },
                       "required": [
-                        "type",
-                        "payload"
+                        "articleId",
+                        "updatedAt"
                       ],
                       "additionalProperties": false
                     }
@@ -1585,7 +1616,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/images/{hash}": {
@@ -1664,6 +1700,11 @@
             }
           }
         },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "hash",
@@ -1745,7 +1786,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
       },
       "patch": {
         "summary": "Set the cross-device current-article pointer",
@@ -1880,6 +1926,11 @@
             }
           }
         },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -2099,6 +2150,11 @@
             }
           }
         },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -2186,7 +2242,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
       }
     },
     "/device/pair": {
@@ -2201,7 +2262,7 @@
             "description": "Redirect to the native app's registered custom URL scheme."
           },
           "400": {
-            "description": "state is missing, or scheme is not an allowed scheme.",
+            "description": "state is missing, or scheme is not an allowed scheme -- a plain 400 with no JSON error body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2233,6 +2294,11 @@
             }
           }
         },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "state",
@@ -2267,7 +2333,7 @@
     "/webview-session": {
       "get": {
         "summary": "Exchange a one-time token for a real session cookie",
-        "description": "The `ManagementWebView` landing point: verifies the token minted by `POST /api/v1/auth/webview-session-token`, sets a real session cookie for that exact device session, and redirects to `next` (validated same-origin, default `/feeds`). Any missing, invalid, expired or already-used token falls back to `/login?next=...`, indistinguishable from a plain signed-out visit.",
+        "description": "The `ManagementWebView` landing point: verifies the token minted by `POST /api/v1/auth/webview-session-token`, sets a real session cookie for that exact device session, and redirects to `next` (validated same-origin, default `/feeds`). Any missing, invalid, expired or already-used token falls back to `/login?next=...`, indistinguishable from a plain signed-out visit.\n\n**Auth note:** the one-time token is passed as a `token` query parameter, not a header or cookie -- there is no standard OpenAPI security scheme for that, so it isn't reflected in this operation's `security`.",
         "tags": [
           "Auth & pairing"
         ],
@@ -2295,6 +2361,70 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/openapi.json": {
+      "get": {
+        "summary": "Fetch this OpenAPI document",
+        "description": "Returns the OpenAPI 3.1 document describing this entire API -- what `/api-docs` renders. Signed-in only, same as the rendered reference page.",
+        "tags": [
+          "Meta"
+        ],
+        "responses": {
+          "200": {
+            "description": "The OpenAPI 3.1 document as JSON."
+          },
+          "401": {
+            "description": "no valid session (redirects to /login).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "better-auth.session_token"
       }
     }
   }

@@ -13,9 +13,14 @@ const ApiReference = vi.fn(() => renderReference);
 vi.mock("@scalar/nextjs-api-reference", () => ({ ApiReference }));
 
 describe("GET /api-docs", () => {
-  it("configures Scalar with the generated OpenAPI document's URL", async () => {
+  it("configures Scalar with the generated OpenAPI document's URL and a pinned CDN version", async () => {
     await import("./route");
-    expect(ApiReference).toHaveBeenCalledWith({ url: "/api/v1/openapi.json" });
+    expect(ApiReference).toHaveBeenCalledWith({
+      url: "/api/v1/openapi.json",
+      cdn: expect.stringMatching(
+        /^https:\/\/cdn\.jsdelivr\.net\/npm\/@scalar\/api-reference@\d+\.\d+\.\d+$/,
+      ),
+    });
   });
 
   it("requires a signed-in caller before rendering the reference", async () => {

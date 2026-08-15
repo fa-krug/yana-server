@@ -1,5 +1,7 @@
 # API Documentation Implementation Plan
 
+**Amended after implementation.** Task 8 as written below specifies a `page.tsx`, `page.test.tsx`, a `UNLISTED_ROUTES` entry, and a `nav.apiDocs` catalog key. All four were superseded during execution: the pinned `@scalar/nextjs-api-reference@0.11.14` package exports a Route Handler factory, not a React component, so Task 8 shipped as `src/app/(app)/api-docs/route.ts` + `route.test.ts` instead, and the nav/catalog additions -- having no remaining reader once the page approach was dropped -- were added then removed in two follow-up fix rounds. See the design spec's own amendment note for the same story.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Generate an OpenAPI 3.1 document from a zod-schema registry describing every `/api/v1/**` route (plus the three flows a native client needs to reach it), commit it with a CI drift check, and render it as a browsable, signed-in-only in-app reference.

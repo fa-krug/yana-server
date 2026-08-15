@@ -87,6 +87,11 @@ client should always re-poll \`GET /api/v1/runs/{id}\` (or
 events missed while disconnected are not replayed. The server sends an SSE
 comment ping every 15 seconds to keep intermediary proxies from treating a
 quiet connection as dead; conforming SSE clients ignore comment lines.
+
+**The event type is carried in the SSE \`event:\` line, never in the JSON
+body.** Each \`data:\` frame is the bare payload only (job/run/reading-position
+fields, with no \`type\` discriminant) -- read which of the three event types
+it is from \`event:\`, not from the parsed JSON.
 `.trim(),
 };
 

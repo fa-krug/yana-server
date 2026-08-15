@@ -5,69 +5,83 @@ import { describe, expect, it } from "vitest";
 
 import { ENDPOINT_REGISTRY } from "./registry";
 
+const REPO_ROOT = path.resolve(__dirname, "../../../..");
+const API_V1_ROOT = path.join(REPO_ROOT, "src/app/api/v1");
+
+/** Converts a Next.js route file's directory path to an OpenAPI-style path template:
+ * `src/app/api/v1/articles/[id]/route.ts` -> `/api/v1/articles/{id}`. */
+function toApiPath(routeFile: string): string {
+  const rel = path
+    .relative(path.join(REPO_ROOT, "src/app"), routeFile)
+    .replace(/\/route\.ts$/, "")
+    .replace(/\[(\w+)\]/g, "{$1}");
+  return `/${rel}`;
+}
+
 /**
- * Every route this plan documents, as (method, path) pairs matching what
- * ENDPOINT_REGISTRY must declare. Hand-listed rather than derived from a glob
- * over HTTP verbs alone, because three of these are flow routes outside
- * /api/v1 (device/pair, webview-session-token, webview-session) -- see the
- * design spec's Goal section for why those three are in scope and nothing
- * else outside /api/v1 is.
+ * Walks the real `/api/v1/**` route tree and returns every (method, path) pair a route
+ * file actually exports -- so a new route is discovered automatically instead of relying
+ * on a hand-maintained list that a new file can silently bypass (the exact gap that let
+ * `src/app/api/v1/openapi.json/route.ts` ship with no registry entry and no failing test).
  */
-const EXPECTED: Array<{ method: string; path: string; file: string }> = [
-  { method: "GET", path: "/api/v1/feeds", file: "src/app/api/v1/feeds/route.ts" },
-  { method: "GET", path: "/api/v1/tags", file: "src/app/api/v1/tags/route.ts" },
-  { method: "GET", path: "/api/v1/articles/sync", file: "src/app/api/v1/articles/sync/route.ts" },
-  {
-    method: "PATCH",
-    path: "/api/v1/articles/{id}",
-    file: "src/app/api/v1/articles/[id]/route.ts",
-  },
-  {
-    method: "GET",
-    path: "/api/v1/articles/{id}/content",
-    file: "src/app/api/v1/articles/[id]/content/route.ts",
-  },
-  {
-    method: "POST",
-    path: "/api/v1/articles/{id}/reload",
-    file: "src/app/api/v1/articles/[id]/reload/route.ts",
-  },
-  { method: "POST", path: "/api/v1/aggregate", file: "src/app/api/v1/aggregate/route.ts" },
-  { method: "GET", path: "/api/v1/runs/{id}", file: "src/app/api/v1/runs/[id]/route.ts" },
-  { method: "GET", path: "/api/v1/jobs/events", file: "src/app/api/v1/jobs/events/route.ts" },
-  { method: "GET", path: "/api/v1/images/{hash}", file: "src/app/api/v1/images/[hash]/route.ts" },
-  {
-    method: "GET",
-    path: "/api/v1/reading-position",
-    file: "src/app/api/v1/reading-position/route.ts",
-  },
-  {
-    method: "PATCH",
-    path: "/api/v1/reading-position",
-    file: "src/app/api/v1/reading-position/route.ts",
-  },
-  { method: "POST", path: "/api/v1/ai/prompt", file: "src/app/api/v1/ai/prompt/route.ts" },
-  {
-    method: "POST",
-    path: "/api/v1/auth/webview-session-token",
-    file: "src/app/api/v1/auth/webview-session-token/route.ts",
-  },
+function discoverApiV1Routes(): Array<{ method: string; path: string; file: string }> {
+  const results: Array<{ method: string; path: string; file: string }> = [];
+  function walk(dir: string): void {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.name === "route.ts") {
+        const source = fs.readFileSync(full, "utf8");
+        const apiPath = toApiPath(full);
+        const relFile = path.relative(REPO_ROOT, full);
+        for (const method of ["GET", "POST", "PATCH", "DELETE"]) {
+          if (new RegExp(`export async function ${method}\\(`).test(source)) {
+            results.push({ method, path: apiPath, file: relFile });
+          }
+        }
+      }
+    }
+  }
+  walk(API_V1_ROOT);
+  return results;
+}
+
+/**
+ * The flow routes outside `/api/v1` that a native client needs to reach it -- hand-listed
+ * because they live outside the `/api/v1` tree this test otherwise discovers by walking the
+ * filesystem. See the design spec's Goal section for why these are in scope and nothing else
+ * outside `/api/v1` is. (`POST /api/v1/auth/webview-session-token` is the third flow route the
+ * design spec names, but its path already lives under `src/app/api/v1/**`, so
+ * `discoverApiV1Routes()` above finds it without help -- listing it here too would just be a
+ * duplicate.)
+ */
+const FLOW_ROUTES: Array<{ method: string; path: string; file: string }> = [
   { method: "GET", path: "/device/pair", file: "src/app/device/pair/route.ts" },
   { method: "GET", path: "/webview-session", file: "src/app/webview-session/route.ts" },
 ];
 
+/**
+ * Routes deliberately NOT documented in ENDPOINT_REGISTRY, with a reason each. Currently
+ * empty -- `openapi.json/route.ts` looked like a candidate (it's arguably meta rather than
+ * client-API surface) but was added to the registry instead of excluded here, since it's a
+ * real, reachable `/api/v1` route with no reason to hide it from the document it itself serves.
+ */
+const EXCLUDED_PATHS = new Set<string>([]);
+
+const EXPECTED = [...discoverApiV1Routes(), ...FLOW_ROUTES].filter(
+  (e) => !EXCLUDED_PATHS.has(`${e.method} ${e.path}`),
+);
+
 describe("ENDPOINT_REGISTRY completeness", () => {
-  it("every route file's exported HTTP methods exist in EXPECTED", () => {
-    const repoRoot = path.resolve(__dirname, "../../../..");
-    for (const { method, file } of EXPECTED) {
-      const source = fs.readFileSync(path.join(repoRoot, file), "utf8");
-      expect(source, `${file} should export ${method}`).toMatch(
-        new RegExp(`export async function ${method}\\(`),
-      );
-    }
+  it("discovered at least the routes this test previously hand-listed", () => {
+    // A floor, not an exact count -- guards against the walk silently finding nothing (e.g.
+    // a wrong root path) rather than pinning an exact number that has to be updated by hand
+    // every time a route is added, which is the exact problem this fix exists to remove.
+    expect(EXPECTED.length).toBeGreaterThanOrEqual(16);
   });
 
-  it("has a defineEndpoint() entry for every expected (method, path) pair", () => {
+  it("has a defineEndpoint() entry for every discovered (method, path) pair", () => {
     const declared = new Set(ENDPOINT_REGISTRY.map((e) => `${e.method} ${e.path}`));
     const missing = EXPECTED.filter((e) => !declared.has(`${e.method} ${e.path}`));
     expect(missing, `missing registry entries: ${JSON.stringify(missing)}`).toEqual([]);

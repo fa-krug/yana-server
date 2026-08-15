@@ -47,4 +47,56 @@ describe("buildOpenApiDocument", () => {
       expect(doc.info.description).toContain(code);
     }
   });
+
+  it("declares bearerAuth and cookieAuth security schemes", () => {
+    const doc = buildOpenApiDocument();
+    expect(doc.components.securitySchemes.bearerAuth).toEqual({ type: "http", scheme: "bearer" });
+    expect(doc.components.securitySchemes.cookieAuth).toEqual({
+      type: "apiKey",
+      in: "cookie",
+      name: "better-auth.session_token",
+    });
+  });
+
+  it("gives every operation a security field consistent with its registry auth value, or a one-time-token note", () => {
+    const doc = buildOpenApiDocument();
+    for (const endpoint of ENDPOINT_REGISTRY) {
+      const operation = doc.paths[endpoint.path][endpoint.method.toLowerCase()];
+      switch (endpoint.auth) {
+        case "bearer-or-cookie":
+        case "bearer-only":
+          expect(operation.security).toEqual([{ bearerAuth: [] }]);
+          break;
+        case "session-cookie":
+          expect(operation.security).toEqual([{ cookieAuth: [] }]);
+          break;
+        case "none":
+          expect(operation.security).toEqual([]);
+          break;
+        case "one-time-token":
+          expect(operation.security).toBeUndefined();
+          expect(operation.description).toMatch(/query parameter/);
+          break;
+      }
+    }
+  });
+
+  it("carries the two registered examples through into the document", () => {
+    const doc = buildOpenApiDocument();
+
+    const syncOp = doc.paths["/api/v1/articles/sync"].get;
+    const syncExamples = syncOp.responses["200"].content?.["application/json"].examples;
+    expect(syncExamples?.default.value).toEqual({
+      new: [],
+      updated: [],
+      removed: [],
+      nextCursor: "eyJuZXdQb3MiOlswLDBdfQ",
+    });
+
+    const patchOp = doc.paths["/api/v1/articles/{id}"].patch;
+    const patchRequestExamples = patchOp.requestBody?.content["application/json"].examples;
+    expect(patchRequestExamples?.default.value).toEqual({ starred: true });
+    const patchResponseExamples = patchOp.responses["200"].content?.["application/json"].examples;
+    expect(patchResponseExamples?.default.value).toMatchObject({ id: 1, starred: true });
+  });
 });
