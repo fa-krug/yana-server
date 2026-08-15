@@ -4,7 +4,7 @@ import { publishUserEvent } from "../api/events";
 import { getDb, writeTransaction } from "../db/client";
 import { notifyJobFailure } from "../email/error-notifications";
 import { articles, feeds, jobLogs, jobs, runs, users } from "../db/schema";
-import type { Job, JobLog, Run } from "../db/schema";
+import type { Job, JobLog, JobStatus, Run } from "../db/schema";
 import { publishJobLog, publishJobTerminal } from "./log-bus";
 
 export interface EnqueueOptions {
@@ -496,7 +496,10 @@ export function listJobs(options: ListJobsOptions = {}): { jobs: JobWithOwner[];
       conditions.push(eq(jobs.kind, options.kind));
     }
     if (options.status) {
-      conditions.push(eq(jobs.status, options.status));
+      // `options.status` comes from a URL filter param (parseListParams()), not
+      // a caller who already knows it's one of JobStatus -- an unrecognized value
+      // just matches no rows, same as before the column was typed.
+      conditions.push(eq(jobs.status, options.status as JobStatus));
     }
     if (options.userId) {
       conditions.push(eq(jobs.userId, options.userId));

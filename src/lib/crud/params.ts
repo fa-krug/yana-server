@@ -40,8 +40,8 @@ function first(value: string | string[] | undefined): string {
  * looks up hrefs it rebuilds from the pathname alone, so a query-bearing href never matches
  * and the breadcrumb prints the raw segment ("articles") instead of its translated label.
  * `src/components/app-sidebar.tsx` matches the active item with
- * `pathname.startsWith(item.href)`, which a query string never satisfies either, so the
- * item never highlights.
+ * `isNavItemActive()`, which compares `pathname` alone and never sees the query string
+ * either, so the item never highlights.
  *
  * **The honest state: a feature's own `queries.ts` already owns the default ordering**, and
  * that already covers the common case for free. `listUsers()` in `src/lib/users/queries.ts`
