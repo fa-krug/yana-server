@@ -52,7 +52,7 @@ export function renderInlineRun(run: ArticleInlineRun, index: number): React.Rea
     );
   }
 
-  return <React.Fragment key={run.id ?? index}>{content}</React.Fragment>;
+  return <React.Fragment key={index}>{content}</React.Fragment>;
 }
 
 export function BlockNode({ node }: { node: BlockNodeType }) {

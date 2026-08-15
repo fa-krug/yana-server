@@ -507,4 +507,19 @@ describe("block storage", () => {
     expect(names).toContain("article_blocks_embed_thumbnail_ref_idx");
     expect(names).not.toContain("article_blocks_embed_provider_idx");
   });
+
+  it("refuses two runs at the same (blockId, position)", async () => {
+    await storage.writeBlocks(articleId, TREE);
+
+    const firstRun = client.getDb().select().from(schema.articleInlineRuns).all()[0];
+    expect(firstRun).toBeDefined();
+
+    expect(() =>
+      client.writeTransaction((tx) => {
+        tx.insert(schema.articleInlineRuns)
+          .values({ blockId: firstRun.blockId, position: firstRun.position, text: "dup" })
+          .run();
+      }),
+    ).toThrow(/UNIQUE|PRIMARY/i);
+  });
 });

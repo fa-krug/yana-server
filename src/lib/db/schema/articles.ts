@@ -4,6 +4,7 @@ import {
   check,
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -168,7 +169,6 @@ export const articleBlocks = sqliteTable(
 export const articleInlineRuns = sqliteTable(
   "article_inline_runs",
   {
-    id: integer("id").primaryKey({ autoIncrement: true }),
     blockId: integer("block_id")
       .notNull()
       .references(() => articleBlocks.id, { onDelete: "cascade" }),
@@ -181,7 +181,10 @@ export const articleInlineRuns = sqliteTable(
     link: text("link").notNull().default(""),
   },
   (table) => [
-    index("article_inline_runs_block_idx").on(table.blockId, table.position),
+    // (blockId, position) is the natural key: nothing FKs into this table, and
+    // every read orders by exactly these columns. The PK also serves the index
+    // the dropped article_inline_runs_block_idx used to provide.
+    primaryKey({ columns: [table.blockId, table.position] }),
     check("article_inline_runs_position_positive", sql`"position" >= 0`),
   ],
 );

@@ -33,7 +33,6 @@ describe("BlockNode", () => {
       kind: "paragraph",
       runs: [
         {
-          id: 1,
           blockId: 1,
           position: 0,
           text: "Plain text ",
@@ -44,7 +43,6 @@ describe("BlockNode", () => {
           link: "",
         },
         {
-          id: 2,
           blockId: 1,
           position: 1,
           text: "bold text",
@@ -55,7 +53,6 @@ describe("BlockNode", () => {
           link: "",
         },
         {
-          id: 3,
           blockId: 1,
           position: 2,
           text: "italic text",
@@ -66,7 +63,6 @@ describe("BlockNode", () => {
           link: "",
         },
         {
-          id: 4,
           blockId: 1,
           position: 3,
           text: "code text",
@@ -77,7 +73,6 @@ describe("BlockNode", () => {
           link: "",
         },
         {
-          id: 5,
           blockId: 1,
           position: 4,
           text: "deleted text",
@@ -88,7 +83,6 @@ describe("BlockNode", () => {
           link: "",
         },
         {
-          id: 6,
           blockId: 1,
           position: 5,
           text: "link text",
@@ -128,7 +122,6 @@ describe("BlockNode", () => {
       level: 2,
       runs: [
         {
-          id: 1,
           blockId: 1,
           position: 0,
           text: "Heading 2",
@@ -166,7 +159,6 @@ describe("BlockNode", () => {
               kind: "paragraph",
               runs: [
                 {
-                  id: 10,
                   blockId: 20,
                   position: 0,
                   text: "First item",
@@ -189,7 +181,6 @@ describe("BlockNode", () => {
               kind: "paragraph",
               runs: [
                 {
-                  id: 11,
                   blockId: 30,
                   position: 0,
                   text: "Second item",
@@ -228,7 +219,6 @@ describe("BlockNode", () => {
           kind: "paragraph",
           runs: [
             {
-              id: 2,
               blockId: 2,
               position: 0,
               text: "Nested paragraph inside quote",
@@ -259,7 +249,6 @@ describe("BlockNode", () => {
           kind: "paragraph",
           runs: [
             {
-              id: 20,
               blockId: 2,
               position: 0,
               text: "quoted text",
@@ -292,7 +281,6 @@ describe("BlockNode", () => {
               kind: "paragraph",
               runs: [
                 {
-                  id: 50,
                   blockId: 5,
                   position: 0,
                   text: "item text",
@@ -320,7 +308,6 @@ describe("BlockNode", () => {
       imageRef: "yana-img://0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       runs: [
         {
-          id: 1,
           blockId: 1,
           position: 0,
           text: "Image Caption",
@@ -444,7 +431,6 @@ describe("BlockTree", () => {
         kind: "paragraph",
         runs: [
           {
-            id: 1,
             blockId: 1,
             position: 0,
             text: "Hello World",
