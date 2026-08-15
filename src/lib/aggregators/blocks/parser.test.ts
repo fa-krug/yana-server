@@ -121,6 +121,28 @@ describe("parseBlocks", () => {
     expect(code.text).toBe("function add(a, b) {\n  return a + b;\n}");
   });
 
+  it("extracts the language from a language- class on pre > code", () => {
+    const blocks = parseBlocks(`<pre><code class="language-ts">const x = 1;</code></pre>`);
+    expect(blocks).toHaveLength(1);
+    const code = blocks[0] as CodeBlock;
+    expect(code.kind).toBe("code_block");
+    expect(code.language).toBe("ts");
+  });
+
+  it("accepts the short lang- prefix and ignores unrelated classes", () => {
+    const blocks = parseBlocks(`<pre><code class="hljs lang-python numbered">x = 1</code></pre>`);
+    const code = blocks[0] as CodeBlock;
+    expect(code.language).toBe("python");
+  });
+
+  it("leaves language empty when pre has no code class", () => {
+    const blocks = parseBlocks(`<pre><code>plain</code></pre>`);
+    expect((blocks[0] as CodeBlock).language).toBe("");
+
+    const bare = parseBlocks(`<pre>no code element</pre>`);
+    expect((bare[0] as CodeBlock).language).toBe("");
+  });
+
   it("parses divider hr tags", () => {
     const html = `<p>Before</p><hr><p>After</p>`;
     const blocks = parseBlocks(html);
