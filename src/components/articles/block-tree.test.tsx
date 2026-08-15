@@ -160,35 +160,47 @@ describe("BlockNode", () => {
         makeBlock({
           id: 2,
           kind: "list_item",
-          runs: [
-            {
-              id: 10,
-              blockId: 2,
-              position: 0,
-              text: "First item",
-              bold: false,
-              italic: false,
-              code: false,
-              strikethrough: false,
-              link: "",
-            },
+          children: [
+            makeBlock({
+              id: 20,
+              kind: "paragraph",
+              runs: [
+                {
+                  id: 10,
+                  blockId: 20,
+                  position: 0,
+                  text: "First item",
+                  bold: false,
+                  italic: false,
+                  code: false,
+                  strikethrough: false,
+                  link: "",
+                },
+              ],
+            }),
           ],
         }),
         makeBlock({
           id: 3,
           kind: "list_item",
-          runs: [
-            {
-              id: 11,
-              blockId: 3,
-              position: 0,
-              text: "Second item",
-              bold: false,
-              italic: false,
-              code: false,
-              strikethrough: false,
-              link: "",
-            },
+          children: [
+            makeBlock({
+              id: 30,
+              kind: "paragraph",
+              runs: [
+                {
+                  id: 11,
+                  blockId: 30,
+                  position: 0,
+                  text: "Second item",
+                  bold: false,
+                  italic: false,
+                  code: false,
+                  strikethrough: false,
+                  link: "",
+                },
+              ],
+            }),
           ],
         }),
       ],
@@ -207,22 +219,9 @@ describe("BlockNode", () => {
     expect(unC.querySelector("ul")).not.toBeNull();
   });
 
-  it("renders blockquote with runs and children", () => {
+  it("renders blockquote with children", () => {
     const bqNode = makeBlock({
       kind: "blockquote",
-      runs: [
-        {
-          id: 1,
-          blockId: 1,
-          position: 0,
-          text: "Quote text",
-          bold: false,
-          italic: false,
-          code: false,
-          strikethrough: false,
-          link: "",
-        },
-      ],
       children: [
         makeBlock({
           id: 2,
@@ -247,8 +246,72 @@ describe("BlockNode", () => {
     const { container } = render(<BlockNodeComponent node={bqNode} />);
     const bq = container.querySelector("blockquote");
     expect(bq).not.toBeNull();
-    expect(bq?.textContent).toContain("Quote text");
     expect(bq?.textContent).toContain("Nested paragraph inside quote");
+  });
+
+  it("renders blockquote and list_item content from child blocks", () => {
+    const bqNode = makeBlock({
+      id: 1,
+      kind: "blockquote",
+      children: [
+        makeBlock({
+          id: 2,
+          kind: "paragraph",
+          runs: [
+            {
+              id: 20,
+              blockId: 2,
+              position: 0,
+              text: "quoted text",
+              bold: false,
+              italic: false,
+              code: false,
+              strikethrough: false,
+              link: "",
+            },
+          ],
+        }),
+      ],
+    });
+
+    const { container: bqContainer } = render(<BlockNodeComponent node={bqNode} />);
+    expect(bqContainer.querySelector("blockquote")).not.toBeNull();
+    expect(screen.getByText("quoted text")).not.toBeNull();
+
+    const listNode = makeBlock({
+      id: 3,
+      kind: "list",
+      ordered: false,
+      children: [
+        makeBlock({
+          id: 4,
+          kind: "list_item",
+          children: [
+            makeBlock({
+              id: 5,
+              kind: "paragraph",
+              runs: [
+                {
+                  id: 50,
+                  blockId: 5,
+                  position: 0,
+                  text: "item text",
+                  bold: false,
+                  italic: false,
+                  code: false,
+                  strikethrough: false,
+                  link: "",
+                },
+              ],
+            }),
+          ],
+        }),
+      ],
+    });
+
+    const { container: listContainer } = render(<BlockNodeComponent node={listNode} />);
+    expect(listContainer.querySelector("ul")).not.toBeNull();
+    expect(screen.getByText("item text")).not.toBeNull();
   });
 
   it("renders image replacing yana-img:// protocol and renders caption if present", () => {

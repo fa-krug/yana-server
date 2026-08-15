@@ -90,24 +90,18 @@ export function BlockNode({ node }: { node: BlockNodeType }) {
     case "list_item":
       return (
         <li>
-          {node.runs &&
-            node.runs.length > 0 &&
-            node.runs.map((run, idx) => renderInlineRun(run, idx))}
-          {node.children &&
-            node.children.length > 0 &&
-            node.children.map((child) => <BlockNode key={child.id} node={child} />)}
+          {node.children?.map((child) => (
+            <BlockNode key={child.id} node={child} />
+          ))}
         </li>
       );
 
     case "blockquote":
       return (
         <blockquote className="border-l-4 border-muted pl-4 italic space-y-2">
-          {node.runs && node.runs.length > 0 && (
-            <p>{node.runs.map((run, idx) => renderInlineRun(run, idx))}</p>
-          )}
-          {node.children &&
-            node.children.length > 0 &&
-            node.children.map((child) => <BlockNode key={child.id} node={child} />)}
+          {node.children?.map((child) => (
+            <BlockNode key={child.id} node={child} />
+          ))}
         </blockquote>
       );
 
