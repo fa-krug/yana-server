@@ -526,7 +526,14 @@ export function ProviderSectionShell({
   saveControl,
   testControl,
   removeControl,
-  onSubmit,
+  // Optional, and defaulted here rather than by the caller: `ai/page.tsx`'s
+  // Suspense fallback and `ai/loading.tsx` both render this shell from a
+  // Server Component, which cannot pass a function prop into a Client
+  // Component (it isn't a Server Action, so React has nothing to serialize it
+  // as). Defaulting inside this "use client" module keeps the function
+  // entirely on the client, so neither fallback needs an `onSubmit` at all --
+  // the same fix `YoutubeSectionShell` already carries.
+  onSubmit = (event) => event.preventDefault(),
 }: {
   statusBadge: ReactNode;
   providerControl: ReactNode;
@@ -538,7 +545,7 @@ export function ProviderSectionShell({
   saveControl: ReactNode;
   testControl: ReactNode;
   removeControl: ReactNode;
-  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+  onSubmit?: React.FormEventHandler<HTMLFormElement>;
 }) {
   const t = useTranslations("ai");
 

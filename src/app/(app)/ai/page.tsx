@@ -21,7 +21,10 @@ import { getAiStatus } from "@/lib/ai/queries";
  * because that is the common case once an instance is configured; the
  * base-URL field and the remove footer stay absent, since neither is
  * universal even among configured providers. Nothing here is submitted, so
- * `onSubmit` is a no-op on both shells.
+ * both shells take their default no-op `onSubmit`. It is deliberately omitted
+ * rather than passed as a function value: this is a Server Component, and a
+ * closure it creates cannot cross into the Client Component shells below (it
+ * isn't a Server Action) -- the shells default it themselves instead.
  */
 function SectionsFallback() {
   const advancedControls = Object.fromEntries(
@@ -41,12 +44,10 @@ function SectionsFallback() {
         saveControl={<Skeleton className="h-9 w-24" />}
         testControl={<Skeleton className="h-9 w-24" />}
         removeControl={null}
-        onSubmit={(event) => event.preventDefault()}
       />
       <AdvancedSectionShell
         controls={advancedControls}
         saveControl={<Skeleton className="h-9 w-24" />}
-        onSubmit={(event) => event.preventDefault()}
       />
     </div>
   );

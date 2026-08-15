@@ -532,6 +532,27 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   so it needs no `connection()` call — see the `connection()` bullet, which
   lists it.
 
+  **A fallback is a Server Component, so it may not hand a Client Component a
+  function — and getting this wrong fails only on a cold start.** Every
+  `<Suspense fallback>` and every `loading.tsx` here renders the real section's
+  `…Shell`, and those shells are `"use client"`. React has to serialize each
+  prop across the RSC boundary and a closure is not serializable (only a Server
+  Action is), so
+  `onSubmit={(event) => event.preventDefault()}` throws
+  `Event handlers cannot be passed to Client Component props` — replacing the
+  whole page with `(app)/error.tsx`. It is invisible in normal use because a
+  fallback is only committed when the read is slow enough to suspend: the first
+  visit after a restart broke, every reload after it looked perfect. `/ai`,
+  `/account` and `/integrations` all shipped it. **The fix is always the same:
+  the shell declares `onSubmit` optional and defaults it to the no-op inside
+  its own `"use client"` module, and the fallback omits the prop entirely**
+  (`YoutubeSectionShell` in `src/components/integrations/youtube-section.tsx`
+  is the reference). `tsc` cannot see the hazard and no jsdom test can either —
+  testing-library never runs the flight serializer — so the guard is
+  `src/app/server-component-props.test.ts`, a specifier-style tripwire that
+  fails on any `on[A-Z]…={` prop in a file under `src/app/` that is not itself
+  a Client Component.
+
 - **Identity comes from the session: `currentUser()`, `requireUser()`,
   `requireAdmin()`, `requireUserFreshRole()` and `currentUserId()` in
   `src/lib/auth/session.ts`.**

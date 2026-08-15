@@ -15,10 +15,13 @@ import { Skeleton } from "@/components/ui/skeleton";
  * the same shape `ffa29204` introduced as `SectionsFallback` for later
  * re-fetches -- up to the route level so it is shown on the very first
  * navigation too.
+ *
+ * Both shells take their default no-op `onSubmit` rather than being handed
+ * one: this is a Server Component, and a closure it creates cannot cross into
+ * a Client Component. See the fallback's doc comment in `./page.tsx`.
  */
 export default async function Loading() {
   const t = await getTranslations("integrations");
-  const noopSubmit = (event: React.FormEvent<HTMLFormElement>) => event.preventDefault();
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -28,7 +31,6 @@ export default async function Loading() {
       </div>
       <div className="space-y-6">
         <YoutubeSectionShell
-          onSubmit={noopSubmit}
           statusControl={<Skeleton className="h-5 w-16" />}
           apiKeyControl={<Skeleton className="h-9 w-full" />}
           apiKeyHintControl={<Skeleton className="h-4 w-48" />}
@@ -37,7 +39,6 @@ export default async function Loading() {
           removeControl={null}
         />
         <RedditSectionShell
-          onSubmit={noopSubmit}
           statusControl={<Skeleton className="h-5 w-16" />}
           clientIdControl={<Skeleton className="h-9 w-full" />}
           clientSecretControl={<Skeleton className="h-9 w-full" />}
