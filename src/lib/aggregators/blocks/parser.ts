@@ -209,6 +209,37 @@ function recoverableMedia($: cheerio.CheerioAPI, scanned: Element): Element[] {
   return elements.filter((el) => !hasDroppedAncestor(el, scanned));
 }
 
+/**
+ * An embed's preview image, taken from the element's `poster`.
+ *
+ * On `<video>` that is the standard attribute. On `<audio>` and `<iframe>` it
+ * is not valid HTML and is only ever written by *our own* header builders
+ * (`buildHeaderFromStreams`/`buildHeaderFromEmbedCode` in
+ * `sites/tagesschau/media.ts`) as a private carrier: an `<audio>` has nowhere
+ * standard to hold a preview image, and this HTML is never rendered by a
+ * browser -- it exists only to be parsed into blocks here (there is no
+ * `articles.content` column; see `db/schema/articles.ts`). Without it a poster
+ * had to be emitted as a *sibling* `<img>`, which became a detached image block
+ * and left the embed's `thumbnailRef` empty -- a preview image and a bare play
+ * button rendered as two unrelated things. (The YouTube facade solves the same
+ * problem differently, with a nested `<img>` that `facadeThumbnail()` reads;
+ * that shape needs a container class to pair the two, which `poster` does not.)
+ *
+ * `poster` on a body `<iframe>` is therefore always scraped, attacker-supplied
+ * markup, so the scheme is checked. `yana-img://` refs pass through the same
+ * way `resolveUrl()` lets them: `isSafeUrl()` only knows http/https/mailto.
+ */
+function posterRef(element: Element): string {
+  const poster = getAttr(element, "poster");
+  if (!poster) {
+    return "";
+  }
+  if (poster.startsWith(IMAGE_REF_SCHEME)) {
+    return poster;
+  }
+  return isSafeUrl(poster) ? poster : "";
+}
+
 function videoEmbed($: cheerio.CheerioAPI, element: Element): EmbedBlock | null {
   const sourceEl = $(element).find("source").get(0) as Element | undefined;
   let src = sourceEl ? getAttr(sourceEl, "src") : "";
@@ -222,7 +253,7 @@ function videoEmbed($: cheerio.CheerioAPI, element: Element): EmbedBlock | null 
     kind: "embed",
     provider: "video",
     externalUrl: src,
-    thumbnailRef: getAttr(element, "poster"),
+    thumbnailRef: posterRef(element),
     title: "",
   };
 }
@@ -240,7 +271,7 @@ function audioEmbed($: cheerio.CheerioAPI, element: Element): EmbedBlock | null 
     kind: "embed",
     provider: "generic",
     externalUrl: src,
-    thumbnailRef: "",
+    thumbnailRef: posterRef(element),
     title: "",
   };
 }
@@ -254,7 +285,7 @@ function iframeEmbed(element: Element): EmbedBlock | null {
     kind: "embed",
     provider: "generic",
     externalUrl: src,
-    thumbnailRef: "",
+    thumbnailRef: posterRef(element),
     title: "",
   };
 }

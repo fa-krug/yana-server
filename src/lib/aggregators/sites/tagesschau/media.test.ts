@@ -124,4 +124,58 @@ describe("TagesschauAggregator media header image", () => {
     expect(imageRow).toBeDefined();
     expect(imageRow?.contentType).toMatch(/^image\//);
   });
+
+  /**
+   * Regression test for a second bug in the same header: the poster used to be
+   * emitted as a `<div class="media-image"><img></div>` *beside* the
+   * `<audio>`, which `parseBlocks()` turned into two unrelated blocks -- an
+   * image, and then an embed whose `thumbnailRef` was empty. The native client
+   * renders a thumbnail-less embed as a bare play button on black, so a
+   * Tagesschau audio report showed its preview image and its play button as
+   * two separate things (reported from a TestFlight build). The poster belongs
+   * *on* the player, the same way the video arm has always put it in
+   * `poster=`.
+   */
+  it("carries the poster on the audio embed instead of as a separate image block", async () => {
+    const posterBytes = await sharp({
+      create: { width: 40, height: 40, channels: 3, background: { r: 10, g: 20, b: 30 } },
+    })
+      .png()
+      .toBuffer();
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(new Uint8Array(posterBytes), {
+        status: 200,
+        headers: { "Content-Type": "image/png" },
+      }),
+    );
+
+    const { parseBlocks } = await import("../../blocks/parser");
+
+    const agg = new TagesschauAggregator({
+      identifier: "https://www.tagesschau.de/infoservices/alle-meldungen-100~rss2.xml",
+      dailyLimit: 20,
+    });
+
+    const article: RawArticle = {
+      name: "Test",
+      identifier: "https://www.tagesschau.de/inland/test-100.html",
+      raw_content: AUDIO_PAGE_HTML,
+      content: "",
+      date: new Date(),
+    };
+
+    const extracted = agg.extractContent(AUDIO_PAGE_HTML, article);
+    const processed = await agg.processContent(extracted, article);
+    const blocks = parseBlocks(processed, article.identifier);
+
+    expect(blocks.filter((b) => b.kind === "image")).toHaveLength(0);
+
+    const embeds = blocks.filter((b) => b.kind === "embed");
+    expect(embeds).toHaveLength(1);
+    expect(embeds[0]).toMatchObject({
+      externalUrl: "https://example.com/episode.mp3",
+      thumbnailRef: expect.stringMatching(/^yana-img:\/\/[0-9a-f]{64}$/),
+    });
+  });
 });
