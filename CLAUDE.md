@@ -1816,10 +1816,29 @@ already-used token falls back to `/login`, indistinguishable from a plain
 signed-out visit. **This route is public in `src/proxy.ts`'s
 `PUBLIC_PREFIXES`** — see the proxy bullet above for why: the whole point
 is that the caller has no session cookie yet, so gating it behind one is a
-contradiction, not an oversight. **The redirect response itself is
-built with `new Response(null, { status, headers })`, never
-`Response.redirect()`**, because `Response.redirect()`'s headers are
-immutable and a `Set-Cookie` cannot be appended onto one afterward.
+contradiction, not an oversight. **Its `Location` header is a _relative_
+reference (`/feeds`, `/login?next=…`), never an absolute URL, and that is
+load-bearing.** It originally built one with `new URL(path, request.url)`,
+which reads the origin off the incoming request — but in production this is
+a standalone Next server listening on `0.0.0.0:3000` behind a reverse
+proxy, so `request.url` is that internal address rather than the public
+origin the client dialled. `ManagementWebView` was therefore redirected to
+`http://0.0.0.0:3000/feeds`, which WebKit refuses outright as restricted
+network access (`WebKitErrorDomain 103`), killing the bootstrap _after_ the
+one-time token had been minted and burned. A relative `Location` is
+resolved by the client against the origin it actually requested (RFC 9110
+§10.2.2), so nothing depends on `Host`/`X-Forwarded-Proto` surviving the
+proxy — which is why the fix is here and not in the proxy config.
+`safeNextPath()` already guarantees the path never starts with `//`, so it
+cannot re-parse as a network-path reference and escape the origin; that
+guarantee is what makes emitting it raw safe, and
+`route.test.ts`'s "never derives the redirect origin from the request URL"
+case drives a `http://0.0.0.0:3000/...` request through `GET()` so a
+regression fails a test instead of only failing on a phone.
+**The redirect response itself is built with
+`new Response(null, { status, headers })`, never `Response.redirect()`**,
+because that helper requires an absolute URL _and_ returns immutable
+headers, so a `Set-Cookie` could not be appended onto one afterward either.
 Revoking a device's session invalidates its web session too, but not
 instantly: Better Auth's 5-minute signed session-cookie cache (see the
 `cookieCache` comment in `src/lib/auth/server.ts`) can keep serving a

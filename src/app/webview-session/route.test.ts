@@ -41,8 +41,33 @@ describe("GET /webview-session", () => {
     );
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe("https://example.com/feeds");
+    expect(response.headers.get("location")).toBe("/feeds");
     expect(response.headers.getSetCookie().length).toBeGreaterThan(0);
+  });
+
+  // Regression: behind a reverse proxy the standalone server sees its own
+  // listening address as `request.url` (`http://0.0.0.0:3000/...`), so an
+  // absolute `Location` built from it sent `ManagementWebView` to
+  // `http://0.0.0.0:3000/feeds` -- which WebKit refuses outright
+  // (WebKitErrorDomain 103, "restricted network access not allowed").
+  it("never derives the redirect origin from the request URL", async () => {
+    const owner = await createUserWithPassword({
+      email: "wv-owner-8@example.com",
+      password: "correct horse battery staple",
+      name: "WV Owner",
+    });
+    const { token: sessionToken } = await createDeviceSession(owner.id, "Test Device");
+    const { token } = await mintWebviewSessionToken(sessionToken);
+
+    const ok = await GET(
+      new Request(`http://0.0.0.0:3000/webview-session?token=${token}&next=/feeds`),
+    );
+    expect(ok.headers.get("location")).toBe("/feeds");
+
+    const failed = await GET(
+      new Request("http://0.0.0.0:3000/webview-session?token=nope&next=/feeds"),
+    );
+    expect(failed.headers.get("location")).toBe("/login?next=%2Ffeeds");
   });
 
   it("redirects to /login on an invalid token", async () => {
@@ -51,7 +76,7 @@ describe("GET /webview-session", () => {
     );
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe("https://example.com/login?next=%2Ffeeds");
+    expect(response.headers.get("location")).toBe("/login?next=%2Ffeeds");
     expect(response.headers.getSetCookie().length).toBe(0);
   });
 
@@ -59,7 +84,7 @@ describe("GET /webview-session", () => {
     const response = await GET(new Request("https://example.com/webview-session"));
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe("https://example.com/login?next=%2Ffeeds");
+    expect(response.headers.get("location")).toBe("/login?next=%2Ffeeds");
   });
 
   it("cannot be used to redirect off-site via an absolute next", async () => {
@@ -77,7 +102,7 @@ describe("GET /webview-session", () => {
       ),
     );
 
-    expect(response.headers.get("location")).toBe("https://example.com/feeds");
+    expect(response.headers.get("location")).toBe("/feeds");
   });
 
   it("cannot be used to redirect off-site via a protocol-relative next", async () => {
@@ -95,7 +120,7 @@ describe("GET /webview-session", () => {
       ),
     );
 
-    expect(response.headers.get("location")).toBe("https://example.com/feeds");
+    expect(response.headers.get("location")).toBe("/feeds");
   });
 
   it("cannot be used to redirect off-site via a backslash that the URL parser normalizes to a slash", async () => {
@@ -113,7 +138,7 @@ describe("GET /webview-session", () => {
       ),
     );
 
-    expect(response.headers.get("location")).toBe("https://example.com/feeds");
+    expect(response.headers.get("location")).toBe("/feeds");
   });
 
   it("cannot be used to redirect off-site via an embedded tab that the URL parser strips", async () => {
@@ -131,7 +156,7 @@ describe("GET /webview-session", () => {
       ),
     );
 
-    expect(response.headers.get("location")).toBe("https://example.com/feeds");
+    expect(response.headers.get("location")).toBe("/feeds");
   });
 
   it("cannot be used to redirect off-site via a same-origin absolute next whose pathname is a network-path reference", async () => {
@@ -150,10 +175,14 @@ describe("GET /webview-session", () => {
     );
 
     const location = response.headers.get("location");
-    // The resolved target keeps `example.com` as its origin -- the embedded
+    // `Location` is a relative reference, so the browser resolves it against
+    // the page's own origin -- which must stay `example.com`. The embedded
     // "evil.example.com" segment, if present at all, must land inside the
     // same-origin path, never let the browser navigate to a different host.
-    expect(new URL(location!).origin).toBe("https://example.com");
+    // (A leading "//" here would re-parse as a network-path reference and
+    // escape the origin, which is precisely what `safeNextPath()` refuses.)
+    expect(location!.startsWith("//")).toBe(false);
+    expect(new URL(location!, "https://example.com").origin).toBe("https://example.com");
   });
 
   it("refuses /login as a next target, falling back to this route's own default", async () => {
@@ -169,6 +198,6 @@ describe("GET /webview-session", () => {
       new Request(`https://example.com/webview-session?token=${token}&next=/login`),
     );
 
-    expect(response.headers.get("location")).toBe("https://example.com/feeds");
+    expect(response.headers.get("location")).toBe("/feeds");
   });
 });
