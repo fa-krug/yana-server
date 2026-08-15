@@ -484,6 +484,19 @@ describe("block storage", () => {
     expect(loaded).toEqual(tree);
   });
 
+  it("threads the article's own id onto every row at every depth", async () => {
+    await storage.writeBlocks(articleId, TREE);
+
+    const rows = client.getDb().select().from(schema.articleBlocks).all();
+
+    // The fixture nests three levels deep (list -> list_item -> list), so this
+    // exercises the threading, not just the root insert.
+    expect(rows.some((row) => row.parentId !== null)).toBe(true);
+    for (const row of rows) {
+      expect(row.articleId).toBe(articleId);
+    }
+  });
+
   it("indexes embedThumbnailRef for the images ownership query, not embedProvider", () => {
     const names = raw(client.getDb())
       .prepare(
