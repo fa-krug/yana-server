@@ -9,7 +9,8 @@
     "integrations": "Integrationen",
     "ai": "KI",
     "jobs": "Aufgaben",
-    "account": "Konto"
+    "account": "Konto",
+    "apiDocs": "API-Dokumentation"
   },
   "jobs": {
     "title": "Aufgaben",
@@ -341,7 +342,12 @@
       "days": "Tage",
       "retentionRange": "Die Aufbewahrung muss zwischen 1 und 3650 Tagen liegen."
     },
-    "about": { "title": "Über", "source": "Quellcode", "issues": "Problem melden" },
+    "about": {
+      "title": "Über",
+      "source": "Quellcode",
+      "issues": "Problem melden",
+      "apiDocs": "API-Dokumentation"
+    },
     "sessionEnded": "Deine Sitzung ist beendet. Melde dich erneut an, um fortzufahren.",
     "requestFailed": "Der Server hat nicht geantwortet. Prüfe deine Verbindung und versuche es erneut.",
     "saved": "Einstellungen gespeichert",

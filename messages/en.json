@@ -9,7 +9,8 @@
     "integrations": "Integrations",
     "ai": "AI",
     "jobs": "Jobs",
-    "account": "Account"
+    "account": "Account",
+    "apiDocs": "API Docs"
   },
   "jobs": {
     "title": "Jobs",
@@ -341,7 +342,12 @@
       "days": "days",
       "retentionRange": "Article retention must be between 1 and 3650 days."
     },
-    "about": { "title": "About", "source": "Source code", "issues": "Report an issue" },
+    "about": {
+      "title": "About",
+      "source": "Source code",
+      "issues": "Report an issue",
+      "apiDocs": "API documentation"
+    },
     "sessionEnded": "Your session ended. Sign in again to continue.",
     "requestFailed": "The server did not answer. Check your connection and try again.",
     "saved": "Settings saved",

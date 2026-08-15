@@ -47,6 +47,7 @@
   "dependencies": {
     "@base-ui/react": "1.6.0",
     "@better-auth/passkey": "1.6.25",
+    "@scalar/nextjs-api-reference": "0.11.14",
     "better-auth": "1.6.25",
     "better-sqlite3": "13.0.2",
     "cheerio": "^1.2.0",
