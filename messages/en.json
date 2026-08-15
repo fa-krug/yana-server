@@ -9,8 +9,7 @@
     "integrations": "Integrations",
     "ai": "AI",
     "jobs": "Jobs",
-    "account": "Account",
-    "apiDocs": "API Docs"
+    "account": "Account"
   },
   "jobs": {
     "title": "Jobs",
