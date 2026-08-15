@@ -231,15 +231,19 @@ describe("dashboard queries", () => {
       expect(stats.activeJobs).toBe(3);
     });
 
-    it("excludes terminal job statuses", async () => {
+    it("excludes terminal job statuses, but counts a cancelling job as active", async () => {
       const userId = await currentUserId();
       seedJob({ userId, status: "pending" });
       seedJob({ userId, status: "completed" });
       seedJob({ userId, status: "failed" });
       seedJob({ userId, status: "cancelled" });
+      // A running job asked to stop keeps executing until its handler notices
+      // isCancelRequested() at a checkpoint -- see requestCancel() in
+      // src/lib/jobs/queue.ts. It must still count as active.
+      seedJob({ userId, status: "cancelling" });
 
       const stats = await queries.getDashboardStats();
-      expect(stats.activeJobs).toBe(1);
+      expect(stats.activeJobs).toBe(2);
     });
   });
 

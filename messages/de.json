@@ -638,8 +638,8 @@
       "activeJobs": "Laufende Aufgaben"
     },
     "recent": {
-      "heading": "Zuletzt hinzugefügt",
-      "empty": "Noch keine ungelesenen Artikel.",
+      "heading": "Zuletzt ungelesen",
+      "empty": "Keine ungelesenen Artikel.",
       "emptyCta": "Feed hinzufügen"
     },
     "sections": {

@@ -2,7 +2,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 
-import { CardSkeleton, CardSkeletonGroup } from "@/components/data-skeleton";
+import { CardSkeleton } from "@/components/data-skeleton";
 import { RecentArticles } from "@/components/dashboard/recent-articles";
 import { SectionCards } from "@/components/dashboard/section-cards";
 import { StatCards } from "@/components/dashboard/stat-cards";
@@ -57,7 +57,15 @@ export default async function DashboardPage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">{t("title")}</h1>
 
-      <Suspense fallback={<CardSkeletonGroup count={5} />}>
+      <Suspense
+        fallback={
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            {Array.from({ length: 5 }, (_, i) => (
+              <CardSkeleton key={i} />
+            ))}
+          </div>
+        }
+      >
         <DashboardStatCards />
       </Suspense>
 

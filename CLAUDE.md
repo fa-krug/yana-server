@@ -399,8 +399,9 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   `npm run build`. So **every route that can reach the database calls it
   itself, as its first statement**, before any translation or data call. The
   eight that do today: `src/app/layout.tsx`, `src/app/health/route.ts`,
-  `src/app/(app)/page.tsx` (the dashboard, since it reads the same session
-  role every stat tile's query depends on), `src/app/(app)/settings/page.tsx`,
+  `src/app/(app)/page.tsx` (the dashboard, since it reaches SQLite through its
+  data regions -- the stats and recent-articles queries -- same as every
+  other route on this list), `src/app/(app)/settings/page.tsx`,
   `src/app/(app)/integrations/page.tsx` (phase 6 — signed-in but **not**
   admin-only, so no gate opts it out and the call is the only thing that does),
   `src/app/(app)/ai/page.tsx` (phase 7, for that same reason),

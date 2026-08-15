@@ -1,7 +1,7 @@
 import { and, count, desc, eq, inArray } from "drizzle-orm";
 
 import { isAdminRole } from "@/lib/auth/roles";
-import { requireUserFreshRole } from "@/lib/auth/session";
+import { currentUserId, requireUserFreshRole } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { articles, feeds, jobs, tags } from "@/lib/db/schema";
 
@@ -18,14 +18,20 @@ export type RecentArticle = {
   id: number;
   name: string;
   date: Date;
-  feedId: number;
   feedName: string;
 };
 
 // Jobs still in flight -- see src/app/(app)/jobs/page.tsx and
-// src/lib/jobs/queue.ts, whose claim/complete/fail transitions are the only
-// writers of `jobs.status`.
-const ACTIVE_JOB_STATUSES = ["pending", "running"];
+// src/lib/jobs/queue.ts. `jobs.status` is written by several functions
+// there: `enqueue()`/`resetOrphaned()` write "pending", `claim()` writes
+// "running", `complete()` writes "completed", `fail()` writes "failed" (or
+// back to "pending" on a retry), and `requestCancel()`/`cancelled()` write
+// the two-step cancellation path, "cancelling" then "cancelled". "cancelling"
+// is non-terminal -- a running job asked to stop keeps executing until its
+// handler notices `isCancelRequested()` at a checkpoint -- so it belongs here
+// alongside "pending"/"running", not with the terminal statuses
+// ("completed", "failed", "cancelled").
+const ACTIVE_JOB_STATUSES = ["pending", "running", "cancelling"];
 
 /**
  * Summary counts for the dashboard's stat tiles.
@@ -94,9 +100,16 @@ export async function getDashboardStats(): Promise<DashboardStats> {
  *
  * plainText and rawContent are deliberately absent from the selected columns:
  * they are the largest columns on the table and nothing here renders them.
+ * Likewise `feedId`: nothing here renders it either, so it is not selected --
+ * see `listArticles()` for the same pattern.
+ *
+ * Uses `currentUserId()`, not `requireUserFreshRole()`: this reads only
+ * `user.id` and branches on nothing, the pure-identity case CLAUDE.md's
+ * `requireUser()`/`requireUserFreshRole()` bullet describes -- matching
+ * `listArticles()`, which reads the same way.
  */
 export async function getRecentUnreadArticles(limit = 6): Promise<RecentArticle[]> {
-  const user = await requireUserFreshRole();
+  const userId = await currentUserId();
   const db = getDb();
 
   return db
@@ -104,12 +117,11 @@ export async function getRecentUnreadArticles(limit = 6): Promise<RecentArticle[
       id: articles.id,
       name: articles.name,
       date: articles.date,
-      feedId: articles.feedId,
       feedName: feeds.name,
     })
     .from(articles)
     .innerJoin(feeds, eq(articles.feedId, feeds.id))
-    .where(and(eq(feeds.userId, user.id), eq(articles.read, false)))
+    .where(and(eq(feeds.userId, userId), eq(articles.read, false)))
     .orderBy(desc(articles.date), desc(articles.id))
     .limit(limit)
     .all();

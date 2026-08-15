@@ -638,8 +638,8 @@
       "activeJobs": "Active jobs"
     },
     "recent": {
-      "heading": "Recently added",
-      "empty": "No unread articles yet.",
+      "heading": "Latest unread",
+      "empty": "No unread articles.",
       "emptyCta": "Add a feed"
     },
     "sections": {

@@ -5,8 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { RecentArticle } from "@/lib/dashboard/queries";
 
 /**
- * The dashboard's "recently added" card: the newest unread articles, each
- * linking to its detail page, with the feed name and date beneath.
+ * The dashboard's "latest unread" card: the newest unread articles ordered by
+ * publication date (`orderBy(desc(articles.date), ...)` in
+ * `getRecentUnreadArticles()`), each linking to its detail page, with the
+ * feed name and date beneath.
  *
  * Deliberately not `"use client"` -- see {@link StatCards} for why a
  * synchronous server component can still call `useTranslations()` (and here,
@@ -15,9 +17,11 @@ import type { RecentArticle } from "@/lib/dashboard/queries";
  * reason (see CLAUDE.md) -- an unpinned formatter would render a different day
  * on the server than in the browser.
  *
- * When there are no unread articles, the empty state links to `/feeds/new`
- * (verified to exist under `src/app/(app)/feeds/new/`) rather than `/feeds`,
- * since adding a feed is the actual next step for an empty library.
+ * The empty state ("no unread articles") is true for both a fresh install
+ * and a caught-up reader who has simply read everything -- it does not claim
+ * the library is empty. The link still points at `/feeds/new` (verified to
+ * exist under `src/app/(app)/feeds/new/`): a link is an offer to add a feed,
+ * not a claim about why the list is empty.
  */
 export function RecentArticles({ articles }: { articles: RecentArticle[] }) {
   const t = useTranslations("dashboard.recent");

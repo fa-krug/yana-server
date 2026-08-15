@@ -72,7 +72,7 @@ export function StatCards({ stats }: { stats: DashboardStats }) {
       {cards.map((card) => (
         <Link key={card.key} href={card.href} className="block">
           <Card className="h-full transition-colors hover:bg-accent/50">
-            <CardHeader className="flex-row items-center gap-2 space-y-0">
+            <CardHeader className="flex flex-row items-center gap-2">
               <card.icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
               <CardTitle className="text-sm font-normal text-muted-foreground">
                 {card.label}

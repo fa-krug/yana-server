@@ -9,14 +9,12 @@ const ARTICLES = [
     id: 1,
     name: "First article",
     date: new Date("2026-08-10T12:00:00Z"),
-    feedId: 1,
     feedName: "Feed One",
   },
   {
     id: 2,
     name: "Second article",
     date: new Date("2026-08-09T08:30:00Z"),
-    feedId: 2,
     feedName: "Feed Two",
   },
 ];
@@ -28,7 +26,7 @@ describe("RecentArticles", () => {
     // which catalog it read.
     const { getByText } = renderWithProviders(<RecentArticles articles={[]} />, { locale: "de" });
 
-    expect(getByText("Noch keine ungelesenen Artikel.")).not.toBeNull();
+    expect(getByText("Keine ungelesenen Artikel.")).not.toBeNull();
     const cta = getByText("Feed hinzufügen");
     expect(cta.closest("a")?.getAttribute("href")).toBe("/feeds/new");
   });
