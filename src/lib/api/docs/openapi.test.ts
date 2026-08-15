@@ -39,4 +39,12 @@ describe("buildOpenApiDocument", () => {
     const doc = buildOpenApiDocument();
     expect(() => JSON.stringify(doc)).not.toThrow();
   });
+
+  it("includes every registered error code in the generated errors table", () => {
+    const doc = buildOpenApiDocument();
+    const allCodes = new Set(ENDPOINT_REGISTRY.flatMap((e) => e.errors.map((err) => err.code)));
+    for (const code of allCodes) {
+      expect(doc.info.description).toContain(code);
+    }
+  });
 });

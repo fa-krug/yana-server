@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { ApiErrorSchema } from "./schemas";
 import { ENDPOINT_REGISTRY } from "./registry";
-import { OVERVIEW_MARKDOWN, TAG_DESCRIPTIONS } from "./narrative";
+import { CONVENTIONS_MARKDOWN, OVERVIEW_MARKDOWN, TAG_DESCRIPTIONS } from "./narrative";
 
 interface OpenApiOperation {
   summary: string;
@@ -29,6 +29,34 @@ export interface OpenApiDocument {
  * is needed here. */
 function toJsonSchema(schema: z.ZodType): unknown {
   return z.toJSONSchema(schema, { target: "openapi-3.0" });
+}
+
+function buildErrorsMarkdown(): string {
+  const byCode = new Map<string, Array<{ method: string; path: string }>>();
+  for (const endpoint of ENDPOINT_REGISTRY) {
+    for (const err of endpoint.errors) {
+      const list = byCode.get(err.code) ?? [];
+      list.push({ method: endpoint.method, path: endpoint.path });
+      byCode.set(err.code, list);
+    }
+  }
+  const rows = [...byCode.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([code, occurrences]) => {
+      const endpoints = occurrences.map((o) => `\`${o.method} ${o.path}\``).join(", ");
+      return `| \`${code}\` | ${endpoints} |`;
+    });
+  return [
+    "## Errors",
+    "",
+    'Every error takes the shape `{ "error": { "code": "...", "message": "..." } }`. ' +
+      "`message` is server-authored prose for a human and never echoes anything the " +
+      "caller submitted.",
+    "",
+    "| Code | Emitted by |",
+    "|---|---|",
+    ...rows,
+  ].join("\n");
 }
 
 export function buildOpenApiDocument(): OpenApiDocument {
@@ -101,7 +129,11 @@ export function buildOpenApiDocument(): OpenApiDocument {
 
   return {
     openapi: "3.1.0",
-    info: { title: "Yana Client API", version: "1", description: OVERVIEW_MARKDOWN },
+    info: {
+      title: "Yana Client API",
+      version: "1",
+      description: [OVERVIEW_MARKDOWN, buildErrorsMarkdown(), CONVENTIONS_MARKDOWN].join("\n\n"),
+    },
     tags: tagNames.map((name) => ({ name, description: TAG_DESCRIPTIONS[name] ?? "" })),
     paths,
   };

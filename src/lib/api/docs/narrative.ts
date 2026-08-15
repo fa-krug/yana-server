@@ -89,3 +89,15 @@ comment ping every 15 seconds to keep intermediary proxies from treating a
 quiet connection as dead; conforming SSE clients ignore comment lines.
 `.trim(),
 };
+
+export const CONVENTIONS_MARKDOWN = `
+## Conventions
+
+- **Dates** are always ISO 8601 (\`Date.prototype.toISOString()\`).
+- **Pagination**: \`GET /api/v1/articles/sync\` is the only paginated endpoint. \`limit\`
+  caps rows *per stream* per call (default 200, clamped to \`[1, 500]\`), and \`cursor\` is
+  opaque -- pass back the previous response's \`nextCursor\` to continue.
+- **Not found vs. forbidden**: every ownership check answers 404, never 403, for a row
+  that exists but isn't the caller's -- this prevents an authenticated caller from
+  learning that a given id exists at all through the response code alone.
+`.trim();
