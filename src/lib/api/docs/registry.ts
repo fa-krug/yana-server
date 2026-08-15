@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  AiPromptResponseSchema,
   ApiEventSchema,
   ArticleContentSchema,
   ArticlePatchBodySchema,
@@ -288,5 +289,121 @@ export const ENDPOINT_REGISTRY: EndpointDoc[] = [
         when: "the article doesn't exist, or its feed isn't owned by the caller.",
       },
     ],
+  }),
+
+  defineEndpoint({
+    method: "POST",
+    path: "/api/v1/ai/prompt",
+    tag: "AI",
+    summary: "Run a free-form prompt against the caller's configured AI provider",
+    description:
+      "Runs `prompt` against the caller's active AI provider using their stored credentials " +
+      "and global tuning values -- no per-request overrides. Subject to the caller's daily " +
+      "and monthly AI request limits.",
+    auth: "bearer-or-cookie",
+    request: { body: z.object({ prompt: z.string().min(1) }) },
+    response: {
+      status: 200,
+      schema: AiPromptResponseSchema,
+      description: "The provider's response.",
+    },
+    errors: [
+      { status: 400, code: "invalid_prompt", when: "prompt is missing or empty." },
+      { status: 400, code: "prompt_too_long", when: "prompt exceeds the configured length limit." },
+      { status: 401, code: "unauthorized", when: "no valid Bearer token or session." },
+      { status: 409, code: "no_active_provider", when: "no AI provider is configured." },
+      { status: 429, code: "daily_limit_exceeded", when: "the daily AI request limit is reached." },
+      {
+        status: 429,
+        code: "monthly_limit_exceeded",
+        when: "the monthly AI request limit is reached.",
+      },
+      {
+        status: 502,
+        code: "provider_unauthorized",
+        when: "the configured provider rejected the stored credentials.",
+      },
+      { status: 502, code: "provider_error", when: "the provider could not fulfil the prompt." },
+    ],
+  }),
+
+  defineEndpoint({
+    method: "POST",
+    path: "/api/v1/auth/webview-session-token",
+    tag: "Auth & pairing",
+    summary: "Mint a one-time token to bootstrap a ManagementWebView session",
+    description:
+      "Mints a short-lived, single-use token bound to the caller's own device session, for " +
+      "immediate exchange at `GET /webview-session` inside a `WKWebView` -- lets the native " +
+      "client reach the web UI's cookie session without ever handling a password or passkey " +
+      "in a webview. See the Auth & pairing overview.",
+    auth: "bearer-only",
+    response: {
+      status: 200,
+      schema: z.object({ token: z.string(), expiresAt: z.iso.datetime() }),
+      description: "The one-time token and its expiry.",
+    },
+    errors: [
+      { status: 401, code: "unauthorized", when: "no valid Bearer device-session token." },
+    ],
+  }),
+
+  defineEndpoint({
+    method: "GET",
+    path: "/device/pair",
+    tag: "Auth & pairing",
+    summary: "Mint a device session and redirect back to the native app",
+    description:
+      "Reached from `/login`'s `next` parameter after the user signs in through the ordinary " +
+      "web form inside the native app's pairing webview. Mints a new device session and " +
+      "redirects to `<scheme>://auth-callback?token=...&state=...`, echoing back the caller- " +
+      "supplied `state` unchanged -- CSRF protection is the app's own responsibility, not this " +
+      "route's. See the Auth & pairing overview for the full pairing flow.",
+    auth: "session-cookie",
+    request: {
+      query: z.object({
+        state: z.string().min(1),
+        scheme: z.string().optional().describe('Defaults to "yana"; only "yana" is accepted.'),
+        deviceName: z.string().optional().describe("Truncated to 64 characters if longer."),
+      }),
+    },
+    response: {
+      status: 307,
+      schema: null,
+      description: "Redirect to the native app's registered custom URL scheme.",
+    },
+    errors: [
+      {
+        status: 400,
+        code: "(no code -- empty body)",
+        when: "state is missing, or scheme is not an allowed scheme.",
+      },
+    ],
+  }),
+
+  defineEndpoint({
+    method: "GET",
+    path: "/webview-session",
+    tag: "Auth & pairing",
+    summary: "Exchange a one-time token for a real session cookie",
+    description:
+      "The `ManagementWebView` landing point: verifies the token minted by " +
+      "`POST /api/v1/auth/webview-session-token`, sets a real session cookie for that exact " +
+      "device session, and redirects to `next` (validated same-origin, default `/feeds`). Any " +
+      "missing, invalid, expired or already-used token falls back to `/login?next=...`, " +
+      "indistinguishable from a plain signed-out visit.",
+    auth: "one-time-token",
+    request: {
+      query: z.object({
+        token: z.string(),
+        next: z.string().optional().describe("A same-origin path; defaults to /feeds."),
+      }),
+    },
+    response: {
+      status: 302,
+      schema: null,
+      description: "Redirect to `next` with the session cookie set, or to /login on failure.",
+    },
+    errors: [],
   }),
 ];
