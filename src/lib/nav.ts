@@ -59,7 +59,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
  */
 const UNLISTED_ROUTES: readonly { href: string; labelKey: NavLabelKey }[] = [
   { href: "/account", labelKey: "nav.account" },
-  { href: "/api-docs", labelKey: "nav.apiDocs" },
 ];
 
 const LABELS = new Map<string, NavLabelKey>(
