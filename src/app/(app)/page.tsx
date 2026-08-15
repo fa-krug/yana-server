@@ -34,13 +34,17 @@ async function DashboardRecentArticles() {
  * `(app)` group's `error.tsx` is the error boundary above both -- no second
  * one is added here.
  *
- * `isAdmin` comes from the same `requireUserFreshRole()` call
- * `getDashboardStats()` makes -- `cache()`d per request inside `session.ts`,
- * so reading it here is not a second database round trip. This is
- * deliberately not `requireUser()` + a role check on its own result: an admin
- * demoted a moment ago must not keep seeing admin-only cards off a stale
- * cookie-cached role, the same reason `getDashboardStats()` itself reads the
- * role this way.
+ * `isAdmin` is derived from `requireUserFreshRole()` here, called again --
+ * uncached -- inside `getDashboardStats()` and `getRecentUnreadArticles()`.
+ * `requireUserFreshRole()` is deliberately not `cache()`d (unlike
+ * `currentUser()`/`currentUserRow()`): it reads with
+ * `disableCookieCache: true`, so wrapping it would risk quietly reintroducing
+ * a five-minute-stale role for its other callers (`/jobs`, `/jobs/[id]`, the
+ * log-stream route). Three fresh session reads per render is the accepted
+ * cost of that. This is deliberately not `requireUser()` + a role check on
+ * its own result: an admin demoted a moment ago must not keep seeing
+ * admin-only cards off a stale cookie-cached role, the same reason
+ * `getDashboardStats()` itself reads the role this way.
  */
 export default async function DashboardPage() {
   await connection();
