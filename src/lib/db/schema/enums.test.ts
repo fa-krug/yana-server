@@ -28,6 +28,15 @@ describe("enums", () => {
   });
 
   it("defines the job lifecycle", () => {
-    expect(JOB_STATUSES).toEqual(["pending", "running", "succeeded", "failed"]);
+    // Mirrors every status src/lib/jobs/queue.ts actually writes to jobs.status --
+    // "succeeded" was never one of them, and "cancelling"/"cancelled" were missing.
+    expect(JOB_STATUSES).toEqual([
+      "pending",
+      "running",
+      "completed",
+      "failed",
+      "cancelling",
+      "cancelled",
+    ]);
   });
 });

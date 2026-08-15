@@ -397,28 +397,26 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   `getSettings()` → `getDb()`. That is measured, not theoretical — until phase
   4's task 2 it left an empty, unmigrated `data/yana.db` behind on every
   `npm run build`. So **every route that can reach the database calls it
-  itself, as its first statement**, before any translation or data call. The
-  eight that do today: `src/app/layout.tsx`, `src/app/health/route.ts`,
-  `src/app/(app)/page.tsx` (the dashboard, since it reaches SQLite through its
-  data regions -- the stats and recent-articles queries -- same as every
-  other route on this list), `src/app/(app)/settings/page.tsx`,
-  `src/app/(app)/integrations/page.tsx` (phase 6 — signed-in but **not**
-  admin-only, so no gate opts it out and the call is the only thing that does),
-  `src/app/(app)/ai/page.tsx` (phase 7, for that same reason),
-  `src/app/(app)/account/page.tsx` and `src/app/login/page.tsx`. **That list is
-  exhaustive or it is not a checklist** — re-derive it with
-  `grep -rl "await connection()" src/app` and expect one extra hit,
-  `src/app/api/auth/[...all]/route.ts`, whose comment _explains why it has no
-  call_. Add a new route here in the same commit. A new page that reads anything
-  needs its own line — unless it already awaits a Dynamic API, which opts the
-  route out just as well. **The eight that do**: `src/app/(app)/layout.tsx`,
-  because `requireUser()` awaits `headers()` before anything touches SQLite;
+  itself, as its first statement**, before any translation or data call. **This
+  is a rule to apply, not a list to consult** — a fixed inventory here has
+  already drifted twice (once when phase 13's `/api/v1` routes shipped without
+  an entry, again when the dashboard's own route joined them), because nothing
+  enforces that a new call site gets a new line. `grep -rl "await connection()"
+src/app` is how you find every route that currently makes the call — it also
+  matches this file's own prose and the `.test.ts` files that assert the call
+  is first, so read its output rather than counting it. A new route that reads
+  anything needs its own call, in the same commit that adds the read — unless
+  it already awaits a Dynamic API, which opts the route out just as well; the
+  routes below are exactly that second case, and are listed for the _reason_,
+  not as inventory to keep in sync.
+  `src/app/(app)/layout.tsx` is exempt because `requireUser()` awaits
+  `headers()` before anything touches SQLite; so are
   `src/app/media/avatars/[userId]/route.ts` and
   `src/app/api/feeds/export/route.ts`, for the same reason;
   `src/app/(app)/jobs/[id]/page.tsx` and
   `src/app/api/jobs/[id]/log-stream/route.ts`, likewise (the job live-log
   feature's detail page and its SSE route, both gated by
-  `requireUserFreshRole()` before anything else); and phase 5's three
+  `requireUserFreshRole()` before anything else); and so are phase 5's three
   `/users` routes —
   `src/app/(app)/users/page.tsx`, `src/app/(app)/users/new/page.tsx`,
   `src/app/(app)/users/[id]/page.tsx` — where `requireAdmin()` does it. That

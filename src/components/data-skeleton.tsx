@@ -56,14 +56,3 @@ export function CardSkeleton() {
     </div>
   );
 }
-
-/** N stacked {@link CardSkeleton}s, for a route.tsx rendering that many cards. */
-export function CardSkeletonGroup({ count }: { count: number }) {
-  return (
-    <div className="space-y-6" aria-busy="true">
-      {Array.from({ length: count }, (_, i) => (
-        <CardSkeleton key={i} />
-      ))}
-    </div>
-  );
-}

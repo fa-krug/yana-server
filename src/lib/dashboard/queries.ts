@@ -4,6 +4,7 @@ import { isAdminRole } from "@/lib/auth/roles";
 import { currentUserId, requireUserFreshRole } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { articles, feeds, jobs, tags } from "@/lib/db/schema";
+import type { JobStatus } from "@/lib/db/schema/enums";
 
 export type DashboardStats = {
   unreadArticles: number;
@@ -31,7 +32,7 @@ export type RecentArticle = {
 // handler notices `isCancelRequested()` at a checkpoint -- so it belongs here
 // alongside "pending"/"running", not with the terminal statuses
 // ("completed", "failed", "cancelled").
-const ACTIVE_JOB_STATUSES = ["pending", "running", "cancelling"];
+const ACTIVE_JOB_STATUSES: JobStatus[] = ["pending", "running", "cancelling"];
 
 /**
  * Summary counts for the dashboard's stat tiles.
