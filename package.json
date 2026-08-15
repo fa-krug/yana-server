@@ -24,6 +24,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "seed:feeds": "tsx scripts/seed-feeds.ts",
+    "docs:api": "tsx scripts/docs-api.ts",
+    "docs:api:check": "tsx scripts/docs-api.ts --check",
     "aggregator": "tsx scripts/aggregator.ts",
     "aggregator:full_website": "tsx scripts/aggregator.ts full_website",
     "aggregator:feed_content": "tsx scripts/aggregator.ts feed_content",
