@@ -18,12 +18,16 @@ import { getAccountOverview } from "@/lib/account/queries";
  * only the values nobody can know yet. See the doc comment on
  * `SectionsFallback` in `../settings/page.tsx` for the reference version of
  * this pattern.
+ *
+ * `<ProfileSectionShell>` takes its default no-op `onSubmit`, deliberately
+ * omitted rather than passed as a function value: this is a Server Component,
+ * and a closure it creates cannot cross into a Client Component (it isn't a
+ * Server Action) -- the shell defaults it itself instead.
  */
 function SectionsFallback() {
   return (
     <div className="space-y-6">
       <ProfileSectionShell
-        onSubmit={(event) => event.preventDefault()}
         avatarControl={
           <div className="flex flex-wrap items-center gap-4">
             <Skeleton className="size-16 rounded-full" />

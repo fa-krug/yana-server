@@ -16,6 +16,10 @@ import { AI_ADVANCED_FIELDS, type AiAdvancedField } from "@/lib/ai/bounds";
  * shell -- the same shape `ffa29204` introduced as `SectionsFallback` for
  * later re-fetches -- up to the route level so it is shown on the very first
  * navigation too.
+ *
+ * Both shells take their default no-op `onSubmit` rather than being handed
+ * one: this is a Server Component, and a closure it creates cannot cross into
+ * a Client Component. See the fallback's doc comment in `./page.tsx`.
  */
 export default async function Loading() {
   const t = await getTranslations("ai");
@@ -42,12 +46,10 @@ export default async function Loading() {
           saveControl={<Skeleton className="h-9 w-24" />}
           testControl={<Skeleton className="h-9 w-24" />}
           removeControl={null}
-          onSubmit={(event) => event.preventDefault()}
         />
         <AdvancedSectionShell
           controls={advancedControls}
           saveControl={<Skeleton className="h-9 w-24" />}
-          onSubmit={(event) => event.preventDefault()}
         />
       </div>
     </div>

@@ -17,6 +17,11 @@ import { Skeleton } from "@/components/ui/skeleton";
  * "nothing loaded yet" shell -- the same shape `ffa29204` introduced as
  * `SectionsFallback` for later re-fetches -- up to the route level so it is
  * shown on the very first navigation too.
+ *
+ * `<ProfileSectionShell>` takes its default no-op `onSubmit` rather than
+ * being handed one: this is a Server Component, and a closure it creates
+ * cannot cross into a Client Component. See the fallback's doc comment in
+ * `./page.tsx`.
  */
 export default async function Loading() {
   const t = await getTranslations("account");
@@ -26,7 +31,6 @@ export default async function Loading() {
       <h1 className="text-2xl font-semibold">{t("title")}</h1>
       <div className="space-y-6">
         <ProfileSectionShell
-          onSubmit={(event) => event.preventDefault()}
           avatarControl={
             <div className="flex flex-wrap items-center gap-4">
               <Skeleton className="size-16 rounded-full" />
