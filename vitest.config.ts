@@ -70,7 +70,11 @@ export default defineConfig({
           environment: "node",
           // .ts only: a component test is .tsx and belongs to the "dom"
           // project below, which is why this glob must stay narrow.
-          include: ["src/**/*.test.ts"],
+          // `scripts/**` is included alongside `src/**` for the one script
+          // test that spawns `scripts/docs-api.ts` itself
+          // (`scripts/docs-api.test.ts`) -- it lives beside the script it
+          // tests, not under `src/`, so the glob has to reach it too.
+          include: ["src/**/*.test.ts", "scripts/**/*.test.ts"],
           /**
            * One dependency module is inlined, and the regex is deliberately
            * this narrow.
