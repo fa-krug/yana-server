@@ -401,14 +401,14 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   is a rule to apply, not a list to consult** — a fixed inventory here has
   already drifted twice (once when phase 13's `/api/v1` routes shipped without
   an entry, again when the dashboard's own route joined them), because nothing
-  enforces that a new call site gets a new line. `grep -rl "await connection()"
-src/app` is how you find every route that currently makes the call — it also
-  matches this file's own prose and the `.test.ts` files that assert the call
-  is first, so read its output rather than counting it. A new route that reads
-  anything needs its own call, in the same commit that adds the read — unless
-  it already awaits a Dynamic API, which opts the route out just as well; the
-  routes below are exactly that second case, and are listed for the _reason_,
-  not as inventory to keep in sync.
+  enforces that a new call site gets a new line.
+  `grep -rl "await connection()" src/app` is how you find every route that
+  currently makes the call — it also matches the `.test.ts` files that assert
+  the call is first, so read its output rather than counting it. A new route
+  that reads anything needs its own call, in the same commit that adds the
+  read — unless it already awaits a Dynamic API, which opts the route out just
+  as well; the routes below are exactly that second case, and are listed for
+  the _reason_, not as inventory to keep in sync.
   `src/app/(app)/layout.tsx` is exempt because `requireUser()` awaits
   `headers()` before anything touches SQLite; so are
   `src/app/media/avatars/[userId]/route.ts` and
