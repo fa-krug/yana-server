@@ -347,6 +347,21 @@ describe("job logs", () => {
     expect(count(connection, "job_logs")).toBe(0);
     connection.close();
   });
+
+  it("declares jobs_claim_idx in the direction claim() orders by", () => {
+    const connection = freshDatabase();
+    const row = connection
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'jobs_claim_idx'")
+      .get() as { sql: string } | undefined;
+
+    expect(row).toBeDefined();
+    // priority descending, run_at and id ascending -- a mixed-direction ORDER BY
+    // that the old all-ascending index could not serve without a temp sort.
+    expect(row!.sql).toMatch(/["`]?priority["`]?\s+desc/i);
+    expect(row!.sql).toMatch(/["`]?run_at["`]?/);
+    expect(row!.sql).toMatch(/["`]?id["`]?(\s+asc)?\s*\)/i);
+    connection.close();
+  });
 });
 
 describe("job ownership", () => {
