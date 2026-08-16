@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useState, useTransition, type ReactNode } from "react";
+import { Suspense, use, useState, useTransition } from "react";
 
 import { ConfirmDestructive } from "@/components/crud/confirm-destructive";
 import { StatusBadge, useReportOutcome } from "@/components/integrations/section-parts";
@@ -19,6 +19,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { removeYoutube, saveYoutube, testYoutube } from "@/lib/integrations/actions";
+import type { IntegrationStatus } from "@/lib/integrations/queries";
 import { attempt } from "@/lib/integrations/result";
 
 /**
@@ -40,13 +41,26 @@ import { attempt } from "@/lib/integrations/result";
  *    deriving it.
  *
  * Every action goes through `attempt()` -- never a bare `await` (CLAUDE.md).
+ *
+ * `enabled`/`apiKeyMasked === undefined` (paired with `pending`) is the "not
+ * loaded yet" state -- the real card renders (heading, description, field
+ * label, the field itself, both buttons), all disabled, rather than a
+ * `<Skeleton>` standing in for each of them. **The status badge is
+ * data-dependent and is omitted entirely while pending** (not rendered with a
+ * neutral frame): "enabled" is a probe-derived verdict, and there is no
+ * value -- not even a blank one -- that would be honest to show before that
+ * verdict is known, unlike a text field whose empty state is its normal
+ * pending appearance. The remove button is withheld for the same reason
+ * `configured` withholds it once loaded: nothing is yet known to be stored.
  */
-export function YoutubeSection({
+export function YoutubeSectionForm({
   enabled,
   apiKeyMasked,
+  pending = false,
 }: {
-  enabled: boolean;
-  apiKeyMasked: string;
+  enabled?: boolean;
+  apiKeyMasked?: string;
+  pending?: boolean;
 }) {
   const t = useTranslations("integrations");
   const report = useReportOutcome();
@@ -55,9 +69,9 @@ export function YoutubeSection({
   // either call is in flight, but only the one that was pressed may say so.
   const [saving, startSave] = useTransition();
   const [testing, startTest] = useTransition();
-  const busy = saving || testing;
-  /** Is there anything to keep, or to remove? */
-  const configured = apiKeyMasked !== "";
+  const busy = pending || saving || testing;
+  /** Is there anything to keep, or to remove? Never true while pending. */
+  const configured = apiKeyMasked !== undefined && apiKeyMasked !== "";
 
   function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -86,48 +100,55 @@ export function YoutubeSection({
   }
 
   return (
-    <YoutubeSectionShell
-      onSubmit={save}
-      statusControl={<StatusBadge enabled={enabled} />}
-      apiKeyControl={
-        // type="password" and autoComplete="off": a credential is not a
-        // login, so no password manager should offer to fill or store it,
-        // and it must not be readable over the operator's shoulder.
-        <Input
-          id="youtube-api-key"
-          type="password"
-          autoComplete="off"
-          spellCheck={false}
-          placeholder={secretPlaceholder(apiKeyMasked)}
-          value={apiKey}
-          onChange={(event) => setApiKey(event.target.value)}
-        />
-      }
-      apiKeyHintControl={
-        <p className="text-sm text-muted-foreground">
-          {configured ? t("keepHint") : t("notConfigured")}
-        </p>
-      }
-      saveControl={
-        <Button type="submit" disabled={busy} className="w-full sm:w-auto">
-          {saving ? t("saving") : t("save")}
-        </Button>
-      }
-      testControl={
-        <Button
-          type="button"
-          variant="outline"
-          disabled={busy}
-          onClick={test}
-          className="w-full sm:w-auto"
-        >
-          {testing ? t("testing") : t("test")}
-        </Button>
-      }
-      // The one control here that destroys something, offered only when there
-      // is something to destroy -- `removeYoutube()` is idempotent either way.
-      removeControl={
-        configured ? (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("youtube.title")}</CardTitle>
+        <CardDescription>{t("youtube.description")}</CardDescription>
+        {/* Omitted entirely while pending -- see the doc comment above. */}
+        {pending ? null : <CardAction>{<StatusBadge enabled={enabled ?? false} />}</CardAction>}
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={save} className="space-y-4">
+          <div className="grid gap-2">
+            <Label htmlFor="youtube-api-key">{t("youtube.apiKey")}</Label>
+            {/* type="password" and autoComplete="off": a credential is not a
+                login, so no password manager should offer to fill or store it,
+                and it must not be readable over the operator's shoulder. */}
+            <Input
+              id="youtube-api-key"
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={secretPlaceholder(apiKeyMasked ?? "")}
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              disabled={busy}
+            />
+            <p className="text-sm text-muted-foreground">
+              {configured ? t("keepHint") : t("notConfigured")}
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <Button type="submit" disabled={busy} className="w-full sm:w-auto">
+              {saving ? t("saving") : t("save")}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={test}
+              className="w-full sm:w-auto"
+            >
+              {testing ? t("testing") : t("test")}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+      {/* Outside the form, so the trigger cannot submit it, and visually apart
+          from Save. Offered only when there is something to destroy --
+          `removeYoutube()` is idempotent either way. */}
+      {configured ? (
+        <CardFooter className="justify-end">
           <ConfirmDestructive
             trigger={
               <Button type="button" variant="destructive" disabled={busy}>
@@ -139,70 +160,35 @@ export function YoutubeSection({
             confirmLabel={t("removeConfirm")}
             onConfirm={remove}
           />
-        ) : null
-      }
+        </CardFooter>
+      ) : null}
+    </Card>
+  );
+}
+
+/** Calls use(); suspends until the promise resolves; renders the form for real. */
+function YoutubeSectionResolved({ promise }: { promise: Promise<IntegrationStatus> }) {
+  const status = use(promise);
+  return (
+    <YoutubeSectionForm
+      enabled={status.youtube.enabled}
+      apiKeyMasked={status.youtube.apiKeyMasked}
     />
   );
 }
 
 /**
- * The card's chrome alone: the heading, description and field label, with no
- * dependency on `enabled`/`apiKeyMasked` -- `integrations/page.tsx` renders
- * this as its own `<Suspense>` fallback (with skeletons standing in for the
- * status badge, the input, the hint text and the three buttons) so the title
- * and label never disappear behind a generic skeleton block while
- * `getIntegrationStatus()` resolves. See the doc comment on
- * `GeneralSectionShell` in `../settings/general-section.tsx` for why this is a
- * plain presentational split rather than a state-sharing one.
+ * What the page renders. The fallback is the real form, in its pending
+ * state -- see the Design Reference in
+ * docs/superpowers/plans/2026-08-16-streaming-controls-migration.md -- so the
+ * heading, description, field label and both buttons are on screen from the
+ * first frame and only the mask, the badge and the enabled state stream in
+ * afterward.
  */
-export function YoutubeSectionShell({
-  // Optional, and defaulted here rather than by the caller: `integrations/page.tsx`
-  // renders this shell from a Server Component fallback, which cannot pass a
-  // function prop into a Client Component (it isn't a Server Action, so React
-  // has nothing to serialize it as). Defaulting inside this "use client" module
-  // keeps the function entirely on the client, so the fallback needs no
-  // `onSubmit` prop at all.
-  onSubmit = (event) => event.preventDefault(),
-  statusControl,
-  apiKeyControl,
-  apiKeyHintControl,
-  saveControl,
-  testControl,
-  removeControl,
-}: {
-  onSubmit?: React.FormEventHandler<HTMLFormElement>;
-  statusControl: ReactNode;
-  apiKeyControl: ReactNode;
-  apiKeyHintControl: ReactNode;
-  saveControl: ReactNode;
-  testControl: ReactNode;
-  removeControl: ReactNode | null;
-}) {
-  const t = useTranslations("integrations");
-
+export function YoutubeSection({ promise }: { promise: Promise<IntegrationStatus> }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("youtube.title")}</CardTitle>
-        <CardDescription>{t("youtube.description")}</CardDescription>
-        <CardAction>{statusControl}</CardAction>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={onSubmit} className="space-y-4">
-          <div className="grid gap-2">
-            <Label htmlFor="youtube-api-key">{t("youtube.apiKey")}</Label>
-            {apiKeyControl}
-            {apiKeyHintControl}
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            {saveControl}
-            {testControl}
-          </div>
-        </form>
-      </CardContent>
-      {/* Outside the form, so the trigger cannot submit it, and visually apart
-          from Save. */}
-      {removeControl ? <CardFooter className="justify-end">{removeControl}</CardFooter> : null}
-    </Card>
+    <Suspense fallback={<YoutubeSectionForm pending />}>
+      <YoutubeSectionResolved promise={promise} />
+    </Suspense>
   );
 }
