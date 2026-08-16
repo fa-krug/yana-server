@@ -1,6 +1,6 @@
 {
-  "id": "a8827e87-06df-4d38-8820-4f879330f464",
-  "prevId": "ce5bf673-2b47-4dad-a1db-0ceae1871c51",
+  "id": "d98322f0-a116-4b08-b80a-c0a138163a1b",
+  "prevId": "5e55360f-8302-4ad3-b108-af700ee69130",
   "version": "6",
   "dialect": "sqlite",
   "tables": {
@@ -194,10 +194,10 @@
           ],
           "isUnique": false
         },
-        "article_blocks_embed_provider_idx": {
-          "name": "article_blocks_embed_provider_idx",
+        "article_blocks_embed_thumbnail_ref_idx": {
+          "name": "article_blocks_embed_thumbnail_ref_idx",
           "columns": [
-            "embed_provider"
+            "embed_thumbnail_ref"
           ],
           "isUnique": false
         }
@@ -341,13 +341,6 @@
     "article_inline_runs": {
       "name": "article_inline_runs",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
         "block_id": {
           "name": "block_id",
           "type": "integer",
@@ -410,16 +403,7 @@
           "default": "''"
         }
       },
-      "indexes": {
-        "article_inline_runs_block_idx": {
-          "name": "article_inline_runs_block_idx",
-          "columns": [
-            "block_id",
-            "position"
-          ],
-          "isUnique": false
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
         "article_inline_runs_block_id_article_blocks_id_fk": {
           "name": "article_inline_runs_block_id_article_blocks_id_fk",
@@ -435,7 +419,15 @@
           "onDelete": "cascade"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "article_inline_runs_block_id_position_pk": {
+          "columns": [
+            "block_id",
+            "position"
+          ],
+          "name": "article_inline_runs_block_id_position_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {
         "article_inline_runs_position_positive": {

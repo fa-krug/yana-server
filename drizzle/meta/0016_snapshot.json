@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "3d5f059e-5007-4d9d-9ce9-e19a3845f413",
-  "prevId": "811e6b89-32fc-40f8-b900-c4a0bf3b78c8",
+  "id": "be23970b-3c06-4670-9aae-84899a3518ac",
+  "prevId": "45986e66-6515-4e00-acd0-00266c9f231a",
   "tables": {
     "ai_requests": {
       "name": "ai_requests",
@@ -194,10 +194,10 @@
           ],
           "isUnique": false
         },
-        "article_blocks_embed_provider_idx": {
-          "name": "article_blocks_embed_provider_idx",
+        "article_blocks_embed_thumbnail_ref_idx": {
+          "name": "article_blocks_embed_thumbnail_ref_idx",
           "columns": [
-            "embed_provider"
+            "embed_thumbnail_ref"
           ],
           "isUnique": false
         }
@@ -341,13 +341,6 @@
     "article_inline_runs": {
       "name": "article_inline_runs",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
         "block_id": {
           "name": "block_id",
           "type": "integer",
@@ -410,16 +403,7 @@
           "default": "''"
         }
       },
-      "indexes": {
-        "article_inline_runs_block_idx": {
-          "name": "article_inline_runs_block_idx",
-          "columns": [
-            "block_id",
-            "position"
-          ],
-          "isUnique": false
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
         "article_inline_runs_block_id_article_blocks_id_fk": {
           "name": "article_inline_runs_block_id_article_blocks_id_fk",
@@ -435,7 +419,15 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "article_inline_runs_block_id_position_pk": {
+          "columns": [
+            "block_id",
+            "position"
+          ],
+          "name": "article_inline_runs_block_id_position_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {
         "article_inline_runs_position_positive": {
@@ -669,14 +661,6 @@
           "columns": [
             "feed_id",
             "created_at"
-          ],
-          "isUnique": false
-        },
-        "articles_updated_id_idx": {
-          "name": "articles_updated_id_idx",
-          "columns": [
-            "updated_at",
-            "id"
           ],
           "isUnique": false
         }
@@ -1659,9 +1643,8 @@
           "name": "jobs_claim_idx",
           "columns": [
             "status",
-            "\"priority\" desc",
-            "\"run_at\" asc",
-            "\"id\" asc"
+            "priority",
+            "run_at"
           ],
           "isUnique": false
         },
@@ -2478,20 +2461,6 @@
     "columns": {}
   },
   "internal": {
-    "indexes": {
-      "jobs_claim_idx": {
-        "columns": {
-          "\"priority\" desc": {
-            "isExpression": true
-          },
-          "\"run_at\" asc": {
-            "isExpression": true
-          },
-          "\"id\" asc": {
-            "isExpression": true
-          }
-        }
-      }
-    }
+    "indexes": {}
   }
 }

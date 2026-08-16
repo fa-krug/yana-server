@@ -45,6 +45,9 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      - name: API docs drift check
+        run: npm run docs:api:check
+
       - name: Test
         run: npm test
 

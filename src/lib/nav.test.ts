@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import { NAV_ITEMS, breadcrumbsFor } from "./nav";
 
 describe("breadcrumbsFor", () => {
-  it("returns nothing for the root, which only ever redirects", () => {
+  it("returns nothing for the root -- it has no path segments to split", () => {
+    // The dashboard shows no breadcrumb trail, the same as every other
+    // top-level page shows only its own label.
     expect(breadcrumbsFor("/")).toEqual([]);
   });
 
@@ -65,11 +67,11 @@ describe("breadcrumbsFor", () => {
     expect(breadcrumbsFor("/feeds/")).toEqual(breadcrumbsFor("/feeds"));
   });
 
-  it("puts articles first, as the sidebar's landing entry", () => {
-    expect(NAV_ITEMS[0]).toMatchObject({ href: "/articles", labelKey: "nav.articles" });
+  it("puts the dashboard first, as the sidebar's landing entry", () => {
+    expect(NAV_ITEMS[0]).toMatchObject({ href: "/", labelKey: "nav.dashboard" });
   });
 
-  it("no longer has a dashboard entry", () => {
-    expect(NAV_ITEMS.some((item) => item.href === "/")).toBe(false);
+  it("puts articles second, right after the dashboard", () => {
+    expect(NAV_ITEMS[1]).toMatchObject({ href: "/articles", labelKey: "nav.articles" });
   });
 });

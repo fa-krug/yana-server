@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "811e6b89-32fc-40f8-b900-c4a0bf3b78c8",
+  "id": "45986e66-6515-4e00-acd0-00266c9f231a",
   "prevId": "100a313e-6e74-48e3-b1ad-040191623446",
   "tables": {
     "ai_requests": {
@@ -194,10 +194,10 @@
           ],
           "isUnique": false
         },
-        "article_blocks_embed_provider_idx": {
-          "name": "article_blocks_embed_provider_idx",
+        "article_blocks_embed_thumbnail_ref_idx": {
+          "name": "article_blocks_embed_thumbnail_ref_idx",
           "columns": [
-            "embed_provider"
+            "embed_thumbnail_ref"
           ],
           "isUnique": false
         }
@@ -669,14 +669,6 @@
           "columns": [
             "feed_id",
             "created_at"
-          ],
-          "isUnique": false
-        },
-        "articles_updated_id_idx": {
-          "name": "articles_updated_id_idx",
-          "columns": [
-            "updated_at",
-            "id"
           ],
           "isUnique": false
         }

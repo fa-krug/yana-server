@@ -1,16 +1,10 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { z } from "zod";
 
 import { ApiError, apiErrorResponse, requireApiUser } from "@/lib/api/auth";
+import { ArticlePatchBodySchema } from "@/lib/api/docs/schemas";
 import { serializeArticleSummary } from "@/lib/api/serializers";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, feeds } from "@/lib/db/schema";
-
-const patchBody = z
-  .object({ starred: z.boolean().optional(), read: z.boolean().optional() })
-  .refine((body) => body.starred !== undefined || body.read !== undefined, {
-    message: "Provide starred and/or read.",
-  });
 
 /**
  * The native client's star/read-toggle endpoint. Ownership is checked the
@@ -36,7 +30,7 @@ export async function PATCH(
     if (!Number.isInteger(articleId)) throw new ApiError(404, "not_found");
 
     const json = await request.json().catch(() => null);
-    const parsed = patchBody.safeParse(json);
+    const parsed = ArticlePatchBodySchema.safeParse(json);
     if (!parsed.success) {
       throw new ApiError(400, "invalid_body", "Provide starred and/or read.");
     }

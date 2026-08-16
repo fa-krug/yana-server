@@ -24,6 +24,11 @@ export function AboutSection() {
             {t("about.issues")}
           </a>
         </li>
+        <li>
+          <a className="underline" href="/api-docs">
+            {t("about.apiDocs")}
+          </a>
+        </li>
       </ul>
     </section>
   );

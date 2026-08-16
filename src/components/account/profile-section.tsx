@@ -249,14 +249,20 @@ export function ProfileSectionShell({
   firstNameControl,
   lastNameControl,
   saveControl,
-  onSubmit,
+  // Optional, and defaulted here rather than by the caller -- see the same
+  // comment on `YoutubeSectionShell` in
+  // `../integrations/youtube-section.tsx`: `account/page.tsx`'s Suspense
+  // fallback and `account/loading.tsx` are Server Components and cannot pass
+  // a function across the RSC boundary, so they pass nothing and this
+  // "use client" module supplies the no-op.
+  onSubmit = (event) => event.preventDefault(),
 }: {
   avatarControl: ReactNode;
   emailControl: ReactNode;
   firstNameControl: ReactNode;
   lastNameControl: ReactNode;
   saveControl: ReactNode;
-  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+  onSubmit?: React.FormEventHandler<HTMLFormElement>;
 }) {
   const t = useTranslations("account");
 

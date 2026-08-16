@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ce5bf673-2b47-4dad-a1db-0ceae1871c51",
-  "prevId": "3d5f059e-5007-4d9d-9ce9-e19a3845f413",
+  "id": "5e55360f-8302-4ad3-b108-af700ee69130",
+  "prevId": "be23970b-3c06-4670-9aae-84899a3518ac",
   "tables": {
     "ai_requests": {
       "name": "ai_requests",
@@ -194,10 +194,10 @@
           ],
           "isUnique": false
         },
-        "article_blocks_embed_provider_idx": {
-          "name": "article_blocks_embed_provider_idx",
+        "article_blocks_embed_thumbnail_ref_idx": {
+          "name": "article_blocks_embed_thumbnail_ref_idx",
           "columns": [
-            "embed_provider"
+            "embed_thumbnail_ref"
           ],
           "isUnique": false
         }
@@ -341,13 +341,6 @@
     "article_inline_runs": {
       "name": "article_inline_runs",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
         "block_id": {
           "name": "block_id",
           "type": "integer",
@@ -410,16 +403,7 @@
           "default": "''"
         }
       },
-      "indexes": {
-        "article_inline_runs_block_idx": {
-          "name": "article_inline_runs_block_idx",
-          "columns": [
-            "block_id",
-            "position"
-          ],
-          "isUnique": false
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
         "article_inline_runs_block_id_article_blocks_id_fk": {
           "name": "article_inline_runs_block_id_article_blocks_id_fk",
@@ -435,7 +419,15 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "article_inline_runs_block_id_position_pk": {
+          "columns": [
+            "block_id",
+            "position"
+          ],
+          "name": "article_inline_runs_block_id_position_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {
         "article_inline_runs_position_positive": {

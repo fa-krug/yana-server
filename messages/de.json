@@ -1,5 +1,6 @@
 {
   "nav": {
+    "dashboard": "Dashboard",
     "feeds": "Feeds",
     "articles": "Artikel",
     "tags": "Tags",
@@ -295,6 +296,10 @@
       "concurrencyHelp": "Wie viele Artikel dieser Feed während eines Laufs parallel abruft.",
       "maxArticleAge": "Maximales Artikelalter (Tage)",
       "maxArticleAgeHelp": "Artikel, die älter sind, werden bei der Aktualisierung dieses Feeds übersprungen. Mit 0 wird das Limit deaktiviert.",
+      "customPromptEdit": "Prompt bearbeiten",
+      "customPromptTitle": "Eigener Prompt",
+      "customPromptDescription": "Wird mit jedem Artikel gesendet, den dieser Feed abruft.",
+      "customPromptEmpty": "Noch kein Prompt hinterlegt. Zum Schreiben klicken.",
       "create": "Feed anlegen",
       "save": "Feed speichern",
       "created": "Feed angelegt",
@@ -340,7 +345,12 @@
       "days": "Tage",
       "retentionRange": "Die Aufbewahrung muss zwischen 1 und 3650 Tagen liegen."
     },
-    "about": { "title": "Über", "source": "Quellcode", "issues": "Problem melden" },
+    "about": {
+      "title": "Über",
+      "source": "Quellcode",
+      "issues": "Problem melden",
+      "apiDocs": "API-Dokumentation"
+    },
     "sessionEnded": "Deine Sitzung ist beendet. Melde dich erneut an, um fortzufahren.",
     "requestFailed": "Der Server hat nicht geantwortet. Prüfe deine Verbindung und versuche es erneut.",
     "saved": "Einstellungen gespeichert",
@@ -625,5 +635,32 @@
     "viewOnBluesky": "Auf Bluesky ansehen",
     "viewOnReddit": "Auf Reddit ansehen",
     "viewOnTwitter": "Auf X/Twitter ansehen"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "stats": {
+      "unreadArticles": "Ungelesene Artikel",
+      "totalArticles": "Artikel insgesamt",
+      "feeds": "Feeds",
+      "feedsValue": "{enabled} von {total}",
+      "tags": "Tags",
+      "activeJobs": "Laufende Aufgaben"
+    },
+    "recent": {
+      "heading": "Zuletzt ungelesen",
+      "empty": "Keine ungelesenen Artikel.",
+      "emptyCta": "Feed hinzufügen"
+    },
+    "sections": {
+      "heading": "Verwalten",
+      "articles": "Artikel durchsuchen und lesen.",
+      "feeds": "Abonnierte Feeds hinzufügen und bearbeiten.",
+      "tags": "Artikel mit Tags organisieren.",
+      "users": "Benutzerkonten dieser Instanz verwalten.",
+      "integrations": "YouTube- und Reddit-Zugangsdaten verbinden.",
+      "ai": "KI-Anbieter und dessen Einstellungen konfigurieren.",
+      "jobs": "Hintergrundaufgaben für Aggregation und Wartung überwachen.",
+      "settings": "Sprache, Design und Bibliothekseinstellungen anpassen."
+    }
   }
 }

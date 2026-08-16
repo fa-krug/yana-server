@@ -397,26 +397,31 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   `getSettings()` → `getDb()`. That is measured, not theoretical — until phase
   4's task 2 it left an empty, unmigrated `data/yana.db` behind on every
   `npm run build`. So **every route that can reach the database calls it
-  itself, as its first statement**, before any translation or data call. The
-  eight that do today: `src/app/layout.tsx`, `src/app/health/route.ts`,
-  `src/app/(app)/page.tsx`, `src/app/(app)/settings/page.tsx`,
-  `src/app/(app)/integrations/page.tsx` (phase 6 — signed-in but **not**
-  admin-only, so no gate opts it out and the call is the only thing that does),
-  `src/app/(app)/ai/page.tsx` (phase 7, for that same reason),
-  `src/app/(app)/account/page.tsx` and `src/app/login/page.tsx`. **That list is
-  exhaustive or it is not a checklist** — re-derive it with
-  `grep -rl "await connection()" src/app` and expect one extra hit,
-  `src/app/api/auth/[...all]/route.ts`, whose comment _explains why it has no
-  call_. Add a new route here in the same commit. A new page that reads anything
-  needs its own line — unless it already awaits a Dynamic API, which opts the
-  route out just as well. **The eight that do**: `src/app/(app)/layout.tsx`,
-  because `requireUser()` awaits `headers()` before anything touches SQLite;
+  itself, as its first statement**, before any translation or data call. **This
+  is a rule to apply, not a list to consult** — a fixed inventory here has
+  already drifted twice (once when phase 13's `/api/v1` routes shipped without
+  an entry, again when the dashboard's own route joined them), because nothing
+  enforces that a new call site gets a new line.
+  `grep -rl "await connection()" src/app` is how you find every route that
+  currently makes the call — read its output rather than counting it, because
+  not every hit is a call site: it also matches the `.test.ts` files that
+  assert the call is first, and it matches
+  `src/app/api/auth/[...all]/route.ts`, whose comment names the call in order
+  to _explain why that route deliberately has none_ (its only segment is
+  dynamic, so Next already treats it as dynamic — and the comment says to add
+  the call if that ever changes). A new route that reads anything needs its own
+  call, in the same commit that adds the read — unless it already awaits a
+  Dynamic API, which opts the route out just as well; the routes below are
+  exactly that second case, and are listed for the _reason_, not as inventory
+  to keep in sync.
+  `src/app/(app)/layout.tsx` is exempt because `requireUser()` awaits
+  `headers()` before anything touches SQLite; so are
   `src/app/media/avatars/[userId]/route.ts` and
   `src/app/api/feeds/export/route.ts`, for the same reason;
   `src/app/(app)/jobs/[id]/page.tsx` and
   `src/app/api/jobs/[id]/log-stream/route.ts`, likewise (the job live-log
   feature's detail page and its SSE route, both gated by
-  `requireUserFreshRole()` before anything else); and phase 5's three
+  `requireUserFreshRole()` before anything else); and so are phase 5's three
   `/users` routes —
   `src/app/(app)/users/page.tsx`, `src/app/(app)/users/new/page.tsx`,
   `src/app/(app)/users/[id]/page.tsx` — where `requireAdmin()` does it. That
@@ -531,6 +536,27 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   And that same top-of-page `await` is what opts the route out of prerendering,
   so it needs no `connection()` call — see the `connection()` bullet, which
   lists it.
+
+  **A fallback is a Server Component, so it may not hand a Client Component a
+  function — and getting this wrong fails only on a cold start.** Every
+  `<Suspense fallback>` and every `loading.tsx` here renders the real section's
+  `…Shell`, and those shells are `"use client"`. React has to serialize each
+  prop across the RSC boundary and a closure is not serializable (only a Server
+  Action is), so
+  `onSubmit={(event) => event.preventDefault()}` throws
+  `Event handlers cannot be passed to Client Component props` — replacing the
+  whole page with `(app)/error.tsx`. It is invisible in normal use because a
+  fallback is only committed when the read is slow enough to suspend: the first
+  visit after a restart broke, every reload after it looked perfect. `/ai`,
+  `/account` and `/integrations` all shipped it. **The fix is always the same:
+  the shell declares `onSubmit` optional and defaults it to the no-op inside
+  its own `"use client"` module, and the fallback omits the prop entirely**
+  (`YoutubeSectionShell` in `src/components/integrations/youtube-section.tsx`
+  is the reference). `tsc` cannot see the hazard and no jsdom test can either —
+  testing-library never runs the flight serializer — so the guard is
+  `src/app/server-component-props.test.ts`, a specifier-style tripwire that
+  fails on any `on[A-Z]…={` prop in a file under `src/app/` that is not itself
+  a Client Component.
 
 - **Identity comes from the session: `currentUser()`, `requireUser()`,
   `requireAdmin()`, `requireUserFreshRole()` and `currentUserId()` in
@@ -1933,10 +1959,29 @@ already-used token falls back to `/login`, indistinguishable from a plain
 signed-out visit. **This route is public in `src/proxy.ts`'s
 `PUBLIC_PREFIXES`** — see the proxy bullet above for why: the whole point
 is that the caller has no session cookie yet, so gating it behind one is a
-contradiction, not an oversight. **The redirect response itself is
-built with `new Response(null, { status, headers })`, never
-`Response.redirect()`**, because `Response.redirect()`'s headers are
-immutable and a `Set-Cookie` cannot be appended onto one afterward.
+contradiction, not an oversight. **Its `Location` header is a _relative_
+reference (`/feeds`, `/login?next=…`), never an absolute URL, and that is
+load-bearing.** It originally built one with `new URL(path, request.url)`,
+which reads the origin off the incoming request — but in production this is
+a standalone Next server listening on `0.0.0.0:3000` behind a reverse
+proxy, so `request.url` is that internal address rather than the public
+origin the client dialled. `ManagementWebView` was therefore redirected to
+`http://0.0.0.0:3000/feeds`, which WebKit refuses outright as restricted
+network access (`WebKitErrorDomain 103`), killing the bootstrap _after_ the
+one-time token had been minted and burned. A relative `Location` is
+resolved by the client against the origin it actually requested (RFC 9110
+§10.2.2), so nothing depends on `Host`/`X-Forwarded-Proto` surviving the
+proxy — which is why the fix is here and not in the proxy config.
+`safeNextPath()` already guarantees the path never starts with `//`, so it
+cannot re-parse as a network-path reference and escape the origin; that
+guarantee is what makes emitting it raw safe, and
+`route.test.ts`'s "never derives the redirect origin from the request URL"
+case drives a `http://0.0.0.0:3000/...` request through `GET()` so a
+regression fails a test instead of only failing on a phone.
+**The redirect response itself is built with
+`new Response(null, { status, headers })`, never `Response.redirect()`**,
+because that helper requires an absolute URL _and_ returns immutable
+headers, so a `Set-Cookie` could not be appended onto one afterward either.
 Revoking a device's session invalidates its web session too, but not
 instantly: Better Auth's 5-minute signed session-cookie cache (see the
 `cookieCache` comment in `src/lib/auth/server.ts`) can keep serving a

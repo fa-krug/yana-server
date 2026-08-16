@@ -1,6 +1,7 @@
 import { asc, desc, sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
+import type { JobStatus } from "./enums";
 import { users } from "./users";
 
 /**
@@ -58,7 +59,7 @@ export const jobs = sqliteTable(
       .notNull()
       .$type<Record<string, unknown>>()
       .default({}),
-    status: text("status").notNull().default("pending"),
+    status: text("status").notNull().default("pending").$type<JobStatus>(),
     attempts: integer("attempts").notNull().default(0),
     maxAttempts: integer("max_attempts").notNull().default(3),
     /** When the job becomes eligible. Retry backoff pushes this forward. */

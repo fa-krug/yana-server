@@ -1,1 +1,0 @@
-ALTER TABLE `articles` ADD `content_hash` text;

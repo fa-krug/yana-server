@@ -45,5 +45,13 @@ export type EmbedProvider = (typeof EMBED_PROVIDERS)[number];
 export const STYLE_NAMES = ["bold", "italic", "code", "strikethrough"] as const;
 export type StyleName = (typeof STYLE_NAMES)[number];
 
-export const JOB_STATUSES = ["pending", "running", "succeeded", "failed"] as const;
+/** Mirrors the transitions `src/lib/jobs/queue.ts` actually writes to `jobs.status`. */
+export const JOB_STATUSES = [
+  "pending",
+  "running",
+  "completed",
+  "failed",
+  "cancelling",
+  "cancelled",
+] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];

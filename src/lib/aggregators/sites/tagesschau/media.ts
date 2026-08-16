@@ -182,19 +182,13 @@ function buildHeaderFromEmbedCode(
 
   const safeSrc = escapeHtml(src);
   const height = isAudioOnly ? "200" : "315";
+  const safeImage = safeImageSrc(imageUrl);
+  const posterAttr = safeImage ? ` poster="${safeImage}"` : "";
   const playerHtml =
     `<div class="media-player" style="width: 100%;">` +
-    `<iframe src="${safeSrc}" width="100%" height="${height}" ` +
+    `<iframe src="${safeSrc}"${posterAttr} width="100%" height="${height}" ` +
     `frameborder="0" allowfullscreen scrolling="no"></iframe>` +
     `</div>`;
-
-  const safeImage = safeImageSrc(imageUrl);
-  if (isAudioOnly && safeImage) {
-    const imgPart =
-      `<div class="media-image"><img src="${safeImage}" alt="Article image" ` +
-      `style="max-width: 100%; height: auto; border-radius: 8px;"></div>`;
-    return `<header class="media-header">${imgPart}${playerHtml}</header>`;
-  }
 
   return `<header class="media-header">${playerHtml}</header>`;
 }
@@ -230,16 +224,14 @@ function buildHeaderFromStreams(
   imageUrl: string | null,
 ): string | null {
   const safeImage = safeImageSrc(imageUrl);
+  const posterAttr = safeImage ? ` poster="${safeImage}"` : "";
   if (isAudioOnly) {
     const audioMedia = findMediaByMimeType(streams, "audio");
     if (audioMedia) {
-      const imgPart = safeImage
-        ? `<div class="media-image"><img src="${safeImage}" alt="Article image" style="max-width: 100%; height: auto; border-radius: 8px;"></div>`
-        : "";
       return (
-        `<header class="media-header">${imgPart}` +
+        `<header class="media-header">` +
         `<div class="media-player" style="width: 100%;">` +
-        `<audio controls preload="auto" style="width: 100%;">` +
+        `<audio controls preload="auto"${posterAttr} style="width: 100%;">` +
         `<source src="${audioMedia.url}" type="${audioMedia.mime_type}">` +
         `Your browser does not support the audio element.` +
         `</audio></div></header>`
@@ -248,7 +240,6 @@ function buildHeaderFromStreams(
   } else {
     const videoMedia = findMediaByMimeType(streams, "video");
     if (videoMedia) {
-      const posterAttr = safeImage ? ` poster="${safeImage}"` : "";
       return (
         `<header class="media-header">` +
         `<div class="media-player" style="width: 100%;">` +

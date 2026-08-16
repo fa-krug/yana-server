@@ -6,6 +6,12 @@ import { HeaderElementData } from "../header/context";
 import { storeImageRefFromUrl } from "../images/store";
 import { FullWebsiteAggregator } from "../website";
 
+// A comic panel is the whole article; the default 600x600 body-image cap
+// (src/lib/aggregators/images/compression.ts) shrinks Oglaf's ~800-1000px
+// strips until the lettering stops being readable. Same ceiling as
+// dark_legacy.ts, which is here for the same reason.
+const COMIC_MAX_DIMENSIONS = { width: 1600, height: 4800 };
+
 export class OglafAggregator extends FullWebsiteAggregator {
   static brandSiteUrl = "https://www.oglaf.com/";
 
@@ -100,7 +106,7 @@ export class OglafAggregator extends FullWebsiteAggregator {
 
       let imgSrc: string | null = null;
       if (isSafeUrl(imgUrl)) {
-        const ref = await storeImageRefFromUrl(imgUrl);
+        const ref = await storeImageRefFromUrl(imgUrl, { maxDimensions: COMIC_MAX_DIMENSIONS });
         imgSrc = escapeHtml(ref || imgUrl);
       }
 

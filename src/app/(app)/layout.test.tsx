@@ -155,4 +155,32 @@ describe("the (app) layout", () => {
       inactive.container.querySelector('a[href="/account"]')?.hasAttribute("data-active"),
     ).toBe(false);
   });
+
+  it("marks only the Dashboard nav entry active on /, never on another route", async () => {
+    // `"/"` is a prefix of every path, so a naive `pathname.startsWith(href)`
+    // would light up Dashboard everywhere -- this pins the fix in
+    // `isNavItemActive()` (src/components/app-sidebar.tsx). The selector is
+    // scoped to `[data-slot="sidebar-menu-button"]` because the sidebar header
+    // also has a plain `<Link href="/">` (the "Yana" brand mark), which is not
+    // a nav item and carries no `data-active`.
+    setPathname("/");
+    signInAs("user");
+    const onRoot = await renderLayout();
+    const dashboardLink = onRoot.container.querySelector(
+      'a[data-slot="sidebar-menu-button"][href="/"]',
+    );
+    expect(dashboardLink?.hasAttribute("data-active")).toBe(true);
+    onRoot.unmount();
+
+    setPathname("/articles");
+    const onArticles = await renderLayout();
+    const dashboardLinkElsewhere = onArticles.container.querySelector(
+      'a[data-slot="sidebar-menu-button"][href="/"]',
+    );
+    const articlesLink = onArticles.container.querySelector(
+      'a[data-slot="sidebar-menu-button"][href="/articles"]',
+    );
+    expect(dashboardLinkElsewhere?.hasAttribute("data-active")).toBe(false);
+    expect(articlesLink?.hasAttribute("data-active")).toBe(true);
+  });
 });

@@ -143,11 +143,15 @@ export function AdvancedSection({ advanced }: { advanced: AiAdvanced }) {
 export function AdvancedSectionShell({
   controls,
   saveControl,
-  onSubmit,
+  // Optional, and defaulted here rather than by the caller -- see the same
+  // comment on `ProviderSectionShell` in `./provider-section.tsx`: a Server
+  // Component fallback cannot pass a function across the RSC boundary, so it
+  // passes nothing and this "use client" module supplies the no-op.
+  onSubmit = (event) => event.preventDefault(),
 }: {
   controls: Record<AiAdvancedField, ReactNode>;
   saveControl: ReactNode;
-  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+  onSubmit?: React.FormEventHandler<HTMLFormElement>;
 }) {
   const t = useTranslations("ai");
 

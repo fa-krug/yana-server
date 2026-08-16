@@ -1,5 +1,6 @@
 {
   "nav": {
+    "dashboard": "Dashboard",
     "feeds": "Feeds",
     "articles": "Articles",
     "tags": "Tags",
@@ -295,6 +296,10 @@
       "concurrencyHelp": "How many articles this feed fetches in parallel during one run.",
       "maxArticleAge": "Maximum article age (days)",
       "maxArticleAgeHelp": "Articles older than this are skipped when this feed is aggregated. 0 disables the limit.",
+      "customPromptEdit": "Edit prompt",
+      "customPromptTitle": "Custom prompt",
+      "customPromptDescription": "Sent with every article this feed aggregates.",
+      "customPromptEmpty": "No prompt set yet. Click to write one.",
       "create": "Create feed",
       "save": "Save feed",
       "created": "Feed created",
@@ -340,7 +345,12 @@
       "days": "days",
       "retentionRange": "Article retention must be between 1 and 3650 days."
     },
-    "about": { "title": "About", "source": "Source code", "issues": "Report an issue" },
+    "about": {
+      "title": "About",
+      "source": "Source code",
+      "issues": "Report an issue",
+      "apiDocs": "API documentation"
+    },
     "sessionEnded": "Your session ended. Sign in again to continue.",
     "requestFailed": "The server did not answer. Check your connection and try again.",
     "saved": "Settings saved",
@@ -625,5 +635,32 @@
     "viewOnBluesky": "View on Bluesky",
     "viewOnReddit": "View on Reddit",
     "viewOnTwitter": "View on X/Twitter"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "stats": {
+      "unreadArticles": "Unread articles",
+      "totalArticles": "Total articles",
+      "feeds": "Feeds",
+      "feedsValue": "{enabled} of {total}",
+      "tags": "Tags",
+      "activeJobs": "Active jobs"
+    },
+    "recent": {
+      "heading": "Latest unread",
+      "empty": "No unread articles.",
+      "emptyCta": "Add a feed"
+    },
+    "sections": {
+      "heading": "Manage",
+      "articles": "Browse, search and read your articles.",
+      "feeds": "Add, edit and organise the feeds you follow.",
+      "tags": "Organise your articles with tags.",
+      "users": "Manage user accounts on this instance.",
+      "integrations": "Connect YouTube and Reddit credentials.",
+      "ai": "Configure your AI provider and its settings.",
+      "jobs": "Monitor background aggregation and maintenance jobs.",
+      "settings": "Adjust your language, theme and library preferences."
+    }
   }
 }

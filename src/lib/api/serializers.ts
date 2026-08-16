@@ -1,18 +1,14 @@
 import type { Article, Feed, Tag, UserSettings } from "@/lib/db/schema";
+import type { z } from "zod";
 
-export interface ArticleSummaryWire {
-  id: number;
-  feedId: number;
-  name: string;
-  identifier: string;
-  date: string;
-  author: string;
-  icon: string | null;
-  read: boolean;
-  starred: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
+import type {
+  ArticleSummarySchema,
+  FeedSchema,
+  ReadingPositionSchema,
+  TagSchema,
+} from "@/lib/api/docs/schemas";
+
+export type ArticleSummaryWire = z.infer<typeof ArticleSummarySchema>;
 
 /**
  * The columns `serializeArticleSummary` actually reads. Typed as a `Pick`
@@ -53,19 +49,7 @@ export function serializeArticleSummary(article: ArticleSummarySource): ArticleS
   };
 }
 
-export interface FeedWire {
-  id: number;
-  name: string;
-  aggregator: string;
-  identifier: string;
-  enabled: boolean;
-  dailyLimit: number;
-  updateIntervalMinutes: number;
-  concurrency: number;
-  tagIds: number[];
-  logoImageHash: string | null;
-  updatedAt: string;
-}
+export type FeedWire = z.infer<typeof FeedSchema>;
 
 export function serializeFeed(feed: Feed, tagIds: number[]): FeedWire {
   return {
@@ -83,20 +67,13 @@ export function serializeFeed(feed: Feed, tagIds: number[]): FeedWire {
   };
 }
 
-export interface TagWire {
-  id: number;
-  name: string;
-  color: string;
-}
+export type TagWire = z.infer<typeof TagSchema>;
 
 export function serializeTag(tag: Tag): TagWire {
   return { id: tag.id, name: tag.name, color: tag.color };
 }
 
-export interface ReadingPositionWire {
-  articleId: number | null;
-  updatedAt: string | null;
-}
+export type ReadingPositionWire = z.infer<typeof ReadingPositionSchema>;
 
 /**
  * `settings` is typed to the two columns this needs rather than the whole
