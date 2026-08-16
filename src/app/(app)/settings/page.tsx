@@ -1,42 +1,47 @@
 import { connection } from "next/server";
-import { getTranslations } from "next-intl/server";
 
 import { AboutSection } from "@/components/settings/about-section";
 import { GeneralSection } from "@/components/settings/general-section";
 import { LibrarySection } from "@/components/settings/library-section";
+import { SettingsTitle } from "@/components/settings/settings-title";
 import { Separator } from "@/components/ui/separator";
 import { getSettingsSummary } from "@/lib/settings/queries";
 
 /**
- * `<PageTitle>` was considered here (see the streaming-controls migration
- * plan, Task 1 Step 6) so this page would need no `await getTranslations()`
- * at all -- a client `useTranslations()` hook reads the provider the root
- * layout already renders, and nothing crosses the RSC boundary for it. It was
- * dropped: making its `namespace`/`titleKey` props generic and still
- * compiler-checked against `NamespaceKey<Namespace>` runs into the exact wall
- * documented on `src/components/section-kit.tsx` -- `useTranslations(namespace)`
- * with a still-generic `Namespace` produces a `t` typed
- * `NamespacedMessageKeys<Messages, Namespace>`, which TypeScript cannot reduce
- * to `NamespaceKey<Namespace>`, and closing that gap inside the component
- * needs a cast at the `t()` call site -- precisely what CLAUDE.md forbids.
- * Every later task therefore keeps this `await getTranslations()` too: the
- * page suspends only on this one per-request-`cache()`d read, not on the
- * settings query below, which is the one this migration removes from the
- * critical path.
+ * The instant-render-no-fallback migration: this page body awaits nothing,
+ * so it cannot suspend and Next never shows a route-level fallback for it --
+ * `loading.tsx` was deleted along with this rewrite, because there is no
+ * longer any suspension for it to cover.
+ *
+ * The `await getTranslations()` the streaming-controls migration kept here is
+ * gone too, replaced by `<SettingsTitle>` -- a client component reading
+ * `useTranslations("settings")` off the `NextIntlClientProvider` the root
+ * layout already renders, so nothing crosses the RSC boundary for the title
+ * and nothing here suspends on it. A shared generic `<PageTitle namespace
+ * titleKey>` was tried and rejected for this same reason twice over (see
+ * `src/components/section-kit.tsx`): making the namespace generic while
+ * keeping catalog keys compiler-checked needs a cast at the `t()` call site,
+ * which CLAUDE.md forbids. A literal namespace per page avoids the wall
+ * instead of closing it.
  */
-export default async function SettingsPage() {
+export default function SettingsPage() {
   /**
-   * Opt this route out of prerendering, **before** the first line that can
-   * reach SQLite. `connection()` in the root layout is not enough and never
-   * was: the layout and this page are sibling render scopes, React starts this
-   * one before the layout's interrupt lands, and `getTranslations()` below
-   * resolves the next-intl request config -> `getSettings()` -> `getDb()`. That
-   * is what created an empty, unmigrated `data/yana.db` on the build machine
-   * (see the `connection()` bullet in CLAUDE.md). Every route that can reach
-   * the database needs its own call, first thing.
+   * Opt this route out of prerendering -- **called, not awaited**. Calling
+   * `connection()` is what interrupts static generation: during `next build`
+   * it throws synchronously (see `throwToInterruptStaticGeneration` in
+   * `next/dist/server/request/connection.js`) the moment it runs, whether or
+   * not anything awaits its result: the exception propagates out of this
+   * (now synchronous) page function exactly as it would if awaited, which
+   * is what still makes `rm -rf data/ && npm run build` leave `data/`
+   * unmigrated rather than baking a page against it. At real request time it
+   * just resolves to `undefined` and is never observed -- there is nothing to
+   * await here, so awaiting it would only reintroduce the one thing this
+   * migration removes. `connection()` in the root layout still is not enough
+   * on its own: the layout and this page are sibling render scopes, and
+   * `getSettingsSummary()` below reaches `getDb()` through its own chain of
+   * dynamic reads regardless of what the layout already resolved.
    */
-  await connection();
-  const t = await getTranslations("settings");
+  connection();
 
   // Not awaited: the promise is handed to the client components, which render
   // their real controls immediately and fill in the values when it resolves.
@@ -66,7 +71,7 @@ export default async function SettingsPage() {
 
   return (
     <div className="max-w-2xl space-y-6">
-      <h1 className="text-2xl font-semibold">{t("title")}</h1>
+      <SettingsTitle />
       <div className="space-y-8">
         <GeneralSection promise={settings} />
         <Separator />
