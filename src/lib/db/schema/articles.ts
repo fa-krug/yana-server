@@ -71,6 +71,11 @@ export const articles = sqliteTable(
     // Sync cursor: createdAt with id as tie-breaker.
     index("articles_created_id_idx").on(table.createdAt, table.id),
     index("articles_feed_created_idx").on(table.feedId, table.createdAt),
+    // Sync cursor, `updated` stream: the counterpart to
+    // `articles_created_id_idx`. `syncArticles` orders by
+    // `updatedAt ASC, id ASC` with a LIMIT; without this the query
+    // full-scans and builds a temp B-tree on every sync call.
+    index("articles_updated_id_idx").on(table.updatedAt, table.id),
   ],
 );
 

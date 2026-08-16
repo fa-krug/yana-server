@@ -79,9 +79,23 @@ describe("migrations", () => {
       "articles_feed_read_date_idx",
       "articles_created_id_idx",
       "articles_feed_created_idx",
+      "articles_updated_id_idx",
     ]) {
       expect(names).toContain(expected);
     }
+    connection.close();
+  });
+
+  it("indexes (updatedAt, id) so the sync `updated` stream needs no temp sort", () => {
+    const connection = freshDatabase();
+    const row = connection
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'articles_updated_id_idx'",
+      )
+      .get() as { sql: string } | undefined;
+
+    expect(row).toBeDefined();
+    expect(row!.sql).toMatch(/\(\s*`?updated_at`?\s*,\s*`?id`?\s*\)/);
     connection.close();
   });
 

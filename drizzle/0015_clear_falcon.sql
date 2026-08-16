@@ -1,0 +1,1 @@
+CREATE INDEX `articles_updated_id_idx` ON `articles` (`updated_at`,`id`);
