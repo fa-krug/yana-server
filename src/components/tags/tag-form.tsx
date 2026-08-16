@@ -17,14 +17,25 @@ import { cn } from "@/lib/utils";
 import type { Tag } from "@/lib/db/schema";
 import { useTagUsage } from "./use-tag-usage";
 
-export function TagForm({ tag }: { tag?: Tag }) {
+/**
+ * `pending` is the "not loaded yet" state, the same shape
+ * `@/components/settings/library-section.tsx` establishes -- but this form has
+ * no query of its own (`createTag`/`updateTag` are writes, and `tag` itself is
+ * either absent on `/tags/new` or already resolved by `/tags/[id]`'s own
+ * awaited row read). So `pending` exists purely for `/tags/new/loading.tsx`,
+ * which renders this same chassis, disabled, while the route's RSC payload is
+ * still crossing the network on a client-side soft navigation -- real latency
+ * server-side streaming cannot remove (see that file's own comment).
+ */
+export function TagForm({ tag, pending = false }: { tag?: Tag; pending?: boolean }) {
   const t = useTranslations("tags");
   const c = useTranslations("common");
   const router = useRouter();
 
   const [name, setName] = useState(tag?.name ?? "");
   const [color, setColor] = useState<string>(tag?.color ?? DEFAULT_TAG_COLOR);
-  const [pending, start] = useTransition();
+  const [saving, start] = useTransition();
+  const busy = pending || saving;
   const usage = useTagUsage(tag ? [tag.id] : []);
 
   function failed(errorKey: TagsKey | undefined): void {
@@ -71,7 +82,7 @@ export function TagForm({ tag }: { tag?: Tag }) {
     });
   };
 
-  const isDeletePending = pending;
+  const isDeletePending = saving;
 
   return (
     <div className="space-y-8">
@@ -84,7 +95,7 @@ export function TagForm({ tag }: { tag?: Tag }) {
             autoComplete="off"
             value={name}
             onChange={(event) => setName(event.target.value)}
-            disabled={pending}
+            disabled={busy}
             className="max-w-md"
           />
         </div>
@@ -99,7 +110,7 @@ export function TagForm({ tag }: { tag?: Tag }) {
                 role="radio"
                 aria-checked={color === key}
                 aria-label={t(`colors.${key}`)}
-                disabled={pending}
+                disabled={busy}
                 onClick={() => setColor(key)}
                 className={cn(
                   "size-7 rounded-full border-2 transition-colors",
@@ -112,7 +123,7 @@ export function TagForm({ tag }: { tag?: Tag }) {
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-          <Button type="submit" disabled={pending} className="w-full sm:w-auto">
+          <Button type="submit" disabled={busy} className="w-full sm:w-auto">
             {tag ? t("form.save") : t("form.create")}
           </Button>
           <Link
@@ -136,7 +147,7 @@ export function TagForm({ tag }: { tag?: Tag }) {
                 ? t("deleteDescription", { name: tag.name, feeds: usage.feeds })
                 : t("deleteDescriptionZero", { name: tag.name })}
           </p>
-          <Button type="button" variant="destructive" disabled={pending} onClick={onDelete}>
+          <Button type="button" variant="destructive" disabled={busy} onClick={onDelete}>
             {t("deleteConfirm")}
           </Button>
         </div>

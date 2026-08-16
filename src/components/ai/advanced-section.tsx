@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useState, useTransition, type ReactNode } from "react";
+import { Suspense, use, useState, useTransition, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { saveAdvanced } from "@/lib/ai/actions";
 import { AI_ADVANCED_BOUNDS, AI_ADVANCED_FIELDS, type AiAdvancedField } from "@/lib/ai/bounds";
-import type { AiAdvanced } from "@/lib/ai/queries";
+import type { AiAdvanced, AiStatus } from "@/lib/ai/queries";
 import { attempt } from "@/lib/ai/result";
 
 /**
@@ -38,6 +38,18 @@ import { attempt } from "@/lib/ai/result";
  * nothing would refuse it. {@link numeric} maps an empty field to `NaN`
  * instead, which zod rejects, and the operator is told which field and what its
  * range is.
+ *
+ * ## The `…Form` / `…Resolved` / `…Section({ promise })` split
+ *
+ * `advanced` is now optional, and `pending` (paired with it being `undefined`)
+ * means "not loaded yet" -- the same shape
+ * `@/components/settings/library-section.tsx` establishes. Unlike the provider
+ * card, this needs no separate pending branch: `min`/`max`/`step` come from
+ * `AI_ADVANCED_BOUNDS`, which is dependency-free and needs no query, so every
+ * one of the nine inputs already renders with its real bounds regardless of
+ * `advanced` -- only the *value* differs, an empty draft rather than one seeded
+ * from a loaded row, and `disabled` follows `pending` the same way it follows
+ * `saving`.
  */
 
 /**
@@ -61,6 +73,11 @@ function draftFrom(advanced: AiAdvanced): Draft {
   ) as Draft;
 }
 
+/** The pending draft: every field empty, since no row has loaded yet. */
+function emptyDraft(): Draft {
+  return Object.fromEntries(AI_ADVANCED_FIELDS.map((name) => [name, ""])) as Draft;
+}
+
 /**
  * A field's text as the number the action expects.
  *
@@ -72,10 +89,16 @@ function numeric(value: string): number {
   return value.trim() === "" ? Number.NaN : Number(value);
 }
 
-export function AdvancedSection({ advanced }: { advanced: AiAdvanced }) {
+export function AdvancedSectionForm({
+  advanced,
+  pending = false,
+}: {
+  advanced?: AiAdvanced;
+  pending?: boolean;
+}) {
   const t = useTranslations("ai");
-  const [draft, setDraft] = useState<Draft>(() => draftFrom(advanced));
-  const [pending, start] = useTransition();
+  const [draft, setDraft] = useState<Draft>(() => (advanced ? draftFrom(advanced) : emptyDraft()));
+  const [saving, start] = useTransition();
 
   function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -95,6 +118,10 @@ export function AdvancedSection({ advanced }: { advanced: AiAdvanced }) {
     });
   }
 
+  // Bounds come from `AI_ADVANCED_BOUNDS`, which is dependency-free and needs
+  // no query, so every input renders with its real `min`/`max`/`step`
+  // regardless of `pending` -- only the value (empty until a row has loaded)
+  // and `disabled` depend on it.
   const controls = Object.fromEntries(
     AI_ADVANCED_FIELDS.map((name) => [
       name,
@@ -107,6 +134,7 @@ export function AdvancedSection({ advanced }: { advanced: AiAdvanced }) {
         max={AI_ADVANCED_BOUNDS[name].max}
         step={stepFor(name)}
         value={draft[name]}
+        disabled={pending}
         onChange={(event) => setDraft((current) => ({ ...current, [name]: event.target.value }))}
       />,
     ]),
@@ -116,11 +144,11 @@ export function AdvancedSection({ advanced }: { advanced: AiAdvanced }) {
     <AdvancedSectionShell
       controls={controls}
       saveControl={
-        <Button type="submit" disabled={pending} className="w-full sm:w-auto">
-          {pending ? t("advanced.saving") : t("advanced.save")}
+        <Button type="submit" disabled={pending || saving} className="w-full sm:w-auto">
+          {saving ? t("advanced.saving") : t("advanced.save")}
         </Button>
       }
-      onSubmit={save}
+      onSubmit={pending ? undefined : save}
     />
   );
 }
@@ -128,25 +156,28 @@ export function AdvancedSection({ advanced }: { advanced: AiAdvanced }) {
 /**
  * The card's chrome alone: the heading, every field's label and help text, and
  * the grid they sit in -- with no dependency on `advanced`, so
- * `src/app/(app)/ai/page.tsx` can render this directly as its own `<Suspense>`
- * fallback (with a skeleton bar standing in for each of the nine inputs and the
- * Save button) instead of an anonymous skeleton block. See the doc comment on
- * `GeneralSectionShell` in `../settings/general-section.tsx` for why this split
- * exists.
+ * `<AdvancedSectionForm>` can render it for both its resolved state and its
+ * `pending` one from the same markup.
  *
- * The `<form>` lives here rather than in `<AdvancedSection>`, exactly as in
- * `<ProviderSectionShell>` below its sibling file: `onSubmit` is just a
+ * **Deliberately not exported.** Only `<AdvancedSectionForm>` in this file
+ * renders it, and that is the whole point of the arrangement: the pending
+ * fallback is that form with `pending`, never this shell reached for directly
+ * from a page. `../settings/general-section.tsx` and
+ * `../integrations/youtube-section.tsx` needed no shell split at all once
+ * their pending and resolved renders converged on one component.
+ *
+ * The `<form>` lives here rather than in `<AdvancedSectionForm>`, exactly as
+ * in `ProviderSectionShell` in its sibling file: `onSubmit` is just a
  * callback the shell forwards, so keeping the element here is what lets the
- * fallback lay out identically to the resolved render without a form of its
- * own ever being submitted.
+ * pending render lay out identically to the resolved one without a form of
+ * its own ever being submitted.
  */
-export function AdvancedSectionShell({
+function AdvancedSectionShell({
   controls,
   saveControl,
-  // Optional, and defaulted here rather than by the caller -- see the same
-  // comment on `ProviderSectionShell` in `./provider-section.tsx`: a Server
-  // Component fallback cannot pass a function across the RSC boundary, so it
-  // passes nothing and this "use client" module supplies the no-op.
+  // Optional, defaulted to a no-op: `<AdvancedSectionForm>`'s `pending`
+  // branch renders this shell with no `onSubmit` at all, the same reasoning
+  // `ProviderSectionShell` in `./provider-section.tsx` carries.
   onSubmit = (event) => event.preventDefault(),
 }: {
   controls: Record<AiAdvancedField, ReactNode>;
@@ -179,5 +210,31 @@ export function AdvancedSectionShell({
         </form>
       </CardContent>
     </Card>
+  );
+}
+
+/** Calls use(); suspends until the promise resolves; renders the form for real. */
+function AdvancedSectionResolved({ promise }: { promise: Promise<AiStatus> }) {
+  const status = use(promise);
+  return <AdvancedSectionForm advanced={status.advanced} />;
+}
+
+/**
+ * What the page renders. The fallback is the real form, in its pending
+ * state -- see the Design Reference in
+ * docs/superpowers/plans/2026-08-16-streaming-controls-migration.md -- so the
+ * heading, every label, help text and all nine inputs (with their real bounds
+ * already set) are on screen, disabled, from the first frame and only the
+ * stored values stream in afterward.
+ *
+ * `promise` is the whole `AiStatus` `getAiStatus()` resolves to, shared with
+ * `<ProviderSection>` -- see that component's doc comment in
+ * `./provider-section.tsx` for why one promise serves both.
+ */
+export function AdvancedSection({ promise }: { promise: Promise<AiStatus> }) {
+  return (
+    <Suspense fallback={<AdvancedSectionForm pending />}>
+      <AdvancedSectionResolved promise={promise} />
+    </Suspense>
   );
 }

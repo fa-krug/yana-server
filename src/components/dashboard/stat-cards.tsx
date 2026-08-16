@@ -1,8 +1,12 @@
+"use client";
+
 import { BookOpen, Newspaper, Rss, Tags, Workflow, type LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
+import { Suspense, use } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { DashboardStats } from "@/lib/dashboard/queries";
 
 type StatCardDef = {
@@ -17,52 +21,64 @@ type StatCardDef = {
  * The dashboard's row of summary tiles: one per count on {@link DashboardStats},
  * each linking to the list page it summarises.
  *
- * Deliberately not `"use client"` -- it calls `useTranslations()`, which
- * next-intl supports in a synchronous server component (see `<UserAvatar>` for
- * the same pattern), and holds no state of its own.
+ * `stats === undefined` (paired with `pending`) is the "not loaded yet" state.
+ * The card frame, its icon and its title render always -- none of the three
+ * depends on `stats` -- and only the number is replaced by a small
+ * `<Skeleton className="h-8 w-16" />`. A count has no honest "empty"
+ * rendering the way a text field's empty string is, so this is one of only
+ * three places in the whole migration where a skeleton survives by design
+ * (the other two are `/account`'s passkey and device lists). Do not "fix"
+ * this into a real `<p>` showing `0` or "" -- neither is true yet.
  *
  * Feeds gets one tile for two numbers (`enabledFeeds` of `totalFeeds`), so
  * there are five tiles rather than six -- the sixth catalog value,
  * `stats.feedsValue`, is the "N of M" template that tile renders instead of a
  * bare count.
  */
-export function StatCards({ stats }: { stats: DashboardStats }) {
+export function StatCardsView({
+  stats,
+  pending = false,
+}: {
+  stats?: DashboardStats;
+  pending?: boolean;
+}) {
   const t = useTranslations("dashboard.stats");
+  const loading = pending || stats === undefined;
 
   const cards: StatCardDef[] = [
     {
       key: "unreadArticles",
       icon: BookOpen,
       label: t("unreadArticles"),
-      value: String(stats.unreadArticles),
+      value: stats ? String(stats.unreadArticles) : "",
       href: "/articles?read=false",
     },
     {
       key: "totalArticles",
       icon: Newspaper,
       label: t("totalArticles"),
-      value: String(stats.totalArticles),
+      value: stats ? String(stats.totalArticles) : "",
       href: "/articles",
     },
     {
       key: "feeds",
       icon: Rss,
       label: t("feeds"),
-      value: t("feedsValue", { enabled: stats.enabledFeeds, total: stats.totalFeeds }),
+      value: stats ? t("feedsValue", { enabled: stats.enabledFeeds, total: stats.totalFeeds }) : "",
       href: "/feeds",
     },
     {
       key: "tags",
       icon: Tags,
       label: t("tags"),
-      value: String(stats.tags),
+      value: stats ? String(stats.tags) : "",
       href: "/tags",
     },
     {
       key: "activeJobs",
       icon: Workflow,
       label: t("activeJobs"),
-      value: String(stats.activeJobs),
+      value: stats ? String(stats.activeJobs) : "",
       href: "/jobs",
     },
   ];
@@ -79,11 +95,37 @@ export function StatCards({ stats }: { stats: DashboardStats }) {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-semibold">{card.value}</p>
+              {loading ? (
+                // Deliberate exception -- see the doc comment above.
+                <Skeleton className="h-8 w-16" />
+              ) : (
+                <p className="text-2xl font-semibold">{card.value}</p>
+              )}
             </CardContent>
           </Card>
         </Link>
       ))}
     </div>
+  );
+}
+
+/** Calls use(); suspends until the promise resolves; renders the tiles for real. */
+function StatCardsResolved({ promise }: { promise: Promise<DashboardStats> }) {
+  const stats = use(promise);
+  return <StatCardsView stats={stats} />;
+}
+
+/**
+ * What the page renders. The fallback is the real tiles, in their pending
+ * state -- see the Design Reference in
+ * docs/superpowers/plans/2026-08-16-streaming-controls-migration.md -- so
+ * every card's frame, icon and title are on screen from the first frame and
+ * only the number streams in afterward.
+ */
+export function StatCards({ promise }: { promise: Promise<DashboardStats> }) {
+  return (
+    <Suspense fallback={<StatCardsView pending />}>
+      <StatCardsResolved promise={promise} />
+    </Suspense>
   );
 }

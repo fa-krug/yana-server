@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useState, useTransition, type ReactNode } from "react";
+import { Suspense, use, useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { changePassword } from "@/lib/account/actions";
 import { attempt } from "@/lib/account/result";
+import type { AccountOverview } from "@/lib/account/queries";
 
 /**
  * Better Auth's own minimum, restated for the client-side hint. The server is
@@ -32,13 +33,25 @@ const MIN_PASSWORD_LENGTH = 8;
  * validation the server cannot do -- the second field is never sent -- and
  * catching it locally means a typo does not spend the user's current password
  * on a request that was always going to fail.
+ *
+ * `hasPassword === undefined` (paired with `pending`) is the "not loaded yet"
+ * state, and it defaults to `true` -- the same choice the shell it replaces
+ * made for its `<Suspense>` fallback: a password credential is the common
+ * case, so the real three-field form is what renders (disabled), rather than
+ * betting on the passkey-only branch and showing nothing.
  */
-export function PasswordSection({ hasPassword }: { hasPassword: boolean }) {
+export function PasswordSectionForm({
+  hasPassword = true,
+  pending = false,
+}: {
+  hasPassword?: boolean;
+  pending?: boolean;
+}) {
   const t = useTranslations("account");
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [pending, start] = useTransition();
+  const [saving, start] = useTransition();
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -71,90 +84,88 @@ export function PasswordSection({ hasPassword }: { hasPassword: boolean }) {
     });
   }
 
-  return (
-    <PasswordSectionShell
-      description={hasPassword ? t("password.description") : t("password.none")}
-      formControl={
-        hasPassword ? (
-          <CardContent>
-            <form onSubmit={submit} className="space-y-4">
-              {/* autoComplete matters here: without current-password /
-                  new-password a password manager neither fills the first field
-                  nor offers to store the new one, and on a self-hosted install
-                  the manager is most people's only copy. */}
-              <div className="grid gap-2">
-                <Label htmlFor="current-password">{t("password.current")}</Label>
-                <Input
-                  id="current-password"
-                  type="password"
-                  required
-                  autoComplete="current-password"
-                  value={current}
-                  onChange={(event) => setCurrent(event.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="new-password">{t("password.new")}</Label>
-                <Input
-                  id="new-password"
-                  type="password"
-                  required
-                  minLength={MIN_PASSWORD_LENGTH}
-                  autoComplete="new-password"
-                  value={next}
-                  onChange={(event) => setNext(event.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="confirm-password">{t("password.confirm")}</Label>
-                <Input
-                  id="confirm-password"
-                  type="password"
-                  required
-                  minLength={MIN_PASSWORD_LENGTH}
-                  autoComplete="new-password"
-                  value={confirm}
-                  onChange={(event) => setConfirm(event.target.value)}
-                />
-              </div>
-              <Button type="submit" disabled={pending}>
-                {pending ? t("password.changing") : t("password.submit")}
-              </Button>
-            </form>
-          </CardContent>
-        ) : null
-      }
-    />
-  );
-}
-
-/**
- * The section's chrome alone: the card heading, with no dependency on
- * `hasPassword` -- see the doc comment on `GeneralSectionShell` in
- * `../settings/general-section.tsx` for why `account/page.tsx` renders this
- * directly as its own `<Suspense>` fallback. `description` and `formControl`
- * stay slots rather than static chrome because `hasPassword` decides between
- * two different UIs, not just a value inside one -- the whole form is absent,
- * not merely loading, when the account has no password credential -- so there
- * are no field labels to hold constant across that branch. The fallback picks
- * the common case (a password exists) as its best guess for what to skeleton.
- */
-export function PasswordSectionShell({
-  description,
-  formControl,
-}: {
-  description: ReactNode;
-  formControl: ReactNode;
-}) {
-  const t = useTranslations("account");
+  const disabled = pending || saving;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>{t("password.title")}</CardTitle>
-        <CardDescription>{description}</CardDescription>
+        <CardDescription>
+          {hasPassword ? t("password.description") : t("password.none")}
+        </CardDescription>
       </CardHeader>
-      {formControl}
+      {hasPassword ? (
+        <CardContent>
+          <form onSubmit={submit} className="space-y-4">
+            {/* autoComplete matters here: without current-password /
+                new-password a password manager neither fills the first field
+                nor offers to store the new one, and on a self-hosted install
+                the manager is most people's only copy. */}
+            <div className="grid gap-2">
+              <Label htmlFor="current-password">{t("password.current")}</Label>
+              <Input
+                id="current-password"
+                type="password"
+                required
+                autoComplete="current-password"
+                value={current}
+                onChange={(event) => setCurrent(event.target.value)}
+                disabled={disabled}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="new-password">{t("password.new")}</Label>
+              <Input
+                id="new-password"
+                type="password"
+                required
+                minLength={MIN_PASSWORD_LENGTH}
+                autoComplete="new-password"
+                value={next}
+                onChange={(event) => setNext(event.target.value)}
+                disabled={disabled}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="confirm-password">{t("password.confirm")}</Label>
+              <Input
+                id="confirm-password"
+                type="password"
+                required
+                minLength={MIN_PASSWORD_LENGTH}
+                autoComplete="new-password"
+                value={confirm}
+                onChange={(event) => setConfirm(event.target.value)}
+                disabled={disabled}
+              />
+            </div>
+            <Button type="submit" disabled={disabled}>
+              {saving ? t("password.changing") : t("password.submit")}
+            </Button>
+          </form>
+        </CardContent>
+      ) : null}
     </Card>
+  );
+}
+
+/** Calls use(); suspends until the promise resolves; renders the form for real. */
+function PasswordSectionResolved({ promise }: { promise: Promise<AccountOverview> }) {
+  const { hasPassword } = use(promise);
+  return <PasswordSectionForm hasPassword={hasPassword} />;
+}
+
+/**
+ * What the page renders. The fallback is the real form, in its pending
+ * state -- see the Design Reference in
+ * docs/superpowers/plans/2026-08-16-streaming-controls-migration.md -- so the
+ * heading and all three field labels are on screen from the first frame and
+ * only the values stream in afterward.
+ */
+export function PasswordSection({ promise }: { promise: Promise<AccountOverview> }) {
+  return (
+    <Suspense fallback={<PasswordSectionForm pending />}>
+      <PasswordSectionResolved promise={promise} />
+    </Suspense>
   );
 }

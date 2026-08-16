@@ -75,4 +75,23 @@ describe("<TagForm>", () => {
     expect(screen.getByRole("radio", { name: "Teal" }).getAttribute("aria-checked")).toBe("true");
     expect(screen.getByRole("radio", { name: "Red" }).getAttribute("aria-checked")).toBe("false");
   });
+
+  it("renders the real name field and colour picker, disabled, while pending", () => {
+    // The defect this migration exists to fix: `/tags/new`'s fallback used to
+    // be the unrelated generic table skeleton. The real chassis now renders
+    // disabled instead, with no value -- see `/tags/new/loading.tsx`.
+    renderWithProviders(<TagForm pending />);
+
+    const name = screen.getByLabelText("Name") as HTMLInputElement;
+    expect(name.disabled).toBe(true);
+    expect(name.value).toBe("");
+
+    for (const swatch of screen.getAllByRole("radio")) {
+      expect((swatch as HTMLButtonElement).disabled).toBe(true);
+    }
+
+    expect((screen.getByRole("button", { name: "Create tag" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
 });

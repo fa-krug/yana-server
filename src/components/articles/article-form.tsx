@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useState, useTransition } from "react";
+import { Suspense, use, useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -20,20 +20,44 @@ import { attemptCall } from "@/lib/attempt";
 import { useTrackRun } from "@/components/jobs/active-runs-context";
 import type { Article, Feed } from "@/lib/db/schema";
 
+type ArticleFeed = { id: number; name: string };
+
+/**
+ * `article`/`feeds` are optional and paired with `pending`, the same
+ * "not loaded yet" shape as `@/components/feeds/feed-form.tsx` and
+ * `@/components/settings/library-section.tsx`: the real form renders
+ * disabled, with whatever values it already has, rather than a `<Skeleton>`
+ * standing in for each control.
+ *
+ * `/articles/[id]/page.tsx` awaits `getArticle()` at the top of the page
+ * body -- it decides the 404, so it cannot move into a `<Suspense>` boundary
+ * -- so by the time this component is used with real data, `article` is
+ * already known and only `feeds` is still streaming in. `pending` therefore
+ * still disables every control even when `article` is present, matching
+ * `<FeedForm>`'s `busy` behaviour: a known value with a disabled control
+ * beats either blanking it or leaving a mismatched enabled state while a
+ * sibling field is still unresolved. `article` is `undefined` only in
+ * `/articles/[id]/loading.tsx`, before the row has been read at all.
+ */
 export function ArticleForm({
   article,
   feeds,
+  pending = false,
 }: {
-  article: Article & { feed: Feed };
-  feeds: { id: number; name: string }[];
+  article?: Article & { feed: Feed };
+  feeds?: ArticleFeed[];
+  pending?: boolean;
 }) {
   const t = useTranslations("articles");
   const router = useRouter();
   const trackRun = useTrackRun();
   const [isPending, startTransition] = useTransition();
   const [reloading, startReload] = useTransition();
+  const busy = pending || isPending;
 
   function runReload() {
+    if (!article) return;
+
     startReload(async () => {
       // Never a bare `await` of a server action from a client component (see
       // `@/lib/attempt`): an action that fails without returning -- a dropped
@@ -61,18 +85,21 @@ export function ArticleForm({
     });
   }
 
-  const [name, setName] = useState(article.name);
-  const [feedId, setFeedId] = useState(article.feedId);
+  const [name, setName] = useState(article?.name ?? "");
+  const [feedId, setFeedId] = useState<number | undefined>(article?.feedId);
   const [date, setDate] = useState(() => {
+    if (!article) return "";
     const d = new Date(article.date);
     return Number.isNaN(d.getTime()) ? "" : d.toISOString().split("T")[0];
   });
   const [error, setError] = useState<string | null>(null);
 
-  const feedItems = feeds.map((f) => ({ value: String(f.id), label: f.name }));
+  const feedList = feeds ?? [];
+  const feedItems = feedList.map((f) => ({ value: String(f.id), label: f.name }));
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!article) return;
     setError(null);
 
     startTransition(async () => {
@@ -94,7 +121,7 @@ export function ArticleForm({
     });
   };
 
-  const createdAtFormatted = new Date(article.createdAt).toLocaleString();
+  const createdAtFormatted = article ? new Date(article.createdAt).toLocaleString() : "";
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 max-w-xl">
@@ -106,15 +133,27 @@ export function ArticleForm({
 
       <div className="space-y-2">
         <Label htmlFor="article-name">{t("name")}</Label>
-        <Input id="article-name" value={name} onChange={(e) => setName(e.target.value)} required />
+        <Input
+          id="article-name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          disabled={busy}
+          required
+        />
       </div>
 
       <div className="space-y-2">
         <Label htmlFor="article-feed">{t("feed")}</Label>
         <Select
           items={feedItems}
-          value={String(feedId)}
-          onValueChange={(val) => setFeedId(Number(val))}
+          // `feedId` is only `undefined` while pending -- before `article` has
+          // been read at all -- and `""` is reserved for a legal empty entry
+          // in `items` (see CLAUDE.md), which this list never has, so
+          // `undefined` rather than `String(feedId)` is what keeps this from
+          // ever passing a stringified `"undefined"`.
+          value={feedId === undefined ? undefined : String(feedId)}
+          onValueChange={(val) => val && setFeedId(Number(val))}
+          disabled={busy}
         >
           <SelectTrigger id="article-feed" className="w-full">
             <SelectValue />
@@ -136,6 +175,7 @@ export function ArticleForm({
           type="date"
           value={date}
           onChange={(e) => setDate(e.target.value)}
+          disabled={busy}
           required
           // iOS Safari/WKWebView renders `type="date"` as `display: inline-block`
           // and sizes its shadow content by intrinsic width, ignoring the
@@ -160,13 +200,13 @@ export function ArticleForm({
       </div>
 
       <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:items-center">
-        <Button type="submit" disabled={isPending} className="w-full sm:w-auto">
+        <Button type="submit" disabled={busy} className="w-full sm:w-auto">
           {isPending ? t("save") + "..." : t("save")}
         </Button>
         <Button
           type="button"
           variant="outline"
-          disabled={isPending || reloading}
+          disabled={busy || reloading}
           onClick={runReload}
           className="w-full sm:w-auto"
         >
@@ -174,5 +214,43 @@ export function ArticleForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+/**
+ * Calls `use()` on the one promise still streaming; suspends until it
+ * settles; renders the form for real. `article` is already known by the time
+ * this is used -- `/articles/[id]/page.tsx` awaits `getArticle()` at the top
+ * of the page body, because it decides the 404 -- so only `feeds` is a
+ * promise here.
+ */
+function ArticleFormResolved({
+  article,
+  feedsPromise,
+}: {
+  article: Article & { feed: Feed };
+  feedsPromise: Promise<ArticleFeed[]>;
+}) {
+  const feeds = use(feedsPromise);
+  return <ArticleForm article={article} feeds={feeds} />;
+}
+
+/**
+ * What `/articles/[id]/page.tsx`'s general section renders. The fallback is
+ * `<ArticleForm article={article} pending />` -- the real chassis, disabled,
+ * already carrying the fetched article's own name/date/created-at values --
+ * so only the feed picker (needs `listFeeds()`) streams in afterward.
+ */
+export function ArticleFormSection({
+  article,
+  feedsPromise,
+}: {
+  article: Article & { feed: Feed };
+  feedsPromise: Promise<ArticleFeed[]>;
+}) {
+  return (
+    <Suspense fallback={<ArticleForm article={article} pending />}>
+      <ArticleFormResolved article={article} feedsPromise={feedsPromise} />
+    </Suspense>
   );
 }

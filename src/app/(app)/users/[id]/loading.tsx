@@ -2,6 +2,7 @@ import { getTranslations } from "next-intl/server";
 
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { UserForm } from "@/components/users/user-form";
 
 /**
  * The route's own fallback, replacing `(app)/loading.tsx`'s generic
@@ -15,10 +16,15 @@ import { Skeleton } from "@/components/ui/skeleton";
  * resembling this page.
  *
  * The title (`t("editTitle")`) is static -- no record data baked in -- so it
- * costs nothing to show for real via `getTranslations`. The form and delete
- * section below it both depend on the fetched user, so they are placeholder
- * bars shaped like `<UserForm>`'s four fields and `<DeleteUserSection>`'s small
- * card.
+ * costs nothing to show for real via `getTranslations`. Below it,
+ * `<UserForm pending />` renders the real chassis (first name, last name,
+ * email, role select, both action buttons) disabled, instead of four
+ * hand-placed bars.
+ *
+ * `<DeleteUserSection>` has no equivalent: unlike a form, it has nothing
+ * meaningful to render disabled -- its confirmation dialog names the user
+ * and the delete action targets their id, neither of which exists yet here.
+ * A small placeholder card stands in for it, same as before.
  */
 export default async function Loading() {
   const t = await getTranslations("users");
@@ -27,17 +33,13 @@ export default async function Loading() {
     <div className="max-w-2xl space-y-6" aria-busy="true" aria-live="polite">
       <h1 className="text-2xl font-semibold">{t("editTitle")}</h1>
 
-      {/* UserForm: first name, last name, email, role select */}
-      <div className="space-y-4">
-        <Skeleton className="h-9 w-full" />
-        <Skeleton className="h-9 w-full" />
-        <Skeleton className="h-9 w-full" />
-        <Skeleton className="h-9 w-full" />
-      </div>
+      <UserForm pending />
 
       <Separator />
 
-      {/* DeleteUserSection: a small destructive-action card */}
+      {/* DeleteUserSection: a small destructive-action card -- see the
+          module comment above for why this stays a placeholder rather than
+          the real component. */}
       <div className="space-y-3 rounded-lg border p-4">
         <Skeleton className="h-5 w-1/3" />
         <Skeleton className="h-4 w-full" />

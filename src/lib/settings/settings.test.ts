@@ -10,6 +10,8 @@ import { signInCookie } from "@/lib/auth/test-support";
 import { applyMigrationsAt } from "@/lib/db/test-support";
 import en from "../../../messages/en.json";
 
+const SETTINGS_PAGE_PATH = path.join(process.cwd(), "src/app/(app)/settings/page.tsx");
+
 // Real-database test, no driver mocks -- see CLAUDE.md's testing convention
 // and src/lib/auth/bootstrap.test.ts, which this follows. Each test points
 // DATABASE_PATH at its own temp file, migrates it through the same
@@ -345,6 +347,67 @@ describe("settings", () => {
       const requestConfig = (await import("@/i18n/request")).default;
       const config = await requestConfig({ requestLocale: Promise.resolve(undefined) });
       expect(config.locale).toBe("de");
+    });
+  });
+
+  describe("the /settings page promise (regression: settings-secrets-leak)", () => {
+    // `getSettings()` resolves to the *whole* `user_settings` row -- every
+    // provider secret included. `src/app/(app)/settings/page.tsx` used to hand
+    // that promise straight to two Client Components; a whole-branch review
+    // found that a Client Component's props are the page's RSC payload, so the
+    // full row -- `youtubeApiKey`, `redditClientSecret`, `openaiApiKey` and six
+    // more -- was serialized into `/settings`' response in plain text, live
+    // reproduced with a stored `openai_api_key` visible in the flight payload.
+    //
+    // A real render through testing-library cannot prove this either way:
+    // `SettingsPage` is an async Server Component with a data region
+    // (`GeneralSection`/`LibrarySection`) that testing-library cannot mount
+    // (see CLAUDE.md's "two vitest projects" section), and jsdom never runs
+    // React's flight serializer regardless. Two narrower checks stand in for
+    // it, and **both are required**. A first version of this test re-typed the
+    // page's narrowing expression locally instead of importing it, so it kept
+    // passing under a mutation that reverted the page to
+    // `const settings = getSettings();` -- it guarded a copy of the fix, not
+    // the shipped call site. Neither check below has that gap alone: the
+    // first calls the real, exported `getSettingsSummary()` rather than a
+    // restatement of its narrowing, but says nothing about whether the page
+    // actually calls that function; the second reads the page's own source
+    // (the same specifier-tripwire technique
+    // `src/app/server-component-props.test.ts` and `src/lib/avatar.test.ts`
+    // use) and would catch exactly that mutation, but says nothing about
+    // whether the function it names actually narrows anything. Together they
+    // cover both halves: is the shared function honest, and does the page
+    // call it.
+    it("getSettingsSummary() never resolves to a provider secret", async () => {
+      const userId = await queries.currentUserId();
+      const canary = "SECRETLEAKCANARY123";
+      client.writeTransaction((tx) => {
+        tx.update(schema.userSettings)
+          .set({ openaiApiKey: canary, redditClientSecret: canary })
+          .where(eq(schema.userSettings.userId, userId))
+          .run();
+      });
+
+      // The real function -- not a local restatement of its narrowing.
+      const resolved = await queries.getSettingsSummary();
+
+      expect(Object.keys(resolved).sort()).toEqual(["articleRetentionDays", "language", "theme"]);
+      expect(JSON.stringify(resolved)).not.toContain(canary);
+    });
+
+    it("SettingsPage builds its promise from getSettingsSummary(), not a bare getSettings()", () => {
+      const source = fs.readFileSync(SETTINGS_PAGE_PATH, "utf8");
+
+      // The page must import and call the narrowing function...
+      expect(source).toMatch(/getSettingsSummary/);
+      expect(source).toMatch(/const settings = getSettingsSummary\(\)/);
+      // ...and must not hand a bare, un-narrowed getSettings() result down to
+      // a client component instead -- the exact mutation that made the first
+      // version of this test's canary check meaningless. Matched against the
+      // assignment specifically, not the bare specifier: the page's own
+      // comments legitimately mention `getSettings()` by name while explaining
+      // why the narrowing lives elsewhere.
+      expect(source).not.toMatch(/const settings = getSettings\(\)/);
     });
   });
 });

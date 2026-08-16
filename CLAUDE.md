@@ -74,7 +74,10 @@ behavior ever needs to be reconstructed.
 │   │   │                           #   lets a detail page register its record's
 │   │   │                           #   title for the breadcrumb, replacing the
 │   │   │                           #   raw id
-│   │   ├── data-skeleton.tsx       # TableSkeleton, CardSkeleton
+│   │   ├── data-skeleton.tsx       # TableRowsSkeleton (a list's <tbody>) and
+│   │   │                           #   TableSkeleton (/articles/[id]'s block
+│   │   │                           #   tree). NOT a page fallback — see the
+│   │   │                           #   streaming-pattern bullet
 │   │   └── theme-provider.tsx      # next-themes wrapper
 │   ├── hooks/                     # use-mobile.ts (hand-modified — see below)
 │   ├── i18n/
@@ -503,13 +506,149 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   shows up in a production server: webpack's context module inlines the
   dynamically-imported JSON into the server chunk at build time. `npm run dev`
   is unaffected. This cost an agent an hour already.
-- **The streaming pattern:** chrome renders synchronously; data regions are
-  async components inside `<Suspense>` with fallbacks from
-  `src/components/data-skeleton.tsx`, **plus an error boundary** — once the
-  shell has flushed its first byte the response status is already 200 and
-  cannot become a 5xx, so a throw inside a Suspense boundary with no error
-  boundary above it just truncates the stream. There are **three** documented
-  exceptions to "chrome never waits on data", in two files:
+- **The streaming pattern: a loading page shows the real controls, disabled and
+  empty — never a grey bar standing in for one.** The rule this replaced was
+  "chrome renders synchronously; data regions are async components inside
+  `<Suspense>` with fallbacks from `src/components/data-skeleton.tsx`", and it
+  drew the line in the wrong place. "Chrome" turned out to mean the heading and
+  the card border, so every _control_ counted as data: `/settings` awaited its
+  settings row above its JSX, the whole page suspended, and `loading.tsx`
+  replaced the theme `<Select>`, the retention `<Input>` and Save with three
+  `<Skeleton>` bars. Nothing about a `<Select>`'s existence, its label, its
+  help text or its option list depends on the stored value — only which option
+  is chosen does — so all of it was being hidden to wait for one number, and
+  then the page visibly reflowed as bars turned into controls. The 2026-08-16
+  streaming-controls migration moved the boundary from "the section" to "the
+  value inside the control".
+
+  **The shape is a triple, and the fallback is the same component as the
+  resolved render.** The page calls its query **without `await`** and passes the
+  promise down; the client module exports `…Form` (presentational, its value
+  props optional, plus an optional `pending` defaulting to `false`), keeps a
+  private `…Resolved` that calls `use(promise)` and renders `…Form` with the
+  real values, and exports `…Section({ promise })` whose
+  `<Suspense fallback={<…Form pending />}>` wraps it.
+
+  **"Pass the promise down" means pass a projection, never a whole row, and
+  narrow it before it is handed to the Client Component -- not inside it.**
+  This is the same "a component gets the columns it renders, never the row"
+  rule stated elsewhere in this file for an already-awaited prop; it does not
+  stop applying because the value arrives late, behind a `use(promise)`. React
+  serializes a promise's **resolved value**, not the type its prop is
+  annotated with, so `promise: Promise<{ theme: string; language: string }>`
+  is structurally satisfied by a promise that resolves to the entire database
+  row -- and the whole row, `youtubeApiKey`/`openaiApiKey`/six more provider
+  secrets included, still crosses into the page's RSC payload, plain text in a
+  browser's network tab. Narrowing inside the `…Resolved` component's
+  `use(promise)` call happens _after_ serialization and buys nothing. The
+  2026-08-16 streaming-controls migration shipped exactly this bug at
+  `src/app/(app)/settings/page.tsx`: it passed `getSettings()` -- the whole
+  `UserSettings` row -- straight to `GeneralSection`/`LibrarySection`, and a
+  stored `openai_api_key` was reproducibly visible in `/settings`'s flight
+  payload. The fix is a `.then()` on the query, in the page, before the
+  promise is ever handed to a component:
+  `getSettings().then(({ theme, language, articleRetentionDays }) => ({
+theme, language, articleRetentionDays }))` -- still one `cache()`d read,
+  still one shared promise, but the only thing that can ever resolve is the
+  three fields the two sections render. Every later page that pipes a
+  query's promise into a Client Component prop inherits this obligation: type
+  the prop as the narrow shape, and construct the promise so that shape is
+  the only thing it can resolve to.
+  `src/components/settings/library-section.tsx` is the smallest reference;
+  `src/components/integrations/youtube-section.tsx` and
+  `src/components/ai/provider-section.tsx` are the two that carry every hard
+  case. Because the fallback and the resolved render are the _same component_,
+  a control cannot appear or disappear across the transition — only its value
+  fills in. That property is what the arrangement buys, and it is lost the
+  moment the fallback is anything else.
+
+  **A pending control passes `disabled` and omits `value` — never
+  `defaultValue`.** `defaultValue` seeds an uncontrolled input once and is
+  ignored on every later render, so the field would sit empty _forever_ after
+  the real value arrived, looking exactly like a loaded-and-empty field; the
+  operator then saves the blank over a stored setting. And on a Base UI
+  `<Select>`, **do not reach for `value=""` either**: `""` is a legal,
+  meaningful value here — it is `/ai`'s "None (disabled)" entry, the one
+  `active_ai_provider` stores to switch the AI features off (see the Base UI
+  bullet above) — so a pending picker showing `""` is not "nothing known yet",
+  it is an assertion that AI is switched off, made before anything was read.
+  Omit the prop and let the trigger render its placeholder state. The pending
+  branch in `provider-section.tsx` is commented at exactly that line.
+
+  **A `<Skeleton>` survives only where the _shape_ is unknowable, not merely the
+  value, and the list is five places — each kept for its own reason, because
+  the reason is what makes the rule reusable:**
+  - **A table body's rows** — `TableRowsSkeleton` in
+    `src/components/data-skeleton.tsx`, the fallback under a real
+    `<SearchFilterBar>`, a real bulk bar and a real `<thead>` on all five list
+    routes. How many rows come back is unknown until the query returns, so
+    there is no row count to render disabled.
+  - **`/account`'s passkey list** — the same: a credential list's length is
+    unknown, and it can legitimately be empty.
+  - **`/account`'s device list** — likewise.
+  - **The dashboard's stat _numbers_** —
+    `src/components/dashboard/stat-cards.tsx`. A bare number has no meaningful
+    empty rendering: `0` is a lie, and blank collapses the card and jumps the
+    layout when the real figure lands. The card's frame, icon and title all
+    render for real; only the number is a bar.
+  - **`/articles/[id]`'s "Content" section** — the block tree. The _number and
+    kind_ of blocks are unknown until the article is read, so there is no form
+    shape to mirror the way every other card on that page has one.
+
+  Each of the five is commented where it lives. A separate and still-useful
+  fact, which is **not** what earns the last entry its place: `/articles/[id]`
+  is the only remaining `TableSkeleton` call site in the repository.
+  `CardSkeleton` is gone entirely — every card that used one now renders itself
+  in a `pending` state.
+
+  **Every route keeps its `loading.tsx`, rendering that same real chassis, and
+  this is the part that looks redundant and is not.** Server-side streaming
+  makes the _first_ paint of a route correct, but `loading.tsx` is what Next
+  renders during a **client-side soft navigation**, while the destination
+  segment's RSC payload is still crossing the network — no amount of server-side
+  `<Suspense>` can remove that latency, because the browser has nothing from the
+  new route yet. And a deleted `loading.tsx` does not mean "no fallback": Next
+  walks up to the nearest ancestor's, so it means _somebody else's_ fallback.
+  That is how `/feeds/new` used to show the feeds **table** while loading a
+  feeds **form**. `src/app/(app)/loading.tsx` is now reachable only for `/`
+  itself, and stays as the backstop for a segment that forgets one.
+
+  **Testing a fallback:** `loading.tsx` is an async Server Component, which
+  testing-library cannot render — but its _output_ is synchronous, so
+  `renderWithProviders(await Loading())` works, the same narrow exception
+  `src/app/(app)/layout.test.tsx` already uses (see "Testing: two vitest
+  projects"; this is not a licence to split a data component so it fits). One
+  stub is needed: under Vitest, `next-intl/server` resolves to next-intl's
+  non-RSC build, where `getTranslations()` throws "not supported in Client
+  Components" the instant it is called. Each `loading.test.tsx` therefore mocks
+  that module with `createTranslator()` — the client-safe factory the real
+  implementation is built on — pointed at the **real `messages/en.json`**. That
+  does not violate "messages are never stubbed": the catalog is the shipped one,
+  and only the request-scoped plumbing around it is replaced. The assertion that
+  matters in each is `document.querySelector('[data-slot="skeleton"]')` being
+  `null`, so a regression back to grey bars fails a test instead of being
+  noticed in a browser.
+
+  **A shared `<PageTitle>` was considered and rejected — do not re-attempt it.**
+  Every page still opens with `await getTranslations()` for its heading, which
+  is one per-request-cached read the page body genuinely waits on, and the
+  obvious cleanup is a component that takes a namespace and a key. It cannot be
+  typed: making the namespace a type parameter while keeping catalog keys
+  compiler-checked hits the exact wall documented on
+  `src/components/section-kit.tsx` — TypeScript cannot prove a literal is a
+  member of `NamespaceKey<Namespace>` while `Namespace` is still a parameter —
+  and the only way through is a cast at a `t()` call site, which is precisely
+  what the `AppConfig` augmentation exists to prevent. A cast there would be
+  invisible until a renamed key shipped as a raw string in the UI. So pages keep
+  their own `await getTranslations()`, deliberately.
+
+  All of the above still sits **inside an error boundary** — once the shell has
+  flushed its first byte the response status is already 200 and cannot become a
+  5xx, so a throw inside a Suspense boundary with no error boundary above it
+  just truncates the stream. `(app)/error.tsx` is that boundary for every route
+  in the group; a page adds a second one only if it wants a narrower blast
+  radius. There are **three** documented exceptions to "chrome never waits on
+  data", in two files:
   - **`src/app/layout.tsx`** resolves the locale (and the theme) through
     `getSettings()`. A cookie read that usually needs no query at all.
   - **`src/app/(app)/layout.tsx`** awaits `requireUser()` — cookie-cached, and
@@ -537,22 +676,43 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   so it needs no `connection()` call — see the `connection()` bullet, which
   lists it.
 
+  **The streaming-controls migration made this rule _more_ load-bearing, not
+  less, and it caught a live violation on the way.** Moving reads out of page
+  bodies and into unawaited promises is exactly the refactor that tempts an
+  agent to move the record read too — and `/articles/[id]` had already made
+  that mistake before this migration found it: `getArticle()` was being awaited
+  inside a `GeneralSection` that was itself wrapped in a `<Suspense>`, so
+  `notFound()` for a missing (or someone else's) article fired _after_ the shell
+  had flushed a 200 and truncated the stream instead of answering 404. **The
+  record read that decides the status is the one thing that must stay awaited at
+  the top of the page**, even though it is the read most worth streaming; the
+  other reads on the same page (`/articles/[id]`'s feed list and block tree)
+  decide nothing and are handed down unawaited. `src/app/(app)/*/[id]/page.test.ts`
+  now pins all four detail routes — articles, feeds, tags, users — by driving a
+  nonexistent and an unowned id through the page function and asserting it
+  rejects with Next's `NEXT_HTTP_ERROR_FALLBACK;404` sentinel, which is the only
+  externally visible trace `notFound()` leaves. A read that drifts back into a
+  boundary fails those tests rather than silently serving a truncated 200.
+
   **A fallback is a Server Component, so it may not hand a Client Component a
   function — and getting this wrong fails only on a cold start.** Every
-  `<Suspense fallback>` and every `loading.tsx` here renders the real section's
-  `…Shell`, and those shells are `"use client"`. React has to serialize each
-  prop across the RSC boundary and a closure is not serializable (only a Server
-  Action is), so
+  `<Suspense fallback>` and every `loading.tsx` here renders a `"use client"`
+  component — now the section's own `…Form` with `pending`, previously a
+  separate `…Shell`. React has to serialize each prop across the RSC boundary
+  and a closure is not serializable (only a Server Action is), so
   `onSubmit={(event) => event.preventDefault()}` throws
   `Event handlers cannot be passed to Client Component props` — replacing the
   whole page with `(app)/error.tsx`. It is invisible in normal use because a
   fallback is only committed when the read is slow enough to suspend: the first
   visit after a restart broke, every reload after it looked perfect. `/ai`,
   `/account` and `/integrations` all shipped it. **The fix is always the same:
-  the shell declares `onSubmit` optional and defaults it to the no-op inside
-  its own `"use client"` module, and the fallback omits the prop entirely**
-  (`YoutubeSectionShell` in `src/components/integrations/youtube-section.tsx`
-  is the reference). `tsc` cannot see the hazard and no jsdom test can either —
+  the client component declares `onSubmit` optional and defaults it to the
+  no-op inside its own `"use client"` module, and the fallback omits the prop
+  entirely** (`AdvancedSectionShell` in
+  `src/components/ai/advanced-section.tsx` is the surviving reference — its
+  `onSubmit = (event) => event.preventDefault()` default parameter, and
+  `<AdvancedSectionForm>`'s `pending` branch passing `undefined`).
+  `tsc` cannot see the hazard and no jsdom test can either —
   testing-library never runs the flight serializer — so the guard is
   `src/app/server-component-props.test.ts`, a specifier-style tripwire that
   fails on any `on[A-Z]…={` prop in a file under `src/app/` that is not itself
