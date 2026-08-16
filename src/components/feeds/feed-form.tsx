@@ -19,6 +19,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 import { createFeed, updateFeed, updateFeedsBulk } from "@/lib/feeds/actions";
@@ -28,8 +36,10 @@ import {
   AGGREGATOR_SPECS,
   defaultIdentifierFor,
   identifierModeFor,
+  MAX_CUSTOM_PROMPT_LENGTH,
   visibleOptionsFor,
   type Capabilities,
+  type OptionSpec,
 } from "@/lib/aggregators/specs";
 import type { Feed, Tag } from "@/lib/db/schema";
 import { AlertCircle } from "lucide-react";
@@ -101,6 +111,13 @@ export function FeedForm({
 
   const spec = AGGREGATOR_SPECS[aggregator];
   const visibleOptions = visibleOptionsFor(aggregator, capabilities);
+  /**
+   * `visibleOptions` minus the ones whose `dependsOn` box is unchecked. That is
+   * a display rule and nothing more: the value stays in `options` and is still
+   * submitted, so unchecking and re-checking gives the prompt back rather than
+   * silently discarding what was typed.
+   */
+  const shownOptions = visibleOptions.filter((opt) => !opt.dependsOn || options[opt.dependsOn]);
   const identifierMode = identifierModeFor(spec);
 
   const availableAggregators = Object.values(AGGREGATOR_SPECS).filter(
@@ -137,6 +154,23 @@ export function FeedForm({
 
   function handleOptionChange(key: string, value: unknown) {
     setOptions((prev) => ({ ...prev, [key]: value }));
+  }
+
+  /**
+   * The open prompt editor: which option it is editing and the draft text,
+   * which only reaches `options` when Save is pressed -- closing or cancelling
+   * leaves the stored prompt as it was.
+   */
+  const [promptEditor, setPromptEditor] = useState<{ key: string; draft: string } | null>(null);
+
+  function openPromptEditor(opt: OptionSpec) {
+    setPromptEditor({ key: opt.key, draft: (options[opt.key] as string) ?? "" });
+  }
+
+  function savePromptEditor() {
+    if (!promptEditor) return;
+    handleOptionChange(promptEditor.key, promptEditor.draft);
+    setPromptEditor(null);
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -397,9 +431,32 @@ export function FeedForm({
         <div className="space-y-4 rounded-lg border p-4 bg-muted/20">
           <h3 className="font-medium text-lg">{t("form.options")}</h3>
 
-          {visibleOptions.map((opt) => (
+          {shownOptions.map((opt) => (
             <div key={opt.key} className="grid gap-2">
-              {opt.kind === "boolean" ? (
+              {opt.kind === "prompt" ? (
+                <div className="grid gap-1.5">
+                  <button
+                    type="button"
+                    aria-label={t("form.customPromptEdit")}
+                    onClick={() => openPromptEditor(opt)}
+                    disabled={pending}
+                    className={cn(
+                      "w-full rounded-md border bg-background p-3 text-left text-sm",
+                      "hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2",
+                      "focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+                    )}
+                  >
+                    {(options[opt.key] as string)?.trim() ? (
+                      <span className="line-clamp-3 whitespace-pre-wrap">
+                        {options[opt.key] as string}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">{t("form.customPromptEmpty")}</span>
+                    )}
+                  </button>
+                  {opt.help && <p className="text-xs text-muted-foreground">{opt.help}</p>}
+                </div>
+              ) : opt.kind === "boolean" ? (
                 <div className="flex items-center space-x-2">
                   <Checkbox
                     id={`opt-${opt.key}`}
@@ -509,6 +566,40 @@ export function FeedForm({
             ))}
         </div>
       )}
+
+      <Dialog open={promptEditor !== null} onOpenChange={(open) => !open && setPromptEditor(null)}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{t("form.customPromptTitle")}</DialogTitle>
+            <DialogDescription>{t("form.customPromptDescription")}</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-1.5">
+            <Label htmlFor="custom-prompt-editor" className="sr-only">
+              {t("form.customPromptTitle")}
+            </Label>
+            <Textarea
+              id="custom-prompt-editor"
+              rows={12}
+              maxLength={MAX_CUSTOM_PROMPT_LENGTH}
+              value={promptEditor?.draft ?? ""}
+              onChange={(event) =>
+                setPromptEditor((prev) => (prev ? { ...prev, draft: event.target.value } : prev))
+              }
+            />
+            <p className="text-xs text-muted-foreground text-right">
+              {(promptEditor?.draft.length ?? 0).toLocaleString()} / {MAX_CUSTOM_PROMPT_LENGTH}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setPromptEditor(null)}>
+              {c("cancel")}
+            </Button>
+            <Button type="button" onClick={savePromptEditor}>
+              {c("save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         <Button type="submit" disabled={pending} className="w-full sm:w-auto">

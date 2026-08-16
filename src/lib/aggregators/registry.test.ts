@@ -8,6 +8,7 @@ import {
   AGGREGATOR_SPECS,
   defaultIdentifierFor,
   identifierModeFor,
+  MAX_CUSTOM_PROMPT_LENGTH,
   schemaFor,
   stripUnavailable,
   visibleOptionsFor,
@@ -133,6 +134,28 @@ describe("schemaFor", () => {
 
   it("rejects a boolean option given a string", () => {
     expect(() => schemaFor("caschys_blog").parse({ skip_ads: "yes" })).toThrow();
+  });
+
+  it("defaults the custom prompt to an unchecked box and empty text", () => {
+    const parsed = schemaFor("heise").parse({}) as Record<string, unknown>;
+    expect(parsed.ai_custom_prompt).toBe(false);
+    expect(parsed.ai_custom_prompt_text).toBe("");
+  });
+
+  it("accepts a custom prompt within the length cap", () => {
+    const parsed = schemaFor("heise").parse({
+      ai_custom_prompt: true,
+      ai_custom_prompt_text: "x".repeat(MAX_CUSTOM_PROMPT_LENGTH),
+    }) as Record<string, unknown>;
+    expect(parsed.ai_custom_prompt_text).toHaveLength(MAX_CUSTOM_PROMPT_LENGTH);
+  });
+
+  it("rejects a custom prompt past the length cap", () => {
+    // The row stores this in `feeds.options` JSON and every article's provider
+    // call carries it, so an unbounded blob is refused rather than truncated.
+    expect(() =>
+      schemaFor("heise").parse({ ai_custom_prompt_text: "x".repeat(MAX_CUSTOM_PROMPT_LENGTH + 1) }),
+    ).toThrow();
   });
 });
 

@@ -522,7 +522,19 @@ export async function applyAiOptions(
   bypassUsageLimit = false,
 ): Promise<ApplyAiOutcome> {
   const opts = options || {};
-  const aiEnabled = Boolean(opts.ai_summarize || opts.ai_improve_writing || opts.ai_translate);
+  /**
+   * The feed's own extra instruction (`ai_custom_prompt` +
+   * `ai_custom_prompt_text` in `src/lib/aggregators/specs.ts`). Both halves are
+   * required: a checked box with empty text is a no-op rather than a failure,
+   * the same as an unchecked one, because there is nothing to ask the provider.
+   */
+  const customPrompt =
+    opts.ai_custom_prompt && typeof opts.ai_custom_prompt_text === "string"
+      ? opts.ai_custom_prompt_text.trim()
+      : "";
+  const aiEnabled = Boolean(
+    opts.ai_summarize || opts.ai_improve_writing || opts.ai_translate || customPrompt,
+  );
 
   if (!aiEnabled) {
     return { status: "skipped" };
@@ -580,6 +592,18 @@ export async function applyAiOptions(
       `Translate the title and content to ${targetLang}. ` +
         "IMPORTANT: Do NOT translate link labels (the text inside <a> tags). " +
         "Keep link text in the original language. Only translate regular text content.",
+    );
+  }
+
+  if (customPrompt) {
+    // Delimited and labelled as the user's own text, and placed *before* the
+    // structural paragraph below rather than last: the JSON/HTML contract the
+    // response parser depends on has to be the final word, or a custom prompt
+    // (deliberately or not) reshapes the output into something unparseable.
+    promptParts.push(
+      "The user of this feed has supplied the following additional instruction. " +
+        "Follow it where it does not conflict with the output format required below:\n" +
+        `"""\n${customPrompt}\n"""`,
     );
   }
 
