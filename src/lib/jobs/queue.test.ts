@@ -145,6 +145,20 @@ describe("src/lib/jobs/queue", () => {
       expect(reclaimed?.id).toBe(id);
     });
 
+    it("opens no write transaction when there is no claimable job", () => {
+      // writeTransaction() issues BEGIN IMMEDIATE via connection.exec(), not
+      // connection.prepare() -- so a prepare spy never observes it. Spy on
+      // writeTransaction itself instead: the point of the pre-check is that
+      // it is never called at all when there is nothing to claim.
+      const writeTransactionSpy = vi.spyOn(client, "writeTransaction");
+
+      // Nothing enqueued: this is the state four idle worker loops sit in
+      // permanently, polling every two seconds.
+      expect(queue.claim()).toBeNull();
+
+      expect(writeTransactionSpy).not.toHaveBeenCalled();
+    });
+
     it("finalizes an orphaned cancelling job as cancelled, rather than resuming it as pending", () => {
       const id = queue.enqueue("noop", {});
       queue.claim();

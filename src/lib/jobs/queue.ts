@@ -46,6 +46,25 @@ export function enqueue(
 }
 
 export function claim(): Job | null {
+  // A read-only pre-check, deliberately outside the write transaction. Four
+  // worker loops poll every two seconds, so an idle instance used to acquire
+  // the exclusive write lock (BEGIN IMMEDIATE) twice a second forever, purely
+  // to discover there was nothing to do -- contending with real writes for
+  // nothing. This read is advisory only: the transaction below re-selects and
+  // still guards its UPDATE on `status = 'pending'`, so a row that appears
+  // here and is taken by another loop before we get the lock is handled
+  // exactly as before (result.changes !== 1 -> null).
+  const available = getDb()
+    .select({ id: jobs.id })
+    .from(jobs)
+    .where(and(eq(jobs.status, "pending"), lte(jobs.runAt, new Date())))
+    .limit(1)
+    .get();
+
+  if (!available) {
+    return null;
+  }
+
   return writeTransaction((db) => {
     const now = new Date();
     const candidate = db
