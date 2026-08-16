@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 
+import { PaginationPlaceholder } from "@/components/crud/pagination";
 import { SearchFilterBar } from "@/components/crud/search-filter-bar";
 import { TableRowsSkeleton } from "@/components/data-skeleton";
 import { buttonVariants } from "@/components/ui/button";
@@ -20,7 +21,9 @@ import { ROLE_FILTER_ADMIN, ROLE_FILTER_STANDARD } from "@/lib/users/fields";
  * filter options, the same `<UsersTableShell>` (bulk-action bar + real header
  * row, no dependency on `rows`), with `<TableRowsSkeleton>` standing in for
  * the body it wraps in a `<Suspense>` there. The filter options are static
- * values here since they need no query.
+ * values here since they need no query. `<PaginationPlaceholder>` reserves
+ * the pagination row's height, matching the page's own `<Suspense fallback>`
+ * for it -- see that component's doc comment for why.
  */
 export default async function Loading() {
   const t = await getTranslations("users");
@@ -52,6 +55,8 @@ export default async function Loading() {
       <UsersTableShell>
         <TableRowsSkeleton columns={6} />
       </UsersTableShell>
+
+      <PaginationPlaceholder />
     </div>
   );
 }

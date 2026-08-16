@@ -2,7 +2,7 @@ import { cache, Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 
 import { ArticlesTableBody, ArticlesTableShell } from "@/components/articles/articles-table";
-import { Pagination } from "@/components/crud/pagination";
+import { Pagination, PaginationPlaceholder } from "@/components/crud/pagination";
 import { SearchFilterBar } from "@/components/crud/search-filter-bar";
 import { TableRowsSkeleton } from "@/components/data-skeleton";
 import { listArticles } from "@/lib/articles/queries";
@@ -101,7 +101,7 @@ export default async function ArticlesPage({
         </Suspense>
       </ArticlesTableShell>
 
-      <Suspense key={JSON.stringify(params)} fallback={null}>
+      <Suspense key={JSON.stringify(params)} fallback={<PaginationPlaceholder />}>
         <ArticlesPagination params={params} />
       </Suspense>
     </div>

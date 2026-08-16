@@ -1,5 +1,6 @@
 import { getTranslations } from "next-intl/server";
 
+import { PaginationPlaceholder } from "@/components/crud/pagination";
 import { SearchFilterBar } from "@/components/crud/search-filter-bar";
 import { TableRowsSkeleton } from "@/components/data-skeleton";
 import { ArticlesTableShell } from "@/components/articles/articles-table";
@@ -11,7 +12,9 @@ import { ArticlesTableShell } from "@/components/articles/articles-table";
  *
  * This mirrors `ArticlesPage`'s real chrome: the same title (no "new" button
  * -- this page has none), the same `<ArticlesTableShell>` wrapping a
- * `<TableRowsSkeleton>` instead of the real body. The real page's
+ * `<TableRowsSkeleton>` instead of the real body, plus
+ * `<PaginationPlaceholder>` reserving the pagination row's height (matching
+ * the page's own `<Suspense fallback>` for it). The real page's
  * `<SearchFilterBar>` gets a `filters` array built from `listFeeds()`/
  * `listTags()` DB queries -- exactly the kind of data dependency this file
  * must not perform, since that would just move the slow await into the
@@ -34,6 +37,8 @@ export default async function Loading() {
       <ArticlesTableShell>
         <TableRowsSkeleton columns={5} />
       </ArticlesTableShell>
+
+      <PaginationPlaceholder />
     </div>
   );
 }

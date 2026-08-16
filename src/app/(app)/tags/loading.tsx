@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 
+import { PaginationPlaceholder } from "@/components/crud/pagination";
 import { SearchFilterBar } from "@/components/crud/search-filter-bar";
 import { TableRowsSkeleton } from "@/components/data-skeleton";
 import { TagsTableShell } from "@/components/tags/tags-table";
@@ -17,7 +18,9 @@ import { buttonVariants } from "@/components/ui/button";
  * This mirrors `TagsPage`'s real chrome: the same title, the same
  * `<TagsTableShell>` (bulk-action bar + real header row, no dependency on
  * `rows`), with `<TableRowsSkeleton>` standing in for the body it wraps in a
- * `<Suspense>` there.
+ * `<Suspense>` there. `<PaginationPlaceholder>` reserves the pagination row's
+ * height, matching the page's own `<Suspense fallback>` for it -- see that
+ * component's doc comment for why.
  */
 export default async function Loading() {
   const t = await getTranslations("tags");
@@ -36,6 +39,8 @@ export default async function Loading() {
       <TagsTableShell>
         <TableRowsSkeleton columns={2} />
       </TagsTableShell>
+
+      <PaginationPlaceholder />
     </div>
   );
 }

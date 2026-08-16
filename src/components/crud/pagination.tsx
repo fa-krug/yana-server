@@ -63,6 +63,34 @@ export function Pagination({
 }
 
 /**
+ * Reserves `<Pagination>`'s exact footprint before its own query (`total`) is
+ * known -- used as both the page's `<Suspense fallback>` for it and the
+ * segment's `loading.tsx`, so the row's height never changes when the real
+ * control resolves. `aria-hidden`, because it offers nothing: both chevrons
+ * are permanently disabled and the range line is a blank placeholder rather
+ * than a translated string, so nothing here needs `useTranslations`. The
+ * alternative -- rendering nothing, as the fallback used to -- trades this
+ * placeholder's own brief appearance (real, but non-functional) for a second,
+ * larger layout shift once the row itself pops in; reserving the space was
+ * judged the smaller jump of the two.
+ */
+export function PaginationPlaceholder() {
+  return (
+    <nav aria-hidden="true" className="flex flex-wrap items-center justify-between gap-2">
+      <p className="text-sm text-muted-foreground">&nbsp;</p>
+      <div className="flex items-center gap-2">
+        <Button type="button" variant="outline" size="icon-sm" disabled>
+          <ChevronLeft aria-hidden="true" />
+        </Button>
+        <Button type="button" variant="outline" size="icon-sm" disabled>
+          <ChevronRight aria-hidden="true" />
+        </Button>
+      </div>
+    </nav>
+  );
+}
+
+/**
  * One paging control.
  *
  * A disabled one is a real `<button disabled>` rather than a styled `<a>`: an

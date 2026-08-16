@@ -1,7 +1,7 @@
 import { cache, Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 
-import { Pagination } from "@/components/crud/pagination";
+import { Pagination, PaginationPlaceholder } from "@/components/crud/pagination";
 import { SearchFilterBar } from "@/components/crud/search-filter-bar";
 import { TableRowsSkeleton } from "@/components/data-skeleton";
 import { JobsTableBody, JobsTableShell } from "@/components/jobs/jobs-table";
@@ -78,7 +78,7 @@ export default async function JobsPage({
         </Suspense>
       </JobsTableShell>
 
-      <Suspense key={JSON.stringify(params)} fallback={null}>
+      <Suspense key={JSON.stringify(params)} fallback={<PaginationPlaceholder />}>
         <JobsPagination params={params} userId={userId} />
       </Suspense>
     </div>

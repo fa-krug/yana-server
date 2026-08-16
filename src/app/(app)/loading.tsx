@@ -1,6 +1,7 @@
 import { getTranslations } from "next-intl/server";
 
 import { RecentArticlesView } from "@/components/dashboard/recent-articles";
+import { SectionCards } from "@/components/dashboard/section-cards";
 import { StatCardsView } from "@/components/dashboard/stat-cards";
 
 /**
@@ -34,11 +35,19 @@ import { StatCardsView } from "@/components/dashboard/stat-cards";
  * screen from the very first frame of the navigation; only the numbers and
  * the article list stream in afterward.
  *
- * `<SectionCards>` is deliberately not rendered here: which items it
- * contains depends on `isAdmin`, itself derived from a fresh, uncached
- * session read (see `DashboardPage`'s doc comment) -- reading that here would
- * make this fallback pay for the very session check it exists to render
- * ahead of.
+ * `<SectionCards isAdmin={false}>` renders the non-admin subset unconditionally
+ * -- which items it contains for real depends on `isAdmin`, itself derived
+ * from a fresh, uncached session read (see `DashboardPage`'s doc comment), and
+ * this file must not perform that read itself: doing so here would either
+ * duplicate the "fresh, uncached" cost on every navigation or -- far worse --
+ * risk this fallback quietly reading a cached/stale role, which is exactly
+ * the five-minutes-stale-admin bug `requireUserFreshRole()` exists to close.
+ * `SectionCards` is a synchronous, non-`"use client"` component driven purely
+ * by `NAV_ITEMS` and translations, so calling it with a hard-coded `isAdmin`
+ * performs no query of its own. Rendering the non-admin subset unconditionally
+ * is the smaller of two jumps: an admin's admin-only cards (`/users`) simply
+ * appear a moment later once `DashboardPage` itself resolves, rather than the
+ * whole section popping in as a block.
  */
 export default async function Loading() {
   const t = await getTranslations("dashboard");
@@ -50,6 +59,8 @@ export default async function Loading() {
       <StatCardsView pending />
 
       <RecentArticlesView pending />
+
+      <SectionCards isAdmin={false} />
     </div>
   );
 }

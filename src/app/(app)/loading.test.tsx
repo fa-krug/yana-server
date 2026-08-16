@@ -35,6 +35,13 @@ vi.mock("next-intl/server", () => ({
  * real `StatCardsView`/`RecentArticlesView` chassis, with only the numbers
  * and the article list replaced -- so a regression back to a whole-card
  * skeleton fails here instead of only being noticed in a browser.
+ *
+ * It also covers a second, later defect: this fallback used to omit
+ * `<SectionCards>` entirely, so the whole section popped in once
+ * `DashboardPage` itself resolved. It now renders the non-admin subset
+ * unconditionally (`isAdmin` cannot be known without a fresh, uncached
+ * session read this file must not perform) -- see this file's own doc
+ * comment above for why.
  */
 async function renderLoading() {
   return renderWithProviders(await Loading());
@@ -44,11 +51,13 @@ describe("the dashboard's (`/`) loading fallback", () => {
   it("renders every stat card's real frame, icon and title, with only the number pending", async () => {
     await renderLoading();
 
-    // Five real cards with their real titles.
+    // Five real cards with their real titles. "Feeds" and "Tags" each match
+    // twice once `<SectionCards>` also renders (its nav labels reuse the same
+    // words), so those two are asserted by count rather than `getByText`.
     expect(screen.getByText("Unread articles")).toBeTruthy();
     expect(screen.getByText("Total articles")).toBeTruthy();
-    expect(screen.getByText("Feeds")).toBeTruthy();
-    expect(screen.getByText("Tags")).toBeTruthy();
+    expect(screen.getAllByText("Feeds").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Tags").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Active jobs")).toBeTruthy();
 
     // No number is known yet -- none of the real counts render.
@@ -63,5 +72,20 @@ describe("the dashboard's (`/`) loading fallback", () => {
     // The deliberate exception: a skeleton stands in for each card's number
     // and for the recent-articles list body -- nowhere else.
     expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
+  });
+
+  it("renders the non-admin section cards immediately, never the admin-only ones", async () => {
+    await renderLoading();
+
+    // The section-cards grid heading, and a non-admin-only entry's
+    // description -- unique text, since the nav label itself ("Feeds") also
+    // appears as a stat-card title.
+    expect(screen.getByText("Manage")).toBeTruthy();
+    expect(screen.getByText("Add, edit and organise the feeds you follow.")).toBeTruthy();
+
+    // The admin-only entry (`/users`) never appears here, since `isAdmin`
+    // cannot be known without the fresh session read this file must not
+    // perform.
+    expect(screen.queryByText("Manage user accounts on this instance.")).toBeNull();
   });
 });
