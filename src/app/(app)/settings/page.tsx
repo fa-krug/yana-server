@@ -5,7 +5,7 @@ import { AboutSection } from "@/components/settings/about-section";
 import { GeneralSection } from "@/components/settings/general-section";
 import { LibrarySection } from "@/components/settings/library-section";
 import { Separator } from "@/components/ui/separator";
-import { getSettings } from "@/lib/settings/queries";
+import { getSettingsSummary } from "@/lib/settings/queries";
 
 /**
  * `<PageTitle>` was considered here (see the streaming-controls migration
@@ -41,28 +41,28 @@ export default async function SettingsPage() {
   // Not awaited: the promise is handed to the client components, which render
   // their real controls immediately and fill in the values when it resolves.
   // Awaiting here is what made the whole page suspend behind one read.
-  // `getSettings()` is `cache()`d per request, so the `.then()` below is still
-  // exactly one read, shared with both sections.
+  // `getSettingsSummary()` is backed by the same `cache()`d `getSettings()`
+  // read the root layout already made, so sharing this one promise between
+  // both sections below is still exactly one read.
   //
-  // Narrowed HERE, on the server, before the promise crosses the RSC boundary
-  // -- not inside a client component's `use(promise)`. React serializes the
-  // *resolved value* of a promise handed to a Client Component, not its
-  // declared TypeScript type: a prop typed `Promise<{ theme; language;
-  // articleRetentionDays }>` is structurally satisfied by a promise that
-  // resolves to the whole `UserSettings` row, and the whole row -- including
-  // `youtubeApiKey`, `redditClientSecret`, `openaiApiKey` and five more
-  // provider secrets -- would still be serialized into the page's flight
-  // payload, in plain text, in a browser's network tab. Narrowing inside
-  // `GeneralSection`/`LibrarySection` happens *after* serialization and buys
-  // nothing. This is the same "a component gets the columns it renders, never
-  // the row" rule CLAUDE.md already states for a plain (already-awaited) prop
-  // -- it does not stop applying because the value arrives late, behind a
-  // promise.
-  const settings = getSettings().then(({ theme, language, articleRetentionDays }) => ({
-    theme,
-    language,
-    articleRetentionDays,
-  }));
+  // `getSettingsSummary()`, never a bare `getSettings()` passed straight down
+  // or narrowed inline here. React serializes the *resolved value* of a
+  // promise handed to a Client Component, not its declared TypeScript type:
+  // a prop typed `Promise<{ theme; language; articleRetentionDays }>` is
+  // structurally satisfied by a promise that resolves to the whole
+  // `UserSettings` row, and the whole row -- including `youtubeApiKey`,
+  // `redditClientSecret`, `openaiApiKey` and five more provider secrets --
+  // would still be serialized into the page's flight payload, in plain text,
+  // in a browser's network tab. Narrowing inside `GeneralSection`/
+  // `LibrarySection`'s own `use(promise)` happens *after* serialization and
+  // buys nothing; narrowing inline here, in a `.then()` local to this page,
+  // was tried and rejected -- it left no shared symbol for a test to import,
+  // so a test asserting on its own copy of the narrowing kept passing even
+  // after a mutation that reverted this line to `getSettings()` itself (see
+  // `settings.test.ts`). `getSettingsSummary()` in `@/lib/settings/queries` is
+  // the one function both this page and that test call, so the test is
+  // actually exercising what ships here.
+  const settings = getSettingsSummary();
 
   return (
     <div className="max-w-2xl space-y-6">
