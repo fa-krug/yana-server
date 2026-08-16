@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpen, Newspaper, Rss, Tags, Workflow, type LucideIcon } from "lucide-react";
+import { BookOpen, Newspaper, Rss, Tags, type LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { Suspense, use } from "react";
@@ -31,7 +31,7 @@ type StatCardDef = {
  * this into a real `<p>` showing `0` or "" -- neither is true yet.
  *
  * Feeds gets one tile for two numbers (`enabledFeeds` of `totalFeeds`), so
- * there are five tiles rather than six -- the sixth catalog value,
+ * there are four tiles rather than five -- the fifth catalog value,
  * `stats.feedsValue`, is the "N of M" template that tile renders instead of a
  * bare count.
  */
@@ -74,17 +74,10 @@ export function StatCardsView({
       value: stats ? String(stats.tags) : "",
       href: "/tags",
     },
-    {
-      key: "activeJobs",
-      icon: Workflow,
-      label: t("activeJobs"),
-      value: stats ? String(stats.activeJobs) : "",
-      href: "/jobs",
-    },
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
       {cards.map((card) => (
         <Link key={card.key} href={card.href} className="block">
           <Card className="h-full transition-colors hover:bg-accent/50">

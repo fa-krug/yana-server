@@ -643,8 +643,7 @@
       "totalArticles": "Total articles",
       "feeds": "Feeds",
       "feedsValue": "{enabled} of {total}",
-      "tags": "Tags",
-      "activeJobs": "Active jobs"
+      "tags": "Tags"
     },
     "recent": {
       "heading": "Latest unread",

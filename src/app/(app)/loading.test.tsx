@@ -51,14 +51,13 @@ describe("the dashboard's (`/`) loading fallback", () => {
   it("renders every stat card's real frame, icon and title, with only the number pending", async () => {
     await renderLoading();
 
-    // Five real cards with their real titles. "Feeds" and "Tags" each match
+    // Four real cards with their real titles. "Feeds" and "Tags" each match
     // twice once `<SectionCards>` also renders (its nav labels reuse the same
     // words), so those two are asserted by count rather than `getByText`.
     expect(screen.getByText("Unread articles")).toBeTruthy();
     expect(screen.getByText("Total articles")).toBeTruthy();
     expect(screen.getAllByText("Feeds").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Tags").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("Active jobs")).toBeTruthy();
 
     // No number is known yet -- none of the real counts render.
     expect(screen.queryByText(/^\d+$/)).toBeNull();
