@@ -47,7 +47,7 @@ import { TagBadge } from "@/components/tags/tag-badge";
 import { TagColorDot } from "@/components/tags/tag-color-dot";
 import { IdentifierAutocomplete } from "./identifier-autocomplete";
 
-type FeedListRow = Feed & { tags: Tag[] };
+export type FeedListRow = Feed & { tags: Tag[] };
 
 /** No capability is known before the promise resolves -- see `pending` below. */
 const EMPTY_CAPABILITIES: Capabilities = { youtube: false, reddit: false, ai: false };
@@ -674,9 +674,10 @@ export function FeedForm({
 
 /**
  * Calls use() on both promises; suspends until they settle; renders the form
- * for real. `/feeds/new` is the only caller -- unlike `/feeds/[id]` (Task 7,
- * not yet migrated), which still awaits `capabilitiesFor()`/`listTags()` in
- * the page body and passes real values straight to `<FeedForm>` above.
+ * for real. `/feeds/new` is the only caller -- `/feeds/[id]` has its own
+ * pair below (`EditFeedFormResolved`/`EditFeedForm`), because it additionally
+ * has a known `feed` (its 404 depends on the row, so the page body awaits it
+ * rather than streaming it) that this one does not.
  */
 function NewFeedFormResolved({
   capabilitiesPromise,
@@ -708,6 +709,54 @@ export function NewFeedForm({
   return (
     <Suspense fallback={<FeedForm pending />}>
       <NewFeedFormResolved
+        capabilitiesPromise={capabilitiesPromise}
+        allTagsPromise={allTagsPromise}
+      />
+    </Suspense>
+  );
+}
+
+/**
+ * Calls `use()` on both promises; suspends until they settle; renders the
+ * form for real. `feed` is already known by the time this is used --
+ * `/feeds/[id]/page.tsx` awaits `getFeed()` at the top of the page body,
+ * because it decides the 404 -- so only `capabilities`/`allTags` are
+ * promises here, unlike `NewFeedFormResolved` above.
+ */
+function EditFeedFormResolved({
+  feed,
+  capabilitiesPromise,
+  allTagsPromise,
+}: {
+  feed: FeedListRow;
+  capabilitiesPromise: Promise<Capabilities>;
+  allTagsPromise: Promise<Tag[]>;
+}) {
+  const capabilities = use(capabilitiesPromise);
+  const allTags = use(allTagsPromise);
+  return <FeedForm feed={feed} capabilities={capabilities} allTags={allTags} />;
+}
+
+/**
+ * What `/feeds/[id]/page.tsx` renders. The fallback is
+ * `<FeedForm feed={feed} pending />` -- the real chassis, disabled, already
+ * carrying the fetched feed's own values -- so only the capability-based
+ * filtering and the tag list stream in once `capabilitiesFor()`/`listTags()`
+ * resolve.
+ */
+export function EditFeedForm({
+  feed,
+  capabilitiesPromise,
+  allTagsPromise,
+}: {
+  feed: FeedListRow;
+  capabilitiesPromise: Promise<Capabilities>;
+  allTagsPromise: Promise<Tag[]>;
+}) {
+  return (
+    <Suspense fallback={<FeedForm feed={feed} pending />}>
+      <EditFeedFormResolved
+        feed={feed}
         capabilitiesPromise={capabilitiesPromise}
         allTagsPromise={allTagsPromise}
       />

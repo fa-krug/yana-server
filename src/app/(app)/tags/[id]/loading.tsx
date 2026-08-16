@@ -1,6 +1,6 @@
 import { getTranslations } from "next-intl/server";
 
-import { Skeleton } from "@/components/ui/skeleton";
+import { TagForm } from "@/components/tags/tag-form";
 
 /**
  * The route's own fallback, replacing `(app)/loading.tsx`'s generic
@@ -11,9 +11,10 @@ import { Skeleton } from "@/components/ui/skeleton";
  * open, so the read cannot sit inside a `<Suspense>` boundary here.
  *
  * The title (`t("editTitle")`) is static, so it renders for real via
- * `getTranslations` -- cheap, no DB access. `<TagForm>` itself is small (name
- * + color), so the placeholder below it is scaled down to match rather than
- * reusing the users page's four-field block.
+ * `getTranslations` -- cheap, no DB access. Below it, `<TagForm pending />`
+ * renders the real chassis (name input, colour picker, both action buttons)
+ * disabled, instead of two hand-placed bars that had to be kept in visual
+ * sync with the form by hand.
  */
 export default async function Loading() {
   const t = await getTranslations("tags");
@@ -21,12 +22,7 @@ export default async function Loading() {
   return (
     <div className="space-y-4" aria-busy="true" aria-live="polite">
       <h1 className="text-2xl font-semibold">{t("editTitle")}</h1>
-
-      {/* TagForm: name input, color picker */}
-      <div className="space-y-4">
-        <Skeleton className="h-9 w-full" />
-        <Skeleton className="h-9 w-full" />
-      </div>
+      <TagForm pending />
     </div>
   );
 }
