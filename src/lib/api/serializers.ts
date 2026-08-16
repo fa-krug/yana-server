@@ -10,7 +10,30 @@ import type {
 
 export type ArticleSummaryWire = z.infer<typeof ArticleSummarySchema>;
 
-export function serializeArticleSummary(article: Article): ArticleSummaryWire {
+/**
+ * The columns `serializeArticleSummary` actually reads. Typed as a `Pick`
+ * rather than the whole `Article` so `syncArticles` can hand it a narrowed
+ * `.select({...})` -- the point of that narrowing being that `rawContent`
+ * (a whole fetched HTML page) and `plainText` are never read off disk for
+ * rows whose wire format contains neither. A full `Article` row still
+ * satisfies this, so callers that already have one need no change.
+ */
+export type ArticleSummarySource = Pick<
+  Article,
+  | "id"
+  | "feedId"
+  | "name"
+  | "identifier"
+  | "date"
+  | "author"
+  | "icon"
+  | "read"
+  | "starred"
+  | "createdAt"
+  | "updatedAt"
+>;
+
+export function serializeArticleSummary(article: ArticleSummarySource): ArticleSummaryWire {
   return {
     id: article.id,
     feedId: article.feedId,

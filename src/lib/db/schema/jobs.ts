@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { asc, desc, sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import type { JobStatus } from "./enums";
@@ -86,9 +86,12 @@ export const jobs = sqliteTable(
       .default(sql`(unixepoch())`),
   },
   (table) => [
-    // The claim query's index: pending jobs whose runAt has passed, highest
-    // priority first, oldest first within a priority tier.
-    index("jobs_claim_idx").on(table.status, table.priority, table.runAt),
+    // Column directions mirror claim()'s ORDER BY exactly
+    // (`desc(priority), asc(runAt), asc(id)`). SQLite can only satisfy an
+    // ORDER BY from an index by walking it forwards or entirely backwards, so
+    // an all-ascending index against a mixed-direction sort falls back to a
+    // temp B-tree. `id` is included so the index covers the whole ordering.
+    index("jobs_claim_idx").on(table.status, desc(table.priority), asc(table.runAt), asc(table.id)),
     index("jobs_kind_idx").on(table.kind),
     index("jobs_run_idx").on(table.runId),
     index("jobs_user_idx").on(table.userId),

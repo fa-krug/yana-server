@@ -9,6 +9,7 @@ const baseArticle: Article = {
   identifier: "https://example.com/a",
   rawContent: "",
   plainText: "",
+  contentHash: null,
   date: new Date("2026-01-01T00:00:00Z"),
   read: false,
   starred: true,

@@ -268,6 +268,41 @@ describe("sync", () => {
     });
   });
 
+  it("selects only the columns the wire format uses", () => {
+    // A bare `db.select()` would pull `rawContent` and `plainText` -- the
+    // largest columns on the table -- off disk for every row in both the
+    // `new` and `updated` streams, only for the serializer to discard them.
+    // Spy on what the database is actually asked for, rather than asserting
+    // on the serializer's output, which would pass even with a bare select.
+    client.writeTransaction((tx) =>
+      tx
+        .insert(schema.articles)
+        .values({ name: "A1", identifier: "a1", date: new Date(), feedId })
+        .run(),
+    );
+
+    const db = client.getDb() as unknown as { $client: { prepare: (sql: string) => unknown } };
+    const seen: string[] = [];
+    const original = db.$client.prepare.bind(db.$client);
+    db.$client.prepare = (sql: string) => {
+      seen.push(sql);
+      return original(sql);
+    };
+
+    try {
+      sync.syncArticles(userId, sync.ZERO_CURSOR, 10);
+    } finally {
+      db.$client.prepare = original;
+    }
+
+    const articleSelects = seen.filter((sql) => /from "articles"/i.test(sql));
+    expect(articleSelects.length).toBeGreaterThan(0);
+    for (const sql of articleSelects) {
+      expect(sql).not.toMatch(/"raw_content"/);
+      expect(sql).not.toMatch(/"plain_text"/);
+    }
+  });
+
   it("does not duplicate an article that is both new and updated within the same sync window", () => {
     client.writeTransaction((tx) =>
       tx

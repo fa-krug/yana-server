@@ -636,6 +636,82 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   Unlike `updateIntervalMinutes`/`concurrency`, there's no per-aggregator
   recommendation in `specs.ts` — every aggregator starts at the same flat
   `30`, freely editable per feed afterward.
+- **An aggregated article is only rewritten when its content actually changed**,
+  decided by `articles.contentHash` (`articleContentHash()` in
+  `src/lib/aggregators/content-hash.ts`). Three things about that hash are
+  load-bearing and each was a real trap: it covers the feed's **own** `date`,
+  never the stored one, because the handler's `raw.date || new Date()` fallback
+  would otherwise make an undated feed re-hash on every run and never settle
+  (which is why the update branch writes `rawDate ?? existing.date` rather than
+  re-stamping `new Date()` — the column and the hash have to agree); it covers
+  **both** `content || raw_content` (what the blocks are parsed from) and
+  `raw_content || content` (what the column stores), which are two different
+  expressions over the same item; and it is written **last**, in its own
+  transaction after `writeBlocks()`, so a stored hash means the row _and_ its
+  block tree are current, and a crash anywhere above leaves it stale or null so
+  the next run redoes the work. The payoff is not only local I/O:
+  `articles.updatedAt` carries `$onUpdate`, so an unconditional rewrite put
+  every unchanged article back into `/api/v1`'s sync `updated` stream on every
+  aggregation cycle. A `null` hash means "changed" — every row predating the
+  column settles after one pass, and no backfill exists.
+
+  **The invariant binds every writer, not just the aggregator: anything that
+  changes an article's content must set `contentHash` to null** (or recompute
+  it). A stale hash does not merely go out of date — it makes the aggregate
+  handler skip that row _forever_, because the hash it computes from the
+  unchanged feed item keeps matching. Two writers learned this in review and now
+  null it explicitly: `src/lib/jobs/handlers/reload.ts` in **both** branches — a
+  _failed_ reload writes an error notice, which without this would have been
+  permanent, where it used to be replaced by the real article on the very next
+  cycle — and `updateArticle()` in `src/lib/articles/actions.ts`, which writes
+  `name` and `date` (both fingerprint inputs) and `feedId` (half the key the
+  handler looks a row up by). Writers that only flip `read`/`starred` must leave
+  it alone: nothing about the content changed, and nulling it would force a
+  pointless full rewrite on the next cycle. The same trap waits for **any future
+  change to `parseBlocks`/`plainTextOf`** — existing articles would never be
+  re-parsed, where they used to be re-derived every cycle. The full statement is
+  the `contentHash` comment in `src/lib/db/schema/articles.ts`; this is its
+  summary, not a second version of it.
+
+- **Article search goes through the `articles_fts` FTS5 external-content table,
+  via `toFtsQuery()`** (`src/lib/articles/search-query.ts`). It replaced a
+  `LIKE '%term%'` over `plainText` — the largest column on the table — which
+  full-scanned once for the rows and again for the `count()`. Five things about
+  it:
+  - **Every token is quoted**, with any embedded quote doubled (FTS5's own
+    escape), so nothing a user types reaches the FTS5 parser as syntax: `NOT`,
+    `OR`, `name:`, `*` and `^` are all just text afterward. An unquoted term is
+    not merely a possible syntax error — it is a way to steer the query, which a
+    search box must never be.
+  - **Control characters are stripped _before_ quoting, because quoting does not
+    save them.** FTS5 parses the match expression as a C string, so a NUL inside
+    quotes ends it early and raises `unterminated string` — a 500 from
+    `?q=%00`, reachable by anyone who can type a URL. There is no escape for it.
+    Found by fuzzing the search input, not by reasoning about it.
+  - **The table is deliberately absent from `src/lib/db/schema.ts`.** Drizzle has
+    no virtual-table support, and drizzle-kit diffs against its own snapshot, so
+    a table it never knew about is never dropped. Its three triggers are what
+    keep it current, and the `'delete'` command rows are mandatory for an
+    external-content table — a plain `DELETE FROM articles_fts` corrupts the
+    index rather than emptying it.
+  - **The `AFTER UPDATE` trigger carries a `WHEN` guard, and it is
+    load-bearing**: `WHEN old.name IS NOT new.name OR old.plain_text IS NOT
+new.plain_text`. Without it the trigger fires on _every_ column write —
+    `read`/`starred` toggles and the separate `content_hash` writes included —
+    and each firing re-tokenizes the whole article body twice (the `'delete'`
+    command row plus the reinsert). "Mark all read" over a few thousand articles
+    became thousands of full-body reindexes. It is pinned by a test that
+    fingerprints FTS5's `articles_fts_data` shadow table, because nothing
+    visible through `articles_fts` itself can tell "not reindexed" from "deleted
+    and reinserted identically".
+  - **Two behaviour changes, neither of them a regression.** FTS5 matches token
+    prefixes where `LIKE` matched mid-word: `wind` still finds `Windows`,
+    `ndows` no longer does. And a multi-word query was an adjacency match within
+    a single column (`LIKE '%hello world%'`) and is now an unordered AND across
+    `name` and `plain_text` — which widens results rather than losing any, so
+    nothing broke, but it is not what the prefix sentence describes and someone
+    comparing the two will notice.
+
 - **Error-notification email has two channels, and they answer different
   questions.** `notifyAdmins()` (`src/lib/email/error-notifications.ts`) is "is
   this instance healthy" — it fires from `src/lib/jobs/worker.ts` on a fatal
@@ -911,6 +987,30 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   need that scoped (e.g. tagging claimed rows with an owning process/worker
   id) before they are safe; today there is exactly one app service in
   `docker-compose.yml`/`docker-compose.production.yml`, and that stays true.
+- **`claim()` pre-checks for a pending job outside the write transaction, and
+  the idle poll is jittered.** Those four loops at a 2s poll took the exclusive
+  `BEGIN IMMEDIATE` lock twice a second on a completely idle instance, forever,
+  purely to discover there was nothing to do — and all four woke in the same
+  tick, because `startWorker()` launches them together and they slept identical
+  amounts. The pre-check is **advisory only**: the transaction still re-selects
+  and still guards its `UPDATE` on `status = 'pending'`, which is the
+  compare-and-swap the bullet above rests on, so a row that appears in the
+  pre-check and is won by another loop before this one gets the lock is handled
+  exactly as it was before (`result.changes !== 1` → `null`). Do not "simplify"
+  either half away: the pre-check is not a redundant duplicate of the
+  transaction's select, and `POLL_JITTER` (a quarter either side of the poll
+  interval, in `worker.ts`) is not decorative randomness. `progress()` likewise
+  reads before writing and returns without a transaction when the clamped value
+  already matches — the aggregate handler calls it once per article, but
+  `80 + floor(i / total * 20)` takes only twenty distinct values, so on a
+  200-article feed all but twenty of those calls were a write lock taken to
+  store the number already sitting in the column. One index goes with this:
+  `jobs_claim_idx` declares `desc(priority), asc(runAt), asc(id)` to mirror
+  `claim()`'s `ORDER BY` exactly, because SQLite can only satisfy an ORDER BY
+  from an index by walking it forwards or entirely backwards — an all-ascending
+  index against a mixed-direction sort falls back to a temp B-tree. Change the
+  sort and the index directions together, or the index silently stops serving
+  it.
 - **Route protection is `src/proxy.ts` — Next 16's rename of `middleware.ts`,
   and it is not cosmetic.** The old name still works but warns on every build,
   and a Proxy defaults to the **Node.js** runtime where middleware was compiled
@@ -1538,6 +1638,23 @@ event.payload)` needed no change at all to carry the new event type, since
   broadcast-side throttling: the native client already debounces its own
   pushes to roughly one every two idle seconds, so the publish rate this
   route ever sees is already the rate worth broadcasting.
+
+- **`syncArticles` selects a named column list, never `db.select()`.**
+  `rawContent` is a whole fetched HTML page and `plainText` is the largest
+  column on the table; neither appears in `ArticleSummaryWire`, so a bare select
+  reads both off disk for every row in **both** streams and hands them to the
+  serializer to throw away. `SUMMARY_COLUMNS` in `src/lib/api/sync.ts` is that
+  list, and it stays honest by construction: `serializeArticleSummary` takes
+  `ArticleSummarySource` — a `Pick` of the eleven columns it reads, not a whole
+  `Article` — so a wire field that needs a twelfth is a `npm run typecheck`
+  failure here, not a missing value discovered on a client. (A full `Article`
+  still satisfies it, so the callers that already have one needed no change.)
+  `listArticles` (`src/lib/articles/queries.ts`) documents the same rule for the
+  same reason.
+  `articles_updated_id_idx` on `(updatedAt, id)` is the `updated` stream's
+  counterpart to `articles_created_id_idx`: the query orders by
+  `updatedAt ASC, id ASC` under a `LIMIT`, and without the index it full-scans
+  and builds a temp B-tree on every sync call.
 
 - **`/login` is the whole unauthenticated UI, and five things about it are
   load-bearing.** It lives at `src/app/login/page.tsx`, deliberately outside

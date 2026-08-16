@@ -122,7 +122,14 @@ export async function handleReloadJob(job: Job): Promise<void> {
     await writeBlocks(article.id, blocks);
     writeTransaction((tx) => {
       tx.update(articles)
-        .set({ plainText, updatedAt: new Date() })
+        // `contentHash: null` is mandatory, not tidiness: this row's content is
+        // now an error notice, which the stored fingerprint no longer
+        // describes. Left in place, the next aggregation run would compare the
+        // feed's unchanged article against a hash that still matches, skip it,
+        // and leave this notice standing *permanently* -- where it used to be
+        // replaced by the real article on the very next cycle. See the
+        // `contentHash` comment in `@/lib/db/schema/articles`.
+        .set({ plainText, contentHash: null, updatedAt: new Date() })
         .where(eq(articles.id, article.id))
         .run();
     });
@@ -169,6 +176,14 @@ export async function handleReloadJob(job: Job): Promise<void> {
         name: rawArticle.name || article.name,
         rawContent: freshHtml,
         plainText,
+        // Same reason as the failed-refetch branch above: reload has just
+        // rewritten the name, the raw page and the whole block tree, so the
+        // stored fingerprint describes content that no longer exists. Null it
+        // rather than recompute it -- reload's inputs are not the aggregator's
+        // (AI post-processing may have rewritten the name and body), so the
+        // honest answer is "unknown", which makes the next aggregation run
+        // re-derive it.
+        contentHash: null,
         updatedAt: new Date(),
       })
       .where(eq(articles.id, article.id))

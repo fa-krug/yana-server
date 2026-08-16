@@ -2,6 +2,7 @@ import { and, count, eq, gte } from "drizzle-orm";
 
 import { parseBlocks, plainTextOf } from "@/lib/aggregators/blocks/parser";
 import { writeBlocks } from "@/lib/aggregators/blocks/storage";
+import { articleContentHash } from "@/lib/aggregators/content-hash";
 import { resolveFeedCredentials } from "@/lib/aggregators/credential-resolution";
 import { createAggregator } from "@/lib/aggregators/factory";
 import { getDb, writeTransaction } from "@/lib/db/client";
@@ -67,6 +68,7 @@ export async function handleAggregateJob(job: Job): Promise<void> {
   const total = rawArticles.length;
   let created = 0;
   let updated = 0;
+  let unchanged = 0;
 
   for (let i = 0; i < total; i++) {
     if (isCancelRequested(job.id)) {
@@ -95,15 +97,50 @@ export async function handleAggregateJob(job: Job): Promise<void> {
     // no body text at all and overwrites a perfectly good article with just
     // its header image.
     const htmlContent = raw.content || raw.raw_content || "";
+    const rawContentToStore = raw.raw_content || raw.content || "";
+    const rawDate = raw.date ?? null;
+
+    const hash = articleContentHash({
+      name: raw.name || "Untitled",
+      html: htmlContent,
+      rawContent: rawContentToStore,
+      date: rawDate,
+      author: raw.author || "",
+      icon: raw.icon || null,
+    });
+
+    // Read outside the write transaction, and narrow: one small column, never
+    // `rawContent`/`plainText`. This is the whole point -- comparing the large
+    // columns directly would cost the very I/O the skip saves.
+    const known = db
+      .select({ contentHash: articles.contentHash })
+      .from(articles)
+      .where(and(eq(articles.feedId, feedId), eq(articles.identifier, raw.identifier)))
+      .get();
+
+    if (known && known.contentHash === hash) {
+      // Nothing about this article changed since the last run. Skipping is
+      // not just cheaper: `articles.updatedAt` carries `$onUpdate`, so an
+      // unconditional rewrite would put every unchanged article back into
+      // /api/v1's sync `updated` stream on every aggregation cycle.
+      unchanged++;
+      progress(job.id, 80 + Math.floor(((i + 1) / total) * 20));
+      continue;
+    }
+
+    // Only now is the expensive parse worth doing.
     const blocks = parseBlocks(htmlContent, raw.identifier);
     const plainText = plainTextOf(blocks);
-    const rawContentToStore = raw.raw_content || raw.content || "";
 
     let articleId = 0;
 
     writeTransaction((tx) => {
+      // Re-read inside the transaction rather than trusting `known` above:
+      // that read was outside the write lock, and two worker loops can be
+      // running an aggregate job for the same feed. The select/insert pair
+      // has to stay atomic, exactly as it was before.
       const existing = tx
-        .select({ id: articles.id })
+        .select({ id: articles.id, date: articles.date })
         .from(articles)
         .where(and(eq(articles.feedId, feedId), eq(articles.identifier, raw.identifier)))
         .get();
@@ -116,7 +153,11 @@ export async function handleAggregateJob(job: Job): Promise<void> {
             name: raw.name || "Untitled",
             rawContent: rawContentToStore,
             plainText,
-            date: raw.date || new Date(),
+            // Keep the stored date when the feed supplied none. Re-stamping
+            // `new Date()` here would rewrite the column on every run and,
+            // worse, make it disagree with the hash -- which covers the
+            // feed's own value precisely so an undated feed can still settle.
+            date: rawDate ?? existing.date,
             author: raw.author || "",
             icon: raw.icon || null,
           })
@@ -131,7 +172,7 @@ export async function handleAggregateJob(job: Job): Promise<void> {
             identifier: raw.identifier,
             rawContent: rawContentToStore,
             plainText,
-            date: raw.date || new Date(),
+            date: rawDate ?? new Date(),
             author: raw.author || "",
             icon: raw.icon || null,
           })
@@ -146,6 +187,16 @@ export async function handleAggregateJob(job: Job): Promise<void> {
       await writeBlocks(articleId, blocks);
     }
 
+    if (articleId > 0) {
+      // Written last, deliberately: a stored hash means "the row *and* its
+      // block tree are current for this content". A crash anywhere above
+      // leaves it stale or null, so the next run redoes the work rather than
+      // trusting a fingerprint for a half-written article.
+      writeTransaction((tx) => {
+        tx.update(articles).set({ contentHash: hash }).where(eq(articles.id, articleId)).run();
+      });
+    }
+
     // aggregator.aggregate() above already reported up to 80% for the slow
     // network/AI work; this loop is the fast local DB-write remainder, so it
     // only claims the last 20%.
@@ -156,5 +207,9 @@ export async function handleAggregateJob(job: Job): Promise<void> {
     tx.update(feeds).set({ updatedAt: new Date() }).where(eq(feeds.id, feedId)).run();
   });
 
-  appendLogLine(job.id, "stdout", `upserted articles: ${created} created, ${updated} updated`);
+  appendLogLine(
+    job.id,
+    "stdout",
+    `upserted articles: ${created} created, ${updated} updated, ${unchanged} unchanged`,
+  );
 }

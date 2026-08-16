@@ -145,6 +145,20 @@ describe("src/lib/jobs/queue", () => {
       expect(reclaimed?.id).toBe(id);
     });
 
+    it("opens no write transaction when there is no claimable job", () => {
+      // writeTransaction() issues BEGIN IMMEDIATE via connection.exec(), not
+      // connection.prepare() -- so a prepare spy never observes it. Spy on
+      // writeTransaction itself instead: the point of the pre-check is that
+      // it is never called at all when there is nothing to claim.
+      const writeTransactionSpy = vi.spyOn(client, "writeTransaction");
+
+      // Nothing enqueued: this is the state four idle worker loops sit in
+      // permanently, polling every two seconds.
+      expect(queue.claim()).toBeNull();
+
+      expect(writeTransactionSpy).not.toHaveBeenCalled();
+    });
+
     it("finalizes an orphaned cancelling job as cancelled, rather than resuming it as pending", () => {
       const id = queue.enqueue("noop", {});
       queue.claim();
@@ -316,6 +330,49 @@ describe("src/lib/jobs/queue", () => {
 
       queue.complete(id);
       expect(queue.getJob(id)?.error).toBe("");
+    });
+  });
+
+  describe("progress", () => {
+    it("performs no write when the clamped percent already matches the stored value", () => {
+      const id = queue.enqueue("aggregate", { feedId: 1 });
+      queue.progress(id, 40);
+
+      // jobs has no updatedAt column, so the no-op is asserted directly
+      // against the statements better-sqlite3 prepares rather than against a
+      // timestamp: no UPDATE against `jobs` should be prepared for the second
+      // call at all.
+      const db = client.getDb() as unknown as { $client: { prepare: (sql: string) => unknown } };
+      const seen: string[] = [];
+      const original = db.$client.prepare.bind(db.$client);
+      db.$client.prepare = (sql: string) => {
+        seen.push(sql);
+        return original(sql);
+      };
+
+      try {
+        // 40.9 clamps to the same 40 that is already stored. The aggregate
+        // handler calls progress() once per article, and its
+        // 80 + floor(i/total*20) expression only takes twenty distinct values
+        // across the whole loop -- so a 200-article feed used to open 200
+        // BEGIN IMMEDIATE transactions to write twenty distinct numbers.
+        queue.progress(id, 40.9);
+      } finally {
+        db.$client.prepare = original;
+      }
+
+      const after = client.getDb().select().from(jobs).where(eq(jobs.id, id)).get();
+      expect(after!.progress).toBe(40);
+      expect(seen.some((sql) => /update\s+"?jobs"?/i.test(sql))).toBe(false);
+    });
+
+    it("still writes when the clamped percent differs from the stored value", () => {
+      const id = queue.enqueue("aggregate", { feedId: 1 });
+      queue.progress(id, 40);
+      queue.progress(id, 41);
+
+      const row = client.getDb().select().from(jobs).where(eq(jobs.id, id)).get();
+      expect(row!.progress).toBe(41);
     });
   });
 

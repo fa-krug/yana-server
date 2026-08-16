@@ -79,9 +79,23 @@ describe("migrations", () => {
       "articles_feed_read_date_idx",
       "articles_created_id_idx",
       "articles_feed_created_idx",
+      "articles_updated_id_idx",
     ]) {
       expect(names).toContain(expected);
     }
+    connection.close();
+  });
+
+  it("indexes (updatedAt, id) so the sync `updated` stream needs no temp sort", () => {
+    const connection = freshDatabase();
+    const row = connection
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'articles_updated_id_idx'",
+      )
+      .get() as { sql: string } | undefined;
+
+    expect(row).toBeDefined();
+    expect(row!.sql).toMatch(/\(\s*`?updated_at`?\s*,\s*`?id`?\s*\)/);
     connection.close();
   });
 
@@ -331,6 +345,21 @@ describe("job logs", () => {
 
     connection.exec("DELETE FROM jobs WHERE id = 1");
     expect(count(connection, "job_logs")).toBe(0);
+    connection.close();
+  });
+
+  it("declares jobs_claim_idx in the direction claim() orders by", () => {
+    const connection = freshDatabase();
+    const row = connection
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'jobs_claim_idx'")
+      .get() as { sql: string } | undefined;
+
+    expect(row).toBeDefined();
+    // priority descending, run_at and id ascending -- a mixed-direction ORDER BY
+    // that the old all-ascending index could not serve without a temp sort.
+    expect(row!.sql).toMatch(/["`]?priority["`]?\s+desc/i);
+    expect(row!.sql).toMatch(/["`]?run_at["`]?/);
+    expect(row!.sql).toMatch(/["`]?id["`]?(\s+asc)?\s*\)/i);
     connection.close();
   });
 });

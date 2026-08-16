@@ -46,6 +46,25 @@ export function enqueue(
 }
 
 export function claim(): Job | null {
+  // A read-only pre-check, deliberately outside the write transaction. Four
+  // worker loops poll every two seconds, so an idle instance used to acquire
+  // the exclusive write lock (BEGIN IMMEDIATE) twice a second forever, purely
+  // to discover there was nothing to do -- contending with real writes for
+  // nothing. This read is advisory only: the transaction below re-selects and
+  // still guards its UPDATE on `status = 'pending'`, so a row that appears
+  // here and is taken by another loop before we get the lock is handled
+  // exactly as before (result.changes !== 1 -> null).
+  const available = getDb()
+    .select({ id: jobs.id })
+    .from(jobs)
+    .where(and(eq(jobs.status, "pending"), lte(jobs.runAt, new Date())))
+    .limit(1)
+    .get();
+
+  if (!available) {
+    return null;
+  }
+
   return writeTransaction((db) => {
     const now = new Date();
     const candidate = db
@@ -181,6 +200,22 @@ export function fail(id: number, error: string | Error): void {
 
 export function progress(id: number, percent: number): void {
   const clamped = Math.min(100, Math.max(0, Math.floor(percent)));
+
+  // Read first, outside any write transaction: the aggregate handler calls
+  // this once per article, and 80 + floor(i/total*20) only takes twenty
+  // distinct values across the whole loop -- so for a 200-article feed all
+  // but twenty of those calls were a BEGIN IMMEDIATE that wrote the number
+  // already sitting in the column. A stale read here is harmless: the worst
+  // case is one redundant write, which is exactly what happened before.
+  const current = getDb()
+    .select({ progress: jobs.progress })
+    .from(jobs)
+    .where(eq(jobs.id, id))
+    .get();
+  if (current?.progress === clamped) {
+    return;
+  }
+
   writeTransaction((db) => {
     db.update(jobs).set({ progress: clamped }).where(eq(jobs.id, id)).run();
   });

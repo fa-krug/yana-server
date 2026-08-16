@@ -29,6 +29,41 @@ export const articles = sqliteTable(
     /** Block tree flattened to visible text, for search. */
     plainText: text("plain_text").notNull().default(""),
     /**
+     * Fingerprint of the aggregator inputs that produced this row and its
+     * block tree (see `articleContentHash` in
+     * `@/lib/aggregators/content-hash`). The aggregate handler compares it
+     * before writing: an unchanged article is skipped entirely, which avoids
+     * rewriting the row, avoids deleting and reinserting the whole block
+     * tree, and -- because `updatedAt` carries `$onUpdate` -- keeps the
+     * article out of `/api/v1`'s sync `updated` stream.
+     *
+     * Nullable, and written *last* on purpose: a stored hash means "row and
+     * blocks are both up to date for this content", so a crash mid-write
+     * leaves it null or stale and the next run redoes the work. Every row
+     * that predates this column is null, is therefore treated as changed,
+     * and settles after one aggregation pass -- no backfill needed.
+     *
+     * THE INVARIANT, and it binds every writer, not just the aggregator:
+     * **anything that changes an article's content must set `contentHash` to
+     * null** (or recompute it). A stale hash does not merely go out of date --
+     * it makes the aggregate handler skip that row *forever*, because the
+     * hash it computes from the unchanged feed item keeps matching. Content
+     * here means the fingerprinted inputs (`name`, `rawContent`, the block
+     * tree it is parsed into, `date`, `author`, `icon`) and `feedId`, which is
+     * half the key the handler looks a row up by. Writers that only flip
+     * `read`/`starred` must leave it alone: nothing about the content changed,
+     * and nulling it would force a pointless full rewrite on the next cycle.
+     *
+     * Two writers learned this the hard way and now null it explicitly:
+     * `src/lib/jobs/handlers/reload.ts` (both branches -- a *failed* reload
+     * writes an error notice, which without this would have been permanent)
+     * and `updateArticle()` in `src/lib/articles/actions.ts`. The same trap
+     * waits for any future change to `parseBlocks`/`plainTextOf`: existing
+     * articles would never be re-parsed, where they used to be re-derived
+     * every cycle.
+     */
+    contentHash: text("content_hash"),
+    /**
      * The feed's real publish time. Aggregation never rewrites it, and it is for
      * display only -- never for retention or sync cursors. See createdAt.
      */
@@ -72,6 +107,11 @@ export const articles = sqliteTable(
     // Sync cursor: createdAt with id as tie-breaker.
     index("articles_created_id_idx").on(table.createdAt, table.id),
     index("articles_feed_created_idx").on(table.feedId, table.createdAt),
+    // Sync cursor, `updated` stream: the counterpart to
+    // `articles_created_id_idx`. `syncArticles` orders by
+    // `updatedAt ASC, id ASC` with a LIMIT; without this the query
+    // full-scans and builds a temp B-tree on every sync call.
+    index("articles_updated_id_idx").on(table.updatedAt, table.id),
   ],
 );
 

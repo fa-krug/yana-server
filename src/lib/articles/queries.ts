@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, like, or, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
 import { currentUserId } from "@/lib/auth/session";
@@ -14,6 +14,8 @@ import {
   type Article,
   type Feed,
 } from "@/lib/db/schema";
+
+import { toFtsQuery } from "./search-query";
 
 export type ArticleListRow = {
   id: number;
@@ -51,11 +53,18 @@ export async function listArticles(
 
   const conditions: SQL[] = [eq(feeds.userId, userId)];
 
-  // Free-text search is a LIKE scan over name and plainText; FTS5 is deferred
-  // deliberately, since it needs its own index and migration.
-  const term = params.q.trim();
-  if (term) {
-    conditions.push(or(like(articles.name, `%${term}%`), like(articles.plainText, `%${term}%`))!);
+  // Full-text search through the `articles_fts` external-content FTS5 index
+  // (see the `articles_fts` migration), not a LIKE scan: the previous
+  // `LIKE '%term%'` over `plainText` -- the largest column on the table --
+  // full-scanned once for the rows and again for the count().
+  //
+  // Behaviour note: FTS5 matches token prefixes, where LIKE matched mid-word.
+  // `wind` finds `Windows`; `ndows` no longer does.
+  const ftsQuery = toFtsQuery(params.q);
+  if (ftsQuery) {
+    conditions.push(
+      sql`${articles.id} IN (SELECT rowid FROM articles_fts WHERE articles_fts MATCH ${ftsQuery})`,
+    );
   }
 
   if (params.filters.feed) {
