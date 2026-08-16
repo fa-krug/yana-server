@@ -550,15 +550,29 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   branch in `provider-section.tsx` is commented at exactly that line.
 
   **A `<Skeleton>` survives only where the _shape_ is unknowable, not merely the
-  value, and the list is four places.** A table body's row count
-  (`TableRowsSkeleton` in `src/components/data-skeleton.tsx`, the fallback under
-  a real `<SearchFilterBar>`, a real bulk bar and a real `<thead>` on all five
-  list routes); `/account`'s passkey list and its device list; the dashboard's
-  stat _numbers_ (`src/components/dashboard/stat-cards.tsx` — a count has no
-  honest empty state, `0` is a lie and blank is a layout jump). Each of those
-  four is commented where it lives. The one remaining `TableSkeleton` call site
-  is `/articles/[id]`'s "Content" section, whose block tree likewise has no form
-  to mirror. `CardSkeleton` is gone: every card that used one now renders itself
+  value, and the list is five places — each kept for its own reason, because
+  the reason is what makes the rule reusable:**
+  - **A table body's rows** — `TableRowsSkeleton` in
+    `src/components/data-skeleton.tsx`, the fallback under a real
+    `<SearchFilterBar>`, a real bulk bar and a real `<thead>` on all five list
+    routes. How many rows come back is unknown until the query returns, so
+    there is no row count to render disabled.
+  - **`/account`'s passkey list** — the same: a credential list's length is
+    unknown, and it can legitimately be empty.
+  - **`/account`'s device list** — likewise.
+  - **The dashboard's stat _numbers_** —
+    `src/components/dashboard/stat-cards.tsx`. A bare number has no meaningful
+    empty rendering: `0` is a lie, and blank collapses the card and jumps the
+    layout when the real figure lands. The card's frame, icon and title all
+    render for real; only the number is a bar.
+  - **`/articles/[id]`'s "Content" section** — the block tree. The _number and
+    kind_ of blocks are unknown until the article is read, so there is no form
+    shape to mirror the way every other card on that page has one.
+
+  Each of the five is commented where it lives. A separate and still-useful
+  fact, which is **not** what earns the last entry its place: `/articles/[id]`
+  is the only remaining `TableSkeleton` call site in the repository.
+  `CardSkeleton` is gone entirely — every card that used one now renders itself
   in a `pending` state.
 
   **Every route keeps its `loading.tsx`, rendering that same real chassis, and
