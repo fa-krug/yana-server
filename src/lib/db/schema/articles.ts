@@ -28,6 +28,22 @@ export const articles = sqliteTable(
     /** Block tree flattened to visible text, for search. */
     plainText: text("plain_text").notNull().default(""),
     /**
+     * Fingerprint of the aggregator inputs that produced this row and its
+     * block tree (see `articleContentHash` in
+     * `@/lib/aggregators/content-hash`). The aggregate handler compares it
+     * before writing: an unchanged article is skipped entirely, which avoids
+     * rewriting the row, avoids deleting and reinserting the whole block
+     * tree, and -- because `updatedAt` carries `$onUpdate` -- keeps the
+     * article out of `/api/v1`'s sync `updated` stream.
+     *
+     * Nullable, and written *last* on purpose: a stored hash means "row and
+     * blocks are both up to date for this content", so a crash mid-write
+     * leaves it null or stale and the next run redoes the work. Every row
+     * that predates this column is null, is therefore treated as changed,
+     * and settles after one aggregation pass -- no backfill needed.
+     */
+    contentHash: text("content_hash"),
+    /**
      * The feed's real publish time. Aggregation never rewrites it, and it is for
      * display only -- never for retention or sync cursors. See createdAt.
      */

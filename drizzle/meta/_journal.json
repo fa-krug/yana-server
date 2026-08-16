@@ -120,6 +120,13 @@
       "when": 1786879396579,
       "tag": "0016_sudden_korath",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1786880250898,
+      "tag": "0017_bent_smasher",
+      "breakpoints": true
     }
   ]
 }
