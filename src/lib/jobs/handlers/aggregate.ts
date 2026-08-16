@@ -109,11 +109,11 @@ export async function handleAggregateJob(job: Job): Promise<void> {
       icon: raw.icon || null,
     });
 
-    // Read outside the write transaction, and narrow: two small columns,
-    // never `rawContent`/`plainText`. This is the whole point -- comparing
-    // the large columns directly would cost the very I/O the skip saves.
+    // Read outside the write transaction, and narrow: one small column, never
+    // `rawContent`/`plainText`. This is the whole point -- comparing the large
+    // columns directly would cost the very I/O the skip saves.
     const known = db
-      .select({ id: articles.id, contentHash: articles.contentHash })
+      .select({ contentHash: articles.contentHash })
       .from(articles)
       .where(and(eq(articles.feedId, feedId), eq(articles.identifier, raw.identifier)))
       .get();

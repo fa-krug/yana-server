@@ -41,6 +41,25 @@ export const articles = sqliteTable(
      * leaves it null or stale and the next run redoes the work. Every row
      * that predates this column is null, is therefore treated as changed,
      * and settles after one aggregation pass -- no backfill needed.
+     *
+     * THE INVARIANT, and it binds every writer, not just the aggregator:
+     * **anything that changes an article's content must set `contentHash` to
+     * null** (or recompute it). A stale hash does not merely go out of date --
+     * it makes the aggregate handler skip that row *forever*, because the
+     * hash it computes from the unchanged feed item keeps matching. Content
+     * here means the fingerprinted inputs (`name`, `rawContent`, the block
+     * tree it is parsed into, `date`, `author`, `icon`) and `feedId`, which is
+     * half the key the handler looks a row up by. Writers that only flip
+     * `read`/`starred` must leave it alone: nothing about the content changed,
+     * and nulling it would force a pointless full rewrite on the next cycle.
+     *
+     * Two writers learned this the hard way and now null it explicitly:
+     * `src/lib/jobs/handlers/reload.ts` (both branches -- a *failed* reload
+     * writes an error notice, which without this would have been permanent)
+     * and `updateArticle()` in `src/lib/articles/actions.ts`. The same trap
+     * waits for any future change to `parseBlocks`/`plainTextOf`: existing
+     * articles would never be re-parsed, where they used to be re-derived
+     * every cycle.
      */
     contentHash: text("content_hash"),
     /**

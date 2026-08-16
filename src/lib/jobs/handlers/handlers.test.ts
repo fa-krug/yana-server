@@ -826,12 +826,22 @@ describe("src/lib/jobs/handlers", () => {
       const aggregateHandler = handlers.getHandler("aggregate");
 
       await aggregateHandler!(makeJob("aggregate", { feedId }));
+
+      // `updatedAt` is `mode: "timestamp"` -- second granularity -- and the two
+      // runs here are milliseconds apart, so comparing the two values as-is
+      // passes even when the row really was rewritten. Stamp an old value
+      // first: now only a genuine skip can leave it in place.
+      client.writeTransaction((db) => {
+        db.run(sql`UPDATE articles SET updated_at = 1000000000 WHERE feed_id = ${feedId}`);
+      });
+
       const first = client
         .getDb()
         .select()
         .from(schema.articles)
         .where(eq(schema.articles.feedId, feedId))
         .get();
+      expect(first!.updatedAt.getTime()).toBe(1_000_000_000_000);
       const firstBlocks = client
         .getDb()
         .select()
@@ -981,6 +991,70 @@ describe("src/lib/jobs/handlers", () => {
       await aggregateHandler!(secondJob);
       expect(logLines(secondJob.id)).toContain(
         "upserted articles: 0 created, 0 updated, 1 unchanged",
+      );
+    });
+
+    it("re-aggregates an article whose content a failed reload replaced with an error notice", async () => {
+      const feedId = seedAggregateFeed();
+
+      const raw = {
+        name: "Article One",
+        identifier: "https://example.com/art-1",
+        raw_content: "<p>real body</p>",
+        content: "<p>real body</p>",
+        date: new Date("2026-01-01T00:00:00.000Z"),
+      };
+
+      const factory = await import("@/lib/aggregators/factory");
+      // One aggregator object serving both handlers: `aggregate` for the
+      // aggregation runs, the reload surface for the reload in between --
+      // whose fetch fails, which is what makes reload write error blocks.
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => [raw],
+        fetchArticleContent: vi.fn().mockRejectedValue(new Error("HTTP 404 Not Found")),
+        extractHeaderElement: async () => null,
+        extractContent: (html: string) => html,
+        processContent: (html: string) => html,
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+      const reloadHandler = handlers.getHandler("article.reload");
+
+      await aggregateHandler!(makeJob("aggregate", { feedId }));
+      const article = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.feedId, feedId))
+        .get();
+      expect(article!.plainText).toContain("real body");
+
+      // A failed reload overwrites the body with an error notice. Before this
+      // fix the stored contentHash still described the *old* content, so the
+      // next aggregation cycle skipped the row and the error notice was
+      // permanent -- an article that could never heal itself again.
+      await reloadHandler!(makeJob("article.reload", { articleId: article!.id }));
+      const broken = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, article!.id))
+        .get();
+      expect(broken!.plainText).toContain("could not be reloaded");
+
+      const healingJob = makeJob("aggregate", { feedId });
+      await aggregateHandler!(healingJob);
+
+      const healed = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, article!.id))
+        .get();
+      expect(healed!.plainText).toContain("real body");
+      expect(healed!.plainText).not.toContain("could not be reloaded");
+      expect(logLines(healingJob.id)).toContain(
+        "upserted articles: 0 created, 1 updated, 0 unchanged",
       );
     });
   });
