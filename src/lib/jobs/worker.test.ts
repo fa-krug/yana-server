@@ -410,4 +410,32 @@ describe("src/lib/jobs/worker", () => {
     const lines = queue.listJobLogs(id).map((l) => l.line);
     expect(lines).toEqual(["job started (attempt 1/3)", "job cancelled"]);
   });
+
+  it("jitters the idle poll interval so concurrent loops do not wake in lockstep", async () => {
+    const delays: number[] = [];
+    const realSetTimeout = globalThis.setTimeout;
+    const spy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      fn: () => void,
+      ms?: number,
+    ) => {
+      if (typeof ms === "number") delays.push(ms);
+      return realSetTimeout(fn, 1);
+    }) as typeof globalThis.setTimeout);
+
+    const loopPromise = worker.runWorkerLoop({ pollIntervalMs: 100 });
+    await new Promise((resolve) => realSetTimeout(resolve, 60));
+    worker.stopWorker();
+    await loopPromise;
+    spy.mockRestore();
+
+    const idleDelays = delays.filter((ms) => ms > 0);
+    expect(idleDelays.length).toBeGreaterThan(2);
+    // Every sleep sits inside the jitter band...
+    for (const ms of idleDelays) {
+      expect(ms).toBeGreaterThanOrEqual(75);
+      expect(ms).toBeLessThan(125);
+    }
+    // ...and they are not all the same value, which is the whole point.
+    expect(new Set(idleDelays).size).toBeGreaterThan(1);
+  });
 });

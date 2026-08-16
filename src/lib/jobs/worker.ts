@@ -103,6 +103,21 @@ export function stopWorker(): void {
   isLoopActive = false;
 }
 
+/**
+ * How far the idle poll delay is spread either side of `pollIntervalMs`.
+ * `startWorker()` launches every loop in the same tick and they all sleep the
+ * same amount, so without this the four default loops wake as a herd and
+ * contend for the same write lock at the same instant, four times per poll,
+ * forever. A quarter either way is enough to decorrelate them without
+ * meaningfully changing how promptly a job is picked up.
+ */
+const POLL_JITTER = 0.25;
+
+function jitteredDelay(pollIntervalMs: number): number {
+  const spread = pollIntervalMs * POLL_JITTER;
+  return pollIntervalMs - spread + Math.random() * spread * 2;
+}
+
 export async function runWorkerLoop(options?: {
   pollIntervalMs?: number;
   timeoutMs?: number;
@@ -115,7 +130,7 @@ export async function runWorkerLoop(options?: {
   while (isLoopActive) {
     const job = claim();
     if (!job) {
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+      await new Promise((resolve) => setTimeout(resolve, jitteredDelay(pollInterval)));
       continue;
     }
 
