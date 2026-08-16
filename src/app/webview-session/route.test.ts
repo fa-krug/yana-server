@@ -84,7 +84,7 @@ describe("GET /webview-session", () => {
     const response = await GET(new Request("https://example.com/webview-session"));
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe("/login?next=%2Ffeeds");
+    expect(response.headers.get("location")).toBe("/login?next=%2F");
   });
 
   it("cannot be used to redirect off-site via an absolute next", async () => {
@@ -102,7 +102,7 @@ describe("GET /webview-session", () => {
       ),
     );
 
-    expect(response.headers.get("location")).toBe("/feeds");
+    expect(response.headers.get("location")).toBe("/");
   });
 
   it("cannot be used to redirect off-site via a protocol-relative next", async () => {
@@ -120,7 +120,7 @@ describe("GET /webview-session", () => {
       ),
     );
 
-    expect(response.headers.get("location")).toBe("/feeds");
+    expect(response.headers.get("location")).toBe("/");
   });
 
   it("cannot be used to redirect off-site via a backslash that the URL parser normalizes to a slash", async () => {
@@ -138,7 +138,7 @@ describe("GET /webview-session", () => {
       ),
     );
 
-    expect(response.headers.get("location")).toBe("/feeds");
+    expect(response.headers.get("location")).toBe("/");
   });
 
   it("cannot be used to redirect off-site via an embedded tab that the URL parser strips", async () => {
@@ -156,7 +156,7 @@ describe("GET /webview-session", () => {
       ),
     );
 
-    expect(response.headers.get("location")).toBe("/feeds");
+    expect(response.headers.get("location")).toBe("/");
   });
 
   it("cannot be used to redirect off-site via a same-origin absolute next whose pathname is a network-path reference", async () => {
@@ -185,7 +185,7 @@ describe("GET /webview-session", () => {
     expect(new URL(location!, "https://example.com").origin).toBe("https://example.com");
   });
 
-  it("refuses /login as a next target, falling back to this route's own default", async () => {
+  it("refuses /login as a next target, falling back to the dashboard", async () => {
     const owner = await createUserWithPassword({
       email: "wv-owner-7@example.com",
       password: "correct horse battery staple",
@@ -198,6 +198,28 @@ describe("GET /webview-session", () => {
       new Request(`https://example.com/webview-session?token=${token}&next=/login`),
     );
 
-    expect(response.headers.get("location")).toBe("/feeds");
+    expect(response.headers.get("location")).toBe("/");
+  });
+
+  // Regression: this route used to override `safeNextPath()`'s own default
+  // (`/`) with `/feeds`, which is indistinguishable from an explicit
+  // `next=/` by the time the guard has resolved it -- so the native client's
+  // `ManagementWebView`, which asks for the site root, always landed on the
+  // feed list instead of the dashboard.
+  it("honours an explicit next=/ instead of rewriting it to the feed list", async () => {
+    const owner = await createUserWithPassword({
+      email: "wv-owner-9@example.com",
+      password: "correct horse battery staple",
+      name: "WV Owner",
+    });
+    const { token: sessionToken } = await createDeviceSession(owner.id, "Test Device");
+    const { token } = await mintWebviewSessionToken(sessionToken);
+
+    const response = await GET(
+      new Request(`https://example.com/webview-session?token=${token}&next=%2F`),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/");
   });
 });
