@@ -1,7 +1,5 @@
-import { DEFAULT_NEXT_PATH as LOGIN_DEFAULT_NEXT_PATH, safeNextPath } from "@/lib/auth/next-path";
+import { safeNextPath } from "@/lib/auth/next-path";
 import { auth } from "@/lib/auth/server";
-
-const DEFAULT_NEXT_PATH = "/feeds";
 
 /**
  * `ManagementWebView`'s landing point on the native client: exchanges the
@@ -24,17 +22,21 @@ const DEFAULT_NEXT_PATH = "/feeds";
  * directly as the relative `Location` below -- do not replace this with a
  * route-local reimplementation of the same guard.
  *
- * `safeNextPath()`'s own default is `/` (`login`'s landing page); this
- * route's default is `/feeds` instead, so an invalid/absent/unsafe `next`
- * (including one that points at `/login`, which `safeNextPath()` also
- * refuses) is translated from its default to this route's own.
+ * This route has no default of its own: it takes `safeNextPath()`'s, which
+ * is `/` -- the dashboard. So an invalid/absent/unsafe `next` (including one
+ * that points at `/login`, which `safeNextPath()` also refuses) lands on the
+ * dashboard, the same place the native client asks for explicitly by sending
+ * `next=/`. This route used to override that default to `/feeds`, which
+ * silently rewrote the client's own `next=/` as well, since the two are
+ * indistinguishable by the time `safeNextPath()` has resolved them -- so
+ * `ManagementWebView` opened the feed list no matter what it asked for.
  *
  * Falls back to `/login?next=...` on any missing/invalid/expired/already-used
  * token, exactly like a plain visitor who isn't signed in yet, so a stale
  * bootstrap token degrades to a normal login screen instead of an opaque
  * error.
  *
- * **Both `Location` headers are relative references (`/feeds`,
+ * **Both `Location` headers are relative references (`/`,
  * `/login?next=...`), never absolute URLs, and that is load-bearing rather
  * than stylistic.** In production this app is a standalone Next server
  * listening on `0.0.0.0:3000` behind a reverse proxy, and `request.url`
@@ -95,9 +97,9 @@ function redirectToLogin(target: string): Response {
 }
 
 /**
- * Resolves `rawNext` into a same-origin path via `safeNextPath()`, this
- * route's own `DEFAULT_NEXT_PATH` (`/feeds`) standing in wherever
- * `safeNextPath()` would have used its own default (`/`).
+ * Resolves `rawNext` into a same-origin path via `safeNextPath()`, whose own
+ * default (`/`, the dashboard) is this route's default too -- see the module
+ * doc for why the `/feeds` override this used to apply is gone.
  *
  * The result is a path (`pathname + search + hash`) and stays one all the
  * way into the `Location` header -- `safeNextPath()` guarantees it starts
@@ -106,6 +108,5 @@ function redirectToLogin(target: string): Response {
  * leave that origin.
  */
 function resolveTarget(rawNext: string | null): string {
-  const safePath = safeNextPath(rawNext);
-  return safePath === LOGIN_DEFAULT_NEXT_PATH ? DEFAULT_NEXT_PATH : safePath;
+  return safeNextPath(rawNext);
 }

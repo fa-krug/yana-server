@@ -2116,11 +2116,16 @@ what let `/login`'s original `next` guard ship a working open redirect
 (WHATWG URL normalization turns `/\evil.com`-shaped input into an
 off-origin URL after parsing). Any missing, invalid, expired or
 already-used token falls back to `/login`, indistinguishable from a plain
-signed-out visit. **This route is public in `src/proxy.ts`'s
+signed-out visit. **The route has no default `next` of its own** — a
+missing, unsafe or refused `next` resolves to `safeNextPath()`'s own default,
+`/`, the dashboard. It used to override that with `/feeds`, which also
+rewrote an explicit `next=/` (the two are indistinguishable once the guard
+has resolved them), so `ManagementWebView` landed on the feed list even
+though it asks for the site root. **This route is public in `src/proxy.ts`'s
 `PUBLIC_PREFIXES`** — see the proxy bullet above for why: the whole point
 is that the caller has no session cookie yet, so gating it behind one is a
 contradiction, not an oversight. **Its `Location` header is a _relative_
-reference (`/feeds`, `/login?next=…`), never an absolute URL, and that is
+reference (`/`, `/login?next=…`), never an absolute URL, and that is
 load-bearing.** It originally built one with `new URL(path, request.url)`,
 which reads the origin off the incoming request — but in production this is
 a standalone Next server listening on `0.0.0.0:3000` behind a reverse
