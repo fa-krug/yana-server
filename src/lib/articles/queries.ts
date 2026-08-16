@@ -60,8 +60,7 @@ export async function listArticles(
   //
   // Behaviour note: FTS5 matches token prefixes, where LIKE matched mid-word.
   // `wind` finds `Windows`; `ndows` no longer does.
-  const term = params.q.trim();
-  const ftsQuery = toFtsQuery(term);
+  const ftsQuery = toFtsQuery(params.q);
   if (ftsQuery) {
     conditions.push(
       sql`${articles.id} IN (SELECT rowid FROM articles_fts WHERE articles_fts MATCH ${ftsQuery})`,

@@ -19,7 +19,9 @@ CREATE TRIGGER `articles_fts_delete` AFTER DELETE ON `articles` BEGIN
     VALUES ('delete', old.`id`, old.`name`, old.`plain_text`);
 END;
 --> statement-breakpoint
-CREATE TRIGGER `articles_fts_update` AFTER UPDATE ON `articles` BEGIN
+CREATE TRIGGER `articles_fts_update` AFTER UPDATE ON `articles`
+  WHEN old.`name` IS NOT new.`name` OR old.`plain_text` IS NOT new.`plain_text`
+BEGIN
   INSERT INTO `articles_fts`(`articles_fts`, `rowid`, `name`, `plain_text`)
     VALUES ('delete', old.`id`, old.`name`, old.`plain_text`);
   INSERT INTO `articles_fts`(`rowid`, `name`, `plain_text`)
