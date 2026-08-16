@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import Database from "better-sqlite3";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { signInCookie } from "@/lib/auth/test-support";
@@ -171,6 +172,100 @@ describe("articles queries", () => {
       const bodyMatch = await queries.listArticles(parseListParams({ q: "drizzle" }));
       expect(bodyMatch.total).toBe(1);
       expect(bodyMatch.rows[0].name).toBe("Unrelated Title");
+    });
+
+    it("finds an article by a word in its body via the FTS index", async () => {
+      await currentUserId();
+      const feedId = seedFeed();
+      seedArticle(feedId, { name: "Matching", plainText: "a guide to kubernetes operators" });
+      seedArticle(feedId, { name: "Other", plainText: "an unrelated body" });
+
+      const result = await queries.listArticles(parseListParams({ q: "kubernetes" }));
+      expect(result.rows.map((r) => r.name)).toEqual(["Matching"]);
+      expect(result.total).toBe(1);
+    });
+
+    it("finds an article by a prefix of the last search token", async () => {
+      await currentUserId();
+      const feedId = seedFeed();
+      seedArticle(feedId, { name: "Matching", plainText: "a guide to kubernetes operators" });
+
+      // Only the last token carries the `*`, so this is a prefix match on a whole
+      // token -- not the mid-word match the old LIKE '%term%' would have given.
+      const result = await queries.listArticles(parseListParams({ q: "kuber" }));
+      expect(result.rows.map((r) => r.name)).toEqual(["Matching"]);
+    });
+
+    it("does not match a fragment from the middle of a word", async () => {
+      await currentUserId();
+      const feedId = seedFeed();
+      seedArticle(feedId, { name: "Matching", plainText: "a guide to kubernetes operators" });
+
+      // The documented behaviour change from LIKE '%term%'. Pinned so it is a
+      // decision on record rather than a surprise.
+      const result = await queries.listArticles(parseListParams({ q: "bernetes" }));
+      expect(result.rows).toHaveLength(0);
+    });
+
+    it("keeps the FTS index current when an article's text is updated", async () => {
+      await currentUserId();
+      const feedId = seedFeed();
+      const article = seedArticle(feedId, { name: "Matching", plainText: "kubernetes guide" });
+
+      client.writeTransaction((tx) => {
+        tx.update(schema.articles)
+          .set({ plainText: "helm guide" })
+          .where(eq(schema.articles.id, article.id))
+          .run();
+      });
+
+      // Proves the AFTER UPDATE trigger fires -- both halves of it: the new word
+      // is found and the old one is gone.
+      expect((await queries.listArticles(parseListParams({ q: "helm" }))).rows).toHaveLength(1);
+      expect((await queries.listArticles(parseListParams({ q: "kubernetes" }))).rows).toHaveLength(
+        0,
+      );
+    });
+
+    it("drops an article out of the index when it is deleted", async () => {
+      await currentUserId();
+      const feedId = seedFeed();
+      const article = seedArticle(feedId, { name: "Matching", plainText: "kubernetes guide" });
+
+      client.writeTransaction((tx) => {
+        tx.delete(schema.articles).where(eq(schema.articles.id, article.id)).run();
+      });
+
+      // Proves the AFTER DELETE trigger's `'delete'` command row reached the
+      // external-content table. Without it the index keeps a dangling entry.
+      const result = await queries.listArticles(parseListParams({ q: "kubernetes" }));
+      expect(result.rows).toHaveLength(0);
+    });
+
+    it("treats a search string made of FTS operators as text, not syntax", async () => {
+      await currentUserId();
+      const feedId = seedFeed();
+      seedArticle(feedId, { name: "Matching", plainText: "kubernetes guide" });
+
+      // Unquoted, every one of these is FTS5 syntax and the query would throw.
+      // A search box could never produce an error with LIKE and must not now.
+      for (const q of ["NOT OR *", 'name:"', "^foo", "AND"]) {
+        const result = await queries.listArticles(parseListParams({ q }));
+        expect(result.rows).toHaveLength(0);
+      }
+    });
+
+    it("never matches an article belonging to another user", async () => {
+      await currentUserId();
+      const feedId = seedFeed();
+      seedArticle(feedId, { name: "Matching", plainText: "kubernetes guide" });
+
+      await switchToOtherUser();
+
+      // The FTS table is not user-scoped -- ownership still comes from the
+      // feeds.userId join. This pins that the MATCH did not bypass it.
+      const result = await queries.listArticles(parseListParams({ q: "kubernetes" }));
+      expect(result.rows).toHaveLength(0);
     });
 
     it("filters by read, starred, feed, and tag", async () => {
