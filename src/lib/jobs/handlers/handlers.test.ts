@@ -557,6 +557,25 @@ describe("src/lib/jobs/handlers", () => {
   });
 
   describe("aggregate", () => {
+    /** One enabled feed, owned by a user this seeds if the database has none. */
+    function seedAggregateFeed(): number {
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "Active Feed", userId: user!.id, enabled: true })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedId = feed.id;
+      });
+      return feedId;
+    }
+
     it("logs and returns early when the payload has no feedId", async () => {
       const factory = await import("@/lib/aggregators/factory");
 
@@ -658,7 +677,7 @@ describe("src/lib/jobs/handlers", () => {
       const lines = logLines(job.id);
       expect(lines).toContain('aggregating feed "Active Feed" (full_website)');
       expect(lines).toContain("fetched 2 articles");
-      expect(lines).toContain("upserted articles: 2 created, 0 updated");
+      expect(lines).toContain("upserted articles: 2 created, 0 updated, 0 unchanged");
     });
 
     it("logs an updated count when re-aggregating an already-seen article", async () => {
@@ -720,7 +739,7 @@ describe("src/lib/jobs/handlers", () => {
       const lines = logLines(job.id);
       expect(lines).toContain('aggregating feed "Active Feed" (full_website)');
       expect(lines).toContain("fetched 1 articles");
-      expect(lines).toContain("upserted articles: 0 created, 1 updated");
+      expect(lines).toContain("upserted articles: 0 created, 1 updated, 0 unchanged");
     });
 
     it("stops the article loop once cancellation is requested, keeping already-processed articles", async () => {
@@ -784,6 +803,185 @@ describe("src/lib/jobs/handlers", () => {
         .where(eq(schema.articles.feedId, feedId))
         .all();
       expect(inserted).toHaveLength(1);
+    });
+
+    it("does not rewrite an article whose content is unchanged", async () => {
+      const feedId = seedAggregateFeed();
+
+      const rawArticles = [
+        {
+          name: "Article One",
+          identifier: "art-1",
+          raw_content: "<p>one</p>",
+          content: "<p>one</p>",
+          date: new Date("2026-01-01T00:00:00.000Z"),
+        },
+      ];
+
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => rawArticles,
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+
+      await aggregateHandler!(makeJob("aggregate", { feedId }));
+      const first = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.feedId, feedId))
+        .get();
+      const firstBlocks = client
+        .getDb()
+        .select()
+        .from(schema.articleBlocks)
+        .where(eq(schema.articleBlocks.articleId, first!.id))
+        .all();
+
+      const secondJob = makeJob("aggregate", { feedId });
+      await aggregateHandler!(secondJob);
+
+      const second = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.feedId, feedId))
+        .get();
+      const secondBlocks = client
+        .getDb()
+        .select()
+        .from(schema.articleBlocks)
+        .where(eq(schema.articleBlocks.articleId, first!.id))
+        .all();
+
+      // The row was not touched: updatedAt did not advance, so this article
+      // does not re-enter /api/v1's sync `updated` stream.
+      expect(second!.updatedAt.getTime()).toBe(first!.updatedAt.getTime());
+      // The block tree was not deleted and reinserted: same rows, same ids.
+      expect(secondBlocks.map((b) => b.id)).toEqual(firstBlocks.map((b) => b.id));
+      expect(firstBlocks.length).toBeGreaterThan(0);
+      expect(logLines(secondJob.id)).toContain(
+        "upserted articles: 0 created, 0 updated, 1 unchanged",
+      );
+    });
+
+    it("rewrites an article when new comments are appended to its body", async () => {
+      const feedId = seedAggregateFeed();
+
+      const withoutComment = {
+        name: "Reddit Post",
+        identifier: "art-1",
+        raw_content: "<p>post</p>",
+        content: "<p>post</p>",
+        date: new Date("2026-01-01T00:00:00.000Z"),
+      };
+      // What the Reddit aggregator actually produces on a later run: the
+      // comment section is rendered into the article body, so a new comment
+      // changes the content the block tree is built from.
+      const withComment = {
+        ...withoutComment,
+        raw_content:
+          "<p>post</p><blockquote><p><strong>ada</strong></p><div>nice</div></blockquote>",
+        content: "<p>post</p><blockquote><p><strong>ada</strong></p><div>nice</div></blockquote>",
+      };
+
+      const factory = await import("@/lib/aggregators/factory");
+      const aggregateHandler = handlers.getHandler("aggregate");
+
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => [withoutComment],
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+      await aggregateHandler!(makeJob("aggregate", { feedId }));
+
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => [withComment],
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+      const secondJob = makeJob("aggregate", { feedId });
+      await aggregateHandler!(secondJob);
+
+      const row = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.feedId, feedId))
+        .get();
+      expect(row!.plainText).toContain("nice");
+      expect(logLines(secondJob.id)).toContain(
+        "upserted articles: 0 created, 1 updated, 0 unchanged",
+      );
+    });
+
+    it("still skips on a later run for a feed whose articles carry no date", async () => {
+      const feedId = seedAggregateFeed();
+
+      // No `date` field at all: the handler falls back to `new Date()`.
+      // Hashing the stored value would differ on every run and the skip would
+      // never fire.
+      const rawArticles = [
+        { name: "Undated", identifier: "art-1", raw_content: "<p>x</p>", content: "<p>x</p>" },
+      ];
+
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => rawArticles,
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+      await aggregateHandler!(makeJob("aggregate", { feedId }));
+      const secondJob = makeJob("aggregate", { feedId });
+      await aggregateHandler!(secondJob);
+
+      expect(logLines(secondJob.id)).toContain(
+        "upserted articles: 0 created, 0 updated, 1 unchanged",
+      );
+    });
+
+    it("rewrites an article whose stored contentHash is null", async () => {
+      const feedId = seedAggregateFeed();
+
+      // Every row that predates the column is in this state. It must be
+      // treated as changed exactly once, then settle.
+      client.writeTransaction((db) => {
+        db.insert(schema.articles)
+          .values({
+            name: "Legacy",
+            identifier: "art-1",
+            feedId,
+            rawContent: "<p>x</p>",
+            date: new Date("2026-01-01T00:00:00.000Z"),
+            contentHash: null,
+          })
+          .run();
+      });
+
+      const rawArticles = [
+        {
+          name: "Legacy",
+          identifier: "art-1",
+          raw_content: "<p>x</p>",
+          content: "<p>x</p>",
+          date: new Date("2026-01-01T00:00:00.000Z"),
+        },
+      ];
+
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => rawArticles,
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+      const firstJob = makeJob("aggregate", { feedId });
+      await aggregateHandler!(firstJob);
+      expect(logLines(firstJob.id)).toContain(
+        "upserted articles: 0 created, 1 updated, 0 unchanged",
+      );
+
+      const secondJob = makeJob("aggregate", { feedId });
+      await aggregateHandler!(secondJob);
+      expect(logLines(secondJob.id)).toContain(
+        "upserted articles: 0 created, 0 updated, 1 unchanged",
+      );
     });
   });
 
