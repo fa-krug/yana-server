@@ -166,7 +166,14 @@ export function GeneralSectionForm({
             // writes localStorage and moves next-themes' state, which is what
             // `themeValue` above reads. No separate useState to keep in sync.
             setTheme(value);
-            save({ theme: value, language: languageValue ?? value });
+            // `languageValue!`, not `?? value`: falling back to the theme's own
+            // new value would silently submit it as the language if this were
+            // ever reached with `languageValue` still undefined. It cannot be
+            // today -- both Selects are `disabled={pending || saving}`, so
+            // `onValueChange` never fires while a value is unresolved -- but a
+            // wrong write with no error is worse than a loud one, so the
+            // invariant is asserted here rather than papered over.
+            save({ theme: value, language: languageValue! });
           }}
         >
           <SelectTrigger id="theme" className="w-full sm:w-64">
@@ -191,7 +198,13 @@ export function GeneralSectionForm({
           onValueChange={(value) => {
             if (value === null) return;
             setLanguageValue(value);
-            save({ theme: themeValue ?? value, language: value });
+            // `themeValue!`, not `?? value`: same reasoning as the theme
+            // Select's handler above, mirrored -- falling back to the
+            // language's own new value would silently submit it as the theme.
+            // `disabled={pending || saving}` is what makes `themeValue` defined
+            // whenever this fires; that guarantee is the whole justification
+            // for the assertion, so a later change to `disabled` must keep it.
+            save({ theme: themeValue!, language: value });
           }}
         >
           <SelectTrigger id="language" className="w-full sm:w-64">
