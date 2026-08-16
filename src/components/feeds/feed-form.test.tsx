@@ -137,6 +137,84 @@ describe("FeedForm identifier field", () => {
     expect(ageInput().value).toBe("90");
   });
 
+  it("hides the custom prompt preview until the checkbox is checked", () => {
+    renderWithProviders(<FeedForm capabilities={ALL} allTags={[]} />);
+    selectAggregator("Heise");
+
+    expect(screen.queryByRole("button", { name: /edit prompt/i })).toBeNull();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Custom Prompt" }));
+    expect(screen.getByRole("button", { name: /edit prompt/i })).toBeTruthy();
+  });
+
+  it("previews a stored prompt and edits it through the modal", () => {
+    const feed = {
+      id: 1,
+      name: "Existing",
+      aggregator: "heise",
+      identifier: "",
+      options: { ai_custom_prompt: true, ai_custom_prompt_text: "Keep it short." },
+      enabled: true,
+      updateIntervalMinutes: 30,
+      concurrency: 4,
+      maxArticleAgeDays: 30,
+      tags: [],
+    } as unknown as import("@/lib/db/schema").Feed & { tags: import("@/lib/db/schema").Tag[] };
+
+    renderWithProviders(<FeedForm feed={feed} capabilities={ALL} allTags={[]} />);
+
+    const preview = screen.getByRole("button", { name: /edit prompt/i });
+    expect(preview.textContent).toContain("Keep it short.");
+
+    fireEvent.click(preview);
+    const textarea = screen.getByRole("textbox", { name: "Custom prompt" }) as HTMLTextAreaElement;
+    expect(textarea.value).toBe("Keep it short.");
+
+    fireEvent.change(textarea, { target: { value: "Rewrite as a limerick." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(screen.getByRole("button", { name: /edit prompt/i }).textContent).toContain(
+      "Rewrite as a limerick.",
+    );
+  });
+
+  it("discards the edit when the modal is cancelled", () => {
+    const feed = {
+      id: 1,
+      name: "Existing",
+      aggregator: "heise",
+      identifier: "",
+      options: { ai_custom_prompt: true, ai_custom_prompt_text: "Keep it short." },
+      enabled: true,
+      updateIntervalMinutes: 30,
+      concurrency: 4,
+      maxArticleAgeDays: 30,
+      tags: [],
+    } as unknown as import("@/lib/db/schema").Feed & { tags: import("@/lib/db/schema").Tag[] };
+
+    renderWithProviders(<FeedForm feed={feed} capabilities={ALL} allTags={[]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /edit prompt/i }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Custom prompt" }), {
+      target: { value: "Something else entirely." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.getByRole("button", { name: /edit prompt/i }).textContent).toContain(
+      "Keep it short.",
+    );
+  });
+
+  it("shows a placeholder in the preview when the prompt is empty", () => {
+    renderWithProviders(<FeedForm capabilities={ALL} allTags={[]} />);
+    selectAggregator("Heise");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Custom Prompt" }));
+
+    expect(screen.getByRole("button", { name: /edit prompt/i }).textContent).toContain(
+      "No prompt set yet",
+    );
+  });
+
   it("initializes maximum article age from the feed's own stored value on edit", () => {
     const feed = {
       id: 1,

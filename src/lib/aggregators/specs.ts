@@ -12,14 +12,37 @@ import { z } from "zod";
 
 import type { AggregatorKey } from "@/lib/db/schema/enums";
 
+/**
+ * The cap on `ai_custom_prompt_text`. It lives in `feeds.options` JSON and is
+ * sent with *every* article this feed aggregates, so an unbounded blob is both
+ * a fat row and a per-article token cost. Refused rather than truncated:
+ * silently cutting an instruction in half changes what the model is asked to
+ * do. The feed form sets the same number as the textarea's `maxLength`, so the
+ * limit is unreachable from the UI and this check is for crafted requests.
+ */
+export const MAX_CUSTOM_PROMPT_LENGTH = 4000;
+
 export type OptionSpec = {
   key: string;
   label: string;
-  kind: "boolean" | "number" | "text" | "select" | "selectorList";
+  /**
+   * `prompt` is `text`'s long-form sibling: the feed form renders it as a
+   * read-only preview that opens a modal editor, rather than a single-line
+   * input. Nothing else distinguishes the two — the stored value is a string
+   * either way.
+   */
+  kind: "boolean" | "number" | "text" | "select" | "selectorList" | "prompt";
   default: unknown;
   help?: string;
   options?: { value: string; label: string }[];
   requires?: "youtube" | "reddit" | "ai";
+  /**
+   * The key of a boolean option in the same spec that switches this one on.
+   * The feed form hides the field entirely while that box is unchecked — it is
+   * a display rule only, so the stored value survives a toggle off and back on,
+   * and neither `schemaFor()` nor `stripUnavailable()` reads it.
+   */
+  dependsOn?: string;
 };
 
 export type AggregatorSpec = {
@@ -110,6 +133,28 @@ const AI_OPTIONS: OptionSpec[] = [
     label: "Target Language",
     kind: "text",
     default: "English",
+    requires: "ai",
+  },
+  /**
+   * The checkbox/value pair mirrors `ai_translate` + `ai_translate_language`:
+   * the flag is what `applyAiOptions()` gates on, the text is what it sends.
+   * Checked with empty text is a no-op, exactly as an unchecked box is —
+   * see the gating comment in `src/lib/ai/run.ts`.
+   */
+  {
+    key: "ai_custom_prompt",
+    label: "Custom Prompt",
+    kind: "boolean",
+    default: false,
+    requires: "ai",
+  },
+  {
+    key: "ai_custom_prompt_text",
+    label: "Custom Prompt",
+    kind: "prompt",
+    dependsOn: "ai_custom_prompt",
+    default: "",
+    help: "Sent with every article this feed aggregates. Runs on its own, with the options above unchecked.",
     requires: "ai",
   },
 ];
@@ -598,6 +643,9 @@ export function schemaFor(key: AggregatorKey): z.ZodType {
         break;
       case "select":
         type = z.string();
+        break;
+      case "prompt":
+        type = z.string().max(MAX_CUSTOM_PROMPT_LENGTH);
         break;
       case "selectorList":
         type = z.string().transform((val) => {
