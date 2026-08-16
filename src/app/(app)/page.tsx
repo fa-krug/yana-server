@@ -21,7 +21,7 @@ import { getDashboardStats, getRecentUnreadArticles } from "@/lib/dashboard/quer
  * here -- each is handed straight to its own `<StatCards>`/`<RecentArticles>`,
  * whose own internal `<Suspense>` shows the real card frame in its pending
  * state (see those components' doc comments) rather than this page rendering
- * a whole-card `<CardSkeleton>` in its place. A slow query in one never
+ * a whole-card skeleton in its place. A slow query in one never
  * blocks the other, and the `(app)` group's `error.tsx` is the error boundary
  * above both -- no second one is added here.
  *

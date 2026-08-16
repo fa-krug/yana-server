@@ -157,17 +157,22 @@ export function AdvancedSectionForm({
  * The card's chrome alone: the heading, every field's label and help text, and
  * the grid they sit in -- with no dependency on `advanced`, so
  * `<AdvancedSectionForm>` can render it for both its resolved state and its
- * `pending` one from the same markup. See the doc comment on
- * `GeneralSectionShell` in `../settings/general-section.tsx` for why this
- * split exists.
+ * `pending` one from the same markup.
+ *
+ * **Deliberately not exported.** Only `<AdvancedSectionForm>` in this file
+ * renders it, and that is the whole point of the arrangement: the pending
+ * fallback is that form with `pending`, never this shell reached for directly
+ * from a page. `../settings/general-section.tsx` and
+ * `../integrations/youtube-section.tsx` needed no shell split at all once
+ * their pending and resolved renders converged on one component.
  *
  * The `<form>` lives here rather than in `<AdvancedSectionForm>`, exactly as
- * in `<ProviderSectionShell>` in its sibling file: `onSubmit` is just a
+ * in `ProviderSectionShell` in its sibling file: `onSubmit` is just a
  * callback the shell forwards, so keeping the element here is what lets the
  * pending render lay out identically to the resolved one without a form of
  * its own ever being submitted.
  */
-export function AdvancedSectionShell({
+function AdvancedSectionShell({
   controls,
   saveControl,
   // Optional, defaulted to a no-op: `<AdvancedSectionForm>`'s `pending`

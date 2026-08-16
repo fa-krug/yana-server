@@ -616,11 +616,17 @@ export function ProviderSectionForm({
  * for both its resolved state and its `pending` one (real, disabled controls
  * in place of every slot -- see the "The `…Form` / `…Resolved` /
  * `…Section({ promise })` split" section of the doc comment above `<ProviderSectionForm>`)
- * from the same markup. See the doc comment on `GeneralSectionShell` in
- * `../settings/general-section.tsx` for why this split exists.
+ * from the same markup.
+ *
+ * **Deliberately not exported.** Only `<ProviderSectionForm>` in this file
+ * renders it; a page reaches the pending state through that form's `pending`
+ * prop, never through this shell. `../settings/general-section.tsx` and
+ * `../integrations/youtube-section.tsx` needed no shell split at all once
+ * their pending and resolved renders converged on one component -- this card
+ * keeps one only because of the slot-presence rule below.
  *
  * **Presence, not just content, is a slot's job here.** Unlike
- * `GeneralSectionShell`, where both controls are always shown, whether the
+ * `<GeneralSectionForm>`, where both controls are always shown, whether the
  * model/API-key/API-url fields and the remove footer render *at all* depends
  * on which provider is selected and what is stored for it -- data this shell
  * never sees. So each of those slots is `null` when `<ProviderSectionForm>`
@@ -633,7 +639,7 @@ export function ProviderSectionForm({
  * `CardContent` -- `onSubmit` is just a callback the shell forwards, unaware
  * of what it does.
  */
-export function ProviderSectionShell({
+function ProviderSectionShell({
   statusBadge,
   providerControl,
   providerHint,

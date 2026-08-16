@@ -12,19 +12,24 @@ import { StatCardsView } from "@/components/dashboard/stat-cards";
  * in the page body means the page still suspends briefly on that
  * per-request-cached read even server-side.
  *
- * This file sits directly beside `page.tsx` at the top of the `(app)` group,
- * and every other route segment under this group (`/settings`, `/articles`,
- * `/tags`, `/feeds`, `/integrations`, `/ai`, `/users`, `/jobs`, `/account`,
- * and each of their own `[id]` detail routes) now carries its own
- * `loading.tsx`, so this one is exclusively `/`'s fallback rather than a
- * shared generic one -- the three `/new` routes without their own
- * (`/tags/new`, `/feeds/new`, `/users/new`) fall back to their *own* parent
- * segment's `loading.tsx` (`/tags`, `/feeds`, `/users`), never this one.
+ * This file sits directly beside `page.tsx` at the top of the `(app)` group.
+ * A `loading.js` wraps its own segment **and everything below it**, so the
+ * nearest ancestor wins -- and every other route under this group now carries
+ * its own: `/settings`, `/articles`, `/tags`, `/feeds`, `/integrations`,
+ * `/ai`, `/users`, `/jobs` and `/account`, each of their `[id]` detail routes,
+ * and (since this migration's Task 6) each of the three `/new` routes
+ * (`/tags/new`, `/feeds/new`, `/users/new`), which used to fall through to
+ * their parent segment's table fallback and show a feeds *table* while
+ * loading a feeds *form*. `/api-docs` is a route handler, which `loading.tsx`
+ * does not apply to at all. So this file is exclusively `/`'s fallback rather
+ * than a shared generic one -- but it stays as the backstop a future segment
+ * that forgets its own would land on, which is why it renders neutral
+ * dashboard chrome and not a table.
  *
  * It renders the **real card chassis in its pending state** -- the same
  * `StatCardsView`/`RecentArticlesView` components `DashboardPage`'s own
- * `<Suspense>` fallbacks use, called with `pending` -- rather than a whole
- * `<CardSkeleton>` standing in for each card. The heading, every stat card's
+ * `<Suspense>` fallbacks use, called with `pending` -- rather than a whole-card
+ * skeleton standing in for each one. The heading, every stat card's
  * frame/icon/title and the recent-articles card's frame/heading are all on
  * screen from the very first frame of the navigation; only the numbers and
  * the article list stream in afterward.
