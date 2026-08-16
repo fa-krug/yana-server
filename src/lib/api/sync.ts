@@ -157,6 +157,27 @@ function cursorExpired(userId: string, cursor: SyncCursor): boolean {
   return secondsOf(oldest.deletedAt) > cursor.removedPos[0];
 }
 
+/**
+ * Exactly the columns `serializeArticleSummary` reads, and no more. A bare
+ * `db.select()` here would additionally pull `rawContent` -- a whole fetched
+ * HTML page -- and `plainText` for every row in both streams, only for the
+ * serializer to discard them. `listArticles` in `@/lib/articles/queries`
+ * avoids the same trap for the same reason.
+ */
+const SUMMARY_COLUMNS = {
+  id: articles.id,
+  feedId: articles.feedId,
+  name: articles.name,
+  identifier: articles.identifier,
+  date: articles.date,
+  author: articles.author,
+  icon: articles.icon,
+  read: articles.read,
+  starred: articles.starred,
+  createdAt: articles.createdAt,
+  updatedAt: articles.updatedAt,
+} as const;
+
 export function syncArticles(userId: string, cursor: SyncCursor, limit: number): SyncResult {
   if (cursorExpired(userId, cursor)) return { resyncRequired: true };
 
@@ -167,7 +188,7 @@ export function syncArticles(userId: string, cursor: SyncCursor, limit: number):
   const userFeedIds = db.select({ id: feeds.id }).from(feeds).where(eq(feeds.userId, userId));
 
   const newRows = db
-    .select()
+    .select(SUMMARY_COLUMNS)
     .from(articles)
     .where(
       and(
@@ -194,7 +215,7 @@ export function syncArticles(userId: string, cursor: SyncCursor, limit: number):
   // fully delivered via `new`. Filtering post-fetch keeps the fetch --and
   // so the cursor advancement-- correct regardless of overlap with `new`.
   const updatedRowsFetched = db
-    .select()
+    .select(SUMMARY_COLUMNS)
     .from(articles)
     .where(
       and(
