@@ -1,8 +1,8 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/render";
-import { FeedForm } from "./feed-form";
+import { FeedForm, NewFeedForm } from "./feed-form";
 
 vi.mock("next/navigation", async () => import("@/test/next-navigation"));
 vi.mock("@/lib/feeds/actions", () => ({ createFeed: vi.fn(), updateFeed: vi.fn() }));
@@ -233,5 +233,78 @@ describe("FeedForm identifier field", () => {
     expect((screen.getByLabelText("Maximum article age (days)") as HTMLInputElement).value).toBe(
       "90",
     );
+  });
+
+  it("renders every field while capabilities and the tag list are still loading", () => {
+    // The defect this migration exists to fix: `/feeds/new`'s fallback used to
+    // be the unrelated generic table skeleton. The real chassis renders
+    // disabled instead, with no value -- see `/feeds/new/loading.tsx`. The
+    // aggregator picker needs no query (`AGGREGATOR_SPECS` is static), so it
+    // is present too, just like every other field.
+    renderWithProviders(<FeedForm pending />);
+
+    const name = screen.getByLabelText("Name") as HTMLInputElement;
+    expect(name.disabled).toBe(true);
+    expect(name.value).toBe("");
+
+    const aggregatorTrigger = screen.getByLabelText("Aggregator") as HTMLButtonElement;
+    expect(aggregatorTrigger.disabled).toBe(true);
+
+    // The tag multi-select is the one genuinely data-dependent control: no
+    // list is known yet, so it renders empty rather than a guessed one.
+    const tagsTrigger = document.querySelector<HTMLButtonElement>("#tags")!;
+    expect(tagsTrigger.disabled).toBe(true);
+
+    expect(
+      (screen.getByRole("button", { name: "Create feed" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    // No skeleton bars anywhere.
+    expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBe(0);
+  });
+
+  it("streams the resolved capabilities and tag list into the same chassis", async () => {
+    // Deferred promises, resolved under an explicit `act()` -- React 19's
+    // `use()` registers its continuation as a bare promise `.then()`, which
+    // lands outside any `act()` scope unless the resolution itself is
+    // wrapped. Without this the update that fills in the real values never
+    // commits. See `library-section.test.tsx`'s equivalent case.
+    let resolveCapabilities!: (value: typeof ALL) => void;
+    const capabilities = new Promise<typeof ALL>((resolve) => {
+      resolveCapabilities = resolve;
+    });
+    let resolveTags!: (value: import("@/lib/db/schema").Tag[]) => void;
+    const allTags = new Promise<import("@/lib/db/schema").Tag[]>((resolve) => {
+      resolveTags = resolve;
+    });
+
+    await act(async () => {
+      renderWithProviders(
+        <NewFeedForm capabilitiesPromise={capabilities} allTagsPromise={allTags} />,
+      );
+    });
+
+    // Pending first: the real, disabled chassis, no tags loaded yet.
+    expect((screen.getByLabelText("Aggregator") as HTMLButtonElement).disabled).toBe(true);
+
+    const tag = {
+      id: 1,
+      name: "News",
+      color: "red",
+      userId: "u1",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as unknown as import("@/lib/db/schema").Tag;
+
+    await act(async () => {
+      resolveCapabilities(ALL);
+      resolveTags([tag]);
+      await Promise.all([capabilities, allTags]);
+    });
+
+    // Then the real values fill in, with no skeleton in between.
+    expect((screen.getByLabelText("Aggregator") as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByLabelText("Tags"));
+    expect(screen.getByRole("option", { name: "News" })).toBeTruthy();
   });
 });
