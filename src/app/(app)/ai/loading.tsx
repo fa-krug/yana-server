@@ -1,32 +1,34 @@
-import { type ReactNode } from "react";
 import { getTranslations } from "next-intl/server";
 
-import { AdvancedSectionShell } from "@/components/ai/advanced-section";
-import { ProviderSectionShell } from "@/components/ai/provider-section";
-import { Skeleton } from "@/components/ui/skeleton";
-import { AI_ADVANCED_FIELDS, type AiAdvancedField } from "@/lib/ai/bounds";
+import { AdvancedSectionForm } from "@/components/ai/advanced-section";
+import { ProviderSectionForm } from "@/components/ai/provider-section";
 
 /**
- * The route's own fallback, replacing `(app)/loading.tsx`'s generic
- * `<TableSkeleton>` for this segment specifically. Without this file, an
- * initial navigation to `/ai` shows that unrelated fallback for however long
- * `AiPage` takes to resolve, because the whole async page function (including
- * its own inline `<Suspense fallback={<SectionsFallback />}>`) suspends as
- * one unit until it returns. This hoists `AiPage`'s own "nothing loaded yet"
- * shell -- the same shape `ffa29204` introduced as `SectionsFallback` for
- * later re-fetches -- up to the route level so it is shown on the very first
- * navigation too.
+ * This route's own fallback -- shown by Next while the RSC payload for a
+ * **client-side soft navigation** into `/ai` (e.g. clicking "AI" in the
+ * sidebar) is still in flight over the network. That is real latency
+ * server-side streaming cannot remove: `AiPage`'s own client components only
+ * help once the new route's payload has already arrived, and
+ * `await getTranslations()` staying in the page body means the page still
+ * suspends briefly on that per-request-cached read even server-side.
  *
- * Both shells take their default no-op `onSubmit` rather than being handed
- * one: this is a Server Component, and a closure it creates cannot cross into
- * a Client Component. See the fallback's doc comment in `./page.tsx`.
+ * It renders the **real form chassis in its pending state** -- the same
+ * `…SectionForm` components `AiPage`'s own `<Suspense>` fallbacks use, called
+ * with `pending` -- rather than `<Skeleton>` bars standing in for each
+ * control. The heading, both card headings, the provider picker (fully
+ * populated, unselected) and every label/button are on screen, disabled, from
+ * the very first frame of the navigation; only the mask, the active provider,
+ * the status badge and the nine stored tuning values stream in afterward.
+ *
+ * There is deliberately no guessed selection here any more: the provider
+ * picker used to render as if a provider were already chosen (model, API key
+ * and Test all shown, as the common case once an instance is configured).
+ * That guess is gone -- the real, fully populated picker renders unselected,
+ * and only the model select (which cannot be known without a provider) and
+ * the API key field stand in for it, both disabled and empty.
  */
 export default async function Loading() {
   const t = await getTranslations("ai");
-
-  const advancedControls = Object.fromEntries(
-    AI_ADVANCED_FIELDS.map((name) => [name, <Skeleton key={name} className="h-9 w-full" />]),
-  ) as Record<AiAdvancedField, ReactNode>;
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -35,22 +37,8 @@ export default async function Loading() {
         <p className="text-sm text-muted-foreground">{t("description")}</p>
       </div>
       <div className="space-y-6">
-        <ProviderSectionShell
-          statusBadge={<Skeleton className="h-5 w-16" />}
-          providerControl={<Skeleton className="h-9 w-full sm:w-64" />}
-          providerHint={<Skeleton className="h-4 w-48" />}
-          modelControl={<Skeleton className="h-9 w-full sm:w-64" />}
-          apiKeyControl={<Skeleton className="h-9 w-full" />}
-          apiKeyHelp={<Skeleton className="h-4 w-32" />}
-          apiUrlControl={null}
-          saveControl={<Skeleton className="h-9 w-24" />}
-          testControl={<Skeleton className="h-9 w-24" />}
-          removeControl={null}
-        />
-        <AdvancedSectionShell
-          controls={advancedControls}
-          saveControl={<Skeleton className="h-9 w-24" />}
-        />
+        <ProviderSectionForm pending />
+        <AdvancedSectionForm pending />
       </div>
     </div>
   );

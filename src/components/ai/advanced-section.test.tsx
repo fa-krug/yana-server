@@ -5,7 +5,7 @@ import { AI_ADVANCED_BOUNDS, AI_ADVANCED_FIELDS } from "@/lib/ai/bounds";
 import type { AiAdvanced } from "@/lib/ai/queries";
 import { renderWithProviders } from "@/test/render";
 
-import { AdvancedSection } from "./advanced-section";
+import { AdvancedSectionForm } from "./advanced-section";
 
 const { saveAdvanced } = vi.hoisted(() => ({ saveAdvanced: vi.fn() }));
 vi.mock("@/lib/ai/actions", () => ({ saveAdvanced }));
@@ -33,7 +33,7 @@ const ADVANCED: AiAdvanced = {
 };
 
 function render(locale: "en" | "de" = "de") {
-  return renderWithProviders(<AdvancedSection advanced={ADVANCED} />, { locale });
+  return renderWithProviders(<AdvancedSectionForm advanced={ADVANCED} />, { locale });
 }
 
 function field(label: string): HTMLInputElement {
@@ -164,5 +164,36 @@ describe("<AdvancedSection>", () => {
     } finally {
       logged.mockRestore();
     }
+  });
+
+  describe("pending", () => {
+    it("renders all nine fields with their real bounds, disabled and empty", () => {
+      renderWithProviders(<AdvancedSectionForm pending />);
+
+      const fields = screen.getAllByRole("spinbutton") as HTMLInputElement[];
+      expect(fields).toHaveLength(9);
+      expect(fields.every((f) => f.disabled)).toBe(true);
+      expect(fields.every((f) => f.value === "")).toBe(true);
+      // Bounds come from AI_ADVANCED_BOUNDS, which imports nothing -- so they
+      // are already real, not a guess, before any row has loaded.
+      expect(fields.every((f) => f.min !== "")).toBe(true);
+      expect(fields.every((f) => f.max !== "")).toBe(true);
+    });
+
+    it("still shows the Save button, disabled", () => {
+      renderWithProviders(<AdvancedSectionForm pending />);
+
+      expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(
+        true,
+      );
+    });
+
+    it("still shows the card heading and every field label", () => {
+      renderWithProviders(<AdvancedSectionForm pending />);
+
+      expect(screen.getByText("Advanced")).toBeTruthy();
+      expect(screen.getByText("Temperature")).toBeTruthy();
+      expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBe(0);
+    });
   });
 });
