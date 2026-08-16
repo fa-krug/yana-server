@@ -41,9 +41,28 @@ export default async function SettingsPage() {
   // Not awaited: the promise is handed to the client components, which render
   // their real controls immediately and fill in the values when it resolves.
   // Awaiting here is what made the whole page suspend behind one read.
-  // `getSettings()` is `cache()`d per request, so passing the same promise to
-  // both sections below is still exactly one read.
-  const settings = getSettings();
+  // `getSettings()` is `cache()`d per request, so the `.then()` below is still
+  // exactly one read, shared with both sections.
+  //
+  // Narrowed HERE, on the server, before the promise crosses the RSC boundary
+  // -- not inside a client component's `use(promise)`. React serializes the
+  // *resolved value* of a promise handed to a Client Component, not its
+  // declared TypeScript type: a prop typed `Promise<{ theme; language;
+  // articleRetentionDays }>` is structurally satisfied by a promise that
+  // resolves to the whole `UserSettings` row, and the whole row -- including
+  // `youtubeApiKey`, `redditClientSecret`, `openaiApiKey` and five more
+  // provider secrets -- would still be serialized into the page's flight
+  // payload, in plain text, in a browser's network tab. Narrowing inside
+  // `GeneralSection`/`LibrarySection` happens *after* serialization and buys
+  // nothing. This is the same "a component gets the columns it renders, never
+  // the row" rule CLAUDE.md already states for a plain (already-awaited) prop
+  // -- it does not stop applying because the value arrives late, behind a
+  // promise.
+  const settings = getSettings().then(({ theme, language, articleRetentionDays }) => ({
+    theme,
+    language,
+    articleRetentionDays,
+  }));
 
   return (
     <div className="max-w-2xl space-y-6">

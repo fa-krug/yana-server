@@ -528,6 +528,32 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   private `…Resolved` that calls `use(promise)` and renders `…Form` with the
   real values, and exports `…Section({ promise })` whose
   `<Suspense fallback={<…Form pending />}>` wraps it.
+
+  **"Pass the promise down" means pass a projection, never a whole row, and
+  narrow it before it is handed to the Client Component -- not inside it.**
+  This is the same "a component gets the columns it renders, never the row"
+  rule stated elsewhere in this file for an already-awaited prop; it does not
+  stop applying because the value arrives late, behind a `use(promise)`. React
+  serializes a promise's **resolved value**, not the type its prop is
+  annotated with, so `promise: Promise<{ theme: string; language: string }>`
+  is structurally satisfied by a promise that resolves to the entire database
+  row -- and the whole row, `youtubeApiKey`/`openaiApiKey`/six more provider
+  secrets included, still crosses into the page's RSC payload, plain text in a
+  browser's network tab. Narrowing inside the `…Resolved` component's
+  `use(promise)` call happens _after_ serialization and buys nothing. The
+  2026-08-16 streaming-controls migration shipped exactly this bug at
+  `src/app/(app)/settings/page.tsx`: it passed `getSettings()` -- the whole
+  `UserSettings` row -- straight to `GeneralSection`/`LibrarySection`, and a
+  stored `openai_api_key` was reproducibly visible in `/settings`'s flight
+  payload. The fix is a `.then()` on the query, in the page, before the
+  promise is ever handed to a component:
+  `getSettings().then(({ theme, language, articleRetentionDays }) => ({
+theme, language, articleRetentionDays }))` -- still one `cache()`d read,
+  still one shared promise, but the only thing that can ever resolve is the
+  three fields the two sections render. Every later page that pipes a
+  query's promise into a Client Component prop inherits this obligation: type
+  the prop as the narrow shape, and construct the promise so that shape is
+  the only thing it can resolve to.
   `src/components/settings/library-section.tsx` is the smallest reference;
   `src/components/integrations/youtube-section.tsx` and
   `src/components/ai/provider-section.tsx` are the two that carry every hard

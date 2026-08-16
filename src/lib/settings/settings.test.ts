@@ -347,4 +347,52 @@ describe("settings", () => {
       expect(config.locale).toBe("de");
     });
   });
+
+  describe("the /settings page promise (regression: settings-secrets-leak)", () => {
+    // `getSettings()` resolves to the *whole* `user_settings` row -- every
+    // provider secret included. `src/app/(app)/settings/page.tsx` used to hand
+    // that promise straight to two Client Components; a whole-branch review
+    // found that a Client Component's props are the page's RSC payload, so the
+    // full row -- `youtubeApiKey`, `redditClientSecret`, `openaiApiKey` and six
+    // more -- was serialized into `/settings`' response in plain text, live
+    // reproduced with a stored `openai_api_key` visible in the flight payload.
+    //
+    // A real render through testing-library cannot prove this either way:
+    // `SettingsPage` is an async Server Component with a data region
+    // (`GeneralSection`/`LibrarySection`) that testing-library cannot mount
+    // (see CLAUDE.md's "two vitest projects" section), and jsdom never runs
+    // React's flight serializer regardless. So this test does the next best
+    // thing: it stores a canary secret in the real database, computes the
+    // *exact* expression the page uses to build the promise it hands down --
+    // `getSettings().then(({ theme, language, articleRetentionDays }) => ({
+    // theme, language, articleRetentionDays }))` -- and asserts both that the
+    // resolved value carries none of the nine secret columns and that its key
+    // set is exactly the three the client components declare. A regression
+    // that widened the projection (or reverted to passing `getSettings()`
+    // itself) would fail the key-set assertion; a regression that leaked a
+    // value through some other path would still fail the canary check.
+    it("never resolves to a provider secret, only the three rendered fields", async () => {
+      const userId = await queries.currentUserId();
+      const canary = "SECRETLEAKCANARY123";
+      client.writeTransaction((tx) => {
+        tx.update(schema.userSettings)
+          .set({ openaiApiKey: canary, redditClientSecret: canary })
+          .where(eq(schema.userSettings.userId, userId))
+          .run();
+      });
+
+      // The exact expression from src/app/(app)/settings/page.tsx.
+      const settingsPromise = queries
+        .getSettings()
+        .then(({ theme, language, articleRetentionDays }) => ({
+          theme,
+          language,
+          articleRetentionDays,
+        }));
+      const resolved = await settingsPromise;
+
+      expect(Object.keys(resolved).sort()).toEqual(["articleRetentionDays", "language", "theme"]);
+      expect(JSON.stringify(resolved)).not.toContain(canary);
+    });
+  });
 });

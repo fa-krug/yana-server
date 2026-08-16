@@ -289,22 +289,17 @@ export function ProfileSectionForm({
 
 /** Calls use(); suspends until the promise resolves; renders the form for real. */
 function ProfileSectionResolved({ promise }: { promise: Promise<AccountOverview> }) {
+  // `AccountOverview.user` is already the five named columns this card
+  // renders, not the whole `User` row -- narrowed in `getAccountOverview()`
+  // (see `AccountUser` in `@/lib/account/queries`), *before* this promise was
+  // ever constructed. That is deliberate, not merely convenient: React
+  // serializes a promise's resolved value, not the type this parameter
+  // declares, so narrowing here -- after `use()` has already resolved it --
+  // would be too late. The whole row (`role`, the three ban columns,
+  // `emailVerified`, the timestamps) would already have crossed into
+  // `/account`'s RSC payload by the time this destructure ran.
   const { user } = use(promise);
-  // Five named columns, not the whole `User` -- the same rule the (app) layout
-  // applies to the sidebar footer: the row also carries `role`, the three ban
-  // columns, `emailVerified` and the timestamps, and passing it whole would
-  // serialize all of them into this card's props for no purpose.
-  return (
-    <ProfileSectionForm
-      user={{
-        id: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        image: user.image,
-      }}
-    />
-  );
+  return <ProfileSectionForm user={user} />;
 }
 
 /**
