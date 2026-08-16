@@ -1,9 +1,9 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/render";
 
-import { GeneralSection } from "./general-section";
+import { GeneralSection, GeneralSectionForm } from "./general-section";
 
 const { updateGeneralSettings } = vi.hoisted(() => ({ updateGeneralSettings: vi.fn() }));
 vi.mock("@/lib/settings/actions", () => ({ updateGeneralSettings }));
@@ -58,7 +58,7 @@ describe("GeneralSection", () => {
   // No interaction here at all -- the trigger's text is rendered eagerly.
   it("shows the translated theme label on the trigger, not the raw value", () => {
     const { container } = renderWithProviders(
-      <GeneralSection theme="light" language="en" />,
+      <GeneralSectionForm theme="light" language="en" />,
       // next-themes has no stored value, so its defaultTheme is what applies.
       { theme: "dark" },
     );
@@ -69,7 +69,7 @@ describe("GeneralSection", () => {
   it("translates both triggers into the active locale", () => {
     // German makes the assertion unambiguous: "Dunkel" cannot be a stringified
     // "dark", whereas "Dark" differs from it only in case.
-    const { container } = renderWithProviders(<GeneralSection theme="light" language="de" />, {
+    const { container } = renderWithProviders(<GeneralSectionForm theme="light" language="de" />, {
       locale: "de",
       theme: "dark",
     });
@@ -86,7 +86,7 @@ describe("GeneralSection", () => {
     // must show -- "Hell" here would mean the control is reporting a theme the
     // page is not wearing.
     localStorage.setItem("theme", "dark");
-    const { container } = renderWithProviders(<GeneralSection theme="light" language="de" />, {
+    const { container } = renderWithProviders(<GeneralSectionForm theme="light" language="de" />, {
       locale: "de",
       theme: "light",
     });
@@ -97,7 +97,7 @@ describe("GeneralSection", () => {
   it("saves both values when one of them changes", async () => {
     // The action takes the whole pair, not the field that moved: it writes both
     // columns, so sending only the new language would blank the theme.
-    const { container } = renderWithProviders(<GeneralSection theme="dark" language="en" />, {
+    const { container } = renderWithProviders(<GeneralSectionForm theme="dark" language="en" />, {
       locale: "de",
       theme: "dark",
     });
@@ -121,9 +121,12 @@ describe("GeneralSection", () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
     try {
-      const { container } = renderWithProviders(<GeneralSection theme="light" language="en" />, {
-        theme: "light",
-      });
+      const { container } = renderWithProviders(
+        <GeneralSectionForm theme="light" language="en" />,
+        {
+          theme: "light",
+        },
+      );
 
       await pick(container, "language", "German");
 
@@ -138,5 +141,46 @@ describe("GeneralSection", () => {
     } finally {
       logged.mockRestore();
     }
+  });
+
+  it("renders both real selects while the values are still loading", () => {
+    const { container } = renderWithProviders(<GeneralSectionForm pending />, { theme: "dark" });
+
+    // Both triggers exist and are disabled -- not replaced by a bar.
+    expect((container.querySelector("#theme") as HTMLButtonElement).disabled).toBe(true);
+    expect((container.querySelector("#language") as HTMLButtonElement).disabled).toBe(true);
+    // The labels the shell used to own are rendered by this same component now.
+    expect(screen.getByText("Theme")).toBeTruthy();
+  });
+
+  it("still shows the localStorage-applied theme once resolved through <GeneralSection>", async () => {
+    // The two-store rule (see the component's doc comment) must survive the
+    // promise split: the resolved render is still the same form component, so
+    // localStorage still wins over the server-supplied value once hydrated.
+    //
+    // A deferred promise, resolved under an explicit `act()` -- React 19's
+    // `use()` registers its continuation as a bare promise `.then()`, which
+    // lands outside any `act()` scope unless the resolution itself is
+    // wrapped, or the update that fills in the resolved value never commits.
+    localStorage.setItem("theme", "dark");
+    let resolveSettings!: (value: { theme: string; language: string }) => void;
+    const promise = new Promise<{ theme: string; language: string }>((resolve) => {
+      resolveSettings = resolve;
+    });
+
+    let container!: HTMLElement;
+    await act(async () => {
+      ({ container } = renderWithProviders(<GeneralSection promise={promise} />, {
+        locale: "de",
+        theme: "light",
+      }));
+    });
+
+    await act(async () => {
+      resolveSettings({ theme: "light", language: "de" });
+      await promise;
+    });
+
+    expect(triggerText(container, "theme")).toBe("Dunkel");
   });
 });

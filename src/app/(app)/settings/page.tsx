@@ -1,48 +1,29 @@
 import { connection } from "next/server";
-import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 
 import { AboutSection } from "@/components/settings/about-section";
-import { GeneralSection, GeneralSectionShell } from "@/components/settings/general-section";
-import { LibrarySection, LibrarySectionShell } from "@/components/settings/library-section";
-import { Skeleton } from "@/components/ui/skeleton";
+import { GeneralSection } from "@/components/settings/general-section";
+import { LibrarySection } from "@/components/settings/library-section";
 import { Separator } from "@/components/ui/separator";
 import { getSettings } from "@/lib/settings/queries";
 
 /**
- * The `<Suspense>` fallback for `<Sections>` below: the same two section
- * shells `<Sections>` itself renders once `getSettings()` resolves, with a
- * skeleton bar standing in for each control -- so the headings, field labels
- * and help text are never replaced by an anonymous skeleton block, only the
- * values nobody can know yet.
+ * `<PageTitle>` was considered here (see the streaming-controls migration
+ * plan, Task 1 Step 6) so this page would need no `await getTranslations()`
+ * at all -- a client `useTranslations()` hook reads the provider the root
+ * layout already renders, and nothing crosses the RSC boundary for it. It was
+ * dropped: making its `namespace`/`titleKey` props generic and still
+ * compiler-checked against `NamespaceKey<Namespace>` runs into the exact wall
+ * documented on `src/components/section-kit.tsx` -- `useTranslations(namespace)`
+ * with a still-generic `Namespace` produces a `t` typed
+ * `NamespacedMessageKeys<Messages, Namespace>`, which TypeScript cannot reduce
+ * to `NamespaceKey<Namespace>`, and closing that gap inside the component
+ * needs a cast at the `t()` call site -- precisely what CLAUDE.md forbids.
+ * Every later task therefore keeps this `await getTranslations()` too: the
+ * page suspends only on this one per-request-`cache()`d read, not on the
+ * settings query below, which is the one this migration removes from the
+ * critical path.
  */
-function SectionsFallback() {
-  return (
-    <div className="space-y-8">
-      <GeneralSectionShell
-        themeControl={<Skeleton className="h-9 w-full sm:w-64" />}
-        languageControl={<Skeleton className="h-9 w-full sm:w-64" />}
-      />
-      <Separator />
-      <LibrarySectionShell
-        retentionControl={<Skeleton className="h-9 w-24" />}
-        saveControl={<Skeleton className="h-9 w-24" />}
-      />
-    </div>
-  );
-}
-
-async function Sections() {
-  const settings = await getSettings();
-  return (
-    <div className="space-y-8">
-      <GeneralSection theme={settings.theme} language={settings.language} />
-      <Separator />
-      <LibrarySection articleRetentionDays={settings.articleRetentionDays} />
-    </div>
-  );
-}
-
 export default async function SettingsPage() {
   /**
    * Opt this route out of prerendering, **before** the first line that can
@@ -56,15 +37,22 @@ export default async function SettingsPage() {
    */
   await connection();
   const t = await getTranslations("settings");
+
+  // Not awaited: the promise is handed to the client components, which render
+  // their real controls immediately and fill in the values when it resolves.
+  // Awaiting here is what made the whole page suspend behind one read.
+  // `getSettings()` is `cache()`d per request, so passing the same promise to
+  // both sections below is still exactly one read.
+  const settings = getSettings();
+
   return (
     <div className="max-w-2xl space-y-6">
       <h1 className="text-2xl font-semibold">{t("title")}</h1>
-      <Suspense fallback={<SectionsFallback />}>
-        <Sections />
-      </Suspense>
-      {/* Static, no data dependency at all -- rendered directly rather than
-          through the Suspense boundary above, which exists only for the
-          database read the other two sections need. */}
+      <div className="space-y-8">
+        <GeneralSection promise={settings} />
+        <Separator />
+        <LibrarySection promise={settings} />
+      </div>
       <Separator />
       <AboutSection />
     </div>
