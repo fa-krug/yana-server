@@ -145,6 +145,26 @@ export function FeedForm({
   const shownOptions = visibleOptions.filter((opt) => !opt.dependsOn || options[opt.dependsOn]);
   const identifierMode = identifierModeFor(spec);
 
+  /**
+   * While `pending`, `caps` is `EMPTY_CAPABILITIES`, so a capability-gated
+   * aggregator (YouTube, Reddit) is filtered out of this list until the real
+   * capabilities resolve -- the picker does **not** render the full,
+   * unfiltered `AGGREGATOR_SPECS` while pending, even though the picker's
+   * `<Select>` below is disabled the whole time.
+   *
+   * That is deliberate, not an oversight the brief's "fully populated, like
+   * `/ai`'s provider picker" comparison would suggest fixing: the shorter
+   * list is invisible in practice, because a disabled `<Select>` cannot be
+   * opened to notice it. What is not invisible is which *direction* the list
+   * changes the moment capabilities resolve. Of the two orderings, an option
+   * appearing is harmless -- but an option *disappearing* could be the one
+   * already selected, which would silently reset the operator's choice.
+   * `/ai`'s provider picker has no equivalent hazard (its list is static and
+   * never shrinks), so that comparison does not actually hold here. Hiding
+   * capability-gated aggregators while pending and letting them appear once
+   * capabilities resolve is therefore the strictly safer of the two
+   * orderings, chosen over matching `/ai`'s pending shape exactly.
+   */
   const availableAggregators = Object.values(AGGREGATOR_SPECS).filter(
     (s) => !s.identifierSearch || caps[s.identifierSearch] || s.key === feed?.aggregator,
   );

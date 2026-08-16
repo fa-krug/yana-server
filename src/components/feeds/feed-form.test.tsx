@@ -307,4 +307,43 @@ describe("FeedForm identifier field", () => {
     fireEvent.click(screen.getByLabelText("Tags"));
     expect(screen.getByRole("option", { name: "News" })).toBeTruthy();
   });
+
+  it("hides capability-gated aggregators while pending, unobservably, then reveals them once resolved", async () => {
+    // Pins both halves of the deliberate ordering documented at
+    // `availableAggregators` in feed-form.tsx: while pending, `caps` is
+    // `EMPTY_CAPABILITIES`, so YouTube/Reddit are filtered out of the list --
+    // but that is invisible, because the picker is *disabled* the whole time
+    // and cannot be opened to notice. Once real capabilities resolve with
+    // both integrations configured, both aggregators are present.
+    let resolveCapabilities!: (value: typeof ALL) => void;
+    const capabilities = new Promise<typeof ALL>((resolve) => {
+      resolveCapabilities = resolve;
+    });
+    const allTags = Promise.resolve([]);
+
+    await act(async () => {
+      renderWithProviders(
+        <NewFeedForm capabilitiesPromise={capabilities} allTagsPromise={allTags} />,
+      );
+    });
+
+    // Pending: disabled, so the shorter option list cannot be observed by
+    // opening it -- a `click` on a disabled trigger does not open the popup.
+    const aggregatorTrigger = screen.getByLabelText("Aggregator") as HTMLButtonElement;
+    expect(aggregatorTrigger.disabled).toBe(true);
+    fireEvent.click(aggregatorTrigger);
+    expect(screen.queryByRole("option", { name: "YouTube" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Reddit" })).toBeNull();
+
+    await act(async () => {
+      resolveCapabilities(ALL);
+      await capabilities;
+    });
+
+    // Resolved: enabled, and both capability-gated aggregators now appear.
+    expect((screen.getByLabelText("Aggregator") as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByLabelText("Aggregator"));
+    expect(screen.getByRole("option", { name: "YouTube" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Reddit" })).toBeTruthy();
+  });
 });
