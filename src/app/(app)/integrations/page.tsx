@@ -1,37 +1,46 @@
 import { connection } from "next/server";
-import { getTranslations } from "next-intl/server";
 
+import { IntegrationsTitle } from "@/components/integrations/integrations-title";
 import { RedditSection } from "@/components/integrations/reddit-section";
 import { YoutubeSection } from "@/components/integrations/youtube-section";
 import { getIntegrationStatus } from "@/lib/integrations/queries";
 
-export default async function IntegrationsPage() {
+/**
+ * The instant-render-no-fallback migration (see
+ * `src/app/(app)/settings/page.tsx`): this page body awaits nothing, so it
+ * cannot suspend and `loading.tsx` -- deleted along with this rewrite -- is
+ * unreachable.
+ *
+ * `await getTranslations()` is gone, replaced by `<IntegrationsTitle>` -- a
+ * client component reading `useTranslations("integrations")` off the
+ * `NextIntlClientProvider` the root layout already renders, so nothing
+ * crosses the RSC boundary for the heading/description and nothing here
+ * suspends on it. See `SettingsTitle`'s own comment for why the namespace is
+ * a literal rather than a generic prop.
+ */
+export default function IntegrationsPage() {
   /**
-   * Opt this route out of prerendering, **before** the first line that can reach
-   * SQLite. This page has
-   * no `requireAdmin()` to await, so nothing else opts it out: without this call
-   * `getTranslations()` below resolves the next-intl request config ->
-   * `getSettings()` -> `getDb()` during `next build`, which creates an empty,
-   * unmigrated `data/yana.db` on the build machine. The (app) layout's
-   * `requireUser()` does not cover it: layout and page are sibling render scopes.
+   * Opt this route out of prerendering -- **called, not awaited**, exactly as
+   * `SettingsPage` does and for the same reason: `getIntegrationStatus()`
+   * below is never awaited by this page body (it is handed straight to both
+   * client sections), so there is no other awaited Dynamic API left here to
+   * do this job. See CLAUDE.md's `connection()` bullet for why calling it,
+   * unawaited, is enough today -- and the `cacheComponents` precondition
+   * that fact rests on.
    */
-  await connection();
-  const t = await getTranslations("integrations");
+  connection();
 
-  // Not awaited: the promise is handed to both client components, which render
-  // their real controls immediately and fill in the values when it resolves.
-  // Awaiting here is what made the whole page suspend behind one read.
-  // `getIntegrationStatus()` is backed by the same `cache()`d `getSettings()`
-  // read the root layout already made, so passing the same promise to both
-  // sections below is still exactly one read.
+  // Not awaited: the promise is handed to both client components, which
+  // render their real controls immediately and fill in the values when it
+  // resolves. Awaiting here is what made the whole page suspend behind one
+  // read. `getIntegrationStatus()` is backed by the same `cache()`d
+  // `getSettings()` read the root layout already made, so passing the same
+  // promise to both sections below is still exactly one read.
   const status = getIntegrationStatus();
 
   return (
     <div className="max-w-2xl space-y-6">
-      <div className="space-y-2">
-        <h1 className="text-2xl font-semibold">{t("title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("description")}</p>
-      </div>
+      <IntegrationsTitle />
       <div className="space-y-6">
         <YoutubeSection promise={status} />
         <RedditSection promise={status} />

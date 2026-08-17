@@ -25,12 +25,17 @@ import { ROLE_FILTER_ADMIN, ROLE_FILTER_STANDARD } from "./fields";
 /**
  * Reads for the admin-only users tab. Writes are in `./actions`.
  *
- * **Every exported query calls `requireAdmin()` first**, even though the pages
- * that consume them do too. It is one indexed session read against the same
- * local file, and it means the gate cannot be lost by a route being added
- * without it -- the same defence-in-depth `/account`'s queries get from
- * `currentUserRow()`. `requireAdmin()` answers 404 rather than 403, so a
- * non-admin never learns the route exists.
+ * **Every exported query a page calls directly calls `requireAdmin()` first**
+ * (`listUsers`, `getUser`), even though the pages that consume them do too. It
+ * is one indexed session read against the same local file, and it means the
+ * gate cannot be lost by a route being added without it -- the same
+ * defence-in-depth `/account`'s queries get from `currentUserRow()`.
+ * `requireAdmin()` answers 404 rather than 403, so a non-admin never learns
+ * the route exists. **`countUsableAdmins()` and `countUserImpact()` are the
+ * exception, not covered by that rule**: both are internal helpers consumed
+ * only by `./actions`, whose exported callers gate first, and each says so on
+ * its own doc comment. A new caller of either has to gate itself -- do not
+ * assume the module does it for you.
  *
  * **Nothing a client component needs is exported from here.** The role values
  * and the password bounds live in `./fields`, which imports only

@@ -47,7 +47,23 @@ import { TagBadge } from "@/components/tags/tag-badge";
 import { TagColorDot } from "@/components/tags/tag-color-dot";
 import { IdentifierAutocomplete } from "./identifier-autocomplete";
 
-export type FeedListRow = Feed & { tags: Tag[] };
+/**
+ * The columns this form renders, not the whole `Feed` row -- see the doc
+ * comment on `getFeed()` (`src/lib/feeds/actions.ts`), which projects into
+ * exactly this shape before it ever crosses the RSC boundary.
+ */
+export type FeedListRow = Pick<
+  Feed,
+  | "id"
+  | "name"
+  | "aggregator"
+  | "identifier"
+  | "enabled"
+  | "options"
+  | "updateIntervalMinutes"
+  | "concurrency"
+  | "maxArticleAgeDays"
+> & { tags: Tag[] };
 
 /** No capability is known before the promise resolves -- see `pending` below. */
 const EMPTY_CAPABILITIES: Capabilities = { youtube: false, reddit: false, ai: false };

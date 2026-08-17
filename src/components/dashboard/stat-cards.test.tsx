@@ -13,7 +13,6 @@ const STATS: DashboardStats = {
   enabledFeeds: 3,
   totalFeeds: 5,
   tags: 9,
-  activeJobs: 1,
 };
 
 describe("StatCardsView", () => {
@@ -51,10 +50,9 @@ describe("StatCardsView", () => {
     expect(screen.getByText("Total articles")).toBeTruthy();
     expect(screen.getByText("Feeds")).toBeTruthy();
     expect(screen.getByText("Tags")).toBeTruthy();
-    expect(screen.getByText("Active jobs")).toBeTruthy();
 
     // Deliberate exception -- a skeleton stands in for each number alone.
-    expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBe(5);
+    expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBe(4);
   });
 
   it("shows the resolved numbers once the promise settles", async () => {

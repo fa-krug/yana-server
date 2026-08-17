@@ -1,8 +1,8 @@
 import { connection } from "next/server";
-import { getTranslations } from "next-intl/server";
 
+import { DashboardTitle } from "@/components/dashboard/dashboard-title";
 import { RecentArticles } from "@/components/dashboard/recent-articles";
-import { SectionCards } from "@/components/dashboard/section-cards";
+import { SectionCardsGate } from "@/components/dashboard/section-cards";
 import { StatCards } from "@/components/dashboard/stat-cards";
 import { isAdminRole } from "@/lib/auth/roles";
 import { requireUserFreshRole } from "@/lib/auth/session";
@@ -11,51 +11,64 @@ import { getDashboardStats, getRecentUnreadArticles } from "@/lib/dashboard/quer
 /**
  * The dashboard: an overview of the signed-in user's library, at `/`.
  *
- * `await connection()` is the first statement -- this route now reaches
- * SQLite (through the two data regions below), and without it a production
- * build would bake the page against a `data/` directory that does not exist
- * at build time. See the `connection()` bullet in CLAUDE.md.
+ * The instant-render-no-fallback migration (see `src/app/(app)/settings/page.tsx`):
+ * this page body now awaits nothing, so it cannot suspend and `loading.tsx` --
+ * deleted along with this rewrite -- is unreachable.
  *
- * The heading and `<SectionCards>` need no data and render synchronously.
+ * `connection()` is called but **not awaited** -- calling it is what
+ * interrupts static generation (it throws synchronously during `next build`,
+ * whether or not anything awaits the result), which is what still keeps
+ * `rm -rf data/ && npm run build` from baking this page against a `data/`
+ * directory that does not exist yet. At real request time it resolves to
+ * `undefined` and is never observed. See `SettingsPage`'s identical comment
+ * for the full reasoning; the `cacheComponents` caveat itself lives in
+ * CLAUDE.md's `connection()` bullet, which that comment points to.
+ *
+ * The heading is `<DashboardTitle>`, a Client Component reading
+ * `useTranslations("dashboard")` -- replacing the `await getTranslations()`
+ * that used to be here, the same swap `SettingsTitle` documents.
+ *
  * `getDashboardStats()` and `getRecentUnreadArticles()` are **not** awaited
- * here -- each is handed straight to its own `<StatCards>`/`<RecentArticles>`,
- * whose own internal `<Suspense>` shows the real card frame in its pending
- * state (see those components' doc comments) rather than this page rendering
- * a whole-card skeleton in its place. A slow query in one never
- * blocks the other, and the `(app)` group's `error.tsx` is the error boundary
- * above both -- no second one is added here.
+ * here, same as before this migration -- each is handed straight to its own
+ * `<StatCards>`/`<RecentArticles>`, whose own internal `<Suspense>` shows the
+ * real card frame in its pending state.
  *
- * `isAdmin` is derived from `requireUserFreshRole()` here, called again --
- * uncached -- inside `getDashboardStats()` and `getRecentUnreadArticles()`.
- * `requireUserFreshRole()` is deliberately not `cache()`d (unlike
- * `currentUser()`/`currentUserRow()`): it reads with
- * `disableCookieCache: true`, so wrapping it would risk quietly reintroducing
- * a five-minute-stale role for its other callers (`/jobs`, `/jobs/[id]`, the
- * log-stream route). Three fresh session reads per render is the accepted
- * cost of that. This is deliberately not `requireUser()` + a role check on
- * its own result: an admin demoted a moment ago must not keep seeing
- * admin-only cards off a stale cookie-cached role, the same reason
- * `getDashboardStats()` itself reads the role this way.
+ * `requireUserFreshRole()` is likewise not awaited any more. It used to be
+ * awaited here and then reduced to `isAdmin` synchronously; now the whole
+ * thing -- read plus reduction -- is one unawaited `.then()` chain, and only
+ * the resulting `Promise<boolean>` is handed to `<SectionCardsGate>`. That
+ * narrowing happens **here**, before the promise crosses to that Client
+ * Component -- never inside it -- for the same reason `getSettingsSummary()`
+ * narrows before `/settings` hands its promise down: a promise's declared
+ * type is not what gets serialized, its resolved *value* is, so handing a
+ * `Promise<User>` across and only reading `.role` on the other side would
+ * still serialize the whole row (email, ban fields, timestamps) into the
+ * page's flight payload. `isAdminRole()` (not a raw `=== "admin"`) is the one
+ * function everything else in this codebase agrees on for that check.
+ *
+ * This is still deliberately not `requireUser()` + a role check on its own
+ * result: an admin demoted a moment ago must not keep seeing admin-only
+ * cards off a stale, cookie-cached role. `requireUserFreshRole()` reads with
+ * `disableCookieCache: true` and nothing here wraps it in `cache()` --
+ * caching it would silently reintroduce the five-minutes-stale-admin bug it
+ * exists to close.
  */
-export default async function DashboardPage() {
-  await connection();
-
-  const user = await requireUserFreshRole();
-  const isAdmin = isAdminRole(user.role);
-  const t = await getTranslations("dashboard");
+export default function DashboardPage() {
+  connection();
 
   const stats = getDashboardStats();
   const recentArticles = getRecentUnreadArticles();
+  const isAdmin = requireUserFreshRole().then((user) => isAdminRole(user.role));
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">{t("title")}</h1>
+      <DashboardTitle />
 
       <StatCards promise={stats} />
 
       <RecentArticles promise={recentArticles} />
 
-      <SectionCards isAdmin={isAdmin} />
+      <SectionCardsGate promise={isAdmin} />
     </div>
   );
 }

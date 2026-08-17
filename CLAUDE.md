@@ -32,7 +32,8 @@ behavior ever needs to be reconstructed.
 │   │   ├── login/page.tsx         # /login — outside (app): no sidebar, no requireUser()
 │   │   └── (app)/                 # sidebar + breadcrumb chrome for every real page
 │   │       ├── layout.tsx         # sidebar, content frame; awaits requireUser()
-│   │       ├── loading.tsx        # route-level Suspense fallback
+│   │       │                      #   (no loading.tsx anywhere: no page body
+│   │       │                      #   awaits, so none can suspend)
 │   │       ├── page.tsx           # dashboard
 │   │       ├── error.tsx          # error boundary for every route in the group
 │   │       ├── account/page.tsx   # /account — profile, password, passkeys
@@ -41,12 +42,16 @@ behavior ever needs to be reconstructed.
 │   │       │                      #   and the nine global tuning values
 │   │       ├── settings/page.tsx
 │   │       └── users/             # admin-only. page.tsx (list), new/, [id]/ (edit +
-│   │                              #   delete); each awaits requireAdmin() first
+│   │                              #   delete). The gate lives in the users
+│   │                              #   queries/actions now; only new/ still
+│   │                              #   awaits requireAdmin() in its page body
 │   ├── components/
 │   │   ├── ui/                    # shadcn components (Base UI + Tailwind v4)
 │   │   ├── auth/                   # login-form.tsx (passkey first), sign-out-button.tsx
 │   │   ├── account/                # profile-, password-, passkey-section.tsx
-│   │   ├── settings/               # general-, library-, about-section.tsx
+│   │   ├── settings/               # general-, library-, about-section.tsx and
+│   │   │                           #   settings-title.tsx — the per-page title
+│   │   │                           #   Client Component, literal namespace
 │   │   ├── crud/                   # the reusable list kit phases 8–10 consume:
 │   │   │                           #   data-table, pagination, search-filter-bar,
 │   │   │                           #   bulk-action-bar, confirm-destructive,
@@ -66,6 +71,9 @@ behavior ever needs to be reconstructed.
 │   │   │                           #   the keep-existing sentinel, the mask
 │   │   │                           #   placeholder, statusBadgeIn(),
 │   │   │                           #   reportOutcomeIn() — phase 7's second consumer
+│   │   ├── record-not-found.tsx    # what all five [id] routes render when the
+│   │   │                           #   record promise resolves to null — one
+│   │   │                           #   message for every reason it can be
 │   │   ├── user-avatar.tsx         # image, else initials on a colour from the id
 │   │   ├── app-sidebar.tsx         # navigation, from src/lib/nav.ts
 │   │   ├── route-breadcrumbs.tsx   # segment-derived breadcrumbs, overridable
@@ -384,15 +392,46 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   inferred, Next walks up looking for a lockfile and can nest the whole absolute
   path under `.next/standalone`, which breaks the Dockerfile's assumption that
   `server.js` lands at the tree root.
-- **Opt a route or layout out of prerendering with `await connection()` from
-  `next/server`, never `export const dynamic = "force-dynamic"`.**
+- **Opt a route out of prerendering with `connection()` from `next/server` —
+  **called, not awaited** — never `export const dynamic = "force-dynamic"`.**
   `better-sqlite3` is synchronous, so its queries complete during prerendering,
   and without this a production build would bake a page against `data/` — which
-  is gitignored and does not exist until the server's startup hook migrates it. Next 16 removes `dynamic` once Cache Components is enabled,
-  so `connection()` is the form that keeps working; the local doc is
+  is gitignored and does not exist until the server's startup hook migrates it.
+  Next 16 removes `dynamic` once Cache Components is enabled, so `connection()`
+  is the form that keeps working; the local doc is
   `node_modules/next/dist/docs/01-app/03-api-reference/04-functions/connection.md`,
   section "Synchronous database drivers", which names `better-sqlite3`
   explicitly.
+
+  **The missing `await` is deliberate, and it rests on a precondition that is
+  config-dependent — so it is written down here rather than left to be
+  rediscovered.** Page bodies await nothing now (see the streaming-pattern
+  bullet), so awaiting this one call would reintroduce the single await that
+  whole migration exists to remove: one `await` in the body makes the page
+  function async again, and an async page can suspend. Calling it is enough
+  today because `connection()` is a **non-async function** that inspects the
+  work store and returns or throws immediately
+  (`next/dist/server/request/connection.js`, Next 16.2.12). With no
+  `cacheComponents` and no PPR configured — `next.config.ts` carries only
+  `experimental.serverActions` — a `next build` prerender lands in that
+  function's `prerender-legacy` branch, which calls
+  `throwToInterruptStaticGeneration()`: a **synchronous throw**, which
+  propagates out of the (now synchronous) page function exactly as it would if
+  awaited. At real request time the same call takes the `request` branch,
+  resolves to `undefined`, and is never observed. **Under `cacheComponents` the
+  branch taken instead is `prerender`/`prerender-client`/`prerender-runtime`,
+  which `return makeHangingPromise(...)` and never throw** — an unawaited call
+  there would interrupt nothing, and a route could be statically prerendered
+  against a `data/` that does not exist. Enabling Cache Components therefore
+  means revisiting every one of these call sites, not just this bullet.
+
+  **The thing to re-run is the check, not the mechanism.**
+  `rm -rf data/ && npm run build && ls data/` must end in
+  `ls: data: No such file or directory`, and the build's route table must show
+  `ƒ` (Dynamic) beside every route — measured on this branch, all routes
+  dynamic, `data/` not recreated. A mechanism argument that survives a Next
+  upgrade is worth less than that command, which does not.
+
   **It is per route, and a layout does not cover its pages.** The root layout's
   call does _not_ keep a page off the database: layout and page are sibling
   render scopes, React starts the page before the layout's interrupt lands, and
@@ -400,45 +439,65 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   `getSettings()` → `getDb()`. That is measured, not theoretical — until phase
   4's task 2 it left an empty, unmigrated `data/yana.db` behind on every
   `npm run build`. So **every route that can reach the database calls it
-  itself, as its first statement**, before any translation or data call. **This
-  is a rule to apply, not a list to consult** — a fixed inventory here has
-  already drifted twice (once when phase 13's `/api/v1` routes shipped without
-  an entry, again when the dashboard's own route joined them), because nothing
-  enforces that a new call site gets a new line.
-  `grep -rl "await connection()" src/app` is how you find every route that
-  currently makes the call — read its output rather than counting it, because
-  not every hit is a call site: it also matches the `.test.ts` files that
-  assert the call is first, and it matches
-  `src/app/api/auth/[...all]/route.ts`, whose comment names the call in order
-  to _explain why that route deliberately has none_ (its only segment is
-  dynamic, so Next already treats it as dynamic — and the comment says to add
-  the call if that ever changes). A new route that reads anything needs its own
-  call, in the same commit that adds the read — unless it already awaits a
-  Dynamic API, which opts the route out just as well; the routes below are
-  exactly that second case, and are listed for the _reason_, not as inventory
-  to keep in sync.
-  `src/app/(app)/layout.tsx` is exempt because `requireUser()` awaits
-  `headers()` before anything touches SQLite; so are
-  `src/app/media/avatars/[userId]/route.ts` and
-  `src/app/api/feeds/export/route.ts`, for the same reason;
-  `src/app/(app)/jobs/[id]/page.tsx` and
-  `src/app/api/jobs/[id]/log-stream/route.ts`, likewise (the job live-log
-  feature's detail page and its SSE route, both gated by
-  `requireUserFreshRole()` before anything else); and so are phase 5's three
-  `/users` routes —
-  `src/app/(app)/users/page.tsx`, `src/app/(app)/users/new/page.tsx`,
-  `src/app/(app)/users/[id]/page.tsx` — where `requireAdmin()` does it. That
-  exemption is only worth as much as the
-  gate's **position**: it is the first statement of each of those three, ahead
-  of `getTranslations()`, `parseListParams()` and every query, which is where
-  it has to be anyway — inside a `<Suspense>` boundary its `notFound()` would
-  arrive after the first byte and truncate a 200 instead of answering 404. A
-  page that authorizes late has already opened the database, and then it needs
-  its own `connection()` line like everything else.
-  The health route calls it _outside_ its `try`, because inside it
-  the prerender bail-out (itself a thrown error) would be caught and turned into
-  a 503, silently reinstating a static `{"status":"ok"}`. To check the invariant:
-  delete `data/`, run `npm run build`, and confirm it was not recreated.
+  itself, as its first statement**, before any query. **This is a rule to apply,
+  not a list to consult** — a fixed inventory here has already drifted twice
+  (once when phase 13's `/api/v1` routes shipped without an entry, again when
+  the dashboard's own route joined them), because nothing enforces that a new
+  call site gets a new line. `grep -rn "connection()" src/app` is how you find
+  every route that currently makes the call — read its output rather than
+  counting it, because not every hit is a call site: it also matches the test
+  files that assert the call is there, and it matches
+  `src/app/api/auth/[...all]/route.ts`, whose comment names the call in order to
+  _explain why that route deliberately has none_ (its only segment is dynamic,
+  so Next already treats it as dynamic — and the comment says to add the call if
+  that ever changes). **Do not assume `await connection()` is rare** — after
+  the instant-render-no-fallback migration it survives in fourteen non-test
+  files, not two: every `(app)` page body still calls the bare, unawaited
+  `connection();` form (an `await` there would make the page function async
+  again, which is exactly what that migration removes), but `await
+connection()` is correct wherever the function is already async for its own
+  reasons and an extra `await` costs nothing — `src/app/layout.tsx`,
+  `src/app/health/route.ts`, `src/app/login/page.tsx` (outside the
+  instant-render page set), `src/app/(app)/api-docs/route.ts`, and ten
+  `/api/v1` route handlers that reach the database with no earlier awaited
+  Dynamic API to opt them out already (`articles/[id]/content`,
+  `articles/sync`, `auth/webview-session-token`, `feeds`, `images/[hash]`,
+  `jobs/events`, `openapi.json`, `reading-position`, `runs/[id]`, `tags` —
+  ten routes, not twelve). `grep -rl "await connection()" src --include="*.ts"
+--include="*.tsx" | grep -v test` is how to re-count; it also matches two
+  comment-only mentions that name the call without making it
+  (`src/app/api/auth/[...all]/route.ts`, `src/components/crud/use-list-params.ts`),
+  so subtract those two from its file count.
+
+  A route that already **awaits a Dynamic API** is opted out just as well and
+  needs no call. The instant-render migration shrank that category sharply,
+  because the awaits it removed from page bodies were mostly the ones doing this
+  job — so the routes listed here are listed for the _reason_, never as
+  inventory to keep in sync. `src/app/(app)/layout.tsx` is exempt because
+  `requireUser()` awaits `headers()` before anything touches SQLite; so are the
+  route handlers, which are async by construction and await their own gate —
+  `src/app/media/avatars/[userId]/route.ts`,
+  `src/app/media/images/[hash]/route.ts`, `src/app/api/feeds/export/route.ts`
+  and `src/app/api/jobs/[id]/log-stream/route.ts`. **`/users/new`
+  (`src/app/(app)/users/new/page.tsx`) is the one _page_ still in this
+  category**, and for a reason worth keeping straight: it is also the one page
+  that still awaits an authorization gate in its body, because it calls no data
+  function and so had nothing to carry the gate into (see the streaming-pattern
+  bullet's authorization section). Its `await requireAdmin()` reads `headers()`,
+  which opts the route out. Everything that gate used to cover on
+  `/users`, `/users/[id]` and `/jobs/*` moved into the data layer, so those
+  routes call `connection()` like everyone else. The three list routes
+  `/articles`, `/feeds` and `/tags` are the remaining exception and the least
+  obvious one: their page bodies call nothing at all synchronously — every read
+  is inside an async data region within a `<Suspense>` boundary, and each of
+  those awaits `currentUserId()` → `headers()` before it can reach `getDb()`,
+  which is what marks the route dynamic. Verified by the build check above, not
+  by reading this paragraph.
+
+  The health route calls it _outside_ its `try`, because inside it the prerender
+  bail-out (itself a thrown error) would be caught and turned into a 503,
+  silently reinstating a static `{"status":"ok"}`.
+
 - **shadcn components here are built on Base UI (`@base-ui/react`), not Radix:
   compose with the `render` prop, never Radix's `asChild`.** A Radix-flavored
   snippet — `asChild` on a trigger, wrapping a `<Link>` — will not typecheck
@@ -506,61 +565,53 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   shows up in a production server: webpack's context module inlines the
   dynamically-imported JSON into the server chunk at build time. `npm run dev`
   is unaffected. This cost an agent an hour already.
-- **The streaming pattern: a loading page shows the real controls, disabled and
-  empty — never a grey bar standing in for one.** The rule this replaced was
-  "chrome renders synchronously; data regions are async components inside
-  `<Suspense>` with fallbacks from `src/components/data-skeleton.tsx`", and it
-  drew the line in the wrong place. "Chrome" turned out to mean the heading and
-  the card border, so every _control_ counted as data: `/settings` awaited its
-  settings row above its JSX, the whole page suspended, and `loading.tsx`
-  replaced the theme `<Select>`, the retention `<Input>` and Save with three
-  `<Skeleton>` bars. Nothing about a `<Select>`'s existence, its label, its
-  help text or its option list depends on the stored value — only which option
-  is chosen does — so all of it was being hidden to wait for one number, and
-  then the page visibly reflowed as bars turned into controls. The 2026-08-16
-  streaming-controls migration moved the boundary from "the section" to "the
-  value inside the control".
+- **The streaming pattern: a page body awaits nothing, renders its real
+  controls immediately, and there is no `loading.tsx` anywhere in the tree.**
+  `find src/app -name "loading.tsx"` returns nothing, and that emptiness _is_
+  the invariant — not a leftover of the migration that produced it. A page
+  function that awaits nothing cannot suspend; a page that cannot suspend has no
+  route-level fallback to show; and a route fallback that does exist is a
+  `<Suspense>` boundary **above** the page, which is far more destructive than
+  it looks (Finding 1, below).
 
-  **The shape is a triple, and the fallback is the same component as the
-  resolved render.** The page calls its query **without `await`** and passes the
-  promise down; the client module exports `…Form` (presentational, its value
-  props optional, plus an optional `pending` defaulting to `false`), keeps a
-  private `…Resolved` that calls `use(promise)` and renders `…Form` with the
+  Two migrations got here, and the second only makes sense on top of the first.
+  The 2026-08-16 streaming-controls migration moved the boundary from "the
+  section" to "the value inside the control". The rule before it was "chrome
+  renders synchronously; data regions are async components inside `<Suspense>`
+  with fallbacks from `src/components/data-skeleton.tsx`", and it drew the line
+  in the wrong place: "chrome" turned out to mean the heading and the card
+  border, so every _control_ counted as data — `/settings` awaited its settings
+  row above its JSX, the whole page suspended, and `loading.tsx` replaced the
+  theme `<Select>`, the retention `<Input>` and Save with three `<Skeleton>`
+  bars. Nothing about a `<Select>`'s existence, its label, its help text or its
+  option list depends on the stored value; only which option is chosen does. The
+  2026-08-17 instant-render-no-fallback migration then took the last awaits out
+  of the page bodies themselves, at which point every `loading.tsx` was both
+  unreachable and — as it turned out — the cause of three defects nobody had
+  attributed to it.
+
+  **This is server-side fetching, streamed. It is not client-side fetching and
+  it adds no request waterfall.** The page calls its query **without `await`**
+  and hands the promise to a Client Component that consumes it with React 19's
+  `use()`. The query still runs on the server, in the same render pass, against
+  the same `getDb()` singleton; only the _await_ crossed the RSC boundary. A
+  `useEffect` + `fetch` rewrite would be a different architecture and is not
+  what any of this describes — reading it that way is the one misunderstanding
+  that would undo the whole thing.
+
+  **Section-level `<Suspense>` stays; the route-level one is what went away, and
+  its fallback is the real form in a `pending` state — never a `<Skeleton>`.**
+  The shape is a triple: the client module exports `…Form` (presentational, its
+  value props optional, plus an optional `pending` defaulting to `false`), keeps
+  a private `…Resolved` that calls `use(promise)` and renders `…Form` with the
   real values, and exports `…Section({ promise })` whose
-  `<Suspense fallback={<…Form pending />}>` wraps it.
-
-  **"Pass the promise down" means pass a projection, never a whole row, and
-  narrow it before it is handed to the Client Component -- not inside it.**
-  This is the same "a component gets the columns it renders, never the row"
-  rule stated elsewhere in this file for an already-awaited prop; it does not
-  stop applying because the value arrives late, behind a `use(promise)`. React
-  serializes a promise's **resolved value**, not the type its prop is
-  annotated with, so `promise: Promise<{ theme: string; language: string }>`
-  is structurally satisfied by a promise that resolves to the entire database
-  row -- and the whole row, `youtubeApiKey`/`openaiApiKey`/six more provider
-  secrets included, still crosses into the page's RSC payload, plain text in a
-  browser's network tab. Narrowing inside the `…Resolved` component's
-  `use(promise)` call happens _after_ serialization and buys nothing. The
-  2026-08-16 streaming-controls migration shipped exactly this bug at
-  `src/app/(app)/settings/page.tsx`: it passed `getSettings()` -- the whole
-  `UserSettings` row -- straight to `GeneralSection`/`LibrarySection`, and a
-  stored `openai_api_key` was reproducibly visible in `/settings`'s flight
-  payload. The fix is a `.then()` on the query, in the page, before the
-  promise is ever handed to a component:
-  `getSettings().then(({ theme, language, articleRetentionDays }) => ({
-theme, language, articleRetentionDays }))` -- still one `cache()`d read,
-  still one shared promise, but the only thing that can ever resolve is the
-  three fields the two sections render. Every later page that pipes a
-  query's promise into a Client Component prop inherits this obligation: type
-  the prop as the narrow shape, and construct the promise so that shape is
-  the only thing it can resolve to.
-  `src/components/settings/library-section.tsx` is the smallest reference;
-  `src/components/integrations/youtube-section.tsx` and
-  `src/components/ai/provider-section.tsx` are the two that carry every hard
-  case. Because the fallback and the resolved render are the _same component_,
-  a control cannot appear or disappear across the transition — only its value
-  fills in. That property is what the arrangement buys, and it is lost the
-  moment the fallback is anything else.
+  `<Suspense fallback={<…Form pending />}>` wraps it. Because the fallback and
+  the resolved render are the _same component_, a control cannot appear or
+  disappear across the transition — only its value fills in. That property is
+  what the arrangement buys, and it is lost the moment the fallback is anything
+  else. `src/components/settings/library-section.tsx` is the smallest
+  reference; `src/components/integrations/youtube-section.tsx` and
+  `src/components/ai/provider-section.tsx` carry every hard case.
 
   **A pending control passes `disabled` and omits `value` — never
   `defaultValue`.** `defaultValue` seeds an uncontrolled input once and is
@@ -576,79 +627,183 @@ theme, language, articleRetentionDays }))` -- still one `cache()`d read,
   branch in `provider-section.tsx` is commented at exactly that line.
 
   **A `<Skeleton>` survives only where the _shape_ is unknowable, not merely the
-  value, and the list is five places — each kept for its own reason, because
-  the reason is what makes the rule reusable:**
+  value, and the list is six places — each kept for its own reason, because the
+  reason is what makes the rule reusable:**
   - **A table body's rows** — `TableRowsSkeleton` in
-    `src/components/data-skeleton.tsx`, the fallback under a real
-    `<SearchFilterBar>`, a real bulk bar and a real `<thead>` on all five list
-    routes. How many rows come back is unknown until the query returns, so
-    there is no row count to render disabled.
-  - **`/account`'s passkey list** — the same: a credential list's length is
-    unknown, and it can legitimately be empty.
-  - **`/account`'s device list** — likewise.
+    `src/components/data-skeleton.tsx`, the fallback under a real chrome row and
+    a real `<thead>` on all five list routes (`src/components/*/…-list-region.tsx`
+    for articles, feeds, tags, users and jobs). How many rows come back is
+    unknown until the query returns, so there is no row count to render
+    disabled.
+  - **`/account`'s passkey list** (`src/components/account/passkey-section.tsx`)
+    — the same: a credential list's length is unknown, and it can legitimately
+    be empty.
+  - **`/account`'s device list** (`src/components/account/device-section.tsx`) —
+    likewise.
   - **The dashboard's stat _numbers_** —
     `src/components/dashboard/stat-cards.tsx`. A bare number has no meaningful
     empty rendering: `0` is a lie, and blank collapses the card and jumps the
     layout when the real figure lands. The card's frame, icon and title all
     render for real; only the number is a bar.
+  - **The dashboard's "latest unread" list body** —
+    `src/components/dashboard/recent-articles.tsx`, the sixth and the newest.
+    The card frame and heading render always; the list's _length_ is a shape,
+    not a value, so the same reasoning as the two `/account` lists applies. It
+    joined this list on the instant-render branch, when that card stopped being
+    an awaited async region.
   - **`/articles/[id]`'s "Content" section** — the block tree. The _number and
     kind_ of blocks are unknown until the article is read, so there is no form
-    shape to mirror the way every other card on that page has one.
+    shape to mirror the way every other card on that page has one. It is also
+    the only remaining `TableSkeleton` call site in the repository;
+    `CardSkeleton` is gone entirely.
 
-  Each of the five is commented where it lives. A separate and still-useful
-  fact, which is **not** what earns the last entry its place: `/articles/[id]`
-  is the only remaining `TableSkeleton` call site in the repository.
-  `CardSkeleton` is gone entirely — every card that used one now renders itself
-  in a `pending` state.
+  Each of the six is commented where it lives.
 
-  **Every route keeps its `loading.tsx`, rendering that same real chassis, and
-  this is the part that looks redundant and is not.** Server-side streaming
-  makes the _first_ paint of a route correct, but `loading.tsx` is what Next
-  renders during a **client-side soft navigation**, while the destination
-  segment's RSC payload is still crossing the network — no amount of server-side
-  `<Suspense>` can remove that latency, because the browser has nothing from the
-  new route yet. And a deleted `loading.tsx` does not mean "no fallback": Next
-  walks up to the nearest ancestor's, so it means _somebody else's_ fallback.
-  That is how `/feeds/new` used to show the feeds **table** while loading a
-  feeds **form**. `src/app/(app)/loading.tsx` is now reachable only for `/`
-  itself, and stays as the backstop for a segment that forgets one.
+  **The three awaits that had to leave every page body, and where each went.**
+  - **`await getTranslations(...)` for the heading → a per-page title Client
+    Component with a _literal_ namespace.**
+    `src/components/settings/settings-title.tsx` is the reference: it reads
+    `useTranslations("settings")` off the `NextIntlClientProvider` the root
+    layout already renders, so nothing crosses the RSC boundary for a heading
+    and nothing suspends on one. **A generic `<PageTitle namespace titleKey>`
+    was attempted twice and rejected twice — do not attempt it a third time.**
+    Making the namespace a type parameter while keeping catalog keys
+    compiler-checked hits the exact wall documented on
+    `src/components/section-kit.tsx`: TypeScript cannot prove a literal is a
+    member of `NamespaceKey<Namespace>` while `Namespace` is still a parameter,
+    and the only way through is a cast at a `t()` call site — precisely what the
+    `AppConfig` augmentation exists to prevent, and invisible until a renamed
+    key ships as a raw string in the UI. A literal namespace needs no generics
+    and no cast, so the duplication is one tiny component per page and nothing
+    else.
+  - **Authorization → into the data layer. `requireAdmin()` inside the `users`
+    queries and actions, `requireUserFreshRole()` inside
+    `src/lib/jobs/queries.ts`.** State it plainly, because it is the one thing
+    in this migration that could have leaked every account on an instance: **a
+    page rendering instantly is not permission to render data the caller may not
+    see.** A gate that lived in a page body and was simply deleted with the rest
+    of the awaits would take the authorization with it, silently, with every
+    test still green — so the gate moves to where the rows are _read_, and stays
+    there. Every exported function in `src/lib/users/queries.ts` and
+    `src/lib/users/actions.ts` that a page or action calls directly calls
+    `requireAdmin()` first -- with two internal-helper exceptions,
+    `countUsableAdmins()` and `countUserImpact()`, gated by their `./actions`
+    callers rather than themselves (each says so on its own doc comment, and a
+    new caller of either has to gate itself); `listJobsForCurrentUser()` and
+    `getJobForCurrentUser()` call `requireUserFreshRole()` and decide the owner
+    filter themselves, which is also why nothing in that module may be `cache()`d
+    across requests. **`/users/new` is the one route that keeps a page-body
+    gate**, and the reason is mechanical rather than principled: it calls no data
+    function at all — an empty create form — so there was nothing to carry the
+    gate into. Its `await requireAdmin()` is therefore also the thing that opts
+    that route out of prerendering (see the `connection()` bullet).
+  - **The deciding record read on a detail route → into a promise, and those
+    routes now render a not-found _state_ instead of answering 404.** All five
+    (`/articles/[id]`, `/feeds/[id]`, `/tags/[id]`, `/users/[id]`, `/jobs/[id]`)
+    hand an unawaited record promise to a section that consumes it with `use()`
+    and renders `<RecordNotFound>` (`src/components/record-not-found.tsx`) when
+    it resolves to `null`. **This was an explicit user decision**, taken with
+    the trade-off on the table — instant rendering everywhere, against a real
+    404 on five routes — and Finding 1 below is why it cost less than it
+    appears: four of those five had not been answering 404 for some time
+    already. The copy is deliberately identical for every reason a record can be
+    missing (gone, never existed, someone else's, an ownerless job a non-admin
+    may not see), the same "every refusal is indistinguishable" principle the
+    avatar route states; `getJobForCurrentUser()` collapses all of its cases to
+    one `null` and `RecordNotFound` must not reintroduce a distinction on top of
+    it. `/users/[id]` additionally catches the `notFound()` its own
+    `getUser()` gate throws for a non-admin and folds it into the same `null`
+    (`isNotFoundError()` in `src/lib/auth/session.ts`) — left uncaught, that
+    rejection surfaces through `use()` after the shell has flushed and stacks
+    the group's `error.tsx` on top of the not-found page, measured live as
+    "Something went wrong" above "This page could not be found".
 
-  **Testing a fallback:** `loading.tsx` is an async Server Component, which
-  testing-library cannot render — but its _output_ is synchronous, so
-  `renderWithProviders(await Loading())` works, the same narrow exception
-  `src/app/(app)/layout.test.tsx` already uses (see "Testing: two vitest
-  projects"; this is not a licence to split a data component so it fits). One
-  stub is needed: under Vitest, `next-intl/server` resolves to next-intl's
-  non-RSC build, where `getTranslations()` throws "not supported in Client
-  Components" the instant it is called. Each `loading.test.tsx` therefore mocks
-  that module with `createTranslator()` — the client-safe factory the real
-  implementation is built on — pointed at the **real `messages/en.json`**. That
-  does not violate "messages are never stubbed": the catalog is the shipped one,
-  and only the request-scoped plumbing around it is replaced. The assertion that
-  matters in each is `document.querySelector('[data-slot="skeleton"]')` being
-  `null`, so a regression back to grey bars fails a test instead of being
-  noticed in a browser.
+  **Finding 1: a `loading.tsx` creates a `<Suspense>` boundary _above_ the
+  page, and therefore flushes a 200 before any page-body gate resolves.** This
+  file already warned that an inline `<Suspense>` swallows a `notFound()`; it
+  never said that a route-level fallback does exactly the same thing, one level
+  higher, to the page's own body. It does. Two measured consequences, both
+  reproduced against real production builds:
+  - **`/users/new` was answering 200 instead of 404 to a non-admin.** Its
+    `await requireAdmin()` is the first statement of the page body and throws
+    the not-found sentinel correctly — but the fallback above it had already
+    flushed the shell, so the status was fixed at 200 and the throw only
+    truncated the stream. Deleting that one `loading.tsx` restored the 404
+    (200 → 404, curled before and after). The file had been **added by an
+    earlier migration in this repository**, to a route whose entire
+    authorization answer depended on not having one. Nothing failed; nobody
+    looked.
+  - **All four `[id]` detail routes were already returning 200, not 404**, for
+    the same reason — verified by building the commit _before_ this branch and
+    curling nonexistent ids: the response was a 200 whose `<h1>` read
+    `Edit article`, a pending chassis that then never resolved. The 404
+    guarantee those routes documented had never actually worked in a running
+    app. That is the context in which "detail routes render a not-found state
+    now" is a smaller change than it sounds.
 
-  **A shared `<PageTitle>` was considered and rejected — do not re-attempt it.**
-  Every page still opens with `await getTranslations()` for its heading, which
-  is one per-request-cached read the page body genuinely waits on, and the
-  obvious cleanup is a component that takes a namespace and a key. It cannot be
-  typed: making the namespace a type parameter while keeping catalog keys
-  compiler-checked hits the exact wall documented on
-  `src/components/section-kit.tsx` — TypeScript cannot prove a literal is a
-  member of `NamespaceKey<Namespace>` while `Namespace` is still a parameter —
-  and the only way through is a cast at a `t()` call site, which is precisely
-  what the `AppConfig` augmentation exists to prevent. A cast there would be
-  invisible until a renamed key shipped as a raw string in the UI. So pages keep
-  their own `await getTranslations()`, deliberately.
+  **Finding 2, and it is the one to carry into every future test: a
+  `notFound()` test that renders the page function proves only that the sentinel
+  was thrown — never that the response was a 404.** Four `page.test.ts` files
+  (articles, feeds, tags, users `[id]`; since rewritten as `.test.tsx`) asserted
+  `rejects.toThrow(/NEXT_HTTP_ERROR_FALLBACK;404/)`. They passed. They were even
+  mutation-tested and judged real guards — and they _were_ real guards, **of the
+  throw**. Meanwhile the running application returned 200 on every one of those
+  routes, because a boundary above the page had already flushed the shell. **A
+  green suite asserted a guarantee the application had never provided, for the
+  entire life of those routes.** The lesson generalises past this migration:
+  `notFound()`, `redirect()` and `forbidden()` are _requests_ for a status, and
+  whether the request is honoured depends on what is rendering above the caller
+  — which no unit test that invokes the page function can see. **Only an
+  end-to-end status check proves a status** (`npm run build && npm start`, then
+  `curl -o /dev/null -w "%{http_code}"` against a bad id), and any boundary
+  above the page invalidates it again. If a future phase wants a real 404 back
+  on a route, that curl is the acceptance criterion, and a passing
+  `rejects.toThrow` is not evidence of anything but a throw.
+
+  **Finding 3: a promise handed to a Client Component is serialized whole — pass
+  a projection, never a row.** React serializes a promise's **resolved value**,
+  not the type its prop is annotated with, so
+  `promise: Promise<{ theme: string; language: string }>` is structurally
+  satisfied by a promise that resolves to the entire database row, and the whole
+  row crosses into the page's RSC payload — plain text in a browser's network
+  tab. Narrowing inside the consumer's own `use(promise)` happens _after_
+  serialization and buys nothing. This is the same "a component gets the columns
+  it renders, never the row" rule stated elsewhere in this file for an
+  already-awaited prop: **it does not stop applying because the value arrives
+  late.** This branch shipped the defect, not merely risked it — `/settings`
+  passed `getSettings()` (the whole `UserSettings` row) straight to
+  `GeneralSection`/`LibrarySection`, putting `openaiApiKey`,
+  `redditClientSecret`, `youtubeApiKey` and six more stored credentials into
+  `/settings`'s flight payload in plaintext. It typechecked, passed the full
+  suite, and passed **seven task reviews** before a whole-branch review caught it
+  by planting canary values and grepping the payload. Three things came out of
+  the fix and all three are the convention now:
+  - **Narrow on the server, in a named exported function.**
+    `getSettingsSummary()` in `src/lib/settings/queries.ts` is the corrected
+    shape — `getSettings()` reduced to the three fields the two cards render,
+    still backed by the same `cache()`d read. An inline `.then()` in the page was
+    tried and rejected: it leaves no shared symbol for a test to import.
+  - **Reduce as far as the consumer's actual need.** The dashboard's admin gate
+    crosses as a `Promise<boolean>` — `requireUserFreshRole().then((user) =>
+isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
+    whose `.role` is read on the other side, which would serialize the email,
+    the ban columns and the timestamps.
+  - **Pin it to the real call site.** `src/lib/settings/settings.test.ts` reads
+    `src/app/(app)/settings/page.tsx` and asserts it contains
+    `const settings = getSettingsSummary()` and _not_
+    `const settings = getSettings()` — a specifier tripwire bound to the page's
+    own source, because a test that re-typed the narrowing locally kept passing
+    against a page that had reverted. That is not a hypothetical: it is what the
+    first version of this test did.
 
   All of the above still sits **inside an error boundary** — once the shell has
   flushed its first byte the response status is already 200 and cannot become a
   5xx, so a throw inside a Suspense boundary with no error boundary above it
   just truncates the stream. `(app)/error.tsx` is that boundary for every route
   in the group; a page adds a second one only if it wants a narrower blast
-  radius. There are **three** documented exceptions to "chrome never waits on
-  data", in two files:
+  radius. There are **three** documented exceptions to "nothing above the page
+  waits on data", all in two layout files, and a page body is no longer among
+  them at all:
   - **`src/app/layout.tsx`** resolves the locale (and the theme) through
     `getSettings()`. A cookie read that usually needs no query at all.
   - **`src/app/(app)/layout.tsx`** awaits `requireUser()` — cookie-cached, and
@@ -663,43 +818,11 @@ theme, language, articleRetentionDays }))` -- still one `cache()`d read,
     cookie read **and** one indexed query, unconditionally. A fourth exception
     needs the same argument made explicitly, not an appeal to this list.
 
-  **Whatever decides the response _status_ is awaited in the page body, never
-  inside a `<Suspense>`.** `notFound()`, `redirect()` and `forbidden()` can only
-  produce their status while the response is still open; inside a boundary,
-  after the shell has flushed, they truncate a 200 instead. So a detail route
-  awaits its row at the top and has no data region at all —
-  `src/app/(app)/users/[id]/page.tsx` is the precedent, and phases 9–11 each add
-  one. Two things fall out of it. The `<Suspense>` a list page keeps is for rows
-  whose _absence_ is an empty table rather than a 404
-  (`src/app/(app)/users/page.tsx`), and its gate still sits above the boundary.
-  And that same top-of-page `await` is what opts the route out of prerendering,
-  so it needs no `connection()` call — see the `connection()` bullet, which
-  lists it.
-
-  **The streaming-controls migration made this rule _more_ load-bearing, not
-  less, and it caught a live violation on the way.** Moving reads out of page
-  bodies and into unawaited promises is exactly the refactor that tempts an
-  agent to move the record read too — and `/articles/[id]` had already made
-  that mistake before this migration found it: `getArticle()` was being awaited
-  inside a `GeneralSection` that was itself wrapped in a `<Suspense>`, so
-  `notFound()` for a missing (or someone else's) article fired _after_ the shell
-  had flushed a 200 and truncated the stream instead of answering 404. **The
-  record read that decides the status is the one thing that must stay awaited at
-  the top of the page**, even though it is the read most worth streaming; the
-  other reads on the same page (`/articles/[id]`'s feed list and block tree)
-  decide nothing and are handed down unawaited. `src/app/(app)/*/[id]/page.test.ts`
-  now pins all four detail routes — articles, feeds, tags, users — by driving a
-  nonexistent and an unowned id through the page function and asserting it
-  rejects with Next's `NEXT_HTTP_ERROR_FALLBACK;404` sentinel, which is the only
-  externally visible trace `notFound()` leaves. A read that drifts back into a
-  boundary fails those tests rather than silently serving a truncated 200.
-
   **A fallback is a Server Component, so it may not hand a Client Component a
   function — and getting this wrong fails only on a cold start.** Every
-  `<Suspense fallback>` and every `loading.tsx` here renders a `"use client"`
-  component — now the section's own `…Form` with `pending`, previously a
-  separate `…Shell`. React has to serialize each prop across the RSC boundary
-  and a closure is not serializable (only a Server Action is), so
+  `<Suspense fallback>` here renders a `"use client"` component — the section's
+  own `…Form` with `pending`. React has to serialize each prop across the RSC
+  boundary and a closure is not serializable (only a Server Action is), so
   `onSubmit={(event) => event.preventDefault()}` throws
   `Event handlers cannot be passed to Client Component props` — replacing the
   whole page with `(app)/error.tsx`. It is invisible in normal use because a
@@ -711,12 +834,13 @@ theme, language, articleRetentionDays }))` -- still one `cache()`d read,
   entirely** (`AdvancedSectionShell` in
   `src/components/ai/advanced-section.tsx` is the surviving reference — its
   `onSubmit = (event) => event.preventDefault()` default parameter, and
-  `<AdvancedSectionForm>`'s `pending` branch passing `undefined`).
-  `tsc` cannot see the hazard and no jsdom test can either —
-  testing-library never runs the flight serializer — so the guard is
-  `src/app/server-component-props.test.ts`, a specifier-style tripwire that
-  fails on any `on[A-Z]…={` prop in a file under `src/app/` that is not itself
-  a Client Component.
+  `<AdvancedSectionForm>`'s `pending` branch passing `undefined`). `tsc` cannot
+  see the hazard and no jsdom test can either — testing-library never runs the
+  flight serializer — so the guard is `src/app/server-component-props.test.ts`,
+  a specifier-style tripwire that fails on any `on[A-Z]…={` prop in a file under
+  `src/app/` that is not itself a Client Component. The `loading.tsx` half of
+  that hazard is gone with the files, but the rule is unchanged for every
+  section fallback, which is where all of them live now.
 
 - **Identity comes from the session: `currentUser()`, `requireUser()`,
   `requireAdmin()`, `requireUserFreshRole()` and `currentUserId()` in
@@ -734,8 +858,23 @@ theme, language, articleRetentionDays }))` -- still one `cache()`d read,
     demoted a minute ago is still an admin to any check that trusts it. Identity
     reads may keep the cache (a stale id is not a privilege bug, and that is the
     read on every render); authorization may not.
-  - **`requireAdmin()` answers 404, not 403.** A 403 confirms the route exists,
-    which a non-admin has no reason to learn.
+  - **`requireAdmin()` throws a 404, not a 403 — and "throws" is the honest
+    verb, because the HTTP status depends on what is rendering above it.** A 403
+    would confirm the route exists, which a non-admin has no reason to learn, so
+    `notFound()` is what the gate calls. Whether the caller _receives_ a 404 is a
+    separate question with a separate answer: `notFound()` can only set a status
+    while the response is still open, so any `<Suspense>` boundary above the
+    caller — an inline one, or a route-level `loading.tsx`, or the section
+    boundary a page hands its promise into — has already flushed a 200 and the
+    throw merely truncates the stream. That is not theoretical: `/users/new`
+    answered 200 to a non-admin for as long as it had a `loading.tsx` (see
+    Finding 1 in the streaming-pattern bullet). Today the gate lives inside the
+    `users` queries and actions, which run inside section boundaries, so
+    `/users` and `/users/[id]` answer 200 and render nothing — the rows never
+    arrive, which is the guarantee that actually matters — while `/users/new`,
+    whose gate is still in the page body with no boundary above it, answers a
+    real 404. Never assert a status from a test that renders the page function;
+    only an end-to-end check can see it (Finding 2, same bullet).
 
   **`requireUserFreshRole()` is a third category the rule above doesn't name on
   its own: fresh role, no admin-only gate.** `requireAdmin()` answers "is this
@@ -1269,8 +1408,9 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
     minted, so a `generateId` change fails a test instead of 404ing every avatar.
   - **Every refusal is the same empty 404.** "Not yours", "no such user" and
     "nothing uploaded" must be indistinguishable, or the 200-vs-404 difference
-    is a user-id enumeration oracle. (`requireAdmin()` answers 404 for the same
-    reason.)
+    is a user-id enumeration oracle. (`requireAdmin()` throws a 404 for the same
+    reason — this route handler has no boundary above it, so unlike a page it
+    really does answer one; see the `requireAdmin()` bullet.)
   - **`Cache-Control: private, no-store`, deliberately**, plus `nosniff` and a
     constant `Content-Type`. The URL carries no version token, so any freshness
     lifetime would survive a re-upload; give the URL a content hash first if a
@@ -1990,12 +2130,21 @@ mock` the moment anything in the tree reaches an export it did not think to
   were broken.
 
   **`async` server components cannot be rendered by testing-library** — that
-  covers `settings/page.tsx` and the `Sections`/`LibrarySummary` data regions,
-  which stay untested. Don't reshape production code to make them testable. The
-  one case that works is an async component whose _output_ is synchronous:
-  `src/app/(app)/layout.tsx` is awaited as a plain function and its result
-  handed to `renderWithProviders()` (see `layout.test.tsx`). That is not a
-  licence to split a data component in two so it fits.
+  covers the async data regions that live inside a page's `<Suspense>`
+  boundaries (`UsersBody`/`UsersPagination` in `src/app/(app)/users/page.tsx`
+  and their equivalents on the other list routes), which stay untested here;
+  what they return is covered against a real database in the matching
+  `src/lib/**/*.test.ts`, and what the table does with it in the component's own
+  `.test.tsx`. Don't reshape production code to make them testable. **Page
+  bodies are no longer in this category**: since the instant-render migration
+  they are ordinary synchronous functions, so `page.test.tsx` renders one
+  directly — and the first assertion in several of them is that the return value
+  is _not_ a promise, which is the invariant that keeps a route fallback from
+  becoming reachable again. The older exception still stands for an async
+  component whose _output_ is synchronous: `src/app/(app)/layout.tsx` is awaited
+  as a plain function and its result handed to `renderWithProviders()` (see
+  `layout.test.tsx`). None of this is a licence to split a data component in two
+  so it fits.
 
   What is covered so far is exactly what phase 3's escaped defects needed: one
   `<main>` landmark, no `li` inside `li`, breadcrumbs translating nav segments

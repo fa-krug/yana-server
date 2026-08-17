@@ -1,38 +1,46 @@
 import { connection } from "next/server";
-import { getTranslations } from "next-intl/server";
 
 import { AdvancedSection } from "@/components/ai/advanced-section";
+import { AiTitle } from "@/components/ai/ai-title";
 import { ProviderSection } from "@/components/ai/provider-section";
 import { getAiStatus } from "@/lib/ai/queries";
 
-export default async function AiPage() {
+/**
+ * The instant-render-no-fallback migration (see
+ * `src/app/(app)/settings/page.tsx`): this page body awaits nothing, so it
+ * cannot suspend and `loading.tsx` -- deleted along with this rewrite -- is
+ * unreachable.
+ *
+ * `await getTranslations()` is gone, replaced by `<AiTitle>` -- a client
+ * component reading `useTranslations("ai")` off the `NextIntlClientProvider`
+ * the root layout already renders, so nothing crosses the RSC boundary for
+ * the heading/description and nothing here suspends on it. See
+ * `SettingsTitle`'s own comment for why the namespace is a literal rather
+ * than a generic prop.
+ */
+export default function AiPage() {
   /**
-   * Opt this route out of prerendering, **before** the first line that can reach
-   * SQLite -- exactly as `/integrations` does, and for the same reason. This
-   * page is signed-in but not admin-only, so there is no `requireAdmin()` to
-   * await and nothing else opts it out: without this call `getTranslations()`
-   * below resolves the next-intl request config -> `getSettings()` -> `getDb()`
-   * during `next build`, which creates an empty, unmigrated `data/yana.db` on
-   * the build machine. The (app) layout's `requireUser()` does not cover it:
-   * layout and page are sibling render scopes.
+   * Opt this route out of prerendering -- **called, not awaited**, exactly as
+   * `SettingsPage` does and for the same reason: `getAiStatus()` below is
+   * never awaited by this page body (it is handed straight to both client
+   * sections), so there is no other awaited Dynamic API left here to do this
+   * job. See CLAUDE.md's `connection()` bullet for why calling it, unawaited,
+   * is enough today -- and the `cacheComponents` precondition that fact
+   * rests on.
    */
-  await connection();
-  const t = await getTranslations("ai");
+  connection();
 
   // Not awaited: handed to both sections below, whose real controls render
   // immediately and fill in the values once it resolves -- awaiting here is
   // what used to make the whole page suspend behind one read.
   // `getAiStatus()` reads the same `cache()`d `getSettings()` row the root
-  // layout already read for this request, so sharing this one promise between
-  // both sections still costs exactly one query.
+  // layout already read for this request, so sharing this one promise
+  // between both sections still costs exactly one query.
   const status = getAiStatus();
 
   return (
     <div className="max-w-2xl space-y-6">
-      <div className="space-y-2">
-        <h1 className="text-2xl font-semibold">{t("title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("description")}</p>
-      </div>
+      <AiTitle />
       <div className="space-y-6">
         <ProviderSection promise={status} />
         <AdvancedSection promise={status} />

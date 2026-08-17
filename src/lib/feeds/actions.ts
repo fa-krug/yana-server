@@ -72,12 +72,33 @@ function normalizeIdentifier(spec: AggregatorSpec, identifier: string): string {
   return validValues.has(identifier) ? identifier : defaultIdentifierFor(spec);
 }
 
+/**
+ * The columns `/feeds/[id]`'s form actually renders (see `FeedListRow` in
+ * `src/components/feeds/feed-form.tsx`) plus `id`/`aggregator`/`identifier`,
+ * which `updateFeed()` below also reads off this same read. Not selected:
+ * `userId` (only ever a `WHERE`, never rendered), `dailyLimit`,
+ * `redditSubredditId`, `youtubeChannelId`, `logoSourceUrl`, `logoImageHash`,
+ * `createdAt`, `updatedAt` -- none of them read by the edit form or by
+ * `updateFeed()`, so a bare `db.select()` was serializing eight unused
+ * columns into the RSC payload of every render of this route (CLAUDE.md's "a
+ * component gets the columns it renders, never the row").
+ */
 export async function getFeed(id: number) {
   const userId = await currentUserId();
   const db = getDb();
 
   const feed = db
-    .select()
+    .select({
+      id: feeds.id,
+      name: feeds.name,
+      aggregator: feeds.aggregator,
+      identifier: feeds.identifier,
+      enabled: feeds.enabled,
+      options: feeds.options,
+      updateIntervalMinutes: feeds.updateIntervalMinutes,
+      concurrency: feeds.concurrency,
+      maxArticleAgeDays: feeds.maxArticleAgeDays,
+    })
     .from(feeds)
     .where(and(eq(feeds.id, id), eq(feeds.userId, userId)))
     .get();

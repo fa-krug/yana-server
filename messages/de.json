@@ -564,7 +564,9 @@
     "saving": "Wird gespeichert",
     "cancel": "Abbrechen",
     "loading": "Wird geladen",
-    "new": "Neu"
+    "new": "Neu",
+    "recordNotFoundTitle": "Nicht gefunden",
+    "recordNotFoundDescription": "Dieser Eintrag existiert nicht oder Sie haben keinen Zugriff darauf."
   },
   "articles": {
     "title": "Artikel",
@@ -643,8 +645,7 @@
       "totalArticles": "Artikel insgesamt",
       "feeds": "Feeds",
       "feedsValue": "{enabled} von {total}",
-      "tags": "Tags",
-      "activeJobs": "Laufende Aufgaben"
+      "tags": "Tags"
     },
     "recent": {
       "heading": "Zuletzt ungelesen",
