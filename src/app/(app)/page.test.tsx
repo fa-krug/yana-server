@@ -40,12 +40,12 @@ describe("DashboardPage", () => {
     expect(typeof (result as { then?: unknown })?.then).not.toBe("function");
   });
 
-  it("renders the <DashboardTitle> heading with no fallback frame", () => {
+  it("renders no page <h1> -- the breadcrumb already names the page", () => {
     const result = DashboardPage();
 
-    const { getByText } = renderWithProviders(result as ReactElement);
+    const { container } = renderWithProviders(result as ReactElement);
 
-    expect(getByText("Dashboard")).toBeTruthy();
+    expect(container.querySelector("h1")).toBeNull();
   });
 
   it("renders the non-admin section cards immediately, never the admin-only ones", () => {

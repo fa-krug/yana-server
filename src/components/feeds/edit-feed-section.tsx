@@ -1,7 +1,6 @@
 "use client";
 
 import { Suspense, use } from "react";
-import { useTranslations } from "next-intl";
 
 import { SetBreadcrumbTitle } from "@/components/breadcrumb-title";
 import { RecordNotFound } from "@/components/record-not-found";
@@ -20,15 +19,9 @@ import { EditFeedForm, FeedForm, type FeedListRow } from "./feed-form";
  * `feeds.userId = currentUserId()`, so this component cannot tell those
  * apart and does not try to (see `RecordNotFound`'s own comment).
  *
- * The `<h1>` passes the feed's own name to `t("editTitle", { name: feed.name })`
- * -- `feeds.editTitle` in the catalog is plain "Edit feed" with no `{name}`
- * placeholder, so next-intl silently ignores the extra argument and the
- * rendered heading does not actually include it (pre-existing, not
- * introduced here: the page this replaced made the same call). Either way,
- * the name is unknown until this `use()` call resolves, so the heading is
- * rendered from this same component rather than guessed at in a fallback,
- * per the instant-render-no-fallback plan -- `<EditFeedForm>` right below it
- * does display the feed's name, in its own name field.
+ * There is no page `<h1>`: the breadcrumb (fed by `SetBreadcrumbTitle`
+ * below) already names the record, and `<EditFeedForm>` displays the feed's
+ * name in its own name field.
  */
 function EditFeedResolved({
   feedPromise,
@@ -40,7 +33,6 @@ function EditFeedResolved({
   allTagsPromise: Promise<Tag[]>;
 }) {
   const feed = use(feedPromise);
-  const t = useTranslations("feeds");
 
   if (!feed) {
     return <RecordNotFound />;
@@ -49,7 +41,6 @@ function EditFeedResolved({
   return (
     <>
       <SetBreadcrumbTitle title={feed.name} />
-      <h1 className="text-2xl font-semibold">{t("editTitle", { name: feed.name })}</h1>
       <EditFeedForm
         feed={feed}
         capabilitiesPromise={capabilitiesPromise}
@@ -60,12 +51,10 @@ function EditFeedResolved({
 }
 
 /**
- * What `/feeds/[id]/page.tsx` renders. Unlike `/tags/[id]`'s title, this
- * route's `<h1>` needs the feed's own name, so -- per the instant-render
- * plan -- no skeleton bar stands in for it while pending: the fallback is
- * just `<FeedForm pending />`, the real chassis with every field blank and
- * disabled, and the title appears together with the real data once
- * `EditFeedResolved` resolves rather than being guessed at. This replaces
+ * What `/feeds/[id]/page.tsx` renders. There is no page `<h1>` -- the
+ * breadcrumb already names the record -- so the fallback is just
+ * `<FeedForm pending />`, the real chassis with every field blank and
+ * disabled. This replaces
  * `/feeds/[id]/loading.tsx`, deleted along with this component: the page
  * body that renders this awaits nothing, so that route-level fallback is
  * unreachable now (see `src/app/(app)/settings/page.tsx`'s doc comment for

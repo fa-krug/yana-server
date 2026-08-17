@@ -1,7 +1,6 @@
 import { connection } from "next/server";
 
 import { NewFeedForm } from "@/components/feeds/feed-form";
-import { NewFeedTitle } from "@/components/feeds/new-feed-title";
 import { capabilitiesFor } from "@/lib/feeds/actions";
 import { listTags } from "@/lib/tags/queries";
 
@@ -19,11 +18,9 @@ import { listTags } from "@/lib/tags/queries";
  *   and scopes every row to `session.id` -- this page's own call was
  *   redundant with both, never the only thing standing between another
  *   user's tags and this page.
- * - `await getTranslations("feeds")` is gone, replaced by `<NewFeedTitle>` --
- *   a client component reading `useTranslations("feeds")` off the
- *   `NextIntlClientProvider` the root layout already renders. See
- *   `SettingsTitle`'s own comment for why the namespace is a literal rather
- *   than a generic prop.
+ * - `await getTranslations("feeds")` is gone, along with the page `<h1>` it
+ *   produced: the breadcrumb already names the page, so the per-page heading
+ *   was removed everywhere.
  */
 export default function NewFeedPage() {
   /**
@@ -55,7 +52,6 @@ export default function NewFeedPage() {
 
   return (
     <div className="space-y-4">
-      <NewFeedTitle />
       <NewFeedForm capabilitiesPromise={capabilities} allTagsPromise={allTags} />
     </div>
   );

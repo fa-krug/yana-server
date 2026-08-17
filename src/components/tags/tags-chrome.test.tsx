@@ -31,10 +31,11 @@ beforeEach(() => {
  * detail of the deleted route-level fallback, not of this chrome.
  */
 describe("TagsChrome", () => {
-  it("renders the title, the New tag link and the search box", () => {
-    renderWithProviders(<TagsChrome />);
+  it("renders the New tag link and the search box, but no title", () => {
+    const { container } = renderWithProviders(<TagsChrome />);
 
-    expect(screen.getByText("Tags")).toBeTruthy();
+    // The breadcrumb already names the page, so the chrome renders no <h1>.
+    expect(container.querySelector("h1")).toBeNull();
     expect(screen.getByRole("link", { name: "New tag" })).toBeTruthy();
     expect(screen.getByRole("searchbox", { name: "Search tags" })).toBeTruthy();
   });

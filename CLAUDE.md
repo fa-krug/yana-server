@@ -49,9 +49,7 @@ behavior ever needs to be reconstructed.
 │   │   ├── ui/                    # shadcn components (Base UI + Tailwind v4)
 │   │   ├── auth/                   # login-form.tsx (passkey first), sign-out-button.tsx
 │   │   ├── account/                # profile-, password-, passkey-section.tsx
-│   │   ├── settings/               # general-, library-, about-section.tsx and
-│   │   │                           #   settings-title.tsx — the per-page title
-│   │   │                           #   Client Component, literal namespace
+│   │   ├── settings/               # general-, library-, about-section.tsx
 │   │   ├── crud/                   # the reusable list kit phases 8–10 consume:
 │   │   │                           #   data-table, pagination, search-filter-bar,
 │   │   │                           #   bulk-action-bar, confirm-destructive,
@@ -660,22 +658,28 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   Each of the six is commented where it lives.
 
   **The three awaits that had to leave every page body, and where each went.**
-  - **`await getTranslations(...)` for the heading → a per-page title Client
-    Component with a _literal_ namespace.**
-    `src/components/settings/settings-title.tsx` is the reference: it reads
-    `useTranslations("settings")` off the `NextIntlClientProvider` the root
-    layout already renders, so nothing crosses the RSC boundary for a heading
-    and nothing suspends on one. **A generic `<PageTitle namespace titleKey>`
-    was attempted twice and rejected twice — do not attempt it a third time.**
-    Making the namespace a type parameter while keeping catalog keys
-    compiler-checked hits the exact wall documented on
+  - **`await getTranslations(...)` for the heading → deleted along with the
+    heading itself.** No page in `(app)` renders its own `<h1>` any more: the
+    breadcrumb already names every page (and, on the `[id]` detail routes,
+    the record itself via `SetBreadcrumbTitle`), so the per-page heading was
+    a duplicate and was removed everywhere — the page tests assert
+    `container.querySelector("h1")` is `null`. The intermediate step this
+    replaced was a per-page title Client Component with a _literal_ namespace
+    (`settings-title.tsx` and friends, all deleted); the two survivors of
+    that technique are `src/components/ai/ai-description.tsx` and
+    `src/components/integrations/integrations-description.tsx`, which render
+    those pages' description line the same way: `useTranslations()` off the
+    `NextIntlClientProvider` the root layout already renders, so nothing
+    crosses the RSC boundary and nothing suspends. **A generic component with
+    a namespace prop was attempted twice and rejected twice — do not attempt
+    it a third time.** Making the namespace a type parameter while keeping
+    catalog keys compiler-checked hits the exact wall documented on
     `src/components/section-kit.tsx`: TypeScript cannot prove a literal is a
     member of `NamespaceKey<Namespace>` while `Namespace` is still a parameter,
     and the only way through is a cast at a `t()` call site — precisely what the
     `AppConfig` augmentation exists to prevent, and invisible until a renamed
     key ships as a raw string in the UI. A literal namespace needs no generics
-    and no cast, so the duplication is one tiny component per page and nothing
-    else.
+    and no cast.
   - **Authorization → into the data layer. `requireAdmin()` inside the `users`
     queries and actions, `requireUserFreshRole()` inside
     `src/lib/jobs/queries.ts`.** State it plainly, because it is the one thing

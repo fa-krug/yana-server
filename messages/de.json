@@ -12,7 +12,6 @@
     "account": "Konto"
   },
   "jobs": {
-    "title": "Aufgaben",
     "kind": "Art",
     "owner": "Benutzer",
     "systemOwner": "System",
@@ -33,7 +32,6 @@
     "log": "Protokoll",
     "logEmpty": "Noch keine Protokollausgabe.",
     "logEnded": "Auftrag beendet — Protokoll beendet.",
-    "detailTitle": "Auftrag #{id}",
     "activeRuns": "{count, plural, one {# Auftrag läuft} other {# Aufträge laufen}}",
     "bulkCancel": "Abbrechen",
     "bulkDelete": "Löschen",
@@ -66,7 +64,6 @@
     "label": "Profilbild von {name}"
   },
   "account": {
-    "title": "Konto",
     "saveFailed": "Änderungen konnten nicht gespeichert werden",
     "requestFailed": "Der Server hat nicht geantwortet. Prüfe deine Verbindung und versuche es erneut.",
     "sessionEnded": "Deine Sitzung ist abgelaufen. Melde dich erneut an.",
@@ -140,9 +137,6 @@
     }
   },
   "users": {
-    "title": "Benutzer",
-    "newTitle": "Neuer Benutzer",
-    "editTitle": "Benutzer bearbeiten",
     "new": "Neuer Benutzer",
     "searchPlaceholder": "Nach Name oder E-Mail suchen",
     "roleFilter": "Rolle",
@@ -198,9 +192,6 @@
     "lastAdmin": "Das ist das letzte Administratorkonto, das sich noch anmelden kann. Ernenne zuerst jemand anderen."
   },
   "tags": {
-    "title": "Tags",
-    "newTitle": "Neuer Tag",
-    "editTitle": "Tag bearbeiten",
     "new": "Neuer Tag",
     "searchPlaceholder": "Nach Tags suchen",
     "columns": {
@@ -253,11 +244,8 @@
     "noneSelected": "Wähle zuerst mindestens einen Tag aus."
   },
   "feeds": {
-    "title": "Feeds",
     "sessionEnded": "Deine Sitzung ist beendet. Melde dich erneut an, um fortzufahren.",
     "requestFailed": "Der Server hat nicht geantwortet. Prüfe deine Verbindung und versuche es erneut.",
-    "newTitle": "Neuer Feed",
-    "editTitle": "Feed bearbeiten",
     "new": "Neuer Feed",
     "searchPlaceholder": "Feeds suchen",
     "enabledTrue": "Aktiviert",
@@ -334,10 +322,20 @@
     "bulkExportOpml": "OPML exportieren"
   },
   "settings": {
-    "title": "Einstellungen",
-    "general": { "title": "Allgemein", "theme": "Design", "language": "Sprache" },
-    "theme": { "light": "Hell", "dark": "Dunkel", "system": "System" },
-    "language": { "en": "Englisch", "de": "Deutsch" },
+    "general": {
+      "title": "Allgemein",
+      "theme": "Design",
+      "language": "Sprache"
+    },
+    "theme": {
+      "light": "Hell",
+      "dark": "Dunkel",
+      "system": "System"
+    },
+    "language": {
+      "en": "Englisch",
+      "de": "Deutsch"
+    },
     "library": {
       "title": "Bibliothek",
       "retention": "Aufbewahrung",
@@ -357,7 +355,6 @@
     "saveFailed": "Einstellungen konnten nicht gespeichert werden"
   },
   "integrations": {
-    "title": "Integrationen",
     "description": "Zugangsdaten für die Dienste, von denen Yana abruft. Sie gehören allein zu deinem Konto, und ein gespeichertes Geheimnis wird nie wieder angezeigt — nur seine letzten vier Zeichen.",
     "sessionEnded": "Deine Sitzung ist beendet. Melde dich erneut an, um fortzufahren.",
     "requestFailed": "Der Server hat nicht geantwortet. Prüfe deine Verbindung und versuche es erneut.",
@@ -416,7 +413,6 @@
     "unexpected": "Der Anbieter hat unerwartet geantwortet, daher konnten diese Zugangsdaten nicht geprüft werden. Die Details stehen im Server-Log.",
     "unknownProvider": "Diesen KI-Anbieter unterstützt Yana nicht.",
     "activeNotVerified": "Speichere und prüfe die Zugangsdaten dieses Anbieters, bevor du ihn aktiv schaltest.",
-    "title": "KI",
     "description": "Mit welchem Anbieter die KI-Funktionen von Yana arbeiten, seine Zugangsdaten und wie jede Anfrage an ihn aussieht. Sie gehören allein zu deinem Konto, und ein gespeicherter Schlüssel wird nie wieder angezeigt — nur seine letzten vier Zeichen.",
     "verified": "Geprüft",
     "unverified": "Ungeprüft",
@@ -569,8 +565,6 @@
     "recordNotFoundDescription": "Dieser Eintrag existiert nicht oder Sie haben keinen Zugriff darauf."
   },
   "articles": {
-    "title": "Artikel",
-    "editTitle": "Artikel bearbeiten",
     "searchPlaceholder": "Artikel suchen",
     "columns": {
       "title": "Titel",
@@ -639,7 +633,6 @@
     "viewOnTwitter": "Auf X/Twitter ansehen"
   },
   "dashboard": {
-    "title": "Dashboard",
     "stats": {
       "unreadArticles": "Ungelesene Artikel",
       "totalArticles": "Artikel insgesamt",

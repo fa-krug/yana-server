@@ -50,7 +50,6 @@ function ArticleDetailResolved({
   return (
     <>
       <SetBreadcrumbTitle title={article.name} />
-      <h1 className="text-2xl font-semibold">{t("editTitle")}</h1>
 
       <section className="space-y-4">
         <h2 className="text-xl font-semibold">{t("general")}</h2>
@@ -68,8 +67,9 @@ function ArticleDetailResolved({
 }
 
 /**
- * What `/articles/[id]/page.tsx` renders. The title (`t("editTitle")`)
- * carries no record data, so the fallback only needs the real
+ * What `/articles/[id]/page.tsx` renders. There is no page `<h1>` -- the
+ * breadcrumb (fed by `SetBreadcrumbTitle` above) already names the record --
+ * so the fallback only needs the real
  * `<ArticleForm pending />` chassis for the general section -- the content
  * section has no known article at this point either, so it stays absent
  * (rather than a placeholder) until the whole thing resolves, the same way

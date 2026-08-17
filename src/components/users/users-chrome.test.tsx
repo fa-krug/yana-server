@@ -20,9 +20,10 @@ beforeEach(() => {
  * Carries forward the assertions `src/app/(app)/users/loading.test.tsx` used to
  * make against this same chrome, before that file was deleted as part of the
  * instant-render-no-fallback migration (`UsersPage` can no longer suspend, so
- * its fallback was unreachable). Everything that test named -- the heading, the
- * New user link, the search box and the role select -- still ships, just from a
- * Client Component instead of a hand-mirrored copy of the page.
+ * its fallback was unreachable). Everything that test named except the heading
+ * (removed everywhere: the breadcrumb already names the page) -- the New user
+ * link, the search box and the role select -- still ships, just from a Client
+ * Component instead of a hand-mirrored copy of the page.
  *
  * `<FeedsChrome>`'s own test explains why this matters: deleting a fallback
  * test without carrying its assertions over is what once dropped the only
@@ -33,10 +34,11 @@ beforeEach(() => {
  * now rendered from.
  */
 describe("UsersChrome", () => {
-  it("renders the heading, the New user link, the search box and the role filter", () => {
-    renderWithProviders(<UsersChrome />);
+  it("renders the New user link, the search box and the role filter, but no title", () => {
+    const { container } = renderWithProviders(<UsersChrome />);
 
-    expect(screen.getByText("Users")).toBeTruthy();
+    // The breadcrumb already names the page, so the chrome renders no <h1>.
+    expect(container.querySelector("h1")).toBeNull();
     expect(screen.getByRole("link", { name: "New user" })).toBeTruthy();
     expect(screen.getByRole("searchbox", { name: "Search by name or email" })).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Role" })).toBeTruthy();

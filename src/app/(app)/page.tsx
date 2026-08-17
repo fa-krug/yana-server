@@ -1,6 +1,5 @@
 import { connection } from "next/server";
 
-import { DashboardTitle } from "@/components/dashboard/dashboard-title";
 import { RecentArticles } from "@/components/dashboard/recent-articles";
 import { SectionCardsGate } from "@/components/dashboard/section-cards";
 import { StatCards } from "@/components/dashboard/stat-cards";
@@ -24,9 +23,9 @@ import { getDashboardStats, getRecentUnreadArticles } from "@/lib/dashboard/quer
  * for the full reasoning; the `cacheComponents` caveat itself lives in
  * CLAUDE.md's `connection()` bullet, which that comment points to.
  *
- * The heading is `<DashboardTitle>`, a Client Component reading
- * `useTranslations("dashboard")` -- replacing the `await getTranslations()`
- * that used to be here, the same swap `SettingsTitle` documents.
+ * There is no `<h1>` here: the breadcrumb already names the page, so the
+ * per-page heading was removed everywhere (along with the `await
+ * getTranslations()` that once produced it).
  *
  * `getDashboardStats()` and `getRecentUnreadArticles()` are **not** awaited
  * here, same as before this migration -- each is handed straight to its own
@@ -62,8 +61,6 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <DashboardTitle />
-
       <StatCards promise={stats} />
 
       <RecentArticles promise={recentArticles} />

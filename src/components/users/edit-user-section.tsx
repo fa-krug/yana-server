@@ -1,7 +1,6 @@
 "use client";
 
 import { Suspense, use } from "react";
-import { useTranslations } from "next-intl";
 
 import { SetBreadcrumbTitle } from "@/components/breadcrumb-title";
 import { RecordNotFound } from "@/components/record-not-found";
@@ -42,7 +41,6 @@ export type UserRecord = EditableUser & {
  */
 function EditUserResolved({ userPromise }: { userPromise: Promise<UserRecord | null> }) {
   const user = use(userPromise);
-  const t = useTranslations("users");
 
   if (!user) {
     return <RecordNotFound />;
@@ -51,7 +49,6 @@ function EditUserResolved({ userPromise }: { userPromise: Promise<UserRecord | n
   return (
     <>
       <SetBreadcrumbTitle title={displayNameFor(user)} />
-      <h1 className="text-2xl font-semibold">{t("editTitle")}</h1>
 
       <UserForm user={user} />
 
@@ -63,9 +60,10 @@ function EditUserResolved({ userPromise }: { userPromise: Promise<UserRecord | n
 }
 
 /**
- * What `/users/[id]/page.tsx` renders. The title (`t("editTitle")`) carries no
- * record data, so the fallback only needs the real `<UserForm pending />`
- * chassis, disabled -- `<DeleteUserSection>` has no equivalent (its
+ * What `/users/[id]/page.tsx` renders. There is no page `<h1>` -- the
+ * breadcrumb (fed by `SetBreadcrumbTitle` above) already names the record --
+ * so the fallback only needs the real `<UserForm pending />` chassis,
+ * disabled -- `<DeleteUserSection>` has no equivalent (its
  * confirmation names the user and targets their id, neither of which exists
  * yet), so it is simply absent while pending rather than a placeholder card,
  * the same way `ArticleFormSection`'s own fallback omits `<ContentSection>`.

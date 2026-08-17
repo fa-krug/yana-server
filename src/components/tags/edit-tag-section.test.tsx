@@ -28,7 +28,7 @@ const tag: TagDetailRow = {
  * have shipped green. This pins the resolved path.
  */
 describe("EditTagSection", () => {
-  it("renders the real form and title once the tag promise resolves", async () => {
+  it("renders the real form, but no title, once the tag promise resolves", async () => {
     // `use()` suspends on the tag promise on the very first render, then
     // resumes once it settles -- a microtask-scale gap `act()` has to span
     // (see the equivalent comment on
@@ -37,7 +37,8 @@ describe("EditTagSection", () => {
       renderWithProviders(<EditTagSection tagPromise={Promise.resolve(tag)} />);
     });
 
-    expect(screen.getByText("Edit tag")).toBeTruthy();
+    // No page <h1>: the breadcrumb already names the record.
+    expect(screen.queryByText("Edit tag")).toBeNull();
     expect(screen.getByDisplayValue("Example tag")).toBeTruthy();
     expect(screen.queryByText("Not found")).toBeNull();
   });

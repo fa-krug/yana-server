@@ -32,8 +32,8 @@ beforeEach(() => {
  * on this component's own output.
  */
 describe("FeedsChrome", () => {
-  it("renders every header action and both filter dropdowns", () => {
-    renderWithProviders(<FeedsChrome />);
+  it("renders every header action and both filter dropdowns, but no title", () => {
+    const { container } = renderWithProviders(<FeedsChrome />);
 
     // All three header actions.
     expect(screen.getByRole("link", { name: "Export all" })).toBeTruthy();
@@ -44,8 +44,9 @@ describe("FeedsChrome", () => {
     expect(screen.getByRole("combobox", { name: "Aggregator" })).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Enabled" })).toBeTruthy();
 
-    // The search box and the page heading.
+    // The search box -- and no page heading: the breadcrumb already names
+    // the page.
     expect(screen.getByRole("searchbox", { name: "Search feeds" })).toBeTruthy();
-    expect(screen.getByText("Feeds")).toBeTruthy();
+    expect(container.querySelector("h1")).toBeNull();
   });
 });

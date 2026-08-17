@@ -37,7 +37,7 @@ const feed: FeedListRow = {
  * not-found state.
  */
 describe("EditFeedSection", () => {
-  it("renders the real form and the feed-name title once the feed promise resolves", async () => {
+  it("renders the real form, but no title, once the feed promise resolves", async () => {
     // `use()` suspends on the feed promise on the very first render, then
     // resumes once it settles -- a microtask-scale gap `act()` has to span
     // (see the equivalent comment on
@@ -52,12 +52,9 @@ describe("EditFeedSection", () => {
       );
     });
 
-    // The catalog's `feeds.editTitle` ("Edit feed") carries no `{name}`
-    // placeholder -- the `t("editTitle", { name: feed.name })` call's extra
-    // argument is ignored by next-intl -- so the interpolation this
-    // component's own doc comment describes is aspirational for this key; the
-    // real assertion is that the resolved feed's own name reaches the form.
-    expect(screen.getByText("Edit feed")).toBeTruthy();
+    // No page <h1>: the breadcrumb already names the record. The real
+    // assertion is that the resolved feed's own name reaches the form.
+    expect(screen.queryByText("Edit feed")).toBeNull();
     expect(screen.getByDisplayValue("Example feed")).toBeTruthy();
     expect(screen.queryByText("Not found")).toBeNull();
   });

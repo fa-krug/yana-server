@@ -1,7 +1,7 @@
 import { connection } from "next/server";
 
 import { AdvancedSection } from "@/components/ai/advanced-section";
-import { AiTitle } from "@/components/ai/ai-title";
+import { AiDescription } from "@/components/ai/ai-description";
 import { ProviderSection } from "@/components/ai/provider-section";
 import { getAiStatus } from "@/lib/ai/queries";
 
@@ -11,12 +11,12 @@ import { getAiStatus } from "@/lib/ai/queries";
  * cannot suspend and `loading.tsx` -- deleted along with this rewrite -- is
  * unreachable.
  *
- * `await getTranslations()` is gone, replaced by `<AiTitle>` -- a client
- * component reading `useTranslations("ai")` off the `NextIntlClientProvider`
- * the root layout already renders, so nothing crosses the RSC boundary for
- * the heading/description and nothing here suspends on it. See
- * `SettingsTitle`'s own comment for why the namespace is a literal rather
- * than a generic prop.
+ * `await getTranslations()` is gone, replaced by `<AiDescription>` -- a
+ * client component reading `useTranslations("ai")` off the
+ * `NextIntlClientProvider` the root layout already renders, so nothing
+ * crosses the RSC boundary for the description and nothing here suspends on
+ * it. The page `<h1>` is gone entirely: the breadcrumb already names the
+ * page, so the per-page heading was removed everywhere.
  */
 export default function AiPage() {
   /**
@@ -40,7 +40,7 @@ export default function AiPage() {
 
   return (
     <div className="max-w-2xl space-y-6">
-      <AiTitle />
+      <AiDescription />
       <div className="space-y-6">
         <ProviderSection promise={status} />
         <AdvancedSection promise={status} />

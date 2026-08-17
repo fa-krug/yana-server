@@ -9,8 +9,9 @@ import { buttonVariants } from "@/components/ui/button";
 import { AGGREGATOR_SPECS } from "@/lib/aggregators/specs";
 
 /**
- * The `/feeds` header (title + the three actions: Export OPML, Import OPML,
- * New) and the search/filter bar beneath it.
+ * The `/feeds` header (the three actions: Export OPML, Import OPML, New --
+ * no title: the breadcrumb already names the page) and the search/filter bar
+ * beneath it.
  *
  * A Client Component reading `useTranslations("feeds")`, not an async Server
  * Component awaiting `getTranslations()` -- the instant-render-no-fallback
@@ -18,8 +19,8 @@ import { AGGREGATOR_SPECS } from "@/lib/aggregators/specs";
  * to await nothing, and this used to be the one thing standing in the way
  * (`{await FeedsChrome()}`). `useTranslations()` reads the
  * `NextIntlClientProvider` the root layout already renders, so nothing here
- * crosses the RSC boundary or suspends the page shell -- the same reasoning
- * `SettingsTitle` documents. Everything rendered here (the `feeds` catalog
+ * crosses the RSC boundary or suspends the page shell. Everything rendered
+ * here (the `feeds` catalog
  * and the static `AGGREGATOR_SPECS` table) needs no query either way.
  *
  * There used to be a second, hand-mirrored copy of this in `loading.tsx`,
@@ -58,17 +59,14 @@ export function FeedsChrome() {
 
   return (
     <>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-semibold">{t("title")}</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <a href="/api/feeds/export" className={buttonVariants({ variant: "outline" })}>
-            {t("exportOpml")}
-          </a>
-          <ImportOpmlButton />
-          <Link href="/feeds/new" className={buttonVariants()}>
-            {t("new")}
-          </Link>
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <a href="/api/feeds/export" className={buttonVariants({ variant: "outline" })}>
+          {t("exportOpml")}
+        </a>
+        <ImportOpmlButton />
+        <Link href="/feeds/new" className={buttonVariants()}>
+          {t("new")}
+        </Link>
       </div>
 
       <SearchFilterBar placeholder={t("searchPlaceholder")} filters={filters} />
