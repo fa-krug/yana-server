@@ -564,7 +564,9 @@
     "saving": "Saving",
     "cancel": "Cancel",
     "loading": "Loading",
-    "new": "New"
+    "new": "New",
+    "recordNotFoundTitle": "Not found",
+    "recordNotFoundDescription": "This item doesn't exist, or you don't have access to it."
   },
   "articles": {
     "title": "Articles",

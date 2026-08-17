@@ -1,82 +1,68 @@
-import { notFound } from "next/navigation";
-import { getTranslations } from "next-intl/server";
+import { connection } from "next/server";
 
-import { SetBreadcrumbTitle } from "@/components/breadcrumb-title";
-import { Separator } from "@/components/ui/separator";
-import { DeleteUserSection } from "@/components/users/delete-user-section";
-import { UserForm } from "@/components/users/user-form";
-import { displayNameFor } from "@/lib/avatar";
+import { EditUserSection, type UserRecord } from "@/components/users/edit-user-section";
 import { getUser } from "@/lib/users/queries";
 
-export default async function EditUserPage({
+/**
+ * The instant-render-no-fallback migration (see
+ * `src/app/(app)/settings/page.tsx`): this page body awaits nothing, so it
+ * cannot suspend and `loading.tsx` -- deleted along with this rewrite -- is
+ * unreachable.
+ *
+ * `await getUser(id)`, which used to decide a real `notFound()` (both for a
+ * nonexistent id and, via `getUser()`'s own `requireAdmin()` gate, for a
+ * non-admin caller), is now a promise handed to `<EditUserSection>` and
+ * consumed with `use()` there. **This route therefore no longer answers
+ * 404** -- a missing id and a non-admin caller both render the same
+ * not-found state once the promise resolves to `null`, rather than
+ * truncating a 200 the way calling `notFound()` after the shell has flushed
+ * would (see CLAUDE.md's `connection()`/detail-route rules). This was a
+ * deliberate, explicitly-approved trade-off, not an oversight.
+ *
+ * `await getTranslations("users")` is gone too; `<EditUserSection>` reads
+ * `useTranslations("users")` client-side once the user is known.
+ *
+ * The projection into `UserRecord` (id/email/firstName/lastName/role) still
+ * happens **here**, in this `.then()`, before the promise crosses into the
+ * Client Component tree -- never the whole `User` row, which also carries
+ * `emailVerified`, the three ban columns and the timestamps (see
+ * CLAUDE.md's "a component gets the columns it renders, never the row" and
+ * the plaintext-credential-leak precedent this branch already produced once
+ * from getting that wrong).
+ */
+export default function EditUserPage({
   params,
 }: {
-  // Structural, not the generated `PageProps<"/users/[id]">`: that type is
-  // written into `.next/types` by `next dev`/`build`, and CI typechecks after
-  // neither.
+  // Structural, not the generated `PageProps<"/users/[id]">` -- see the
+  // comment this page used to carry, and `src/app/(app)/jobs/[id]/page.tsx`,
+  // for why.
   params: Promise<{ id: string }>;
 }) {
   /**
-   * **No `requireAdmin()` here any more -- `getUser()` carries it.** The gate
-   * moved into `src/lib/users/queries.ts` (see its doc comment) so that this
-   * route's authorization does not depend on a page body remembering to call
-   * it; a non-admin gets 404 from inside the read below, before a single
-   * column of somebody else's account is projected. The record read itself is
-   * unchanged and still happens here, at the top, which is what keeps
-   * `notFound()` able to produce a real 404 -- and what still opts this route
-   * out of prerendering, since `getUser()` awaits `headers()` before anything
-   * reaches SQLite (see the `connection()` bullet in CLAUDE.md).
+   * Opt this route out of prerendering -- **called, not awaited**, exactly as
+   * `SettingsPage`/`AccountPage` do: `getUser()` below is never awaited by
+   * this page body, so there is no other awaited Dynamic API left here to do
+   * this job.
    */
-  const { id } = await params;
+  connection();
 
-  /**
-   * **Read here rather than inside a `<Suspense>` boundary, and that is the
-   * whole reason this page has none.** The 404 for a user who does not exist
-   * depends on this row, and `notFound()` can only produce a real 404 while the
-   * response status is still open -- inside a boundary, after the shell has
-   * flushed, it would truncate a 200 instead. So the page awaits one indexed
-   * primary-key lookup before it renders anything, and `src/app/(app)/loading.tsx`
-   * is the fallback the route already has for exactly that.
-   *
-   * `getUser()` awaits `headers()` (through its own `requireAdmin()`) before
-   * anything reaches SQLite, so the route is out of prerendering by the end of
-   * this line -- no `connection()` call is needed (see the `connection()`
-   * bullet in CLAUDE.md).
-   */
-  const user = await getUser(id);
-  if (!user) notFound();
-
-  const t = await getTranslations("users");
+  // Not awaited: chained onto the `params` promise instead, so this page
+  // body still awaits nothing.
+  const userPromise: Promise<UserRecord | null> = params.then(async ({ id }) => {
+    const user = await getUser(id);
+    if (!user) return null;
+    return {
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      role: user.role,
+    };
+  });
 
   return (
     <div className="max-w-2xl space-y-6">
-      <SetBreadcrumbTitle title={displayNameFor(user)} />
-      <h1 className="text-2xl font-semibold">{t("editTitle")}</h1>
-
-      {/* The columns each component renders, never the `User` row: it also
-          carries `emailVerified`, the three ban columns and the timestamps, and
-          both of these are client components -- everything passed is serialized
-          into this page's RSC payload. */}
-      <UserForm
-        user={{
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          role: user.role,
-        }}
-      />
-
-      <Separator />
-
-      <DeleteUserSection
-        user={{
-          id: user.id,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-        }}
-      />
+      <EditUserSection userPromise={userPromise} />
     </div>
   );
 }

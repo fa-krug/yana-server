@@ -20,7 +20,7 @@ import { attemptCall } from "@/lib/attempt";
 import { useTrackRun } from "@/components/jobs/active-runs-context";
 import type { Article, Feed } from "@/lib/db/schema";
 
-type ArticleFeed = { id: number; name: string };
+export type ArticleFeed = { id: number; name: string };
 
 /**
  * `article`/`feeds` are optional and paired with `pending`, the same

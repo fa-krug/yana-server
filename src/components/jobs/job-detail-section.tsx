@@ -1,0 +1,140 @@
+"use client";
+
+import { Suspense, use } from "react";
+import Link from "next/link";
+import { useTranslations } from "next-intl";
+
+import { RecordNotFound } from "@/components/record-not-found";
+import type { Job } from "@/lib/db/schema";
+import { JobActions } from "./job-actions";
+import { JobLogViewer, type JobLogLine } from "./job-log-viewer";
+import { StatusBadge } from "./jobs-table";
+
+/** What `/jobs/[id]/page.tsx` reads and hands down as one promise, so the
+ * page body awaits nothing -- see `EditFeedResolved`'s equivalent comment
+ * for the shape this belongs to. */
+export type JobDetail = {
+  job: Job;
+  logs: JobLogLine[];
+  feedId: number;
+  feed: { id: number; name: string } | undefined;
+  articleId: number;
+  article: { id: number; name: string } | undefined;
+};
+
+/**
+ * Calls `use()` on the one promise `/jobs/[id]/page.tsx` hands down; suspends
+ * until it settles; renders either the real detail view or the not-found
+ * state.
+ *
+ * `jobDetailPromise` resolves to `null` for a nonexistent id, an id owned by
+ * someone else, **and** an ownerless job (`retention`) viewed by a
+ * non-admin -- `getJobForCurrentUser()` already collapses all three to the
+ * same `null` (see its own doc comment in `src/lib/jobs/queries.ts`), and
+ * this component must keep them indistinguishable: no message here may name
+ * which of the three it was, or the not-found state becomes an ownership
+ * enumeration oracle for someone probing job ids.
+ */
+function JobDetailResolved({ jobDetailPromise }: { jobDetailPromise: Promise<JobDetail | null> }) {
+  const detail = use(jobDetailPromise);
+  const t = useTranslations("jobs");
+
+  if (!detail) {
+    return <RecordNotFound />;
+  }
+
+  const { job, logs, feedId, feed, articleId, article } = detail;
+
+  return (
+    <div className="max-w-3xl space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">{t("detailTitle", { id: job.id })}</h1>
+        <JobActions job={{ id: job.id, status: job.status }} />
+      </div>
+
+      <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+        <div>
+          <dt className="text-muted-foreground">{t("kind")}</dt>
+          <dd className="font-mono">{job.kind}</dd>
+        </div>
+        {feedId > 0 && (
+          <div>
+            <dt className="text-muted-foreground">{t("feed")}</dt>
+            <dd>
+              {feed ? (
+                <Link href={`/feeds/${feed.id}`} className="hover:underline">
+                  {feed.name}
+                </Link>
+              ) : (
+                <span className="text-muted-foreground">{t("feedGone", { id: feedId })}</span>
+              )}
+            </dd>
+          </div>
+        )}
+        {articleId > 0 && (
+          <div>
+            <dt className="text-muted-foreground">{t("article")}</dt>
+            <dd>
+              {article ? (
+                <Link href={`/articles/${article.id}`} className="hover:underline">
+                  {article.name}
+                </Link>
+              ) : (
+                <span className="text-muted-foreground">{t("articleGone", { id: articleId })}</span>
+              )}
+            </dd>
+          </div>
+        )}
+        <div>
+          <dt className="text-muted-foreground">{t("status")}</dt>
+          <dd>
+            <StatusBadge status={job.status} />
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">{t("attempts")}</dt>
+          <dd>
+            {job.attempts} / {job.maxAttempts}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">{t("progress")}</dt>
+          <dd>{job.progress}%</dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">{t("createdAt")}</dt>
+          <dd>{job.createdAt.toLocaleString()}</dd>
+        </div>
+      </dl>
+
+      <div>
+        <h2 className="mb-2 text-sm font-medium">{t("log")}</h2>
+        <JobLogViewer jobId={job.id} initialLines={logs} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * What `/jobs/[id]/page.tsx` renders. The title (`t("detailTitle", { id })`)
+ * needs the job's own id, and every other field here -- status, attempts,
+ * the log -- needs the job row too, so unlike the CRUD detail routes there
+ * is no reusable "real chassis, disabled" form to fall back to. Per the
+ * instant-render plan's "do not leave a skeleton bar for it" rule, the
+ * fallback is simply nothing: the whole detail view appears at once, already
+ * filled in, once `JobDetailResolved` resolves -- which for a local SQLite
+ * read is not a perceptible wait. This replaces `/jobs/[id]/loading.tsx`,
+ * deleted along with this component: the page body that renders this awaits
+ * nothing, so that route-level fallback is unreachable now.
+ */
+export function JobDetailSection({
+  jobDetailPromise,
+}: {
+  jobDetailPromise: Promise<JobDetail | null>;
+}) {
+  return (
+    <Suspense fallback={null}>
+      <JobDetailResolved jobDetailPromise={jobDetailPromise} />
+    </Suspense>
+  );
+}
