@@ -1,20 +1,43 @@
-import { getTranslations } from "next-intl/server";
+import { connection } from "next/server";
 
 import { NewFeedForm } from "@/components/feeds/feed-form";
-import { requireUser } from "@/lib/auth/session";
+import { NewFeedTitle } from "@/components/feeds/new-feed-title";
 import { capabilitiesFor } from "@/lib/feeds/actions";
 import { listTags } from "@/lib/tags/queries";
 
-export default async function NewFeedPage() {
+/**
+ * The instant-render-no-fallback migration (see
+ * `src/app/(app)/settings/page.tsx`): this page body awaits nothing, so it
+ * cannot suspend and `loading.tsx` -- deleted along with this rewrite -- is
+ * unreachable.
+ *
+ * Two things this page used to await, and where each went:
+ * - `await requireUser()` is gone from here entirely, the same call as
+ *   `/feeds`'s own page removed (see its doc comment). `capabilitiesFor()`
+ *   already scopes through `getSettings()` -> `currentUserId()` ->
+ *   `requireUser()`, and `listTags()` already awaits `requireUser()` itself
+ *   and scopes every row to `session.id` -- this page's own call was
+ *   redundant with both, never the only thing standing between another
+ *   user's tags and this page.
+ * - `await getTranslations("feeds")` is gone, replaced by `<NewFeedTitle>` --
+ *   a client component reading `useTranslations("feeds")` off the
+ *   `NextIntlClientProvider` the root layout already renders. See
+ *   `SettingsTitle`'s own comment for why the namespace is a literal rather
+ *   than a generic prop.
+ */
+export default function NewFeedPage() {
   /**
-   * The gate, first -- and there is no `<Suspense>` here for it to be inside
-   * of. It also opts the route out of prerendering: `requireUser()` awaits
-   * `headers()` before anything can reach SQLite, so no `connection()` call is
-   * needed (see the `connection()` bullet in CLAUDE.md).
+   * Opt this route out of prerendering -- **called, not awaited**. Neither
+   * `capabilitiesFor()` nor `listTags()` below is awaited by this page body
+   * (both are handed straight to `<NewFeedForm>` as promises), so with
+   * `await requireUser()` gone there is no other awaited Dynamic API left
+   * here to do this job. `connection()` throws synchronously during
+   * `next build`'s static generation pass regardless of whether anything
+   * awaits its result, which is what still keeps
+   * `rm -rf data/ && npm run build` from baking this page against an
+   * unmigrated `data/`.
    */
-  await requireUser();
-
-  const t = await getTranslations("feeds");
+  connection();
 
   // Not awaited: handed to `<NewFeedForm>`, whose real form chassis renders
   // immediately (disabled, per its own `pending` fallback) and fills in the
@@ -33,7 +56,7 @@ export default async function NewFeedPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">{t("newTitle")}</h1>
+      <NewFeedTitle />
       <NewFeedForm capabilitiesPromise={capabilities} allTagsPromise={allTags} />
     </div>
   );

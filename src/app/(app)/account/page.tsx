@@ -1,6 +1,6 @@
 import { connection } from "next/server";
-import { getTranslations } from "next-intl/server";
 
+import { AccountTitle } from "@/components/account/account-title";
 import { DeviceSection } from "@/components/account/device-section";
 import { PasskeySection } from "@/components/account/passkey-section";
 import { PasswordSection } from "@/components/account/password-section";
@@ -8,23 +8,30 @@ import { ProfileSection } from "@/components/account/profile-section";
 import { getAccountOverview } from "@/lib/account/queries";
 
 /**
- * `await getTranslations()` stays in the page body for the same reason
- * `SettingsPage`'s doc comment gives: a generic `<PageTitle>` cannot stay
- * compiler-checked against `NamespaceKey<Namespace>` without a cast at the
- * `t()` call site, which CLAUDE.md forbids. This page suspends only on that
- * one per-request-`cache()`d read, never on `getAccountOverview()` below --
- * which is the read this migration takes off the critical path.
+ * The instant-render-no-fallback migration (see
+ * `src/app/(app)/settings/page.tsx`): this page body awaits nothing, so it
+ * cannot suspend and `loading.tsx` -- deleted along with this rewrite -- is
+ * unreachable.
+ *
+ * `await getTranslations()` is gone, replaced by `<AccountTitle>` -- a client
+ * component reading `useTranslations("account")` off the
+ * `NextIntlClientProvider` the root layout already renders, so nothing
+ * crosses the RSC boundary for the title and nothing here suspends on it. See
+ * `SettingsTitle`'s own comment for why the namespace is a literal rather
+ * than a generic prop.
  */
-export default async function AccountPage() {
+export default function AccountPage() {
   /**
-   * Opt this route out of prerendering, **before** the first line that can
-   * reach SQLite. `connection()` in the root layout is not enough -- see the
-   * `connection()` bullet in CLAUDE.md: the layout and this page are sibling
-   * render scopes, and `getTranslations()` below already resolves the
-   * next-intl request config -> `getSettings()` -> `getDb()`.
+   * Opt this route out of prerendering -- **called, not awaited**, exactly as
+   * `SettingsPage` does and for the same reason: `getAccountOverview()` below
+   * is never awaited by this page body (it is handed straight to the four
+   * client sections), so there is no other awaited Dynamic API left here to
+   * do this job. `connection()` throws synchronously during `next build`'s
+   * static generation pass regardless of whether anything awaits its result,
+   * which is what still keeps `rm -rf data/ && npm run build` from baking
+   * this page against an unmigrated `data/`.
    */
-  await connection();
-  const t = await getTranslations("account");
+  connection();
 
   // Not awaited: the promise is handed to all four client components, which
   // render their real controls immediately and fill in the values when it
@@ -36,7 +43,7 @@ export default async function AccountPage() {
 
   return (
     <div className="max-w-2xl space-y-6">
-      <h1 className="text-2xl font-semibold">{t("title")}</h1>
+      <AccountTitle />
       <div className="space-y-6">
         <ProfileSection promise={overview} />
         <PasswordSection promise={overview} />
