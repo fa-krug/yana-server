@@ -44,11 +44,12 @@ describe("IntegrationsPage", () => {
     expect(typeof (result as { then?: unknown })?.then).not.toBe("function");
   });
 
-  it("renders the <IntegrationsTitle> heading with no fallback frame", () => {
+  it("renders the description but no page <h1> -- the breadcrumb already names the page", () => {
     const result = IntegrationsPage();
 
-    const { container } = renderWithProviders(result as ReactElement);
+    const { container, getByText } = renderWithProviders(result as ReactElement);
 
-    expect(container.querySelector("h1")?.textContent).toBe("Integrations");
+    expect(container.querySelector("h1")).toBeNull();
+    expect(getByText(/Credentials for the services Yana fetches from/)).toBeTruthy();
   });
 });

@@ -1,6 +1,5 @@
 import { connection } from "next/server";
 
-import { NewTagTitle } from "@/components/tags/new-tag-title";
 import { TagForm } from "@/components/tags/tag-form";
 
 /**
@@ -15,10 +14,8 @@ import { TagForm } from "@/components/tags/tag-form";
  * `currentUserId()` -- so the gate here was never the only thing standing
  * between an unauthenticated request and this page; the `(app)` layout's own
  * `requireUser()` already covers that. `await getTranslations("tags")` is
- * gone too, replaced by `<NewTagTitle>` -- a client component reading
- * `useTranslations("tags")` off the `NextIntlClientProvider` the root layout
- * already renders. See `SettingsTitle`'s own comment for why the namespace is
- * a literal rather than a generic prop.
+ * gone too, along with the page `<h1>` it produced: the breadcrumb already
+ * names the page, so the per-page heading was removed everywhere.
  */
 export default function NewTagPage() {
   /**
@@ -33,7 +30,6 @@ export default function NewTagPage() {
 
   return (
     <div className="space-y-4">
-      <NewTagTitle />
       {/* No data region, so no Suspense boundary: the form starts empty. */}
       <TagForm />
     </div>

@@ -5,8 +5,8 @@ import { useTranslations } from "next-intl";
 import { SearchFilterBar } from "@/components/crud/search-filter-bar";
 
 /**
- * The `/jobs` header (title only -- this page has no "new" action) and the
- * kind filter beneath it.
+ * The `/jobs` kind filter (no title: the breadcrumb already names the page,
+ * and this page has no "new" action either).
  *
  * A Client Component reading `useTranslations("jobs")` with a **literal**
  * namespace, so both keys stay compiler-checked against the catalogs, rather
@@ -25,13 +25,5 @@ import { SearchFilterBar } from "@/components/crud/search-filter-bar";
 export function JobsChrome() {
   const t = useTranslations("jobs");
 
-  return (
-    <>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-semibold">{t("title")}</h1>
-      </div>
-
-      <SearchFilterBar placeholder={t("filterKind")} />
-    </>
-  );
+  return <SearchFilterBar placeholder={t("filterKind")} />;
 }

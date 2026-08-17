@@ -12,7 +12,6 @@
     "account": "Account"
   },
   "jobs": {
-    "title": "Jobs",
     "kind": "Kind",
     "owner": "User",
     "systemOwner": "System",
@@ -33,7 +32,6 @@
     "log": "Log",
     "logEmpty": "No log output yet.",
     "logEnded": "Job finished — log ended.",
-    "detailTitle": "Job #{id}",
     "activeRuns": "{count, plural, one {# job running} other {# jobs running}}",
     "bulkCancel": "Cancel",
     "bulkDelete": "Delete",
@@ -66,7 +64,6 @@
     "label": "Avatar of {name}"
   },
   "account": {
-    "title": "Account",
     "saveFailed": "Could not save your changes",
     "requestFailed": "The server did not answer. Check your connection and try again.",
     "sessionEnded": "Your session ended. Sign in again to continue.",
@@ -140,9 +137,6 @@
     }
   },
   "users": {
-    "title": "Users",
-    "newTitle": "New user",
-    "editTitle": "Edit user",
     "new": "New user",
     "searchPlaceholder": "Search by name or email",
     "roleFilter": "Role",
@@ -198,9 +192,6 @@
     "lastAdmin": "This is the last administrator who can still sign in. Promote somebody else first."
   },
   "tags": {
-    "title": "Tags",
-    "newTitle": "New tag",
-    "editTitle": "Edit tag",
     "new": "New tag",
     "searchPlaceholder": "Search tags",
     "columns": {
@@ -253,11 +244,8 @@
     "noneSelected": "Select at least one tag first."
   },
   "feeds": {
-    "title": "Feeds",
     "sessionEnded": "Your session ended. Sign in again to continue.",
     "requestFailed": "The server did not answer. Check your connection and try again.",
-    "newTitle": "New feed",
-    "editTitle": "Edit feed",
     "new": "New feed",
     "searchPlaceholder": "Search feeds",
     "enabledTrue": "Enabled",
@@ -334,10 +322,20 @@
     "bulkExportOpml": "Export OPML"
   },
   "settings": {
-    "title": "Settings",
-    "general": { "title": "General", "theme": "Theme", "language": "Language" },
-    "theme": { "light": "Light", "dark": "Dark", "system": "System" },
-    "language": { "en": "English", "de": "German" },
+    "general": {
+      "title": "General",
+      "theme": "Theme",
+      "language": "Language"
+    },
+    "theme": {
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
+    },
+    "language": {
+      "en": "English",
+      "de": "German"
+    },
     "library": {
       "title": "Library",
       "retention": "Article retention",
@@ -357,7 +355,6 @@
     "saveFailed": "Could not save settings"
   },
   "integrations": {
-    "title": "Integrations",
     "description": "Credentials for the services Yana fetches from. They belong to your account alone, and a saved secret is never shown again — only its last four characters.",
     "sessionEnded": "Your session ended. Sign in again to continue.",
     "requestFailed": "The server did not answer. Check your connection and try again.",
@@ -416,7 +413,6 @@
     "unexpected": "The provider answered in a way Yana did not expect, so these credentials could not be verified. The details are in the server log.",
     "unknownProvider": "Yana does not support that AI provider.",
     "activeNotVerified": "Save and verify that provider's credentials before making it the active one.",
-    "title": "AI",
     "description": "Which provider Yana's AI features run on, its credentials, and how every request to it is shaped. They belong to your account alone, and a saved key is never shown again — only its last four characters.",
     "verified": "Verified",
     "unverified": "Not verified",
@@ -569,8 +565,6 @@
     "recordNotFoundDescription": "This item doesn't exist, or you don't have access to it."
   },
   "articles": {
-    "title": "Articles",
-    "editTitle": "Edit article",
     "searchPlaceholder": "Search articles",
     "columns": {
       "title": "Title",
@@ -639,7 +633,6 @@
     "viewOnTwitter": "View on X/Twitter"
   },
   "dashboard": {
-    "title": "Dashboard",
     "stats": {
       "unreadArticles": "Unread articles",
       "totalArticles": "Total articles",

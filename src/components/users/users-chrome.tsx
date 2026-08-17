@@ -8,8 +8,8 @@ import { buttonVariants } from "@/components/ui/button";
 import { ROLE_FILTER_ADMIN, ROLE_FILTER_STANDARD } from "@/lib/users/fields";
 
 /**
- * The `/users` header (title + the New user link) and the search/role-filter
- * bar beneath it.
+ * The `/users` header (the New user link -- no title: the breadcrumb already
+ * names the page) and the search/role-filter bar beneath it.
  *
  * A Client Component reading `useTranslations("users")` -- a **literal**
  * namespace, so every key below stays compiler-checked against the catalogs --
@@ -40,8 +40,7 @@ export function UsersChrome() {
 
   return (
     <>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-semibold">{t("title")}</h1>
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <Link href="/users/new" className={buttonVariants()}>
           {t("new")}
         </Link>

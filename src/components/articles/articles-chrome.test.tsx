@@ -24,7 +24,7 @@ const OPTIONS: ArticleFilterOptions = {
 /**
  * Carries forward two assertions `src/app/(app)/articles/loading.test.tsx`
  * used to make, before that file was deleted as part of the
- * instant-render-no-fallback migration: the title and search box render, and
+ * instant-render-no-fallback migration: the search box renders, and
  * -- while the filter options are still unresolved -- no filter dropdowns are
  * shown at all, rather than a placeholder guess. That reasoning now lives in
  * a real `<Suspense>` boundary instead of a route-level fallback (see
@@ -37,7 +37,7 @@ const OPTIONS: ArticleFilterOptions = {
  * detail of the deleted route-level fallback, not of this chrome.
  */
 describe("ArticlesChrome", () => {
-  it("renders the title and search box immediately, with no filters until resolved", async () => {
+  it("renders the search box immediately, with no title and no filters until resolved", async () => {
     // A deferred promise, resolved under an explicit `act()` -- React 19's
     // `use()` registers its continuation as a bare promise `.then()`, which
     // lands outside any `act()` scope unless the resolution itself is
@@ -48,12 +48,14 @@ describe("ArticlesChrome", () => {
       resolveOptions = resolve;
     });
 
+    let container!: HTMLElement;
     await act(async () => {
-      renderWithProviders(<ArticlesChrome optionsPromise={promise} />);
+      ({ container } = renderWithProviders(<ArticlesChrome optionsPromise={promise} />));
     });
 
-    // Pending first: title and search box are real, no filters guessed at.
-    expect(screen.getByText("Articles")).toBeTruthy();
+    // Pending first: the search box is real, no title (the breadcrumb
+    // already names the page) and no filters guessed at.
+    expect(container.querySelector("h1")).toBeNull();
     expect(screen.getByRole("searchbox", { name: "Search articles" })).toBeTruthy();
     expect(screen.queryByRole("combobox")).toBeNull();
 

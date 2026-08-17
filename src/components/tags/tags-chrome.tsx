@@ -7,7 +7,8 @@ import { SearchFilterBar } from "@/components/crud/search-filter-bar";
 import { buttonVariants } from "@/components/ui/button";
 
 /**
- * The `/tags` header (title + "New tag") and the search bar beneath it.
+ * The `/tags` header ("New tag" -- no title: the breadcrumb already names
+ * the page) and the search bar beneath it.
  *
  * A Client Component reading `useTranslations("tags")`, not an async Server
  * Component awaiting `getTranslations()` -- the instant-render-no-fallback
@@ -28,8 +29,7 @@ export function TagsChrome() {
 
   return (
     <>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-semibold">{t("title")}</h1>
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <Link href="/tags/new" className={buttonVariants()}>
           {t("new")}
         </Link>

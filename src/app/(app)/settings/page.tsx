@@ -3,7 +3,6 @@ import { connection } from "next/server";
 import { AboutSection } from "@/components/settings/about-section";
 import { GeneralSection } from "@/components/settings/general-section";
 import { LibrarySection } from "@/components/settings/library-section";
-import { SettingsTitle } from "@/components/settings/settings-title";
 import { Separator } from "@/components/ui/separator";
 import { getSettingsSummary } from "@/lib/settings/queries";
 
@@ -14,15 +13,8 @@ import { getSettingsSummary } from "@/lib/settings/queries";
  * longer any suspension for it to cover.
  *
  * The `await getTranslations()` the streaming-controls migration kept here is
- * gone too, replaced by `<SettingsTitle>` -- a client component reading
- * `useTranslations("settings")` off the `NextIntlClientProvider` the root
- * layout already renders, so nothing crosses the RSC boundary for the title
- * and nothing here suspends on it. A shared generic `<PageTitle namespace
- * titleKey>` was tried and rejected for this same reason twice over (see
- * `src/components/section-kit.tsx`): making the namespace generic while
- * keeping catalog keys compiler-checked needs a cast at the `t()` call site,
- * which CLAUDE.md forbids. A literal namespace per page avoids the wall
- * instead of closing it.
+ * gone too, along with the page `<h1>` it produced: the breadcrumb already
+ * names the page, so the per-page heading was removed everywhere.
  */
 export default function SettingsPage() {
   /**
@@ -79,7 +71,6 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-2xl space-y-6">
-      <SettingsTitle />
       <div className="space-y-8">
         <GeneralSection promise={settings} />
         <Separator />

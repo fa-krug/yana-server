@@ -1,6 +1,6 @@
 import { connection } from "next/server";
 
-import { IntegrationsTitle } from "@/components/integrations/integrations-title";
+import { IntegrationsDescription } from "@/components/integrations/integrations-description";
 import { RedditSection } from "@/components/integrations/reddit-section";
 import { YoutubeSection } from "@/components/integrations/youtube-section";
 import { getIntegrationStatus } from "@/lib/integrations/queries";
@@ -11,12 +11,12 @@ import { getIntegrationStatus } from "@/lib/integrations/queries";
  * cannot suspend and `loading.tsx` -- deleted along with this rewrite -- is
  * unreachable.
  *
- * `await getTranslations()` is gone, replaced by `<IntegrationsTitle>` -- a
- * client component reading `useTranslations("integrations")` off the
+ * `await getTranslations()` is gone, replaced by `<IntegrationsDescription>`
+ * -- a client component reading `useTranslations("integrations")` off the
  * `NextIntlClientProvider` the root layout already renders, so nothing
- * crosses the RSC boundary for the heading/description and nothing here
- * suspends on it. See `SettingsTitle`'s own comment for why the namespace is
- * a literal rather than a generic prop.
+ * crosses the RSC boundary for the description and nothing here suspends on
+ * it. The page `<h1>` is gone entirely: the breadcrumb already names the
+ * page, so the per-page heading was removed everywhere.
  */
 export default function IntegrationsPage() {
   /**
@@ -40,7 +40,7 @@ export default function IntegrationsPage() {
 
   return (
     <div className="max-w-2xl space-y-6">
-      <IntegrationsTitle />
+      <IntegrationsDescription />
       <div className="space-y-6">
         <YoutubeSection promise={status} />
         <RedditSection promise={status} />

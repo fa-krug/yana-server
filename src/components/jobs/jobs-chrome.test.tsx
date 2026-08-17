@@ -25,10 +25,11 @@ beforeEach(() => {
  * `<PaginationPlaceholder>` is now rendered from.
  */
 describe("JobsChrome", () => {
-  it("renders the heading and the kind filter box", () => {
-    renderWithProviders(<JobsChrome />);
+  it("renders the kind filter box, but no title", () => {
+    const { container } = renderWithProviders(<JobsChrome />);
 
-    expect(screen.getByText("Jobs")).toBeTruthy();
+    // The breadcrumb already names the page, so the chrome renders no <h1>.
+    expect(container.querySelector("h1")).toBeNull();
     expect(screen.getByRole("searchbox", { name: "Filter Kind" })).toBeTruthy();
   });
 });

@@ -45,11 +45,11 @@ describe("AccountPage", () => {
     expect(typeof (result as { then?: unknown })?.then).not.toBe("function");
   });
 
-  it("renders the <AccountTitle> heading with no fallback frame", () => {
+  it("renders no page <h1> -- the breadcrumb already names the page", () => {
     const result = AccountPage();
 
     const { container } = renderWithProviders(result as ReactElement);
 
-    expect(container.querySelector("h1")?.textContent).toBe("Account");
+    expect(container.querySelector("h1")).toBeNull();
   });
 });

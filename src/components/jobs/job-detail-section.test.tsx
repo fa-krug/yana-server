@@ -55,7 +55,9 @@ describe("JobDetailSection", () => {
       renderWithProviders(<JobDetailSection jobDetailPromise={Promise.resolve(detail)} />);
     });
 
-    expect(screen.getByText("Job #42")).toBeTruthy();
+    // No page <h1>: the breadcrumb already names the route. The kind and
+    // status fields are what prove the resolved job reached the view.
+    expect(screen.queryByText("Job #42")).toBeNull();
     expect(screen.getByText("aggregate")).toBeTruthy();
     expect(screen.queryByText("Not found")).toBeNull();
   });

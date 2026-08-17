@@ -1,7 +1,6 @@
 "use client";
 
 import { Suspense, use } from "react";
-import { useTranslations } from "next-intl";
 
 import { SetBreadcrumbTitle } from "@/components/breadcrumb-title";
 import { RecordNotFound } from "@/components/record-not-found";
@@ -20,7 +19,6 @@ import { TagForm } from "./tag-form";
  */
 function EditTagResolved({ tagPromise }: { tagPromise: Promise<TagDetailRow | null> }) {
   const tag = use(tagPromise);
-  const t = useTranslations("tags");
 
   if (!tag) {
     return <RecordNotFound />;
@@ -29,22 +27,20 @@ function EditTagResolved({ tagPromise }: { tagPromise: Promise<TagDetailRow | nu
   return (
     <>
       <SetBreadcrumbTitle title={tag.name} />
-      <h1 className="text-2xl font-semibold">{t("editTitle")}</h1>
       <TagForm tag={tag} />
     </>
   );
 }
 
 /**
- * What `/tags/[id]/page.tsx` renders. The title (`t("editTitle")`) carries no
- * record data -- unlike `/feeds/[id]`'s -- so the fallback below only needs
- * the real `<TagForm pending />` chassis, disabled; the title itself is part
- * of `EditTagResolved`'s own output rather than a piece of the fallback,
- * since it costs nothing to fill in once the promise resolves. This replaces
- * `/tags/[id]/loading.tsx`, deleted along with this component: the page body
- * that renders this awaits nothing, so that route-level fallback is
- * unreachable now (see `src/app/(app)/settings/page.tsx`'s doc comment for
- * the migration this belongs to).
+ * What `/tags/[id]/page.tsx` renders. There is no page `<h1>` -- the
+ * breadcrumb (fed by `SetBreadcrumbTitle` above) already names the record --
+ * so the fallback below only needs the real `<TagForm pending />` chassis,
+ * disabled. This replaces `/tags/[id]/loading.tsx`, deleted along with this
+ * component: the page body that renders this awaits nothing, so that
+ * route-level fallback is unreachable now (see
+ * `src/app/(app)/settings/page.tsx`'s doc comment for the migration this
+ * belongs to).
  */
 export function EditTagSection({ tagPromise }: { tagPromise: Promise<TagDetailRow | null> }) {
   return (

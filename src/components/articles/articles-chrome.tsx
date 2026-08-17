@@ -25,11 +25,10 @@ export type ArticleFilterOptions = {
  * renders the real four filter selects alongside the search box.
  *
  * A separate component from `<ArticlesChrome>` on purpose -- `use()` on an
- * unresolved promise suspends its *own* component, and if this were inlined
- * into `<ArticlesChrome>` the title above it would suspend too. Splitting it
- * out and wrapping only this piece in `<Suspense>` is what lets the title and
- * the search box (which needs no DB read) render instantly while the filter
- * selects stream in once `listFeeds()`/`listTags()` resolve.
+ * unresolved promise suspends its *own* component. Splitting it out and
+ * wrapping only this piece in `<Suspense>` is what lets the search box
+ * (which needs no DB read) render instantly while the filter selects stream
+ * in once `listFeeds()`/`listTags()` resolve.
  */
 function ArticlesFilterBar({
   placeholder,
@@ -78,8 +77,8 @@ function ArticlesFilterBar({
 }
 
 /**
- * The `/articles` header (title, no "new" action -- this page has none) and
- * the search/filter bar beneath it.
+ * The `/articles` search/filter bar (no title: the breadcrumb already names
+ * the page, and this page has no "new" action either).
  *
  * A Client Component reading `useTranslations("articles")`, not an async
  * Server Component awaiting `getTranslations()` -- the
@@ -88,7 +87,7 @@ function ArticlesFilterBar({
  * thing standing in the way, along with the `listFeeds()`/`listTags()` reads
  * the old body awaited to build `filters`.
  *
- * The title and search box render immediately; the filter selects stream in
+ * The search box renders immediately; the filter selects stream in
  * separately via `<ArticlesFilterBar>`, `<Suspense>`-wrapped here with a
  * fallback of the same `<SearchFilterBar>` but with **no `filters` prop** --
  * the same "genuinely unknown yet, so show none rather than a placeholder
@@ -107,14 +106,8 @@ export function ArticlesChrome({
   const t = useTranslations("articles");
 
   return (
-    <>
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">{t("title")}</h1>
-      </div>
-
-      <Suspense fallback={<SearchFilterBar placeholder={t("searchPlaceholder")} />}>
-        <ArticlesFilterBar placeholder={t("searchPlaceholder")} promise={optionsPromise} />
-      </Suspense>
-    </>
+    <Suspense fallback={<SearchFilterBar placeholder={t("searchPlaceholder")} />}>
+      <ArticlesFilterBar placeholder={t("searchPlaceholder")} promise={optionsPromise} />
+    </Suspense>
   );
 }

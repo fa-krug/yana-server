@@ -37,7 +37,8 @@ describe("EditUserSection", () => {
       renderWithProviders(<EditUserSection userPromise={Promise.resolve(user)} />);
     });
 
-    expect(screen.getByText("Edit user")).toBeTruthy();
+    // No page <h1>: the breadcrumb already names the record.
+    expect(screen.queryByText("Edit user")).toBeNull();
     expect(screen.getByDisplayValue("ada@example.com")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete user" })).toBeTruthy();
     expect(screen.queryByText("Not found")).toBeNull();

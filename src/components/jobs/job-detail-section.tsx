@@ -67,8 +67,7 @@ function JobDetailResolved({ jobDetailPromise }: { jobDetailPromise: Promise<Job
 
   return (
     <div className="max-w-3xl space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">{t("detailTitle", { id: job.id })}</h1>
+      <div className="flex items-center justify-end">
         <JobActions job={{ id: job.id, status: job.status }} />
       </div>
 
@@ -136,10 +135,10 @@ function JobDetailResolved({ jobDetailPromise }: { jobDetailPromise: Promise<Job
 }
 
 /**
- * What `/jobs/[id]/page.tsx` renders. The title (`t("detailTitle", { id })`)
- * needs the job's own id, and every other field here -- status, attempts,
- * the log -- needs the job row too, so unlike the CRUD detail routes there
- * is no reusable "real chassis, disabled" form to fall back to. Per the
+ * What `/jobs/[id]/page.tsx` renders. There is no page `<h1>` (the
+ * breadcrumb already names the route), and every field here -- status,
+ * attempts, the log -- needs the job row, so unlike the CRUD detail routes
+ * there is no reusable "real chassis, disabled" form to fall back to. Per the
  * instant-render plan's "do not leave a skeleton bar for it" rule, the
  * fallback is simply nothing: the whole detail view appears at once, already
  * filled in, once `JobDetailResolved` resolves -- which for a local SQLite
