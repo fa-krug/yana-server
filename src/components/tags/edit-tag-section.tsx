@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 
 import { SetBreadcrumbTitle } from "@/components/breadcrumb-title";
 import { RecordNotFound } from "@/components/record-not-found";
-import type { Tag } from "@/lib/db/schema";
+import type { TagDetailRow } from "@/lib/tags/queries";
 import { TagForm } from "./tag-form";
 
 /**
@@ -18,7 +18,7 @@ import { TagForm } from "./tag-form";
  * apart and does not try to: see `RecordNotFound`'s own comment on why that
  * is deliberate.
  */
-function EditTagResolved({ tagPromise }: { tagPromise: Promise<Tag | null> }) {
+function EditTagResolved({ tagPromise }: { tagPromise: Promise<TagDetailRow | null> }) {
   const tag = use(tagPromise);
   const t = useTranslations("tags");
 
@@ -46,7 +46,7 @@ function EditTagResolved({ tagPromise }: { tagPromise: Promise<Tag | null> }) {
  * unreachable now (see `src/app/(app)/settings/page.tsx`'s doc comment for
  * the migration this belongs to).
  */
-export function EditTagSection({ tagPromise }: { tagPromise: Promise<Tag | null> }) {
+export function EditTagSection({ tagPromise }: { tagPromise: Promise<TagDetailRow | null> }) {
   return (
     <Suspense fallback={<TagForm pending />}>
       <EditTagResolved tagPromise={tagPromise} />

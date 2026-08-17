@@ -8,10 +8,12 @@ import { SetBreadcrumbTitle } from "@/components/breadcrumb-title";
 import { RecordNotFound } from "@/components/record-not-found";
 import { TableSkeleton } from "@/components/data-skeleton";
 import type { BlockNode } from "@/lib/blocks/tree";
-import type { Article, Feed } from "@/lib/db/schema";
-import { ArticleForm, ArticleFormSection, type ArticleFeed } from "./article-form";
-
-type ArticleWithFeed = Article & { feed: Feed };
+import {
+  ArticleForm,
+  ArticleFormSection,
+  type ArticleDetailRow,
+  type ArticleFeed,
+} from "./article-form";
 
 /** Suspends on the block tree alone; `ContentSection` in the found path. */
 function ContentSection({ blockTreePromise }: { blockTreePromise: Promise<BlockNode[]> }) {
@@ -34,7 +36,7 @@ function ArticleDetailResolved({
   feedsPromise,
   blockTreePromise,
 }: {
-  articlePromise: Promise<ArticleWithFeed | null>;
+  articlePromise: Promise<ArticleDetailRow | null>;
   feedsPromise: Promise<ArticleFeed[]>;
   blockTreePromise: Promise<BlockNode[]>;
 }) {
@@ -82,7 +84,7 @@ export function ArticleDetailSection({
   feedsPromise,
   blockTreePromise,
 }: {
-  articlePromise: Promise<ArticleWithFeed | null>;
+  articlePromise: Promise<ArticleDetailRow | null>;
   feedsPromise: Promise<ArticleFeed[]>;
   blockTreePromise: Promise<BlockNode[]>;
 }) {

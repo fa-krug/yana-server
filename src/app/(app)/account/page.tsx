@@ -26,10 +26,9 @@ export default function AccountPage() {
    * `SettingsPage` does and for the same reason: `getAccountOverview()` below
    * is never awaited by this page body (it is handed straight to the four
    * client sections), so there is no other awaited Dynamic API left here to
-   * do this job. `connection()` throws synchronously during `next build`'s
-   * static generation pass regardless of whether anything awaits its result,
-   * which is what still keeps `rm -rf data/ && npm run build` from baking
-   * this page against an unmigrated `data/`.
+   * do this job. See CLAUDE.md's `connection()` bullet for why calling it,
+   * unawaited, is enough today -- and the `cacheComponents` precondition
+   * that fact rests on.
    */
   connection();
 

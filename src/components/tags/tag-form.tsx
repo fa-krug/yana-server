@@ -12,9 +12,9 @@ import { Label } from "@/components/ui/label";
 
 import { createTag, deleteTags, updateTag } from "@/lib/tags/actions";
 import { DEFAULT_TAG_COLOR, TAG_COLOR_KEYS, hexForTagColor } from "@/lib/tags/colors";
+import type { TagDetailRow } from "@/lib/tags/queries";
 import { attempt, type TagsKey } from "@/lib/tags/result";
 import { cn } from "@/lib/utils";
-import type { Tag } from "@/lib/db/schema";
 import { useTagUsage } from "./use-tag-usage";
 
 /**
@@ -27,7 +27,7 @@ import { useTagUsage } from "./use-tag-usage";
  * still crossing the network on a client-side soft navigation -- real latency
  * server-side streaming cannot remove (see that file's own comment).
  */
-export function TagForm({ tag, pending = false }: { tag?: Tag; pending?: boolean }) {
+export function TagForm({ tag, pending = false }: { tag?: TagDetailRow; pending?: boolean }) {
   const t = useTranslations("tags");
   const c = useTranslations("common");
   const router = useRouter();

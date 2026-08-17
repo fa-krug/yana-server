@@ -15,12 +15,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useTrackRun } from "@/components/jobs/active-runs-context";
 import { reloadArticles, updateArticle } from "@/lib/articles/actions";
 import { attemptCall } from "@/lib/attempt";
-import { useTrackRun } from "@/components/jobs/active-runs-context";
-import type { Article, Feed } from "@/lib/db/schema";
+import type { Article } from "@/lib/db/schema";
 
 export type ArticleFeed = { id: number; name: string };
+
+/**
+ * The columns this form renders -- not the whole `Article` row, which also
+ * carries `rawContent` and `plainText` (the largest columns on the table,
+ * per the FTS bullet in CLAUDE.md) and no longer carries the joined `Feed`
+ * either, since nothing here ever read it (the feed *picker* is populated
+ * from `listFeeds()`, a separate read; see `ArticleFeed` above). Projected
+ * out of `getArticle()`'s full row in `/articles/[id]/page.tsx`'s own
+ * `.then()`, the same pattern `/users/[id]/page.tsx` uses for `UserRecord` --
+ * `getArticle()` itself stays the full row because it is also a
+ * general-purpose read other code (and its own tests) depend on.
+ */
+export type ArticleDetailRow = Pick<Article, "id" | "name" | "feedId" | "date" | "createdAt">;
 
 /**
  * `article`/`feeds` are optional and paired with `pending`, the same
@@ -44,7 +57,7 @@ export function ArticleForm({
   feeds,
   pending = false,
 }: {
-  article?: Article & { feed: Feed };
+  article?: ArticleDetailRow;
   feeds?: ArticleFeed[];
   pending?: boolean;
 }) {
@@ -228,7 +241,7 @@ function ArticleFormResolved({
   article,
   feedsPromise,
 }: {
-  article: Article & { feed: Feed };
+  article: ArticleDetailRow;
   feedsPromise: Promise<ArticleFeed[]>;
 }) {
   const feeds = use(feedsPromise);
@@ -245,7 +258,7 @@ export function ArticleFormSection({
   article,
   feedsPromise,
 }: {
-  article: Article & { feed: Feed };
+  article: ArticleDetailRow;
   feedsPromise: Promise<ArticleFeed[]>;
 }) {
   return (

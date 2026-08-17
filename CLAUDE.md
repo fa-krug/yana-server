@@ -450,10 +450,24 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   `src/app/api/auth/[...all]/route.ts`, whose comment names the call in order to
   _explain why that route deliberately has none_ (its only segment is dynamic,
   so Next already treats it as dynamic — and the comment says to add the call if
-  that ever changes). Do not grep for `await connection()`: that spelling
-  survives in exactly two places, `src/app/layout.tsx` and
-  `src/app/health/route.ts`, both of which are async for their own reasons and
-  neither of which is a page body — every page calls it bare.
+  that ever changes). **Do not assume `await connection()` is rare** — after
+  the instant-render-no-fallback migration it survives in fourteen non-test
+  files, not two: every `(app)` page body still calls the bare, unawaited
+  `connection();` form (an `await` there would make the page function async
+  again, which is exactly what that migration removes), but `await
+connection()` is correct wherever the function is already async for its own
+  reasons and an extra `await` costs nothing — `src/app/layout.tsx`,
+  `src/app/health/route.ts`, `src/app/login/page.tsx` (outside the
+  instant-render page set), `src/app/(app)/api-docs/route.ts`, and ten
+  `/api/v1` route handlers that reach the database with no earlier awaited
+  Dynamic API to opt them out already (`articles/[id]/content`,
+  `articles/sync`, `auth/webview-session-token`, `feeds`, `images/[hash]`,
+  `jobs/events`, `openapi.json`, `reading-position`, `runs/[id]`, `tags` —
+  ten routes, not twelve). `grep -rl "await connection()" src --include="*.ts"
+--include="*.tsx" | grep -v test` is how to re-count; it also matches two
+  comment-only mentions that name the call without making it
+  (`src/app/api/auth/[...all]/route.ts`, `src/components/crud/use-list-params.ts`),
+  so subtract those two from its file count.
 
   A route that already **awaits a Dynamic API** is opted out just as well and
   needs no call. The instant-render migration shrank that category sharply,
@@ -670,8 +684,12 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     see.** A gate that lived in a page body and was simply deleted with the rest
     of the awaits would take the authorization with it, silently, with every
     test still green — so the gate moves to where the rows are _read_, and stays
-    there. `src/lib/users/queries.ts` and `src/lib/users/actions.ts` call
-    `requireAdmin()` in every exported function; `listJobsForCurrentUser()` and
+    there. Every exported function in `src/lib/users/queries.ts` and
+    `src/lib/users/actions.ts` that a page or action calls directly calls
+    `requireAdmin()` first -- with two internal-helper exceptions,
+    `countUsableAdmins()` and `countUserImpact()`, gated by their `./actions`
+    callers rather than themselves (each says so on its own doc comment, and a
+    new caller of either has to gate itself); `listJobsForCurrentUser()` and
     `getJobForCurrentUser()` call `requireUserFreshRole()` and decide the owner
     filter themselves, which is also why nothing in that module may be `cache()`d
     across requests. **`/users/new` is the one route that keeps a page-body

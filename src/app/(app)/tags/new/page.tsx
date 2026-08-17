@@ -24,11 +24,10 @@ export default function NewTagPage() {
   /**
    * Opt this route out of prerendering -- **called, not awaited**. This page
    * reaches no data query of its own, so with `await requireUser()` gone
-   * there is no other Dynamic API call left here to do this job.
-   * `connection()` throws synchronously during `next build`'s static
-   * generation pass regardless of whether anything awaits its result, which
-   * is what still keeps `rm -rf data/ && npm run build` from baking this
-   * page against an unmigrated `data/`.
+   * there is no other Dynamic API call left here to do this job. See
+   * `SettingsPage`'s identical comment (and CLAUDE.md's `connection()`
+   * bullet) for why calling it, unawaited, is enough today -- and the
+   * `cacheComponents` precondition that fact rests on.
    */
   connection();
 

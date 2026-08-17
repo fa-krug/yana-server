@@ -65,9 +65,6 @@ describe("<TagForm>", () => {
           id: 1,
           name: "News",
           color: "teal",
-          userId: "u1",
-          createdAt: new Date(),
-          updatedAt: new Date(),
         }}
       />,
     );

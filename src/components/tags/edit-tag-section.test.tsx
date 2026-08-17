@@ -2,7 +2,7 @@ import { act, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/render";
-import type { Tag } from "@/lib/db/schema";
+import type { TagDetailRow } from "@/lib/tags/queries";
 
 import { EditTagSection } from "./edit-tag-section";
 
@@ -14,13 +14,10 @@ vi.mock("@/lib/tags/actions", () => ({
 }));
 vi.mock("@/components/tags/use-tag-usage", () => ({ useTagUsage: () => ({ feeds: 0 }) }));
 
-const tag: Tag = {
+const tag: TagDetailRow = {
   id: 7,
   name: "Example tag",
   color: "blue",
-  userId: "user-1",
-  createdAt: new Date("2026-01-01T00:00:00Z"),
-  updatedAt: new Date("2026-01-01T00:00:00Z"),
 };
 
 /**

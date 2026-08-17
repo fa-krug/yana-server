@@ -21,7 +21,8 @@ import { getDashboardStats, getRecentUnreadArticles } from "@/lib/dashboard/quer
  * `rm -rf data/ && npm run build` from baking this page against a `data/`
  * directory that does not exist yet. At real request time it resolves to
  * `undefined` and is never observed. See `SettingsPage`'s identical comment
- * for the full reasoning, including the `cacheComponents` caveat.
+ * for the full reasoning; the `cacheComponents` caveat itself lives in
+ * CLAUDE.md's `connection()` bullet, which that comment points to.
  *
  * The heading is `<DashboardTitle>`, a Client Component reading
  * `useTranslations("dashboard")` -- replacing the `await getTranslations()`

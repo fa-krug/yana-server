@@ -40,6 +40,14 @@ export default function SettingsPage() {
    * on its own: the layout and this page are sibling render scopes, and
    * `getSettingsSummary()` below reaches `getDb()` through its own chain of
    * dynamic reads regardless of what the layout already resolved.
+   *
+   * **That "propagates exactly as it would if awaited" claim has a
+   * precondition this comment does not restate: no `cacheComponents` and no
+   * PPR configured.** Under `cacheComponents` the branch `connection()` takes
+   * instead returns a hanging promise and never throws, so an unawaited call
+   * would interrupt nothing. See CLAUDE.md's `connection()` bullet for the
+   * full reasoning -- the pages that point back to "SettingsPage's identical
+   * comment" mean this paragraph, and this paragraph means that bullet.
    */
   connection();
 

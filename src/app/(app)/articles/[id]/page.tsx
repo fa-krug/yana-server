@@ -31,6 +31,15 @@ import { parseListParams } from "@/lib/crud/params";
  * this rewrite and stay that way -- `getBlockTree()` verifies ownership
  * itself and resolves to `[]` for an id that is not this user's, so it needs
  * no gating here either.
+ *
+ * `getArticle()`'s full row (including `rawContent`/`plainText`, the largest
+ * columns on the table, and the whole joined `Feed`) is projected down to
+ * `ArticleDetailRow` -- the columns `<ArticleForm>` actually renders -- in
+ * this `.then()`, before the promise crosses into the Client Component tree.
+ * `getArticle()` itself stays the full row, because it is a general-purpose
+ * read other code (and its own tests) rely on; only this page narrows what
+ * it hands across the RSC boundary, the same pattern
+ * `/users/[id]/page.tsx` uses for `UserRecord`.
  */
 export default function ArticleDetailPage({ params }: { params: Promise<{ id: string }> }) {
   /**
@@ -45,9 +54,18 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   // body still awaits nothing. `getArticle()` decides the not-found state
   // now, not a real 404, so it no longer needs to sit ahead of everything
   // else.
-  const articlePromise = params.then(({ id }) => {
+  const articlePromise = params.then(async ({ id }) => {
     const parsed = Number.parseInt(id, 10);
-    return Number.isNaN(parsed) ? null : getArticle(parsed);
+    if (Number.isNaN(parsed)) return null;
+    const article = await getArticle(parsed);
+    if (!article) return null;
+    return {
+      id: article.id,
+      name: article.name,
+      feedId: article.feedId,
+      date: article.date,
+      createdAt: article.createdAt,
+    };
   });
   const feedsPromise = listFeeds(parseListParams({ pageSize: "100" })).then((res) => res.rows);
   const blockTreePromise = params.then(({ id }) => {
