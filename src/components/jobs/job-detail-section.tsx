@@ -5,16 +5,36 @@ import Link from "next/link";
 import { useTranslations } from "next-intl";
 
 import { RecordNotFound } from "@/components/record-not-found";
-import type { Job } from "@/lib/db/schema";
+import type { JobStatus } from "@/lib/db/schema/enums";
 import { JobActions } from "./job-actions";
 import { JobLogViewer, type JobLogLine } from "./job-log-viewer";
 import { StatusBadge } from "./jobs-table";
+
+/**
+ * The columns this view renders, never the whole `Job` row -- see CLAUDE.md's
+ * "a component gets the columns it renders, never the row". The full row
+ * also carries `payload`, `error`, `userId`, `runId`,
+ * `runAt`/`startedAt`/`finishedAt`, `priority` and `updatedAt`, none of which
+ * appear below; a promise resolving to the whole row would still serialize
+ * all of them into this page's RSC payload the moment it crosses into this
+ * Client Component. `/users/[id]`'s `UserRecord` and `/feeds`' `FeedListRow`
+ * are the same projection discipline.
+ */
+export type JobSummary = {
+  id: number;
+  kind: string;
+  status: JobStatus;
+  attempts: number;
+  maxAttempts: number;
+  progress: number;
+  createdAt: Date;
+};
 
 /** What `/jobs/[id]/page.tsx` reads and hands down as one promise, so the
  * page body awaits nothing -- see `EditFeedResolved`'s equivalent comment
  * for the shape this belongs to. */
 export type JobDetail = {
-  job: Job;
+  job: JobSummary;
   logs: JobLogLine[];
   feedId: number;
   feed: { id: number; name: string } | undefined;

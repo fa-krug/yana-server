@@ -259,6 +259,13 @@ describe("FeedForm identifier field", () => {
       (screen.getByRole("button", { name: "Create feed" }) as HTMLButtonElement).disabled,
     ).toBe(true);
 
+    // Carried forward from the deleted `/feeds/[id]/loading.test.tsx`: edit
+    // mode is unknowable with no `feed` prop, so the form falls back to its
+    // create-mode action label above and offers no "Update now" button at all
+    // -- true of `<FeedForm pending />` here exactly as it was of that file's
+    // fallback.
+    expect(screen.queryByRole("button", { name: "Update now" })).toBeNull();
+
     // No skeleton bars anywhere.
     expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBe(0);
   });

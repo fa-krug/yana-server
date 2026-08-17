@@ -1,6 +1,7 @@
 import { connection } from "next/server";
 
 import { EditUserSection, type UserRecord } from "@/components/users/edit-user-section";
+import { isNotFoundError } from "@/lib/auth/session";
 import { getUser } from "@/lib/users/queries";
 
 /**
@@ -18,6 +19,16 @@ import { getUser } from "@/lib/users/queries";
  * truncating a 200 the way calling `notFound()` after the shell has flushed
  * would (see CLAUDE.md's `connection()`/detail-route rules). This was a
  * deliberate, explicitly-approved trade-off, not an oversight.
+ *
+ * **`getUser()`'s own `notFound()` (thrown by its internal `requireAdmin()`
+ * gate for a non-admin caller) is caught here and folded into the same
+ * `null`.** Left uncaught, that rejection surfaces through `use()` after the
+ * shell has already flushed 200 -- not as a clean not-found render, but
+ * stacked underneath the `(app)` group's `error.tsx` boundary too (measured
+ * live: "Something went wrong" on top of "This page could not be found").
+ * `isNotFoundError()` (`@/lib/auth/session`) recognises only that one
+ * sentinel; anything else -- a signed-out `redirect()`, a genuine crash --
+ * still propagates.
  *
  * `await getTranslations("users")` is gone too; `<EditUserSection>` reads
  * `useTranslations("users")` client-side once the user is known.
@@ -49,7 +60,13 @@ export default function EditUserPage({
   // Not awaited: chained onto the `params` promise instead, so this page
   // body still awaits nothing.
   const userPromise: Promise<UserRecord | null> = params.then(async ({ id }) => {
-    const user = await getUser(id);
+    let user;
+    try {
+      user = await getUser(id);
+    } catch (error) {
+      if (isNotFoundError(error)) return null;
+      throw error;
+    }
     if (!user) return null;
     return {
       id: user.id,

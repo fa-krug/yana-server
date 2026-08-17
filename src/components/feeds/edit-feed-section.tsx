@@ -20,10 +20,15 @@ import { EditFeedForm, FeedForm, type FeedListRow } from "./feed-form";
  * `feeds.userId = currentUserId()`, so this component cannot tell those
  * apart and does not try to (see `RecordNotFound`'s own comment).
  *
- * The `<h1>` here interpolates the feed's own name
- * (`t("editTitle", { name: feed.name })`), which is unknown until this
- * `use()` call resolves -- it is rendered from this same component rather
- * than guessed at in a fallback, per the instant-render-no-fallback plan.
+ * The `<h1>` passes the feed's own name to `t("editTitle", { name: feed.name })`
+ * -- `feeds.editTitle` in the catalog is plain "Edit feed" with no `{name}`
+ * placeholder, so next-intl silently ignores the extra argument and the
+ * rendered heading does not actually include it (pre-existing, not
+ * introduced here: the page this replaced made the same call). Either way,
+ * the name is unknown until this `use()` call resolves, so the heading is
+ * rendered from this same component rather than guessed at in a fallback,
+ * per the instant-render-no-fallback plan -- `<EditFeedForm>` right below it
+ * does display the feed's name, in its own name field.
  */
 function EditFeedResolved({
   feedPromise,

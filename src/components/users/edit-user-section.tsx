@@ -32,9 +32,13 @@ export type UserRecord = EditableUser & {
  * `userPromise` resolves to `null` for a nonexistent id **and** for any id at
  * all when the caller is not an admin -- `getUser()` carries its own
  * `requireAdmin()` gate (see its doc comment in `src/lib/users/queries.ts`),
- * so a non-admin sees the same `RecordNotFound` a missing id produces, never
- * a distinguishing message (the same "every refusal is the same empty 404"
- * reasoning `requireAdmin()` itself documents).
+ * which **throws** `notFound()` rather than returning a falsy value.
+ * `/users/[id]/page.tsx`'s own promise chain catches that specific rejection
+ * (`isNotFoundError()` in `@/lib/auth/session`) and folds it into the same
+ * `null` a missing id already produces, so this component never has to tell
+ * the two apart: a non-admin sees the same `RecordNotFound` a missing id
+ * produces, never a distinguishing message (the same "every refusal is the
+ * same empty 404" reasoning `requireAdmin()` itself documents).
  */
 function EditUserResolved({ userPromise }: { userPromise: Promise<UserRecord | null> }) {
   const user = use(userPromise);

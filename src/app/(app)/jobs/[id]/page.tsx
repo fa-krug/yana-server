@@ -79,7 +79,26 @@ export default function JobDetailPage({
           .get()
       : undefined;
 
-    return { job, logs, feedId, feed, articleId, article };
+    // Projected here, before crossing into `<JobDetailSection>`'s Client
+    // Component tree -- never the whole `Job` row, which also carries
+    // `payload`, `error`, `userId`, `runId`, `runAt`/`startedAt`/`finishedAt`,
+    // `priority` and `updatedAt` (see `JobSummary`'s own doc comment).
+    return {
+      job: {
+        id: job.id,
+        kind: job.kind,
+        status: job.status,
+        attempts: job.attempts,
+        maxAttempts: job.maxAttempts,
+        progress: job.progress,
+        createdAt: job.createdAt,
+      },
+      logs,
+      feedId,
+      feed,
+      articleId,
+      article,
+    };
   });
 
   return <JobDetailSection jobDetailPromise={jobDetailPromise} />;
