@@ -1,5 +1,7 @@
+"use client";
+
 import Link from "next/link";
-import { getTranslations } from "next-intl/server";
+import { useTranslations } from "next-intl";
 
 import { SearchFilterBar } from "@/components/crud/search-filter-bar";
 import { ImportOpmlButton } from "@/components/feeds/import-opml-button";
@@ -8,24 +10,26 @@ import { AGGREGATOR_SPECS } from "@/lib/aggregators/specs";
 
 /**
  * The `/feeds` header (title + the three actions: Export OPML, Import OPML,
- * New) and the search/filter bar beneath it, shared verbatim between
- * `FeedsPage` and its `loading.tsx` fallback.
+ * New) and the search/filter bar beneath it.
  *
- * It used to be two hand-mirrored copies, and they drifted: the fallback
- * rendered only the "New" link (missing Export OPML and `<ImportOpmlButton>`)
- * and no `<SearchFilterBar filters>` at all, despite a doc comment there
- * claiming the filters were already reproduced. One component that both
- * `page.tsx` and `loading.tsx` render is what makes that drift impossible
- * rather than merely documented against.
+ * A Client Component reading `useTranslations("feeds")`, not an async Server
+ * Component awaiting `getTranslations()` -- the instant-render-no-fallback
+ * migration (see `src/app/(app)/settings/page.tsx`) needs `FeedsPage`'s body
+ * to await nothing, and this used to be the one thing standing in the way
+ * (`{await FeedsChrome()}`). `useTranslations()` reads the
+ * `NextIntlClientProvider` the root layout already renders, so nothing here
+ * crosses the RSC boundary or suspends the page shell -- the same reasoning
+ * `SettingsTitle` documents. Everything rendered here (the `feeds` catalog
+ * and the static `AGGREGATOR_SPECS` table) needs no query either way.
  *
- * Everything rendered here is available with no query -- the `feeds`
- * catalog and the static `AGGREGATOR_SPECS` table -- so calling this from a
- * fallback performs no data fetch of its own; `getTranslations()` is also
- * `cache()`d per request, so calling it here in addition to `FeedsPage`'s own
- * call is one lookup, not two.
+ * There used to be a second, hand-mirrored copy of this in `loading.tsx`,
+ * which drifted from this one (missing the Export OPML link and
+ * `<ImportOpmlButton>`, and no filters at all) -- that file is deleted now
+ * that `FeedsPage` cannot suspend and the fallback is unreachable, so the
+ * drift this component's extraction closed cannot reopen either.
  */
-export async function FeedsChrome() {
-  const t = await getTranslations("feeds");
+export function FeedsChrome() {
+  const t = useTranslations("feeds");
 
   const aggregators = Object.values(AGGREGATOR_SPECS).map((s) => ({
     value: s.key,
