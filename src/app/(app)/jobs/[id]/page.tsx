@@ -6,11 +6,10 @@ import { getTranslations } from "next-intl/server";
 import { JobActions } from "@/components/jobs/job-actions";
 import { JobLogViewer } from "@/components/jobs/job-log-viewer";
 import { StatusBadge } from "@/components/jobs/jobs-table";
-import { isAdminRole } from "@/lib/auth/roles";
-import { requireUserFreshRole } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { articles, feeds } from "@/lib/db/schema";
-import { getJob, listJobLogs } from "@/lib/jobs/queue";
+import { getJobForCurrentUser } from "@/lib/jobs/queries";
+import { listJobLogs } from "@/lib/jobs/queue";
 
 export default async function JobDetailPage({
   params,
@@ -19,19 +18,29 @@ export default async function JobDetailPage({
   // src/app/(app)/users/[id]/page.tsx for why.
   params: Promise<{ id: string }>;
 }) {
-  /** The gate, first -- `requireUserFreshRole()` awaits `headers()`, opting this
-   *  route out of static prerendering the same way src/app/(app)/users/[id]/page.tsx
-   *  does with requireAdmin(); see the connection() bullet in CLAUDE.md. It reads
-   *  `role` fresh rather than from the session cookie cache, because whether this
-   *  page shows someone else's job is an authority decision -- see the doc
-   *  comment on `requireUserFreshRole()` in src/lib/auth/session.ts. */
-  const user = await requireUserFreshRole();
-  const admin = isAdminRole(user.role);
-
+  /**
+   * **No `requireUserFreshRole()` here any more -- `getJobForCurrentUser()`
+   * carries it**, together with the ownership rule this page used to apply
+   * itself (`!admin && job.userId !== user.id`). Both moved into
+   * `src/lib/jobs/queries.ts`, so the answer for another user's job and for an
+   * ownerless one is decided where the row is read rather than by a page body
+   * remembering to compare ids. The role behind that decision is still read
+   * with `disableCookieCache: true`, so a demoted admin loses cross-user
+   * visibility at once -- see the doc comment on `requireUserFreshRole()` in
+   * src/lib/auth/session.ts.
+   *
+   * It is also still what opts this route out of static prerendering: the gate
+   * awaits `headers()` before anything reaches SQLite, so no `connection()`
+   * call is needed (see the connection() bullet in CLAUDE.md).
+   *
+   * The record read stays here, at the top and outside every `<Suspense>`
+   * boundary, because `notFound()` can only produce a real 404 while the
+   * response status is still open.
+   */
   const { id } = await params;
   const jobId = Number.isInteger(Number(id)) ? Number(id) : null;
-  const job = jobId !== null ? getJob(jobId) : null;
-  if (!job || (!admin && job.userId !== user.id)) notFound();
+  const job = jobId !== null ? await getJobForCurrentUser(jobId) : null;
+  if (!job) notFound();
 
   const logs = listJobLogs(job.id);
   const t = await getTranslations("jobs");

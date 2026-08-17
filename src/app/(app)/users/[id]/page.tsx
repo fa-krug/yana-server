@@ -5,7 +5,6 @@ import { SetBreadcrumbTitle } from "@/components/breadcrumb-title";
 import { Separator } from "@/components/ui/separator";
 import { DeleteUserSection } from "@/components/users/delete-user-section";
 import { UserForm } from "@/components/users/user-form";
-import { requireAdmin } from "@/lib/auth/session";
 import { displayNameFor } from "@/lib/avatar";
 import { getUser } from "@/lib/users/queries";
 
@@ -17,8 +16,17 @@ export default async function EditUserPage({
   // neither.
   params: Promise<{ id: string }>;
 }) {
-  /** The gate, first: 404 for a non-admin, before anything else happens. */
-  await requireAdmin();
+  /**
+   * **No `requireAdmin()` here any more -- `getUser()` carries it.** The gate
+   * moved into `src/lib/users/queries.ts` (see its doc comment) so that this
+   * route's authorization does not depend on a page body remembering to call
+   * it; a non-admin gets 404 from inside the read below, before a single
+   * column of somebody else's account is projected. The record read itself is
+   * unchanged and still happens here, at the top, which is what keeps
+   * `notFound()` able to produce a real 404 -- and what still opts this route
+   * out of prerendering, since `getUser()` awaits `headers()` before anything
+   * reaches SQLite (see the `connection()` bullet in CLAUDE.md).
+   */
   const { id } = await params;
 
   /**
@@ -30,9 +38,10 @@ export default async function EditUserPage({
    * primary-key lookup before it renders anything, and `src/app/(app)/loading.tsx`
    * is the fallback the route already has for exactly that.
    *
-   * The gate above has already awaited `headers()`, so the route is out of
-   * prerendering before this line -- no `connection()` call is needed (see the
-   * `connection()` bullet in CLAUDE.md).
+   * `getUser()` awaits `headers()` (through its own `requireAdmin()`) before
+   * anything reaches SQLite, so the route is out of prerendering by the end of
+   * this line -- no `connection()` call is needed (see the `connection()`
+   * bullet in CLAUDE.md).
    */
   const user = await getUser(id);
   if (!user) notFound();
