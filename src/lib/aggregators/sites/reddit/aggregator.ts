@@ -271,21 +271,12 @@ export class RedditAggregator extends BaseAggregator {
       // author, permalink, media and (in `enrichArticles()`) comments all come
       // from the subreddit the post was first submitted to, so the finished
       // article would otherwise carry nothing that says it arrived here as a
-      // crosspost. `subreddit` is the feed's own subreddit (this listing is
-      // what we just fetched from it) and `postWrapper.data` is the crosspost
-      // itself, which is the only place that subreddit's discussion of it
-      // lives; both are dropped by `_getOriginalPostData()` above, so they are
-      // captured here while they are still in hand.
+      // crosspost. This reads the parent entry directly rather than reusing
+      // `originalSubreddit` above, whose fallback to the feed's own subreddit
+      // is right for the comments fetch and wrong for the notice: naming the
+      // subreddit the reader is already looking at says nothing.
       const crosspost: CrosspostAttribution | null = isCrossPost
-        ? {
-            originalSubreddit,
-            originalPermalink: permalink,
-            crosspostSubreddit: subreddit,
-            crosspostPermalink: `https://reddit.com${postWrapper.data.permalink.replace(
-              /&amp;/g,
-              "&",
-            )}`,
-          }
+        ? { originalSubreddit: postWrapper.data.crosspost_parent_list?.[0]?.subreddit || "" }
         : null;
 
       const headerImageUrl = await extractHeaderImageUrl(originalPostData);
@@ -666,21 +657,12 @@ export class RedditAggregator extends BaseAggregator {
       const originalPost = postData.crosspost_parent_list[0];
       effectiveSubreddit = originalPost.subreddit || subreddit;
       effectivePostData = new RedditPostData(originalPost);
-      // Same notice as the aggregation path -- here `url` is the crosspost's
-      // own permalink, so the crosspost half comes off the URL and the fetched
-      // post rather than off a listing. A normal aggregation run stores the
-      // *original* post's permalink as the article identifier, so reloading
-      // one of those articles re-fetches the original and lands in neither
-      // this branch nor the notice: the crosspost notice is rebuilt only when
-      // the identifier really is a crosspost's permalink.
-      crosspost = {
-        originalSubreddit: effectiveSubreddit,
-        originalPermalink: `https://reddit.com${decodeHtmlEntitiesInUrl(
-          effectivePostData.permalink,
-        )}`,
-        crosspostSubreddit: subreddit,
-        crosspostPermalink: `https://reddit.com${decodeHtmlEntitiesInUrl(postData.permalink)}`,
-      };
+      // Same notice as the aggregation path. A normal aggregation run stores
+      // the *original* post's permalink as the article identifier, so
+      // reloading one of those articles re-fetches the original and lands in
+      // neither this branch nor the notice: it is rebuilt only when the
+      // identifier really is a crosspost's permalink.
+      crosspost = { originalSubreddit: originalPost.subreddit || "" };
     }
 
     // Same derivation as parseToRawArticles() -- reload never calls
@@ -769,24 +751,11 @@ export class RedditAggregator extends BaseAggregator {
           const contentParts: string[] = [];
 
           // Unlike the two paths above, this branch builds the body from the
-          // crosspost itself rather than the original, so the notice's two
-          // halves swap sources: the origin comes off the parent entry and the
-          // crosspost half off `postDict`.
+          // crosspost itself rather than the original -- the notice's origin
+          // comes off the parent entry either way.
           if (parentPost) {
             contentParts.push(
-              buildCrosspostNoticeHtml(
-                {
-                  originalSubreddit: parentPost.subreddit || "",
-                  originalPermalink: `https://reddit.com${decodeHtmlEntitiesInUrl(
-                    parentPost.permalink || "",
-                  )}`,
-                  crosspostSubreddit: subreddit,
-                  crosspostPermalink: `https://reddit.com${decodeHtmlEntitiesInUrl(
-                    postData.permalink,
-                  )}`,
-                },
-                labels,
-              ),
+              buildCrosspostNoticeHtml({ originalSubreddit: parentPost.subreddit || "" }, labels),
             );
           }
 

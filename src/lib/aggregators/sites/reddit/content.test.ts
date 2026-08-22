@@ -63,7 +63,7 @@ describe("buildPostContent crosspost attribution", () => {
       is_self: false,
     });
 
-  it("opens the body with a notice naming both the origin and the crosspost", async () => {
+  it("opens the body with a notice naming the subreddit the post came from", async () => {
     const html = await buildPostContent(
       crosspostedPost(),
       0,
@@ -72,20 +72,25 @@ describe("buildPostContent crosspost attribution", () => {
       null,
       {
         originalSubreddit: "ich_iel",
-        originalPermalink: "https://reddit.com/r/ich_iel/comments/xyz789/title/",
-        crosspostSubreddit: "de",
-        crosspostPermalink: "https://reddit.com/r/de/comments/abc123/title/",
       },
     );
 
     // The notice is first: a reader has to know what they are looking at
     // before the original post's own body starts.
     expect(html.startsWith("<p><em>Crosspost: ")).toBe(true);
-    expect(html).toContain('href="https://reddit.com/r/ich_iel/comments/xyz789/title/"');
+    expect(html).toContain('href="https://reddit.com/r/ich_iel"');
     expect(html).toContain(">r/ich_iel<");
-    expect(html).toContain('href="https://reddit.com/r/de/comments/abc123/title/"');
-    expect(html).toContain(">r/de<");
-    expect(html).toContain("→");
+  });
+
+  it("never names the feed's own subreddit, which the reader already knows", async () => {
+    const html = await buildPostContent(crosspostedPost(), 0, "de", DEFAULT_CHROME_LABELS, null, {
+      originalSubreddit: "ich_iel",
+    });
+
+    // "r/ich_iel -> r/de" would spend the line restating where the reader
+    // already is; only the origin is news.
+    expect(html).not.toContain("r/de");
+    expect(html).not.toContain("→");
   });
 
   it("still suppresses the bare link a crosspost's own url would render", async () => {
@@ -95,12 +100,7 @@ describe("buildPostContent crosspost attribution", () => {
       "ich_iel",
       DEFAULT_CHROME_LABELS,
       null,
-      {
-        originalSubreddit: "ich_iel",
-        originalPermalink: "https://reddit.com/r/ich_iel/comments/xyz789/title/",
-        crosspostSubreddit: "de",
-        crosspostPermalink: "https://reddit.com/r/de/comments/abc123/title/",
-      },
+      { originalSubreddit: "ich_iel" },
     );
     const withoutNotice = await buildPostContent(
       crosspostedPost(),
@@ -109,39 +109,23 @@ describe("buildPostContent crosspost attribution", () => {
       DEFAULT_CHROME_LABELS,
     );
 
-    // The notice's own links are the only occurrences; the post's `url` is
-    // not appended as a body link, exactly as before this notice existed.
+    // The post's `url` is not appended as a body link, exactly as before this
+    // notice existed.
     expect(withNotice).not.toContain('href="https://www.reddit.com/r/ich_iel/comments/xyz789');
     // ...and a post that is *not* a crosspost still gets that link.
     expect(withoutNotice).toContain('href="https://www.reddit.com/r/ich_iel/comments/xyz789');
     expect(withoutNotice).not.toContain("Crosspost");
   });
 
-  it("names one subreddit only when the origin and the crosspost share it", async () => {
-    // `parseToRawArticles()` falls back to the feed's own subreddit when a
-    // `crosspost_parent_list` entry carries no `subreddit` -- "r/x → r/x"
-    // would be worse than saying nothing.
-    const html = await buildPostContent(crosspostedPost(), 0, "de", DEFAULT_CHROME_LABELS, null, {
-      originalSubreddit: "de",
-      originalPermalink: "https://reddit.com/r/de/comments/xyz789/title/",
-      crosspostSubreddit: "de",
-      crosspostPermalink: "https://reddit.com/r/de/comments/abc123/title/",
-    });
-
-    expect(html).toContain(">r/de<");
-    expect(html).not.toContain("→");
-  });
-
   it("degrades to the bare label when no origin subreddit is known", async () => {
     const html = await buildPostContent(crosspostedPost(), 0, "de", DEFAULT_CHROME_LABELS, null, {
       originalSubreddit: "",
-      originalPermalink: "",
-      crosspostSubreddit: "de",
-      crosspostPermalink: "https://reddit.com/r/de/comments/abc123/title/",
     });
 
     // Still recognizable as a crosspost, which is the whole point of it.
     expect(html.startsWith("<p><em>Crosspost</em></p>")).toBe(true);
-    expect(html).not.toContain("r/de");
+    // No subreddit is linked -- `not.toContain("r/")` would match the
+    // comments section's own permalink, which is not what this asserts.
+    expect(html).not.toContain(">r/");
   });
 });

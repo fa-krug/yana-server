@@ -445,7 +445,7 @@ describe("RedditAggregator crosspost recognition", () => {
     };
   }
 
-  it("captures the origin and the crosspost, both of which _getOriginalPostData() drops", async () => {
+  it("captures the origin subreddit, which _getOriginalPostData() drops", async () => {
     const agg = aggregatorFor({});
 
     const [raw] = await agg.parseToRawArticles(crosspostListing());
@@ -453,13 +453,9 @@ describe("RedditAggregator crosspost recognition", () => {
     // Unchanged: the article itself is still the original post.
     expect(raw!.name).toBe("the original title");
     expect(raw!.identifier).toBe("https://reddit.com/r/ich_iel/comments/xyz789/title/");
-    // New: what makes that recognizable as a crosspost downstream.
-    expect(raw!._reddit_crosspost).toEqual({
-      originalSubreddit: "ich_iel",
-      originalPermalink: "https://reddit.com/r/ich_iel/comments/xyz789/title/",
-      crosspostSubreddit: "de",
-      crosspostPermalink: "https://reddit.com/r/de/comments/abc123/title/",
-    });
+    // New: what makes that recognizable as a crosspost downstream. The feed's
+    // own subreddit is not part of it -- the reader already knows that one.
+    expect(raw!._reddit_crosspost).toEqual({ originalSubreddit: "ich_iel" });
   });
 
   it("leaves the attribution null for an ordinary post", async () => {
@@ -483,7 +479,7 @@ describe("RedditAggregator crosspost recognition", () => {
     expect(raw!._reddit_crosspost).toBeNull();
   });
 
-  it("carries the notice into the finished body, naming both subreddits", async () => {
+  it("carries the notice into the finished body, naming the origin subreddit", async () => {
     vi.mocked(fetchPostComments).mockResolvedValue([]);
     const agg = aggregatorFor({ comment_limit: 5 });
 
@@ -491,7 +487,7 @@ describe("RedditAggregator crosspost recognition", () => {
 
     expect(enriched!.content).toContain("Crosspost: ");
     expect(enriched!.content).toContain(">r/ich_iel<");
-    expect(enriched!.content).toContain(">r/de<");
-    expect(enriched!.content).toContain('href="https://reddit.com/r/de/comments/abc123/title/"');
+    expect(enriched!.content).toContain('href="https://reddit.com/r/ich_iel"');
+    expect(enriched!.content).not.toContain("r/de");
   });
 });

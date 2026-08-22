@@ -23,52 +23,39 @@ import { decodeHtmlEntitiesInUrl, fixRedditMediaUrl } from "./urls";
  * crosspost's `url` is the original post, so the link would point the reader
  * back at the article they are already reading).
  *
- * `originalSubreddit`/`originalPermalink` describe where the post came from;
- * `crosspostSubreddit`/`crosspostPermalink` describe the crosspost itself --
- * the post that actually appeared in the feed's subreddit, and the only place
- * that subreddit's own discussion of it can be read. The latter pair is
- * optional because not every caller knows it (see `extractContent()`'s JSON
- * branch in `./aggregator.ts`).
+ * The subreddit the crosspost itself appeared in is deliberately *not* part of
+ * this: it is the feed's own subreddit, which the reader already knows -- the
+ * one thing the article does not carry is where the post came *from*.
+ * `originalSubreddit` is `""` when Reddit's `crosspost_parent_list` entry
+ * carries no `subreddit` (rare), which is distinct from a null attribution
+ * meaning "not a crosspost at all".
  */
 export interface CrosspostAttribution {
   originalSubreddit: string;
-  originalPermalink: string;
-  crosspostSubreddit?: string | null;
-  crosspostPermalink?: string | null;
 }
 
 /**
- * The one-line "Crosspost: r/from -> r/to" notice that opens a crosspost's
- * body. Exported because `extractContent()`'s JSON branch in `./aggregator.ts`
- * builds its content without going through `buildPostContent()` and has to
- * emit the same notice rather than a second version of it.
+ * The one-line "Crosspost: r/from" notice that opens a crosspost's body, the
+ * subreddit name linking to that subreddit. Exported because
+ * `extractContent()`'s JSON branch in `./aggregator.ts` builds its content
+ * without going through `buildPostContent()` and has to emit the same notice
+ * rather than a second version of it.
  *
- * The target link is dropped when it would name the subreddit the post
- * already came from: `parseToRawArticles()` falls back to the feed's own
- * subreddit when a `crosspost_parent_list` entry carries no `subreddit`, and
- * "r/x -> r/x" is worse than saying nothing. When no origin is known at all
- * the notice degrades to the bare word, which still answers the question the
- * whole notice exists for -- is this a crosspost.
+ * With no origin known the notice degrades to the bare word, which still
+ * answers the question the whole notice exists for -- is this a crosspost.
  */
 export function buildCrosspostNoticeHtml(
   crosspost: CrosspostAttribution,
   labels: ChromeLabels,
 ): string {
-  let trail = "";
-  if (crosspost.originalSubreddit) {
-    trail = safeLinkHtml(crosspost.originalPermalink, `r/${crosspost.originalSubreddit}`);
-    if (
-      crosspost.crosspostSubreddit &&
-      crosspost.crosspostSubreddit !== crosspost.originalSubreddit
-    ) {
-      trail += ` → ${safeLinkHtml(
-        crosspost.crosspostPermalink,
-        `r/${crosspost.crosspostSubreddit}`,
-      )}`;
-    }
-  }
+  const origin = crosspost.originalSubreddit
+    ? `: ${safeLinkHtml(
+        `https://reddit.com/r/${crosspost.originalSubreddit}`,
+        `r/${crosspost.originalSubreddit}`,
+      )}`
+    : "";
 
-  return `<p><em>${escapeHtml(labels.crosspost)}${trail ? `: ${trail}` : ""}</em></p>`;
+  return `<p><em>${escapeHtml(labels.crosspost)}${origin}</em></p>`;
 }
 
 export async function buildPostContent(
