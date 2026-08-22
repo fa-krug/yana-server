@@ -612,6 +612,10 @@
     "date": "Date",
     "createdAt": "Added date",
     "createdAtNote": "Added date is displayed for information only and cannot be edited.",
+    "source": "Source URL",
+    "sourceNote": "Press to copy.",
+    "sourceCopied": "Source URL copied",
+    "sourceCopyFailed": "Could not copy the source URL",
     "save": "Save article",
     "saved": "Article saved"
   },

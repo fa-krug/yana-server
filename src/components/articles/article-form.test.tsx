@@ -1,9 +1,9 @@
-import { screen } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/render";
 
-import { ArticleForm } from "./article-form";
+import { ArticleForm, type ArticleDetailRow } from "./article-form";
 
 /**
  * Carried forward from `/articles/[id]/loading.tsx`'s deleted test
@@ -23,6 +23,20 @@ vi.mock("@/lib/articles/actions", () => ({
   reloadArticles: vi.fn(),
 }));
 
+const article: ArticleDetailRow = {
+  id: 1,
+  name: "Example article",
+  identifier: "https://example.com/a",
+  feedId: 5,
+  date: new Date("2026-01-01T00:00:00Z"),
+  createdAt: new Date("2026-01-02T00:00:00Z"),
+};
+
+/** jsdom has no clipboard API at all, so every test that needs one installs it. */
+function stubClipboard(writeText: () => Promise<void>) {
+  Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+}
+
 describe("ArticleForm", () => {
   it("renders every field, disabled and blank, while pending", () => {
     renderWithProviders(<ArticleForm pending />);
@@ -38,6 +52,10 @@ describe("ArticleForm", () => {
     expect(date.disabled).toBe(true);
     expect(date.value).toBe("");
 
+    const source = screen.getByLabelText("Source URL") as HTMLButtonElement;
+    expect(source.disabled).toBe(true);
+    expect(source.textContent).toBe("");
+
     expect((screen.getByLabelText("Added date") as HTMLInputElement).disabled).toBe(true);
 
     expect(
@@ -46,5 +64,30 @@ describe("ArticleForm", () => {
     expect(
       (screen.getByRole("button", { name: "Reload content" }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+
+  it("shows the source URL and copies it when pressed", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    stubClipboard(writeText);
+
+    renderWithProviders(<ArticleForm article={article} feeds={[{ id: 5, name: "Example" }]} />);
+
+    const source = screen.getByLabelText("Source URL") as HTMLButtonElement;
+    expect(source.disabled).toBe(false);
+    expect(source.textContent).toContain("https://example.com/a");
+    // The full URL stays reachable when the visible text is truncated.
+    expect(source.title).toBe("https://example.com/a");
+
+    await act(async () => {
+      fireEvent.click(source);
+    });
+
+    expect(writeText).toHaveBeenCalledWith("https://example.com/a");
+  });
+
+  it("disables the source field for an article that carries no link", () => {
+    renderWithProviders(<ArticleForm article={{ ...article, identifier: "" }} feeds={[]} />);
+
+    expect((screen.getByLabelText("Source URL") as HTMLButtonElement).disabled).toBe(true);
   });
 });

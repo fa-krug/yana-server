@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Suspense, use, useState, useTransition } from "react";
 import { toast } from "sonner";
+import { CopyIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +34,40 @@ export type ArticleFeed = { id: number; name: string };
  * `getArticle()` itself stays the full row because it is also a
  * general-purpose read other code (and its own tests) depend on.
  */
-export type ArticleDetailRow = Pick<Article, "id" | "name" | "feedId" | "date" | "createdAt">;
+export type ArticleDetailRow = Pick<
+  Article,
+  "id" | "name" | "identifier" | "feedId" | "date" | "createdAt"
+>;
+
+/**
+ * `navigator.clipboard` exists only in a secure context, so a self-hosted
+ * instance reached over plain HTTP on a LAN -- which this project supports --
+ * has no clipboard API at all, and the button would silently do nothing. The
+ * `execCommand` path is deprecated but is what still works there.
+ */
+async function writeToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // No clipboard API, or permission refused -- fall through to the fallback.
+  }
+
+  try {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    const copied = document.execCommand("copy");
+    area.remove();
+    return copied;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * `article`/`feeds` are optional and paired with `pending`, the same
@@ -136,6 +170,20 @@ export function ArticleForm({
 
   const createdAtFormatted = article ? new Date(article.createdAt).toLocaleString() : "";
 
+  // `articles.identifier` -- the URL every aggregator stores as the article's
+  // source (a watch URL for YouTube, a permalink for Reddit, the entry link
+  // for RSS). Empty only when a feed entry carried no link at all.
+  const sourceUrl = article?.identifier ?? "";
+
+  async function copySourceUrl() {
+    if (!sourceUrl) return;
+    if (await writeToClipboard(sourceUrl)) {
+      toast.success(t("sourceCopied"));
+    } else {
+      toast.error(t("sourceCopyFailed"));
+    }
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6 max-w-xl">
       {error && (
@@ -198,6 +246,28 @@ export function ArticleForm({
           // ambiguity; a block box's 100% width is unambiguous.
           className="block max-w-full"
         />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="article-source">{t("source")}</Label>
+        {/*
+          A button rather than a read-only input: pressing it copies, and a
+          button is labelable, so the `<Label htmlFor>` above still gives it
+          an accessible name. Disabled while pending and when the article
+          carries no link, which is also the `pending` chassis's state.
+        */}
+        <button
+          id="article-source"
+          type="button"
+          onClick={copySourceUrl}
+          disabled={busy || !sourceUrl}
+          title={sourceUrl || undefined}
+          className="flex h-8 w-full min-w-0 items-center gap-2 rounded-lg border border-input bg-transparent px-2.5 py-1 text-left text-base transition-colors outline-none hover:bg-accent focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 md:text-sm dark:bg-input/30 dark:disabled:bg-input/80"
+        >
+          <span className="truncate">{sourceUrl}</span>
+          <CopyIcon className="ml-auto size-4 shrink-0 text-muted-foreground" aria-hidden />
+        </button>
+        <p className="text-xs text-muted-foreground">{t("sourceNote")}</p>
       </div>
 
       <div className="space-y-2">

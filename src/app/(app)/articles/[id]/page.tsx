@@ -62,6 +62,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     return {
       id: article.id,
       name: article.name,
+      identifier: article.identifier,
       feedId: article.feedId,
       date: article.date,
       createdAt: article.createdAt,
