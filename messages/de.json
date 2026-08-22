@@ -630,7 +630,8 @@
     "downloadEpisode": "Episode herunterladen",
     "viewOnBluesky": "Auf Bluesky ansehen",
     "viewOnReddit": "Auf Reddit ansehen",
-    "viewOnTwitter": "Auf X/Twitter ansehen"
+    "viewOnTwitter": "Auf X/Twitter ansehen",
+    "crosspost": "Crosspost"
   },
   "dashboard": {
     "stats": {

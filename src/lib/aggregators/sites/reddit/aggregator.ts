@@ -20,7 +20,7 @@ import { storeImageRefFromUrl } from "../../images/store";
 
 import { getRedditAccessToken, getRedditUserSettings } from "./auth";
 import { fetchPostComments, formatCommentHtml, isValidComment } from "./comments";
-import { buildPostContent } from "./content";
+import { buildCrosspostNoticeHtml, buildPostContent, CrosspostAttribution } from "./content";
 import { extractAnimatedGifUrl, extractHeaderImageUrl, extractThumbnailUrl } from "./images";
 import { convertRedditMarkdown, escapeHtml, safeImgHtml, safeLinkHtml } from "./markdown";
 import { fetchRedditPost } from "./posts";
@@ -267,6 +267,27 @@ export class RedditAggregator extends BaseAggregator {
       const decodedPermalink = originalPostData.permalink.replace(/&amp;/g, "&");
       const permalink = `https://reddit.com${decodedPermalink}`;
 
+      // Everything above resolves to the *original* post -- title, date,
+      // author, permalink, media and (in `enrichArticles()`) comments all come
+      // from the subreddit the post was first submitted to, so the finished
+      // article would otherwise carry nothing that says it arrived here as a
+      // crosspost. `subreddit` is the feed's own subreddit (this listing is
+      // what we just fetched from it) and `postWrapper.data` is the crosspost
+      // itself, which is the only place that subreddit's discussion of it
+      // lives; both are dropped by `_getOriginalPostData()` above, so they are
+      // captured here while they are still in hand.
+      const crosspost: CrosspostAttribution | null = isCrossPost
+        ? {
+            originalSubreddit,
+            originalPermalink: permalink,
+            crosspostSubreddit: subreddit,
+            crosspostPermalink: `https://reddit.com${postWrapper.data.permalink.replace(
+              /&amp;/g,
+              "&",
+            )}`,
+          }
+        : null;
+
       const headerImageUrl = await extractHeaderImageUrl(originalPostData);
       const thumbnailUrl = extractThumbnailUrl(originalPostData);
       const articleThumbnailUrl = headerImageUrl || thumbnailUrl;
@@ -296,7 +317,7 @@ export class RedditAggregator extends BaseAggregator {
         icon: articleThumbnailUrl,
         _reddit_post_data: originalPostData.toDict(),
         _reddit_subreddit: originalSubreddit,
-        _reddit_is_cross_post: isCrossPost,
+        _reddit_crosspost: crosspost,
         _reddit_num_comments: originalPostData.num_comments,
         _reddit_header_image_url: headerImageUrl,
         _reddit_video_url: videoUrl,
@@ -371,7 +392,7 @@ export class RedditAggregator extends BaseAggregator {
           const postDataDict = (article._reddit_post_data as RedditPostDataDict) || {};
           const postData = new RedditPostData(postDataDict);
           const subreddit = (article._reddit_subreddit as string) || "";
-          const isCrossPost = (article._reddit_is_cross_post as boolean) || false;
+          const crosspost = (article._reddit_crosspost as CrosspostAttribution | null) ?? null;
 
           const comments = await fetchPostComments(
             subreddit,
@@ -388,7 +409,7 @@ export class RedditAggregator extends BaseAggregator {
             subreddit,
             labels,
             this.feed.userId,
-            isCrossPost,
+            crosspost,
             comments,
           );
 
@@ -449,7 +470,7 @@ export class RedditAggregator extends BaseAggregator {
 
         delete article._reddit_post_data;
         delete article._reddit_subreddit;
-        delete article._reddit_is_cross_post;
+        delete article._reddit_crosspost;
         delete article._reddit_num_comments;
         delete article._reddit_header_image_url;
         delete article._reddit_video_url;
@@ -638,14 +659,28 @@ export class RedditAggregator extends BaseAggregator {
     }
 
     let effectiveSubreddit = subreddit;
-    let isCrossPost = false;
+    let crosspost: CrosspostAttribution | null = null;
     let effectivePostData = postData;
 
     if (postData.crosspost_parent_list && postData.crosspost_parent_list.length > 0) {
       const originalPost = postData.crosspost_parent_list[0];
-      isCrossPost = true;
       effectiveSubreddit = originalPost.subreddit || subreddit;
       effectivePostData = new RedditPostData(originalPost);
+      // Same notice as the aggregation path -- here `url` is the crosspost's
+      // own permalink, so the crosspost half comes off the URL and the fetched
+      // post rather than off a listing. A normal aggregation run stores the
+      // *original* post's permalink as the article identifier, so reloading
+      // one of those articles re-fetches the original and lands in neither
+      // this branch nor the notice: the crosspost notice is rebuilt only when
+      // the identifier really is a crosspost's permalink.
+      crosspost = {
+        originalSubreddit: effectiveSubreddit,
+        originalPermalink: `https://reddit.com${decodeHtmlEntitiesInUrl(
+          effectivePostData.permalink,
+        )}`,
+        crosspostSubreddit: subreddit,
+        crosspostPermalink: `https://reddit.com${decodeHtmlEntitiesInUrl(postData.permalink)}`,
+      };
     }
 
     // Same derivation as parseToRawArticles() -- reload never calls
@@ -682,7 +717,7 @@ export class RedditAggregator extends BaseAggregator {
       effectiveSubreddit,
       labels,
       this.feed.userId,
-      isCrossPost,
+      crosspost,
       comments,
     );
   }
@@ -727,12 +762,33 @@ export class RedditAggregator extends BaseAggregator {
             ? ((this.feed.options?.comment_limit as number) ?? 10)
             : 0;
           const subreddit = postDict.subreddit || normalizeSubreddit(this.identifier);
-          const isCrossPost = Boolean(
-            postData.crosspost_parent_list && postData.crosspost_parent_list.length > 0,
-          );
+          const parentPost = postData.crosspost_parent_list?.[0];
+          const isCrossPost = Boolean(parentPost);
           const labels = await this.chromeLabels();
 
           const contentParts: string[] = [];
+
+          // Unlike the two paths above, this branch builds the body from the
+          // crosspost itself rather than the original, so the notice's two
+          // halves swap sources: the origin comes off the parent entry and the
+          // crosspost half off `postDict`.
+          if (parentPost) {
+            contentParts.push(
+              buildCrosspostNoticeHtml(
+                {
+                  originalSubreddit: parentPost.subreddit || "",
+                  originalPermalink: `https://reddit.com${decodeHtmlEntitiesInUrl(
+                    parentPost.permalink || "",
+                  )}`,
+                  crosspostSubreddit: subreddit,
+                  crosspostPermalink: `https://reddit.com${decodeHtmlEntitiesInUrl(
+                    postData.permalink,
+                  )}`,
+                },
+                labels,
+              ),
+            );
+          }
 
           if (postData.selftext) {
             const selftextHtml = convertRedditMarkdown(postData.selftext);
