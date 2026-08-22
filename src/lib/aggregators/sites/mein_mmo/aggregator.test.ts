@@ -44,6 +44,15 @@ const ARTICLE: RawArticle = {
   author: "",
 };
 
+const CMS_VIDEO_HTML =
+  '<html><body><div class="entry-content"><p>Article body.</p>' +
+  '<div class="wp-block-mmo-video" data-id="857744"><figure>' +
+  '<div class="thumbnail" style="background-image: url(https://images.mein-mmo.de/w.jpg);">' +
+  "</div>" +
+  '<figcaption class="title">Some trailer</figcaption>' +
+  "<script>window.Mmo.functions.renderDmPlayer( { dmVideoId: 'x8co8a0' } );</script>" +
+  "</figure></div></div></body></html>";
+
 describe("MeinMmoAggregator.extractContent", () => {
   it("returns a Promise<string> that resolves to the extracted content", async () => {
     const agg = new MeinMmoAggregator(FEED);
@@ -54,6 +63,27 @@ describe("MeinMmoAggregator.extractContent", () => {
 
     const resolved = await result;
     expect(resolved).toContain("Article body.");
+  });
+
+  // The option reads `=== true`, so an absent value -- every feed created
+  // before it existed, FEED above included -- means off. A `!== false` typo
+  // here would silently keep the CMS's videos in every one of them, which is
+  // the behaviour this option exists to end.
+  it("drops the CMS's auto-inserted video when the feed sets no include_videos", async () => {
+    const resolved = await new MeinMmoAggregator(FEED).extractContent(CMS_VIDEO_HTML, ARTICLE);
+
+    expect(resolved).toContain("Article body.");
+    expect(resolved).not.toContain("dailymotion");
+    expect(resolved).not.toContain("Some trailer");
+  });
+
+  it("keeps it when the feed opts in", async () => {
+    const feed: FeedLike = { ...FEED, options: { ...FEED.options, include_videos: true } };
+
+    const resolved = await new MeinMmoAggregator(feed).extractContent(CMS_VIDEO_HTML, ARTICLE);
+
+    expect(resolved).toContain("https://www.dailymotion.com/video/x8co8a0");
+    expect(resolved).toContain("Some trailer");
   });
 });
 

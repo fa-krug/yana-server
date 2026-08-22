@@ -213,6 +213,22 @@ describe("identifierChoices parity with the ported aggregator classes", () => {
     ["the_verge", TheVergeAggregator],
   ];
 
+  // specs.ts and the site classes' getConfigurationFields() are hand-kept
+  // duplicates of each other. Only mein_mmo's include_videos is pinned here,
+  // because it is the one option whose default is off: a spec that drifted to
+  // `true` would put the CMS's auto-inserted videos back into every newly
+  // created feed while extractContent() still read them as off.
+  it("agrees with MeinMmoAggregator on include_videos defaulting to off", () => {
+    const fields = MeinMmoAggregator.getConfigurationFields() as Record<
+      string,
+      { initial: unknown }
+    >;
+    const option = AGGREGATOR_SPECS.mein_mmo.options.find((o) => o.key === "include_videos");
+
+    expect(option?.default).toBe(false);
+    expect(fields.include_videos?.initial).toBe(false);
+  });
+
   it("matches each site class's getIdentifierChoices() byte-for-byte", () => {
     for (const [key, cls] of classesWithChoices) {
       const fromClass = cls.getIdentifierChoices().map(([value, label]) => ({ value, label }));
