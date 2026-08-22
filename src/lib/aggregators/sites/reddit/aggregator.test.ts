@@ -9,6 +9,7 @@ import type { FeedLike, RawArticle } from "../../base";
 import { ArticleSkipError } from "../../errors";
 import { RedditAggregator } from "./aggregator";
 import { fetchPostComments } from "./comments";
+import { RedditPostData } from "./types";
 import type { RedditPostDataDict } from "./types";
 
 vi.mock("./comments", async (importOriginal) => ({
@@ -136,7 +137,7 @@ describe("RedditAggregator.enrichArticles concurrency", () => {
       identifier: id,
       _reddit_post_data: postData(id),
       _reddit_subreddit: "test",
-      _reddit_is_cross_post: false,
+      _reddit_crosspost: null,
     });
   }
 
@@ -412,5 +413,81 @@ describe("RedditAggregator.extractContent legacy JSON locale", () => {
 
     expect(html).toContain("Kommentare");
     expect(html).not.toContain(">Comments<");
+  });
+});
+
+describe("RedditAggregator crosspost recognition", () => {
+  function crosspostListing() {
+    return {
+      subreddit: "de",
+      posts: [
+        {
+          data: new RedditPostData({
+            id: "abc123",
+            title: "the crosspost's own title",
+            permalink: "/r/de/comments/abc123/title/",
+            created_utc: 1,
+            author: "crossposter",
+            crosspost_parent_list: [
+              {
+                id: "xyz789",
+                title: "the original title",
+                permalink: "/r/ich_iel/comments/xyz789/title/",
+                subreddit: "ich_iel",
+                created_utc: 2,
+                author: "original_author",
+                num_comments: 12,
+              },
+            ],
+          }),
+        },
+      ],
+    };
+  }
+
+  it("captures the origin subreddit, which _getOriginalPostData() drops", async () => {
+    const agg = aggregatorFor({});
+
+    const [raw] = await agg.parseToRawArticles(crosspostListing());
+
+    // Unchanged: the article itself is still the original post.
+    expect(raw!.name).toBe("the original title");
+    expect(raw!.identifier).toBe("https://reddit.com/r/ich_iel/comments/xyz789/title/");
+    // New: what makes that recognizable as a crosspost downstream. The feed's
+    // own subreddit is not part of it -- the reader already knows that one.
+    expect(raw!._reddit_crosspost).toEqual({ originalSubreddit: "ich_iel" });
+  });
+
+  it("leaves the attribution null for an ordinary post", async () => {
+    const agg = aggregatorFor({});
+
+    const [raw] = await agg.parseToRawArticles({
+      subreddit: "de",
+      posts: [
+        {
+          data: new RedditPostData({
+            id: "abc123",
+            title: "an ordinary post",
+            permalink: "/r/de/comments/abc123/title/",
+            created_utc: 1,
+            author: "someone",
+          }),
+        },
+      ],
+    });
+
+    expect(raw!._reddit_crosspost).toBeNull();
+  });
+
+  it("carries the notice into the finished body, naming the origin subreddit", async () => {
+    vi.mocked(fetchPostComments).mockResolvedValue([]);
+    const agg = aggregatorFor({ comment_limit: 5 });
+
+    const [enriched] = await agg.enrichArticles(await agg.parseToRawArticles(crosspostListing()));
+
+    expect(enriched!.content).toContain("Crosspost: ");
+    expect(enriched!.content).toContain(">r/ich_iel<");
+    expect(enriched!.content).toContain('href="https://reddit.com/r/ich_iel"');
+    expect(enriched!.content).not.toContain("r/de");
   });
 });
