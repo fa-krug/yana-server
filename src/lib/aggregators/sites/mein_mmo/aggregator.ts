@@ -55,6 +55,16 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
         min_value: 0,
         max_value: 20,
       },
+      include_videos: {
+        type: "boolean",
+        initial: false,
+        label: "Include Auto-Inserted Videos",
+        help_text:
+          "Keep the Dailymotion player Mein-MMO's CMS drops into article bodies. " +
+          "Off by default: the video it plays is chosen by the CMS, not the author, " +
+          "and is often unrelated to the article.",
+        required: false,
+      },
     };
   }
 
@@ -77,7 +87,12 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
     "style",
     "iframe:not([src*='youtube.com']):not([src*='youtu.be'])",
     "noscript",
-    // Do NOT add ".dailymotion-embed-container" here!
+    // Do NOT add ".dailymotion-embed-container" here! That is the facade
+    // extractMeinMmoContent() builds for an author-inserted Dailymotion embed,
+    // which is real article content. The CMS's own auto-inserted
+    // "div.wp-block-mmo-video" blocks are a separate thing, and are dropped by
+    // processDailymotionBlocks() when the feed's include_videos option is off
+    // -- not from this list, so the removal can skip their thumbnail fetch too.
   ];
   protected selectorsToRemove = [...MeinMmoAggregator.selectorsToRemove];
 
@@ -125,7 +140,12 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
 
   override async extractContent(html: string, article: RawArticle): Promise<string> {
     const labels = await this.chromeLabels();
-    return extractMeinMmoContent(html, article, this.getIgnoreSelectors(), labels);
+    const options = (this.feed.options as Record<string, unknown> | null) || {};
+    // `=== true`, not `!== false`, unlike combine_pages/include_comments above:
+    // this option is off by default, so an absent value -- every feed created
+    // before it existed -- must read as off.
+    const includeVideos = options.include_videos === true;
+    return extractMeinMmoContent(html, article, this.getIgnoreSelectors(), labels, includeVideos);
   }
 
   override async processContent(html: string, article: RawArticle): Promise<string> {

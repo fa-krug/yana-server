@@ -522,6 +522,17 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       { key: "combine_pages", label: "Combine Pages", kind: "boolean", default: true },
       { key: "include_comments", label: "Include Comments", kind: "boolean", default: true },
       { key: "max_comments", label: "Max Comments", kind: "number", default: 5 },
+      // Off by default, unlike every other boolean option here: this is the
+      // Dailymotion player Mein-MMO's CMS auto-inserts into article bodies,
+      // not an author's embed -- see processDailymotionBlocks() in
+      // sites/mein_mmo/content.ts. The label has to carry the whole
+      // explanation, because feed-form.tsx renders no `help` for a boolean.
+      {
+        key: "include_videos",
+        label: "Include Auto-Inserted Videos",
+        kind: "boolean",
+        default: false,
+      },
     ],
   },
   the_verge: {
