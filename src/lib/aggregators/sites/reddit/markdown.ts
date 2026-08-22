@@ -26,6 +26,87 @@ export function safeImgHtml(url: string | null | undefined, alt: string): string
   return `<img src="${escapeHtml(url)}" alt="${escapeHtml(alt)}">`;
 }
 
+/**
+ * Reddit's editor escapes markdown punctuation on its way into the API, so a
+ * comment whose author typed a literal "- item" arrives as "\- item", and one
+ * mentioning C++ as "C\+\+". Any of CommonMark's escapable characters can turn
+ * up this way and none of them was being unescaped: the backslash printed
+ * verbatim, and the character behind it was still read as syntax on top of
+ * that -- "\^caret" rendered a literal backslash followed by a superscript.
+ *
+ * The escape is resolved in two halves, because it has to survive the whole
+ * pipeline. protectBackslashEscapes() runs before anything reads the text as
+ * syntax and replaces `\x` with a single Private Use Area character carrying
+ * x's own code point; restoreBackslashEscapes() turns that back into x,
+ * HTML-escaped, once the markup is built. In between, nothing -- the inline
+ * emphasis regexes, the list and quote detection, cheerio's parse and
+ * re-serialization -- can read the escaped character as syntax or split the
+ * marker in half.
+ */
+const ESCAPE_PLACEHOLDER_BASE = 0xe000;
+
+/** U+E021..U+E07E: one placeholder per escapable ASCII punctuation character. */
+const ESCAPE_PLACEHOLDER_PATTERN = /[\uE021-\uE07E]/g;
+
+/**
+ * Reddit's JSON `body` is HTML-escaped markdown, so an escaped `<` arrives as
+ * `\&lt;` rather than `\<`. The entity forms have to be recognised here, or
+ * the backslash reads as escaping the ampersand and the entity's own name
+ * prints as text.
+ */
+const ESCAPED_ENTITIES: Record<string, string> = {
+  "&lt;": "<",
+  "&gt;": ">",
+  "&amp;": "&",
+  "&quot;": '"',
+  "&#39;": "'",
+};
+
+/**
+ * A backslash followed by one escapable character: CommonMark's set is every
+ * ASCII punctuation character, and nothing else -- `\d` keeps its backslash.
+ * The entity alternatives come first so `\&lt;` is not read as `\&` plus the
+ * text `lt;`.
+ */
+const BACKSLASH_ESCAPE = /\\(&lt;|&gt;|&amp;|&quot;|&#39;|[!"#$%&'()*+,./:;<=>?@[\]^_`{|}~\\-])/g;
+
+/**
+ * A fenced block or a code span. Backslash escapes are not processed inside
+ * either one (CommonMark, and Reddit's own renderer), so a code span holding
+ * `\d+` or `\.` keeps every backslash it was given. An unclosed fence ends at
+ * the blank line that ends its block, which is where markdownToHtml() ends it
+ * too.
+ */
+const CODE_RUN = /(```[\s\S]*?```|```(?:[^\n]|\n(?!\n))*|`[^`\n]+`)/;
+
+function protectEscapesOutsideCode(text: string): string {
+  return (
+    text
+      .replace(BACKSLASH_ESCAPE, (_, escaped: string) => {
+        const char = ESCAPED_ENTITIES[escaped] ?? escaped;
+        return String.fromCharCode(ESCAPE_PLACEHOLDER_BASE + char.charCodeAt(0));
+      })
+      // A trailing backslash is CommonMark's hard line break. Every line inside
+      // a block is already joined with <br>, so the marker has nothing left to
+      // do but disappear -- left in place it prints.
+      .replace(/\\(?=\n)/g, "")
+  );
+}
+
+function protectBackslashEscapes(md: string): string {
+  if (!md.includes("\\")) return md;
+  return md
+    .split(CODE_RUN)
+    .map((part, index) => (index % 2 === 1 ? part : protectEscapesOutsideCode(part)))
+    .join("");
+}
+
+function restoreBackslashEscapes(html: string): string {
+  return html.replace(ESCAPE_PLACEHOLDER_PATTERN, (placeholder) =>
+    escapeHtml(String.fromCharCode(placeholder.charCodeAt(0) - ESCAPE_PLACEHOLDER_BASE)),
+  );
+}
+
 function parseInlineMarkdown(text: string): string {
   if (!text) return "";
   let s = text;
@@ -98,7 +179,11 @@ const MAX_QUOTE_DEPTH = 8;
 export function markdownToHtml(md: string, depth = 0): string {
   if (!md) return "";
 
-  const rawBlocks = md.replace(/\r\n/g, "\n").split(/\n{2,}/);
+  // Only at the top: a recursive call is handed text that is already protected,
+  // and its result is restored by the outermost frame.
+  const source = depth === 0 ? protectBackslashEscapes(md) : md;
+
+  const rawBlocks = source.replace(/\r\n/g, "\n").split(/\n{2,}/);
   const intermediateBlocks: Array<{
     type: "p" | "quote" | "ul" | "ol" | "h" | "code";
     html: string;
@@ -216,7 +301,8 @@ export function markdownToHtml(md: string, depth = 0): string {
     }
   }
 
-  return mergedBlocks.join("\n");
+  const html = mergedBlocks.join("\n");
+  return depth === 0 ? restoreBackslashEscapes(html) : html;
 }
 
 export function linkifyHtml(htmlContent: string): string {
@@ -321,6 +407,21 @@ export function convertRedditMarkdown(text: string): string {
   // text "&#x200B;" instead of vanishing. It adds no visual value either way,
   // so it's removed outright rather than decoded.
   input = input.replace(/&#x200[Bb];|\u200B/g, "");
+
+  // A Private Use Area character in the source would be indistinguishable from
+  // the placeholder protectBackslashEscapes() writes below, so it goes for the
+  // same reason the spacer above does: it renders as nothing anyone typed on
+  // purpose, and leaving it in would let a commenter forge an escape. Nothing
+  // can be injected that way -- restoreBackslashEscapes() writes the character
+  // back through escapeHtml() -- but the text would still read as something
+  // its author never wrote.
+  input = input.replace(ESCAPE_PLACEHOLDER_PATTERN, "");
+
+  // Escapes are resolved before anything else reads the text as syntax. The
+  // superscript, strikethrough and spoiler passes below run on raw markdown,
+  // so `\^caret` has to be neutralised before they see it -- markdownToHtml()
+  // protecting its own input would be far too late for those three.
+  input = protectBackslashEscapes(input);
 
   // Reddit's JSON `body` is HTML-escaped markdown, so a quote typed as
   // `>text` arrives as `&gt;text` and never reaches markdownToHtml() as a
