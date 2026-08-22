@@ -612,6 +612,10 @@
     "date": "Datum",
     "createdAt": "Hinzugefügt am",
     "createdAtNote": "Das Hinzufügedatum dient nur zur Information und kann nicht bearbeitet werden.",
+    "source": "Quell-URL",
+    "sourceNote": "Zum Kopieren antippen.",
+    "sourceCopied": "Quell-URL kopiert",
+    "sourceCopyFailed": "Quell-URL konnte nicht kopiert werden",
     "save": "Artikel speichern",
     "saved": "Artikel gespeichert"
   },
