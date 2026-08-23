@@ -76,6 +76,21 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
   static selectorsToRemove = [
     "div.wp-block-mmo-recirculation-box",
     "div.wp-block-mmo-hub-box",
+    // The "Inhalt" table of contents. Mein-MMO generates it with the Fixed TOC
+    // (`ftwp`) WordPress plugin, which injects the whole widget -- header,
+    // trigger button and the nested <ol> of anchors -- inside an otherwise
+    // empty `<p class="wp-block-paragraph">` in the article body, so it is
+    // extracted as article content and rendered as a stray numbered list.
+    // It is navigation for the website's own page, not text: on a multi-page
+    // article most of its entries are absolute links to /2/, /3/ and so on,
+    // which do not exist in the aggregated article at all.
+    //
+    // Matched by id, and *only* this one: `div#ftwp-postcontent` is the same
+    // plugin's wrapper around the ENTIRE article body, so a broader
+    // `[id^='ftwp']` here would delete the article. The `<p>` left empty by
+    // the removal is cleaned up by extractMeinMmoContent()'s
+    // removeEmptyElements() pass.
+    "div#ftwp-container-outer",
     "div.reading-position-indicator-end",
     "label.toggle",
     "a.wp-block-mmo-content-box",
