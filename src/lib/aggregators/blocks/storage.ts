@@ -29,6 +29,7 @@ export function childNodes(node: StorageNode): StorageNode[] {
       return node.items.map((item) => ({ kind: "list_item", blocks: item }));
     case "list_item":
     case "blockquote":
+    case "summary":
       return node.blocks;
     default:
       return [];
@@ -78,6 +79,8 @@ function rowForNode(
       };
     case "blockquote":
       return { articleId, parentId, position, kind: "blockquote" };
+    case "summary":
+      return { articleId, parentId, position, kind: "summary" };
     case "image":
       return {
         articleId,
@@ -257,6 +260,15 @@ function blockForRow(
         .filter((b): b is Block => b !== null);
       return {
         kind: "blockquote",
+        blocks: inner,
+      };
+    }
+    case "summary": {
+      const inner = kids
+        .map((kid) => blockForRow(kid, childrenMap, runsMap))
+        .filter((b): b is Block => b !== null);
+      return {
+        kind: "summary",
         blocks: inner,
       };
     }

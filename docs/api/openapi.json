@@ -956,6 +956,28 @@
                             "type": {
                               "type": "string",
                               "enum": [
+                                "summary"
+                              ]
+                            },
+                            "blocks": {
+                              "type": "array",
+                              "items": {
+                                "$ref": "#/definitions/__schema0"
+                              }
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "blocks"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
                                 "image"
                               ]
                             },

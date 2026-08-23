@@ -74,6 +74,8 @@ const DAILYMOTION_PATTERNS = [/dailymotion\.com\/(?:video|embed\/video)\/([A-Za-
 
 const TWEET_HOST_SUFFIXES = ["twitter.com", "x.com", "fxtwitter.com"];
 const CLASS_ATTRS = ["data-sanitized-class", "class"];
+/** What `summarySectionHtml()` in `@/lib/ai/run` marks the AI summary with. */
+const SUMMARY_CLASS = "yana-ai-summary";
 const EMBED_MARKUP_ATTRS = [
   "data-sanitized-data-embed-content",
   "data-embed",
@@ -846,6 +848,23 @@ function convert(
       continue;
     }
 
+    if (
+      classNames(node as Element)
+        .split(/\s+/)
+        .includes(SUMMARY_CLASS)
+    ) {
+      // The AI summary's own element, written by `summarySectionHtml()` in
+      // `@/lib/ai/run`. `classNames()` reads `data-sanitized-class` as well as
+      // `class`, which is what makes this work on both call paths: the reload
+      // path runs `sanitizeClassNames()` over this section afterwards.
+      flush();
+      const inner = convert($, node as Element, baseUrl, allowMediaEmbeds);
+      if (inner.length > 0) {
+        blocks.push({ kind: "summary", blocks: inner });
+      }
+      continue;
+    }
+
     // Unknown wrapper: an embed facade becomes an embed; otherwise walk it
     flush();
     const facade = embedFacade($, node as Element);
@@ -895,6 +914,7 @@ export function plainTextOf(blocks: Block[]): string {
           }
           break;
         case "blockquote":
+        case "summary":
           walk(block.blocks);
           break;
         case "image": {

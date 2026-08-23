@@ -1069,7 +1069,7 @@ describe("applyAiOptions & AIClient processing", () => {
 
       expect(outcome).toEqual({ status: "applied" });
       const header = article.content.indexOf("<header");
-      const summary = article.content.indexOf('data-sanitized-class="article-summary"');
+      const summary = article.content.indexOf('data-sanitized-class="yana-ai-summary"');
       const body = article.content.indexOf('data-sanitized-class="article-content"');
       expect(header).toBe(0);
       expect(header).toBeLessThan(summary);
@@ -1094,7 +1094,7 @@ describe("applyAiOptions & AIClient processing", () => {
 
       await applyAiOptions(article, { ai_summarize: true }, openai());
 
-      expect(article.content.startsWith('<section data-sanitized-class="article-summary">')).toBe(
+      expect(article.content.startsWith('<section data-sanitized-class="yana-ai-summary">')).toBe(
         true,
       );
     });
@@ -1119,17 +1119,21 @@ describe("applyAiOptions & AIClient processing", () => {
       expect(article.content).not.toContain("<header");
     });
 
-    it("parses to a lead image block first and the summary paragraph second", async () => {
+    it("parses to a lead image block first and a summary block second", async () => {
       respondWith({ title: "T", summary: "The gist.", content: BODY });
       const article = { name: "T", content: `${HEADER}\n\n${BODY}` };
 
       await applyAiOptions(article, { ai_summarize: true }, openai());
 
-      // The position *is* the identification: the block format has no header
-      // and no summary kind, so this -- not a class -- is what a client reads.
+      // The section becomes a `summary` block of its own, so a client can tell
+      // it from body prose without counting positions -- the order still holds
+      // for one that doesn't look.
       const blocks = parseBlocks(article.content, "https://example.com/a");
       expect(blocks[0]).toMatchObject({ kind: "image", ref: "yana-img://abc" });
-      expect(blocks[1]).toMatchObject({ kind: "paragraph" });
+      expect(blocks[1]).toMatchObject({
+        kind: "summary",
+        blocks: [{ kind: "paragraph" }],
+      });
       expect(plainTextOf([blocks[1]!])).toBe("The gist.");
       expect(plainTextOf(blocks)).toContain("Body one.");
     });

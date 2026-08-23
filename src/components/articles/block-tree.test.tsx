@@ -239,6 +239,35 @@ describe("BlockNode", () => {
     expect(bq?.textContent).toContain("Nested paragraph inside quote");
   });
 
+  it("renders the summary as its own labelled section, not as body prose", () => {
+    const summaryNode = makeBlock({
+      kind: "summary",
+      children: [
+        makeBlock({
+          id: 2,
+          kind: "paragraph",
+          runs: [
+            {
+              blockId: 2,
+              position: 0,
+              text: "The gist of it.",
+              bold: false,
+              italic: false,
+              code: false,
+              strikethrough: false,
+              link: "",
+            },
+          ],
+        }),
+      ],
+    });
+
+    const { container } = render(<BlockNodeComponent node={summaryNode} />);
+    const section = container.querySelector('[data-slot="yana-ai-summary"]');
+    expect(section).not.toBeNull();
+    expect(section?.textContent).toContain("The gist of it.");
+  });
+
   it("renders blockquote and list_item content from child blocks", () => {
     const bqNode = makeBlock({
       id: 1,

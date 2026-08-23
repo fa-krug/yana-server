@@ -105,6 +105,20 @@ export function BlockNode({ node }: { node: BlockNodeType }) {
         </blockquote>
       );
 
+    // The AI summary (`applyAiOptions()` in @/lib/ai/run): a kind of its own so
+    // it can be told from body prose without counting positions.
+    case "summary":
+      return (
+        <section
+          data-slot="yana-ai-summary"
+          className="rounded-md border border-muted bg-muted/40 p-4 space-y-2 text-sm"
+        >
+          {node.children?.map((child) => (
+            <BlockNode key={child.id} node={child} />
+          ))}
+        </section>
+      );
+
     case "image": {
       const imageRef = node.imageRef ?? "";
       const src = imageRef.startsWith("yana-img://")

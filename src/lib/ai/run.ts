@@ -543,13 +543,20 @@ function takeLeadHeaderHtml($: cheerio.CheerioAPI): string | null {
 }
 
 /**
- * The summary's own element, second in the finished document.
+ * The summary's own element, second in the finished document, and the marker
+ * `parseBlocks()` turns into a `summary` block.
  *
  * `data-sanitized-class` rather than `class` matches what
  * `formatArticleContent()` writes for `article-content`/`article-comments`:
  * the aggregators' own sanitizer (`sanitizeClassNames()`) renames `class` to
  * exactly this, and the reload path runs that sanitizer *after* this function,
  * so writing the sanitized name here keeps the two paths emitting one shape.
+ *
+ * The name breaks that pair's `article-*` convention on purpose. Those two are
+ * wrappers nothing parses; this one *decides a block kind*, and the parser
+ * cannot tell our marker from a scraped page's own markup -- `article-summary`
+ * is an ordinary CSS class out there, so a site using it would have its teaser
+ * served to clients as this article's AI summary. `yana-ai-summary` is ours.
  *
  * The text is escaped, never interpolated raw: it is model output on its way
  * into stored HTML, and asking for plain prose (see the prompt) is not a
@@ -565,7 +572,7 @@ function summarySectionHtml(summary: string): string {
   if (!paragraphs) {
     return "";
   }
-  return `<section data-sanitized-class="article-summary">${paragraphs}</section>`;
+  return `<section data-sanitized-class="yana-ai-summary">${paragraphs}</section>`;
 }
 
 export async function applyAiOptions(
@@ -739,8 +746,10 @@ export async function applyAiOptions(
         // when there is one, the summary second when there is one, the article
         // itself after them. Both are optional and neither may appear anywhere
         // else -- `parseBlocks()` turns this straight into the block tree the
-        // clients read, where the position *is* the identification (there is
-        // no header or summary block kind).
+        // clients read. The summary carries its own `summary` block kind
+        // there, so a client need not count blocks to find it; the header has
+        // no kind of its own and stays positional (an `image` or `embed` block
+        // like any other), which is why the order is still a rule.
         article.content = [leadHeaderHtml, summaryHtml, parsedResult.content]
           .filter(Boolean)
           .join("\n\n");

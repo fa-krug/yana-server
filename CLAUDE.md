@@ -1917,27 +1917,51 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
     `{title, content, summary}` (the `summary` key, its prompt sentence and its
     slot in Gemini's `responseSchema` all appear **only** when summarization was
     asked for), and `summarySectionHtml()` wraps the returned prose in
-    `<section data-sanitized-class="article-summary">`. `data-sanitized-class`
+    `<section data-sanitized-class="yana-ai-summary">`. `data-sanitized-class`
     rather than `class` matches `formatArticleContent()`'s own
     `article-content`/`article-comments`, and survives the reload path's later
-    `sanitizeClassNames()`. The prose is **escaped**: it is model output on its
+    `sanitizeClassNames()` — but the **name** deliberately breaks that pair's
+    `article-*` convention, because unlike those two wrappers this marker
+    _decides a block kind_ and the parser cannot tell it from a scraped page's
+    own markup: `article-summary` is an ordinary CSS class in the wild, so a
+    site using it would have its teaser served to clients as this article's AI
+    summary. The prose is **escaped**: it is model output on its
     way into stored HTML, and asking for plain text is not the same as getting
     it. A requested summary that does not come back is
     `{ status: "failed", reason: "missingSummary" }` — everything that _did_
     come back is still applied — because a silent no-summary is
     indistinguishable from AI never having run.
 
-  **The position is the identification, which is why this is a rule and not a
-  class lookup.** The block format has no header kind and no summary kind
-  (`BLOCK_KINDS`), and `convert()` discards the wrapper element's attributes, so
-  what reaches a client is: block 0 the lead media, block 1 the summary
-  paragraph — each shifting up when the one before it is absent. A writer that
-  puts anything else in front of them breaks the reader with nothing failing
-  here, so `run.test.ts` pins the finished document _and_ pins it again through
-  `parseBlocks()`.
+  **The summary has a block kind of its own; the header does not, and that
+  asymmetry is deliberate.** `summary` is the tenth entry in `BLOCK_KINDS` —
+  declared in **both** copies of that list (`src/lib/db/schema/enums.ts` and
+  `src/lib/aggregators/blocks/types.ts`, pinned equal by `enums.test.ts`,
+  because a kind missing from either side is a row the other half cannot read)
+  — and it wraps blocks the way `blockquote` does rather than carrying runs the
+  way `paragraph` does: a model answering in two paragraphs then produces two,
+  _inside_ the one summary block, instead of silently pushing the article down
+  the document. The parser keys on the class (`classNames()` reads
+  `data-sanitized-class` and `class`, which is what makes it work on both call
+  paths) and `convert()` discards the wrapper's attributes as usual, so the kind
+  is the only thing that survives into the tree — which is the point: a client
+  can style, collapse or skip the summary without counting blocks. The **header**
+  is still positional, because it has no kind: it reaches a client as an ordinary
+  `image` or `embed` block that happens to be first, exactly as a lead image
+  always has. So block 0 is the lead media, block 1 the summary — each shifting
+  up when the one before it is absent — and `run.test.ts` pins the finished
+  document _and_ pins it again through `parseBlocks()`.
 
-  **The two call paths nest differently and only the block order is common to
-  them**, which is the other reason the rule is positional. On aggregation the
+  **Adding the kind was additive on the wire and `FORMAT_VERSION` stays 1.**
+  The format's own extensibility rule is that an unknown block type is skipped,
+  never fatal, so a client that predates this renders one block less; bumping
+  the version instead would make every existing client reject the whole document
+  (`UnsupportedFormatVersion`). Worth knowing what "skipped" costs in practice:
+  yana-ios's `BlockWireDecoding` maps an unknown type to an **empty paragraph**,
+  so until that client learns the kind, an AI summary is invisible there rather
+  than shown as prose — the price of the dedicated element, paid once.
+
+  **The two call paths nest differently and only the block tree is common to
+  them**, which is the other reason the header's rule is positional. On aggregation the
   three are siblings, because the header already existed when AI ran; on reload
   `processContent()` runs _afterwards_ and wraps the AI's output — summary
   included — inside `article-content`, prepending the header outside it. Same
