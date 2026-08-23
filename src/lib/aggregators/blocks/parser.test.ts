@@ -10,6 +10,7 @@ import type {
   ImageBlock,
   ListBlock,
   Paragraph,
+  SummaryBlock,
 } from "./types";
 
 describe("isSafeUrl", () => {
@@ -110,6 +111,33 @@ describe("parseBlocks", () => {
     expect(bq.kind).toBe("blockquote");
     expect(bq.blocks).toHaveLength(1);
     expect((bq.blocks[0] as Paragraph).runs[0].text).toBe("A wise quote.");
+  });
+
+  it("parses the AI summary's section into a summary block of its own", () => {
+    const html = `<section data-sanitized-class="yana-ai-summary"><p>The gist.</p></section>`;
+    const blocks = parseBlocks(html);
+    expect(blocks).toHaveLength(1);
+    const summary = blocks[0] as SummaryBlock;
+    expect(summary.kind).toBe("summary");
+    expect((summary.blocks[0] as Paragraph).runs[0].text).toBe("The gist.");
+  });
+
+  it("recognizes the summary by an unsanitized class too, as the aggregation path emits it", () => {
+    const html = `<section class="yana-ai-summary"><p>One.</p><p>Two.</p></section>`;
+    const blocks = parseBlocks(html);
+    // Two paragraphs of prose stay inside the one summary block rather than
+    // pushing the article down the document.
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({
+      kind: "summary",
+      blocks: [{ kind: "paragraph" }, { kind: "paragraph" }],
+    });
+  });
+
+  it("drops an empty summary section rather than emitting a childless block", () => {
+    expect(parseBlocks(`<section data-sanitized-class="yana-ai-summary">   </section>`)).toEqual(
+      [],
+    );
   });
 
   it("preserves code block whitespace verbatim in pre tags", () => {

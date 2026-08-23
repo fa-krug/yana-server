@@ -28,6 +28,7 @@ export const BLOCK_KINDS = [
   "list",
   "list_item",
   "blockquote",
+  "summary",
   "image",
   "embed",
   "code_block",
@@ -67,6 +68,23 @@ export interface Blockquote {
   blocks: Block[];
 }
 
+/**
+ * The article's AI-written summary, second in the document (after the
+ * lead-media image, when there is one) and never anywhere else -- see the
+ * document-order rule on `applyAiOptions()` in `@/lib/ai/run`.
+ *
+ * A kind of its own rather than the paragraph it used to parse as, so a client
+ * can style, collapse or skip it without counting blocks. It wraps blocks
+ * rather than runs (the blockquote shape, not the paragraph one) because the
+ * summary is prose of unknown length: a model answering in two paragraphs
+ * produces two, inside this one block, instead of silently pushing the article
+ * down the document.
+ */
+export interface SummaryBlock {
+  kind: "summary";
+  blocks: Block[];
+}
+
 export interface ImageBlock {
   kind: "image";
   /** `yana-img://<sha256>` into the content-addressed store, or a remote URL. */
@@ -94,4 +112,12 @@ export interface Divider {
 }
 
 export type Block =
-  Paragraph | Heading | ListBlock | Blockquote | ImageBlock | EmbedBlock | CodeBlock | Divider;
+  | Paragraph
+  | Heading
+  | ListBlock
+  | Blockquote
+  | SummaryBlock
+  | ImageBlock
+  | EmbedBlock
+  | CodeBlock
+  | Divider;

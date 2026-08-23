@@ -88,6 +88,7 @@ const WireBlockSchema: z.ZodType = z.lazy(() =>
       items: z.array(z.array(WireBlockSchema)),
     }),
     z.object({ type: z.literal("blockquote"), blocks: z.array(WireBlockSchema) }),
+    z.object({ type: z.literal("summary"), blocks: z.array(WireBlockSchema) }),
     z.object({ type: z.literal("image"), ref: z.string(), caption: z.array(WireInlineRunSchema) }),
     z.object({
       type: z.literal("embed"),

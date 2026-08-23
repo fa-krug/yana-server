@@ -1857,9 +1857,10 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   to port from; this is new behaviour, not a port. It is called once, inside
   **`AIClient.generateResponse()`** (`src/lib/ai/run.ts`), before any outbound
   provider call — the same chokepoint `applyAiOptions()` (the background
-  AI-post-processing path that has no live caller yet) already runs through,
-  so wiring that path up later inherits enforcement for free rather than
-  needing its own check. Three facts a caller cannot get right by guessing:
+  AI-post-processing path, reached from `BaseAggregator.applyAiProcessing()`
+  on every aggregation run and from `src/lib/jobs/handlers/reload.ts`) already
+  runs through, so both callers inherit enforcement rather than needing their
+  own check. Three facts a caller cannot get right by guessing:
   **usage is recorded for every attempted call, not only successful ones** —
   the setting is documented as the most AI requests Yana makes, which is about
   outbound calls, and counting only successes would let a provider outage or a
@@ -1888,6 +1889,86 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   `unexpected`: "your key is wrong" and "something went wrong" want different
   advice, and a native client polling this reason can tell someone to fix
   their OpenRouter key rather than just retry.
+- **An AI-processed article's document has a fixed order: the lead-media
+  `<header>` first, the summary second, the article after them — both optional,
+  neither allowed anywhere else.** `applyAiOptions()` (`src/lib/ai/run.ts`) is
+  what holds that, and each half was a real defect before it did:
+  - **The header is detached, not merely stripped.** The model must not see the
+    media markup (it rewrites, translates or drops it), so the strip itself is
+    right — but the model's answer _replaces the whole document_, so a header
+    that is only removed is a header that is **gone**. It was: any feed with
+    `ai_summarize`/`ai_improve_writing`/`ai_translate`/`ai_custom_prompt` on
+    lost its lead image from `articles.content` and from the block tree
+    `aggregate.ts` parses out of it — taking the client's lead image and
+    timeline thumbnail with it, because `ArticleBlockView.leadImageRef` hoists
+    the first block only when it is an image. `takeLeadHeaderHtml()` now sets it
+    aside and the success path puts it back at the front. Only a **leading**
+    `<header>` is kept: one further down the body is chrome (byline, date, site
+    logo), which `headerBlocks()` in `blocks/parser.ts` already strips of its
+    images. The reload path is where the asymmetry showed: `reload.ts` calls
+    `applyAiOptions()` _before_ `processContent()`, which rebuilds the header
+    afterwards, so a reloaded article kept its header while an aggregated one
+    did not — same content, two orders, two outcomes.
+  - **The summary is its own field and its own element; it does not replace the
+    article.** `ai_summarize` used to ask for a summary in `content`, which both
+    destroyed the body and contradicted the prompt's own closing paragraph
+    ("the exact same structure as the input") — the model was told to summarize
+    and to preserve, in one request. The response contract is now
+    `{title, content, summary}` (the `summary` key, its prompt sentence and its
+    slot in Gemini's `responseSchema` all appear **only** when summarization was
+    asked for), and `summarySectionHtml()` wraps the returned prose in
+    `<section data-sanitized-class="yana-ai-summary">`. `data-sanitized-class`
+    rather than `class` matches `formatArticleContent()`'s own
+    `article-content`/`article-comments`, and survives the reload path's later
+    `sanitizeClassNames()` — but the **name** deliberately breaks that pair's
+    `article-*` convention, because unlike those two wrappers this marker
+    _decides a block kind_ and the parser cannot tell it from a scraped page's
+    own markup: `article-summary` is an ordinary CSS class in the wild, so a
+    site using it would have its teaser served to clients as this article's AI
+    summary. The prose is **escaped**: it is model output on its
+    way into stored HTML, and asking for plain text is not the same as getting
+    it. A requested summary that does not come back is
+    `{ status: "failed", reason: "missingSummary" }` — everything that _did_
+    come back is still applied — because a silent no-summary is
+    indistinguishable from AI never having run.
+
+  **The summary has a block kind of its own; the header does not, and that
+  asymmetry is deliberate.** `summary` is the tenth entry in `BLOCK_KINDS` —
+  declared in **both** copies of that list (`src/lib/db/schema/enums.ts` and
+  `src/lib/aggregators/blocks/types.ts`, pinned equal by `enums.test.ts`,
+  because a kind missing from either side is a row the other half cannot read)
+  — and it wraps blocks the way `blockquote` does rather than carrying runs the
+  way `paragraph` does: a model answering in two paragraphs then produces two,
+  _inside_ the one summary block, instead of silently pushing the article down
+  the document. The parser keys on the class (`classNames()` reads
+  `data-sanitized-class` and `class`, which is what makes it work on both call
+  paths) and `convert()` discards the wrapper's attributes as usual, so the kind
+  is the only thing that survives into the tree — which is the point: a client
+  can style, collapse or skip the summary without counting blocks. The **header**
+  is still positional, because it has no kind: it reaches a client as an ordinary
+  `image` or `embed` block that happens to be first, exactly as a lead image
+  always has. So block 0 is the lead media, block 1 the summary — each shifting
+  up when the one before it is absent — and `run.test.ts` pins the finished
+  document _and_ pins it again through `parseBlocks()`.
+
+  **Adding the kind was additive on the wire and `FORMAT_VERSION` stays 1.**
+  The format's own extensibility rule is that an unknown block type is skipped,
+  never fatal, so a client that predates this renders one block less; bumping
+  the version instead would make every existing client reject the whole document
+  (`UnsupportedFormatVersion`). Worth knowing what "skipped" costs in practice:
+  yana-ios's `BlockWireDecoding` maps an unknown type to an **empty paragraph**,
+  so until that client learns the kind, an AI summary is invisible there rather
+  than shown as prose — the price of the dedicated element, paid once.
+
+  **The two call paths nest differently and only the block tree is common to
+  them**, which is the other reason the header's rule is positional. On aggregation the
+  three are siblings, because the header already existed when AI ran; on reload
+  `processContent()` runs _afterwards_ and wraps the AI's output — summary
+  included — inside `article-content`, prepending the header outside it. Same
+  block tree either way, so a consumer must read position, never the nesting;
+  `run.test.ts` runs the reload shape through `formatArticleContent()` and
+  `parseBlocks()` for exactly that reason.
+
 - **`POST /api/v1/ai/prompt`** (`src/app/api/v1/ai/prompt/route.ts`) is the
   native client's server-mediated "ask AI" call, added by the same plan: a
   free-form prompt run against the caller's active provider, using their

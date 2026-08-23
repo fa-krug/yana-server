@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { parseBlocks, plainTextOf } from "@/lib/aggregators/blocks/parser";
 import { applyMigrationsAt } from "@/lib/db/test-support";
 
 import { AI_COLUMNS } from "./columns";
@@ -868,7 +869,7 @@ describe("applyAiOptions & AIClient processing", () => {
         userSettings,
       );
 
-      expect(box.prompt).toContain("Summarize the article content concisely.");
+      expect(box.prompt).toContain("Write a concise summary of the article");
       expect(box.prompt).toContain("Keep it playful.");
     });
 
@@ -996,6 +997,205 @@ describe("applyAiOptions & AIClient processing", () => {
       await applyAiOptions(article, { ai_translate: true }, userSettings, onLog);
 
       expect(onLog).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * The finished document's fixed shape: an optional lead-media `<header>`
+   * first, an optional summary second, the article itself after them. Both
+   * halves were broken here -- the header was stripped to build the prompt and
+   * never put back (the model's answer replaces the whole document, so a
+   * header that is only removed is a header that is gone), and `ai_summarize`
+   * returned the summary *as* the content, destroying the article.
+   */
+  describe("header and summary position in the finished document", () => {
+    const HEADER = '<header class="media-header"><img src="yana-img://abc" alt="T"></header>';
+    const BODY = '<section data-sanitized-class="article-content"><p>Body one.</p></section>';
+
+    /** OpenAI-shaped answer; returns a getter for the request body it saw. */
+    function respondWith(payload: Record<string, string>): () => string {
+      let sent = "";
+      globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+        sent = String(init.body);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ choices: [{ message: { content: JSON.stringify(payload) } }] }),
+        } as Response;
+      });
+      return () => sent;
+    }
+
+    /** Gemini-shaped answer -- the one provider the JSON schema reaches. */
+    function respondWithGemini(payload: Record<string, string>): () => string {
+      let sent = "";
+      globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+        sent = String(init.body);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            candidates: [{ content: { parts: [{ text: JSON.stringify(payload) }] } }],
+          }),
+        } as Response;
+      });
+      return () => sent;
+    }
+
+    const openai = () =>
+      makeSettings({ activeAiProvider: "openai", openaiEnabled: true, openaiApiKey: "sk-test" });
+
+    it("restores the lead header at the first position without ever showing it to the model", async () => {
+      const sent = respondWith({ title: "T", content: "<p>Rewritten.</p>" });
+      const article = { name: "T", content: `${HEADER}\n\n${BODY}` };
+
+      const outcome = await applyAiOptions(article, { ai_improve_writing: true }, openai());
+
+      expect(outcome).toEqual({ status: "applied" });
+      // Stripped for the prompt: the model neither rewrites, translates nor
+      // drops media markup it never sees.
+      expect(sent()).not.toContain("media-header");
+      expect(article.content.startsWith(HEADER)).toBe(true);
+      // Restored once -- not stacked onto a header the model invented.
+      expect(article.content.match(/<header/g)).toHaveLength(1);
+      expect(article.content).toContain("<p>Rewritten.</p>");
+    });
+
+    it("writes the summary as its own element in second position and keeps the article", async () => {
+      respondWith({ title: "T", summary: "Two sentences. Really.", content: BODY });
+      const article = { name: "T", content: `${HEADER}\n\n${BODY}` };
+
+      const outcome = await applyAiOptions(article, { ai_summarize: true }, openai());
+
+      expect(outcome).toEqual({ status: "applied" });
+      const header = article.content.indexOf("<header");
+      const summary = article.content.indexOf('data-sanitized-class="yana-ai-summary"');
+      const body = article.content.indexOf('data-sanitized-class="article-content"');
+      expect(header).toBe(0);
+      expect(header).toBeLessThan(summary);
+      expect(summary).toBeLessThan(body);
+      expect(article.content).toContain("<p>Two sentences. Really.</p>");
+      // The article survives summarization -- it used to be replaced by it.
+      expect(article.content).toContain("<p>Body one.</p>");
+    });
+
+    it("asks for the summary in its own field, never in place of the content", async () => {
+      const sent = respondWith({ title: "T", summary: "S.", content: BODY });
+
+      await applyAiOptions({ name: "T", content: BODY }, { ai_summarize: true }, openai());
+
+      expect(sent()).toContain("into the 'summary' field");
+      expect(sent()).toContain("never replace it with the summary");
+    });
+
+    it("puts the summary first when the article has no header", async () => {
+      respondWith({ title: "T", summary: "S.", content: BODY });
+      const article = { name: "T", content: BODY };
+
+      await applyAiOptions(article, { ai_summarize: true }, openai());
+
+      expect(article.content.startsWith('<section data-sanitized-class="yana-ai-summary">')).toBe(
+        true,
+      );
+    });
+
+    it("escapes the summary rather than splicing model HTML into the document", async () => {
+      respondWith({ title: "T", summary: '<img src=x onerror="alert(1)"> & done', content: BODY });
+      const article = { name: "T", content: BODY };
+
+      await applyAiOptions(article, { ai_summarize: true }, openai());
+
+      expect(article.content).not.toContain("<img src=x");
+      expect(article.content).toContain("&lt;img");
+      expect(article.content).toContain("&amp; done");
+    });
+
+    it("strips a non-leading header, which is chrome rather than lead media", async () => {
+      respondWith({ title: "T", content: "<p>Rewritten.</p>" });
+      const article = { name: "T", content: `${BODY}\n\n<header class="byline">Ada</header>` };
+
+      await applyAiOptions(article, { ai_improve_writing: true }, openai());
+
+      expect(article.content).not.toContain("<header");
+    });
+
+    it("parses to a lead image block first and a summary block second", async () => {
+      respondWith({ title: "T", summary: "The gist.", content: BODY });
+      const article = { name: "T", content: `${HEADER}\n\n${BODY}` };
+
+      await applyAiOptions(article, { ai_summarize: true }, openai());
+
+      // The section becomes a `summary` block of its own, so a client can tell
+      // it from body prose without counting positions -- the order still holds
+      // for one that doesn't look.
+      const blocks = parseBlocks(article.content, "https://example.com/a");
+      expect(blocks[0]).toMatchObject({ kind: "image", ref: "yana-img://abc" });
+      expect(blocks[1]).toMatchObject({
+        kind: "summary",
+        blocks: [{ kind: "paragraph" }],
+      });
+      expect(plainTextOf([blocks[1]!])).toBe("The gist.");
+      expect(plainTextOf(blocks)).toContain("Body one.");
+    });
+
+    it("holds the same order on the reload path, where the header is built after AI runs", async () => {
+      respondWith({ title: "T", summary: "The gist.", content: "<p>Body one.</p>" });
+      // `reload.ts` runs applyAiOptions() on the extracted body -- there is no
+      // header in it yet -- and calls processContent() afterwards, which is
+      // what prepends the lead media there. The two paths therefore nest
+      // differently and must still parse to the same block order.
+      const article = { name: "T", content: "<p>Body one.</p>" };
+      await applyAiOptions(article, { ai_summarize: true }, openai());
+
+      // Imported here rather than at the top of the file: `chrome-labels`
+      // pulls in `@/lib/db/client`, which captures DATABASE_PATH at load.
+      const { DEFAULT_CHROME_LABELS } = await import("@/lib/aggregators/chrome-labels");
+      const { formatArticleContent } = await import("@/lib/aggregators/extract/format");
+      const document = formatArticleContent(
+        article.content,
+        "T",
+        "https://example.com/a",
+        DEFAULT_CHROME_LABELS,
+        "yana-img://abc",
+      );
+
+      const blocks = parseBlocks(document, "https://example.com/a");
+      expect(blocks[0]).toMatchObject({ kind: "image", ref: "yana-img://abc" });
+      expect(plainTextOf([blocks[1]!])).toBe("The gist.");
+      expect(plainTextOf(blocks)).toContain("Body one.");
+    });
+
+    it("reports 'failed' when a requested summary did not come back, keeping what did", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      respondWith({ title: "New title", content: "<p>Rewritten.</p>" });
+      const onLog = vi.fn();
+      const article = { name: "T", content: `${HEADER}\n\n${BODY}` };
+
+      const outcome = await applyAiOptions(article, { ai_summarize: true }, openai(), onLog);
+
+      expect(outcome).toEqual({ status: "failed", reason: "missingSummary" });
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("no summary"));
+      expect(onLog).toHaveBeenCalledWith(expect.stringContaining("no summary"));
+      // Reported, not discarded: the header and the rewrite are still applied.
+      expect(article.name).toBe("New title");
+      expect(article.content.startsWith(HEADER)).toBe(true);
+      expect(article.content).toContain("<p>Rewritten.</p>");
+    });
+
+    it("declares 'summary' in the provider's JSON schema only when it was asked for", async () => {
+      const schemaOf = (body: string) =>
+        JSON.stringify(
+          (JSON.parse(body) as { generationConfig?: { responseSchema?: unknown } }).generationConfig
+            ?.responseSchema,
+        );
+
+      const asked = respondWithGemini({ title: "T", summary: "S.", content: BODY });
+      await applyAiOptions({ name: "T", content: BODY }, { ai_summarize: true }, makeSettings());
+      expect(schemaOf(asked())).toContain("summary");
+
+      const notAsked = respondWithGemini({ title: "T", content: BODY });
+      await applyAiOptions({ name: "T", content: BODY }, { ai_translate: true }, makeSettings());
+      expect(schemaOf(notAsked())).not.toContain("summary");
     });
   });
 

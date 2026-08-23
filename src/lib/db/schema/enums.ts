@@ -30,6 +30,7 @@ export const BLOCK_KINDS = [
   "list",
   "list_item",
   "blockquote",
+  "summary",
   "image",
   "embed",
   "code_block",
