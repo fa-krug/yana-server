@@ -1,5 +1,7 @@
 import * as cheerio from "cheerio";
+import type { Element } from "domhandler";
 
+import { escapeHtml } from "@/lib/aggregators/extract/format";
 import { writeTransaction } from "@/lib/db/client";
 import type { UserSettings } from "@/lib/db/schema";
 
@@ -508,6 +510,64 @@ export class AIClient {
 export type ApplyAiOutcome =
   { status: "skipped" } | { status: "applied" } | { status: "failed"; reason: string };
 
+/**
+ * Detach the article's lead-media `<header>` -- the one every aggregator emits
+ * as the first element of its content (`buildHeaderHtml()` in
+ * `@/lib/aggregators/extract/format`, Tagesschau's and Reddit's own
+ * `media-header`) -- and hand back its HTML so the caller can put it back at
+ * the first position afterwards.
+ *
+ * Only a *leading* header is taken, because only a leading header is the lead
+ * media: a `<header>` further down the body is decorative chrome (byline, date,
+ * site logo), which `headerBlocks()` in `../aggregators/blocks/parser.ts`
+ * already strips of its images. Everything else the strip below removes
+ * (footer/nav/script/style, and any non-leading header) stays removed.
+ *
+ * This has to be detached-and-restored rather than simply left in place: the
+ * model must not see the media markup (it rewrites, translates or drops it),
+ * and its answer *replaces* the whole document -- so a header that is only
+ * removed is a header that is gone. It was: with any AI option enabled, an
+ * aggregated article lost its lead image both from `articles.content` and from
+ * the block tree parsed out of it, taking the client's lead image and timeline
+ * thumbnail with it.
+ */
+function takeLeadHeaderHtml($: cheerio.CheerioAPI): string | null {
+  const first = $.root().children().first();
+  if (
+    first.length === 0 ||
+    (first.get(0) as Element | undefined)?.name?.toLowerCase() !== "header"
+  ) {
+    return null;
+  }
+  return $.html(first);
+}
+
+/**
+ * The summary's own element, second in the finished document.
+ *
+ * `data-sanitized-class` rather than `class` matches what
+ * `formatArticleContent()` writes for `article-content`/`article-comments`:
+ * the aggregators' own sanitizer (`sanitizeClassNames()`) renames `class` to
+ * exactly this, and the reload path runs that sanitizer *after* this function,
+ * so writing the sanitized name here keeps the two paths emitting one shape.
+ *
+ * The text is escaped, never interpolated raw: it is model output on its way
+ * into stored HTML, and asking for plain prose (see the prompt) is not a
+ * guarantee of getting it.
+ */
+function summarySectionHtml(summary: string): string {
+  const paragraphs = summary
+    .split(/\n\s*\n|\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `<p>${escapeHtml(line)}</p>`)
+    .join("");
+  if (!paragraphs) {
+    return "";
+  }
+  return `<section data-sanitized-class="article-summary">${paragraphs}</section>`;
+}
+
 export async function applyAiOptions(
   article: ArticleInput,
   options?: Record<string, unknown> | null,
@@ -558,22 +618,37 @@ export async function applyAiOptions(
     return { status: "skipped" };
   }
 
-  // Parse HTML and strip headers, footers, navs, scripts, styles
+  // Parse HTML, keep the lead-media header aside, strip headers, footers,
+  // navs, scripts, styles
   const $ = cheerio.load(content, null, false);
+  const leadHeaderHtml = takeLeadHeaderHtml($);
   $("header, footer, nav, script, style").remove();
   const cleanHtml = $.html();
+
+  const wantsSummary = Boolean(opts.ai_summarize);
 
   const promptParts: string[] = [];
 
   promptParts.push(
     "You are an AI assistant that processes article content. " +
       "You will receive an article title and content in HTML format. " +
-      "You must return the result as a JSON object with keys 'title' and 'content'. " +
+      "You must return the result as a JSON object with keys 'title' and 'content'" +
+      (wantsSummary ? " and 'summary'" : "") +
+      ". " +
       "Do not include any markdown formatting (like ```json) in the response, just the raw JSON string.",
   );
 
-  if (opts.ai_summarize) {
-    promptParts.push("Summarize the article content concisely.");
+  if (wantsSummary) {
+    // The summary is its own field and its own element in the finished
+    // document -- it does NOT replace the article. Asking for a summary *in*
+    // `content` (what this used to do) both destroyed the body and
+    // contradicted the structural paragraph below, which demands `content`
+    // keep the exact structure of the input.
+    promptParts.push(
+      "Write a concise summary of the article, 2-3 sentences, into the 'summary' field. " +
+        "Plain prose only: no HTML tags, no markdown, no leading label. " +
+        "The 'content' field must still carry the complete article -- never replace it with the summary.",
+    );
   }
 
   if (opts.ai_improve_writing) {
@@ -589,7 +664,7 @@ export async function applyAiOptions(
     const targetLang =
       typeof opts.ai_translate_language === "string" ? opts.ai_translate_language : "English";
     promptParts.push(
-      `Translate the title and content to ${targetLang}. ` +
+      `Translate the title${wantsSummary ? ", summary" : ""} and content to ${targetLang}. ` +
         "IMPORTANT: Do NOT translate link labels (the text inside <a> tags). " +
         "Keep link text in the original language. Only translate regular text content.",
     );
@@ -623,15 +698,16 @@ export async function applyAiOptions(
     properties: {
       title: { type: "STRING" },
       content: { type: "STRING" },
+      ...(wantsSummary ? { summary: { type: "STRING" } } : {}),
     },
-    required: ["title", "content"],
+    required: wantsSummary ? ["title", "content", "summary"] : ["title", "content"],
   };
 
   const generation = await client.generateResponse(fullPrompt, true, jsonSchema, bypassUsageLimit);
 
   if (generation.ok) {
     const result = generation.text;
-    let parsedResult: { title?: string; content?: string } | null = null;
+    let parsedResult: { title?: string; content?: string; summary?: string } | null = null;
     try {
       parsedResult = JSON.parse(result);
     } catch {
@@ -656,8 +732,28 @@ export async function applyAiOptions(
       if (typeof parsedResult.title === "string") {
         article.name = parsedResult.title;
       }
+      const summaryHtml =
+        typeof parsedResult.summary === "string" ? summarySectionHtml(parsedResult.summary) : "";
       if (typeof parsedResult.content === "string") {
-        article.content = parsedResult.content;
+        // The finished document's fixed order: the lead-media header first
+        // when there is one, the summary second when there is one, the article
+        // itself after them. Both are optional and neither may appear anywhere
+        // else -- `parseBlocks()` turns this straight into the block tree the
+        // clients read, where the position *is* the identification (there is
+        // no header or summary block kind).
+        article.content = [leadHeaderHtml, summaryHtml, parsedResult.content]
+          .filter(Boolean)
+          .join("\n\n");
+      }
+      if (wantsSummary && !summaryHtml) {
+        // Summarization was asked for and did not happen. Reported rather than
+        // swallowed, for the reason every other arm here is: AI features
+        // failing silently is indistinguishable from AI never having run. What
+        // did come back (title, content, header) is already applied above.
+        const message = `AI returned no summary for article '${article.name || ""}'.`;
+        console.warn(message);
+        onLog?.(message);
+        return { status: "failed", reason: "missingSummary" };
       }
       return { status: "applied" };
     } else {
