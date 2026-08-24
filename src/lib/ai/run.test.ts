@@ -1,10 +1,6 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseBlocks, plainTextOf } from "@/lib/aggregators/blocks/parser";
-import { applyMigrationsAt } from "@/lib/db/test-support";
 
 import { AI_COLUMNS } from "./columns";
 import {
@@ -15,7 +11,7 @@ import {
   OPENROUTER_API_URL,
   QWEN_API_URL,
 } from "./providers";
-import type { AiRuntimeSettings } from "./run";
+import { AIClient, applyAiToBlocks, type AiRuntimeSettings } from "./run";
 
 function makeSettings(overrides: Partial<AiRuntimeSettings> = {}): AiRuntimeSettings {
   const provider = overrides.activeAiProvider ?? overrides.active_ai_provider ?? "gemini";
@@ -27,7 +23,6 @@ function makeSettings(overrides: Partial<AiRuntimeSettings> = {}): AiRuntimeSett
     aiMaxRetryTime: 60,
     aiRequestTimeout: 30,
     aiTemperature: 0.7,
-    aiMaxTokens: 1000,
 
     geminiEnabled: provider === "gemini",
     geminiApiKey: "test-key",
@@ -49,45 +44,19 @@ function makeSettings(overrides: Partial<AiRuntimeSettings> = {}): AiRuntimeSett
 describe("applyAiToBlocks & AIClient processing", () => {
   const originalFetch = globalThis.fetch;
 
-  let dbPath: string;
-  let AIClient: typeof import("./run").AIClient;
-  let applyAiToBlocks: typeof import("./run").applyAiToBlocks;
-
-  beforeEach(async () => {
+  // `run.ts` reaches no database at all: it reads a settings object it is handed
+  // and calls `fetch`. This file used to migrate a temp database and re-import
+  // the module per test, because `generateResponse()` ran a usage counter inside
+  // `writeTransaction()` and that read the `getDb()` singleton -- fifteen cold
+  // dynamic imports for a dependency the module no longer has. The counter is
+  // gone (see "no request cap in front of a call" below), so the import is
+  // static and the fixture with it.
+  beforeEach(() => {
     vi.restoreAllMocks();
-
-    // `generateResponse()` now calls `checkAndRecordAiUsage()` inside
-    // `writeTransaction()`, which reads the process-wide `getDb()` singleton
-    // pointed at `DATABASE_PATH`. `DATABASE_PATH` is captured into a
-    // module-level constant the moment `@/lib/db/client` is first imported,
-    // so a fresh module registry plus a dynamic import of "./run" (after
-    // setting the env var) is required per test -- the same shape as
-    // `src/app/api/v1/aggregate/route.test.ts`'s `beforeEach`. `applyMigrationsAt`
-    // is imported statically above (not dynamically here) because it never
-    // reads `DATABASE_PATH` itself -- it operates on an explicit connection --
-    // so it is safe to call before the env var below is set; a *dynamic*
-    // import of it here would transitively load "@/lib/db/client" too early
-    // (before `DATABASE_PATH` is set) and lock in the wrong `DB_PATH` for the
-    // rest of this test, since the later `import("@/lib/db/client")` below
-    // would just return that same cached module instance.
-    vi.resetModules();
-    const stamp = `${process.pid}-${Math.random().toString(36).slice(2)}`;
-    dbPath = path.join(os.tmpdir(), `yana-ai-run-test-${stamp}.db`);
-    applyMigrationsAt(dbPath);
-    process.env.DATABASE_PATH = dbPath;
-
-    const { writeTransaction } = await import("@/lib/db/client");
-    const { users } = await import("@/lib/db/schema");
-    writeTransaction((tx) => {
-      tx.insert(users).values({ id: "test-user", email: "test-user@example.com" }).run();
-    });
-
-    ({ AIClient, applyAiToBlocks } = await import("./run"));
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
-    fs.rmSync(dbPath, { force: true });
   });
 
   describe("test_ai_client_retry assertions", () => {
@@ -491,14 +460,14 @@ describe("applyAiToBlocks & AIClient processing", () => {
   });
 
   /**
-   * **Every one of the six registered providers, actually exercised.**
+   * **Every one of the seven registered providers, actually exercised.**
    *
    * Nothing before this block ever called `callMistral()`, `callQwen()` or
    * `callDeepseek()` -- the retry and json-extraction suites above only drive
    * `openai`/`anthropic`/`gemini`. That gap meant a seventh provider (or a typo
    * in one of these three's base URL or response parsing) would typecheck and
    * ship with nothing catching it at runtime. This iterates `AI_PROVIDERS`
-   * itself (not a hand-written list of six keys) so a future provider is
+   * itself (not a hand-written list of seven keys) so a future provider is
    * included automatically, stubs `fetch` with *that provider's own* response
    * shape, and asserts both the parsed text and the exact outbound URL --
    * against the exported `*_API_URL` constants in `./providers`, never a
@@ -572,6 +541,27 @@ describe("applyAiToBlocks & AIClient processing", () => {
         expect(fetchMock).toHaveBeenCalledTimes(1);
         const calledUrl = fetchMock.mock.calls[0]?.[0] as string;
         expect(calledUrl).toBe(expectedUrlFor(key, provider, apiKey));
+
+        // **No output cap goes out**, on any provider but the one whose API
+        // will not take a request without one. `aiMaxTokens` was removed with
+        // the request caps, and it was the more damaging of the two: its
+        // default was below what a rewritten article needs, so a longer one
+        // came back truncated mid-JSON and the whole paid request was spent on
+        // an answer that could not be parsed. A reintroduced cap would fail
+        // here rather than only on a long article.
+        const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as { body: string }).body) as Record<
+          string,
+          unknown
+        >;
+        if (key === "anthropic") {
+          // Required by the Messages API, so a constant rather than a setting.
+          expect(body.max_tokens).toBe(16000);
+        } else if (key === "gemini") {
+          expect(body.generationConfig).not.toHaveProperty("maxOutputTokens");
+        } else {
+          expect(body).not.toHaveProperty("max_tokens");
+          expect(body).not.toHaveProperty("max_completion_tokens");
+        }
       },
     );
   });
@@ -722,6 +712,56 @@ describe("applyAiToBlocks & AIClient processing", () => {
           openai(),
         );
 
+        expect(result.blocks[0]).toMatchObject({ kind: "image", ref: "yana-img://lead" });
+      });
+
+      it("does not duplicate the lead media when the model keeps it in place", async () => {
+        // The normal path, and the one the three positional assertions below
+        // could not see: `textToBlocks()` returns a *fresh* object for an image
+        // (its caption is rewritable), so an identity test read "the model
+        // dropped it" and prepended a second copy. One image in, two out, in
+        // every AI rewrite of an article with a lead image.
+        // Echo the document straight back, placeholder intact -- what a
+        // well-behaved rewrite looks like.
+        globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+          const prompt = (JSON.parse(String(init.body)) as { messages: { content: string }[] })
+            .messages[0].content;
+          const marker = "\n\nInput:\n";
+          const input = JSON.parse(prompt.slice(prompt.lastIndexOf(marker) + marker.length)) as {
+            document: string;
+          };
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              choices: [
+                { message: { content: JSON.stringify({ title: "T", document: input.document }) } },
+              ],
+            }),
+          } as Response;
+        });
+
+        const result = await applyAiToBlocks(
+          docOf(`${LEAD}${BODY}`),
+          { ai_improve_writing: true },
+          openai(),
+        );
+
+        expect(result.blocks.filter((b) => b.kind === "image")).toHaveLength(1);
+        expect(result.blocks[0]).toMatchObject({ kind: "image", ref: "yana-img://lead" });
+      });
+
+      it("does not duplicate the lead media when the model emits its placeholder twice", async () => {
+        respondWith({ title: "T", document: "[[M0]]\n\nProse.\n\n[[M0]]" });
+
+        const result = await applyAiToBlocks(
+          docOf(`${LEAD}${BODY}`),
+          { ai_improve_writing: true },
+          openai(),
+        );
+
+        // A duplicated thumbnail is the same defect as a moved one.
+        expect(result.blocks.filter((b) => b.kind === "image")).toHaveLength(1);
         expect(result.blocks[0]).toMatchObject({ kind: "image", ref: "yana-img://lead" });
       });
 

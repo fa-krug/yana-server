@@ -39,7 +39,7 @@ behavior ever needs to be reconstructed.
 │   │       ├── account/page.tsx   # /account — profile, password, passkeys
 │   │       ├── integrations/page.tsx # /integrations — YouTube + Reddit credentials
 │   │       ├── ai/page.tsx        # /ai — the active AI provider, its credentials,
-│   │       │                      #   and the seven global tuning values
+│   │       │                      #   and the six global tuning values
 │   │       ├── settings/page.tsx
 │   │       └── users/             # admin-only. page.tsx (list), new/, [id]/ (edit +
 │   │                              #   delete). The gate lives in the users
@@ -59,7 +59,7 @@ behavior ever needs to be reconstructed.
 │   │   │                           #   binding of ../section-kit.tsx
 │   │   ├── ai/                     # provider-section.tsx (the picker + one
 │   │   │                           #   provider's credentials), advanced-section.tsx
-│   │   │                           #   (the nine numbers, saved as one unit) and
+│   │   │                           #   (the six numbers, saved as one unit) and
 │   │   │                           #   section-parts.tsx — the `ai` binding of
 │   │   │                           #   ../section-kit.tsx
 │   │   ├── users/                  # the kit, wired to users: users-table.tsx,
@@ -125,7 +125,7 @@ behavior ever needs to be reconstructed.
 │   │   │                          #   actions.ts (the two declarations + the exports),
 │   │   │                          #   result.ts (attempt() binding + SaveResult)
 │   │   ├── ai/                    # providers.ts (client-safe registry — imports
-│   │   │                          #   nothing), bounds.ts (the seven tuning bounds,
+│   │   │                          #   nothing), bounds.ts (the six tuning bounds,
 │   │   │                          #   read by the form and the schema — likewise),
 │   │   │                          #   columns.ts (provider -> columns, and
 │   │   │                          #   resolveModel()'s hasDynamicModels split),
@@ -134,7 +134,7 @@ behavior ever needs to be reconstructed.
 │   │   │                          #   SERVER-ONLY by lint rule), queries.ts
 │   │   │                          #   (SERVER-ONLY, masked only), actions.ts (seven
 │   │   │                          #   defineIntegration() declarations, the active
-│   │   │                          #   provider, the seven tuning values,
+│   │   │                          #   provider, the six tuning values,
 │   │   │                          #   listOpenrouterModels()), result.ts,
 │   │   │                          #   run.ts (AIClient + applyAiToBlocks: the AI
 │   │   │                          #   stage, which works on the block tree),
@@ -1917,14 +1917,15 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   stored value is still not trusted and still falls back to the default, the
   same as every other provider's unconfigured case.
 
-- **There is no per-user AI request cap, and its absence is a decision.** The
+- **There is no per-user AI request cap and no output-token cap, and the
+  absence of both is a decision.** The
   2026-08-04 plan added one — `aiDefaultDailyLimit`/`aiDefaultMonthlyLimit`
   among the tuning values, an `ai_requests` table
   (`src/lib/db/schema/ai.ts`), and `checkAndRecordAiUsage()`
   (`src/lib/ai/usage.ts`) gating `AIClient.generateResponse()`. All of it was
   **removed on the owner's explicit instruction**: with AI switched on it is
   expected to run without a quota refusing it. Gone with it are both settings
-  and their two `bounds.ts` entries (nine tuning values → seven), the
+  and their two `bounds.ts` entries, the
   `monthlyLimit >= dailyLimit` `.superRefine()` in `src/lib/ai/actions.ts`
   (the only cross-field rule that schema ever had, and the reason
   `advanced-section.tsx` submits the card as one unit — it still does, but now
@@ -1938,6 +1939,28 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   table and the two columns — drops only, so `drizzle-kit generate` produced it
   non-interactively, exactly as the split-migration rule above predicts.
 
+  **`aiMaxTokens` went the same way, on the same instruction, and it was the
+  more damaging of the two.** `0020_drop_ai_max_tokens` drops the column; the
+  `maxTokens` bound, the `advanced.maxTokens*` catalog keys and the field's
+  place in `AI_ADVANCED_FIELDS` went with it, taking the tuning values from
+  seven to **six**. A request cap only ever refused work; this one _corrupted_
+  it. Its default of 2000 was below what a rewritten article needs, so a longer
+  one came back truncated mid-JSON, failed to parse, and spent the whole paid
+  request on an `invalidJson` failure — and no correct value exists to set it
+  to, because it is the length of an answer nobody has seen yet. So
+  `src/lib/ai/run.ts` now sends **no output cap at all**: no `max_tokens` on any
+  OpenAI-compatible provider, no `maxOutputTokens` on Gemini. The one exception
+  is Anthropic, whose Messages API declares `max_tokens` **required** — that
+  branch sends the `ANTHROPIC_MAX_TOKENS` constant (16000, chosen well above any
+  article this stage sends and below what a non-streaming request can return
+  before the API's own timeout), which is a safety limit rather than a
+  truncation point. `run.test.ts`'s per-provider sweep asserts the absence on
+  every other provider, so a reintroduced cap fails a test rather than only
+  failing on a long article. **The probes are unaffected and must stay that
+  way**: every `max_tokens: 1` in `src/lib/ai/*.ts` and
+  `src/lib/integrations/probe.ts` is a deliberate one-token credential check,
+  not a user-facing ceiling.
+
   **What replaced it is structural, not a ceiling, and that is the whole
   point.** A cap only ever refused work already decided to be worth doing,
   while the two real sources of waste were requests nobody wanted in the first
@@ -1949,7 +1972,11 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   cap without that decision being revisited**; `run.test.ts`'s "no request cap
   in front of a call" block is what fails if one appears, including a check
   that `aiRequests` is absent from the schema barrel so nothing can quietly
-  start counting again.
+  start counting again. That block is also why that file needs no database
+  fixture: with the counter gone `run.ts` reaches no database at all, so the
+  temp-database-plus-`vi.resetModules()` shape it used to carry — fifteen cold
+  dynamic imports for a dependency the module no longer has — was removed and
+  the import is static.
 
   `generateResponse()` still returns `AiGenerationResult` —
   `{ ok: true; text } | { ok: false; reason }` — rather than the
@@ -2043,7 +2070,9 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   input ones to hand back a string this process already held. It was also what
   made `aiMaxTokens` (default 2000) a live hazard rather than a cap — a longer
   article came back truncated, the JSON failed to parse, and the whole request
-  was spent on an `invalidJson` failure. A volunteered `title` or `document` is
+  was spent on an `invalidJson` failure. That setting is gone entirely now (see
+  the no-cap bullet above); this is the failure that made removing it the fix
+  rather than raising it. A volunteered `title` or `document` is
   ignored on that path, so the missing-summary arm leaves a summarize-only
   article completely untouched while a summarize-plus-rewrite one keeps the
   rewrite.
@@ -2122,8 +2151,11 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   is still positional, because it has no kind: it reaches a client as an ordinary
   `image` or `embed` block that happens to be first, exactly as a lead image
   always has. So block 0 is the lead media, block 1 the summary — each shifting
-  up when the one before it is absent — and `run.test.ts` pins the finished
-  document _and_ pins it again through `parseBlocks()`.
+  up when the one before it is absent — and `run.test.ts`'s "the summary" and
+  "the lead media" blocks pin the finished document position by position. There
+  is no second pass through `parseBlocks()` to pin any more: the stage is handed
+  a tree and returns a tree, so the parser is upstream of it rather than on
+  both sides.
 
   **Adding the kind was additive on the wire and `FORMAT_VERSION` stays 1.**
   The format's own extensibility rule is that an unknown block type is skipped,
@@ -2155,8 +2187,8 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   `src/lib/jobs/handlers/retention.ts` reads a settings row directly outside a
   session context. Its failure modes are machine-readable `ApiError` codes
   (`invalid_prompt`, `prompt_too_long`, `no_active_provider`,
-  `daily_limit_exceeded`, `monthly_limit_exceeded`, `provider_unauthorized`,
-  `provider_error`) for the native client to branch on — never provider prose,
+  `provider_unauthorized`, `provider_error` — the two `*_limit_exceeded` codes
+  went with the request caps, so this route can no longer answer 429 at all) for the native client to branch on — never provider prose,
   per this API's existing no-echo convention. `provider_unauthorized` (502) is
   the `providerUnauthorized` reason above, given its own code rather than
   falling into the generic `provider_error` (502) — both answer 502 because
@@ -2440,7 +2472,7 @@ whose verdict derives the `*Enabled` flags), phase 7 (the AI tab at `/ai` —
 `src/lib/ai/` and `src/components/ai/`: a client-safe provider registry, three
 live probes reusing phase 6's `defineIntegration()` descriptor, the
 `active_ai_provider` preference and the then-nine global tuning values, now
-seven — see the no-request-cap bullet above), phases 8–10
+six — see the no-request-cap bullet above), phases 8–10
 (the tags, feeds and articles CRUD tabs, built on phase 5's kit), phase 11
 (a–c: extraction core, embeds/media, and the per-site aggregators), phase 12
 (scheduling and the `jobs` table's in-process worker), phase 13 (the

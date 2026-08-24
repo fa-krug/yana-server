@@ -36,11 +36,26 @@
  *
  * **The contract that makes it safe is the round trip**, pinned in
  * `block-text.test.ts`: for any block tree this module can serialize,
- * `textToBlocks(blocksToText(b))` is `b`. That property is what lets the
+ * `textToBlocks(blocksToText(b))` is `canonicalBlocks(b)` -- the exported
+ * normal form, not `b` itself. That distinction is the specification rather
+ * than a shortfall: the notation is line-oriented and cannot carry a newline
+ * *inside* a paragraph, and `parseBlocks()` does emit those (HTML source line
+ * breaks, and its own table flattening), so a run serialized raw came back as
+ * two paragraphs. `canonicalBlocks()` collapses whitespace (except inside a
+ * `code` run, where it is content), merges adjacent identically-styled runs
+ * and trims paragraph edges, and is idempotent -- which is what lets the
  * rewrite path trust a returned document it did not build.
  */
 
-import type { Block, InlineRun, ListBlock } from "@/lib/aggregators/blocks/types";
+import type {
+  Block,
+  CodeBlock,
+  Divider,
+  EmbedBlock,
+  ImageBlock,
+  InlineRun,
+  ListBlock,
+} from "@/lib/aggregators/blocks/types";
 
 /** What the model is shown, plus the two side tables it never sees. */
 export interface BlockDocument {
@@ -58,8 +73,15 @@ export interface BlockDocument {
   links: string[];
 }
 
-/** A block kind whose content is never shown to the model. */
-function isOpaque(block: Block): boolean {
+/**
+ * A block whose content is never shown to the model.
+ *
+ * A **type predicate**, not a boolean: it is what narrows `Block` down to the
+ * prose kinds for `serializeBlocks`' switch, so that switch's `default` arm can
+ * assert `never` and turn "a block kind was added and nobody taught this module
+ * about it" into a compile error instead of silently deleted content.
+ */
+function isOpaque(block: Block): block is ImageBlock | EmbedBlock | CodeBlock | Divider {
   return (
     block.kind === "image" ||
     block.kind === "embed" ||
@@ -92,7 +114,10 @@ function escapeText(text: string): string {
  * everywhere would put backslashes through ordinary prose (`a - b`, `5. also`).
  */
 function escapeLineStart(line: string): string {
-  return line.replace(/^(\s*)(#{1,6} |[-*+] |> |\d+\. )/, "$1\\$2");
+  // `>` with **or without** a trailing space: the reader accepts a bare `>` as
+  // an empty quoted line, so a paragraph whose entire text is `>` was escaped by
+  // neither side and vanished into an empty blockquote the reader then dropped.
+  return line.replace(/^(\s*)(#{1,6} |[-*+] |>|\d+\. )/, "$1\\$2");
 }
 
 /**
@@ -153,18 +178,34 @@ function sameStyle(a: InlineRun, b: InlineRun): boolean {
 
 function canonicalRuns(runs: InlineRun[]): InlineRun[] {
   const collapsed = runs.map((run) =>
-    run.code ? run : { ...run, text: run.text.replace(/\s+/g, " ") },
+    run.code
+      ? // A code run keeps its spaces and tabs -- they are content -- but **not
+        // its line breaks**, which this notation structurally cannot carry.
+        // `inlineRuns()` emits a `"\n"` run for a `<br>`, and inside `<code>`
+        // that run is `code: true`: written raw it put a bare newline *inside a
+        // line*, so `<p>Run <code>npm i<br>npm test</code> now.</p>` reached the
+        // model as an unbalanced `<code>` split across two lines -- unanswerable
+        // by construction -- and came back as two paragraphs with the literal
+        // tags stored as prose. Spaces-only code (the case the test covered)
+        // never showed it.
+        { ...run, text: run.text.replace(/[\r\n]+/g, " ") }
+      : { ...run, text: run.text.replace(/\s+/g, " ") },
   );
 
-  const merged = collapsed.reduce<InlineRun[]>((acc, run) => {
-    const previous = acc[acc.length - 1];
-    if (previous && sameStyle(previous, run)) {
-      acc[acc.length - 1] = { ...previous, text: previous.text + run.text };
+  // Dropped *before* the merge, not after: an empty run sitting between two
+  // identically-styled runs would otherwise keep them apart on the first pass
+  // and let them merge on the second, which is not a normal form.
+  const merged = collapsed
+    .filter((run) => run.text !== "")
+    .reduce<InlineRun[]>((acc, run) => {
+      const previous = acc[acc.length - 1];
+      if (previous && sameStyle(previous, run)) {
+        acc[acc.length - 1] = { ...previous, text: previous.text + run.text };
+        return acc;
+      }
+      acc.push({ ...run });
       return acc;
-    }
-    acc.push({ ...run });
-    return acc;
-  }, []);
+    }, []);
 
   if (merged.length > 0) {
     const first = merged[0];
@@ -262,20 +303,44 @@ function serializeBlocks(blocks: Block[], doc: BlockDocument, indent: string): s
         block.items.forEach((item, i) => {
           const marker = block.ordered ? `${i + 1}. ` : "- ";
           const inner = serializeBlocks(item, doc, "");
-          const body = inner.filter((line) => line !== "");
-          // The item's first block sits on the marker line; any further block
-          // is a continuation line, indented so it rejoins this item rather
-          // than becoming a paragraph after the list.
-          lines.push(indent + marker + (body[0] ?? ""));
-          for (const extra of body.slice(1)) {
-            lines.push(indent + "  " + extra);
+          // The item's first block sits on the marker line; any further block is
+          // a continuation line, indented so it rejoins this item rather than
+          // becoming a paragraph after the list.
+          //
+          // **A blank line inside the item is kept, and kept truly blank.** It
+          // used to be filtered out, which silently undid the separator that
+          // tells two adjacent blocks apart -- two blockquotes in one item came
+          // back as one. Indenting it instead would not work either: the reader
+          // recognises a continuation by its indent, and `"  "` alone has none
+          // to find.
+          lines.push(indent + marker + (inner[0] ?? ""));
+          for (const extra of inner.slice(1)) {
+            lines.push(extra === "" ? "" : indent + "  " + extra);
           }
         });
         break;
       }
 
+      // `image`/`embed`/`code_block`/`divider` never reach here -- `isOpaque()`
+      // took them above. The `default` arm is what makes that a *checked*
+      // claim: without it a block kind added later fell through this switch,
+      // serialized to nothing, came back as nothing, and was written over the
+      // article -- every block of that kind deleted from every AI-processed
+      // article, with `tsc` silent and no test failing. Failing closed (throw,
+      // and the caller keeps the article untouched) beats deleting content.
+      // `storage.ts`'s `writeBlocks` has had this guard all along.
+      default: {
+        const unreachable: never = block;
+        throw new TypeError(`block kind not serializable: ${JSON.stringify(unreachable)}`);
+      }
+
       case "blockquote":
       case "summary": {
+        // A blank line before, like every other block gets from `push()`.
+        // Without it two adjacent blockquotes serialized to consecutive `>`
+        // lines and the reader -- which consumes a run of them as one quote --
+        // merged them, so three quotes came back as one.
+        if (lines.length > 0) lines.push("");
         // `summary` is serialized like a blockquote and comes back as a
         // blockquote, which is correct for the one direction that matters: a
         // summary only ever exists as *output* of a previous AI run, and the
@@ -518,14 +583,11 @@ function parseLines(lines: string[], state: ParseState): Block[] {
 
     if (line.trimStart().startsWith("> ") || line.trim() === ">") {
       const inner: string[] = [];
-      while (i < lines.length && (lines[i].trimStart().startsWith(">") || lines[i].trim() === "")) {
-        if (lines[i].trim() === "") {
-          // A blank line ends the quote unless the next line continues it.
-          if (!lines[i + 1]?.trimStart().startsWith(">")) break;
-          inner.push("");
-          i += 1;
-          continue;
-        }
+      // **A truly empty line ends the quote; a bare `>` is a paragraph break
+      // inside it.** That is the whole distinction between "one quote of two
+      // paragraphs" and "two adjacent quotes", and it is why this does not look
+      // ahead past a blank line: doing so merged every run of quotes into one.
+      while (i < lines.length && lines[i].trimStart().startsWith(">")) {
         inner.push(lines[i].trimStart().replace(/^>\s?/, ""));
         i += 1;
       }
@@ -546,9 +608,28 @@ function parseLines(lines: string[], state: ParseState): Block[] {
           // their own at this level.
           const body = [match[1]];
           i += 1;
-          while (i < lines.length && /^\s{2,}\S/.test(lines[i])) {
-            body.push(lines[i].trim());
-            i += 1;
+          const indented = (line: string | undefined) => /^\s{2,}\S/.test(line ?? "");
+          while (i < lines.length) {
+            if (indented(lines[i])) {
+              // `slice(2)`, not `trim()`. Trimming discarded the indentation
+              // that *is* the nesting, so a three-level list came back two
+              // levels deep: `    - c` became `- c` and was read as a sibling
+              // of `- b` instead of its child. Removing exactly one level hands
+              // the remainder to the recursive parse with its own depth intact.
+              body.push(lines[i].slice(2));
+              i += 1;
+              continue;
+            }
+            // A blank line belongs to this item only while the item continues
+            // after it -- which is the one place a lookahead is right, because
+            // a blank followed by an indented line and a blank ending the list
+            // are otherwise the same character.
+            if (lines[i].trim() === "" && indented(lines[i + 1])) {
+              body.push("");
+              i += 1;
+              continue;
+            }
+            break;
           }
           items.push(parseLines(body, state));
           continue;

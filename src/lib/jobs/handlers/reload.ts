@@ -53,11 +53,14 @@ function buildErrorBlocks(message: string): Block[] {
  * above instead of ever reaching the source.
  *
  * AI post-processing (`applyAiToBlocks()`, the feed's summarize/improve/translate
- * options) runs between `extractContent()` and `processContent()`, mirroring
- * `enrichArticles()` -> `finalizeArticles()`'s order on a fresh aggregation run:
- * it needs the *distilled* content extractContent() produced, before
- * processContent() splices in embeds/header markup the AI call has no reason
- * to see. A translated title is written back too, since that is a field
+ * options) runs **last**, below `parseBlocks()`, because the stage works on the
+ * block tree rather than on HTML -- `parseBlocks()` is one-way and has no
+ * inverse, so there is nowhere above it for a blocks-shaped stage to sit. That
+ * also makes this path's order identical to `aggregate.ts`'s (extract, process,
+ * parse, then AI), where the two used to differ: AI ran before
+ * `processContent()` here and after it there, so the same article came out with
+ * its summary nested one way on a reload and another on an aggregation run. A
+ * translated title is written back too, since that is a field
  * `applyAiToBlocks()` can change.
  *
  * One thing distinguishes this call from `aggregate.ts`'s equivalent one:

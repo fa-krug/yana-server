@@ -63,7 +63,6 @@ const GEMINI_MODEL = "gemini-3.5-flash-lite";
 /** A complete, in-range advanced payload -- the documented defaults. */
 const VALID_ADVANCED = {
   temperature: 0.3,
-  maxTokens: 2000,
   maxPromptLength: 500,
   requestTimeout: 120,
   maxRetries: 3,
@@ -851,7 +850,6 @@ describe("the AI actions", () => {
       expect(await actions.saveAdvanced(VALID_ADVANCED)).toEqual({ ok: true });
       expect(row()).toMatchObject({
         ai_temperature: 0.3,
-        ai_max_tokens: 2000,
         ai_max_prompt_length: 500,
         ai_request_timeout: 120,
         ai_max_retries: 3,
@@ -863,9 +861,9 @@ describe("the AI actions", () => {
     it("stores a changed value under the column whose `ai` prefix it drops", async () => {
       // The short names are the form's and the query's; the map back to columns
       // lives in exactly one place, and this is what proves it lands right.
-      // `maxPromptLength` is the case worth using: unlike `maxTokens` its column
-      // name is not simply the field with a prefix bolted on, so a mapping that
-      // guessed rather than looked it up would land somewhere else.
+      // `maxPromptLength` is the case worth using: unlike `temperature` its
+      // column name is not simply the field with a prefix bolted on, so a
+      // mapping that guessed rather than looked it up would land somewhere else.
       expect(
         await actions.saveAdvanced({ ...VALID_ADVANCED, maxPromptLength: 700, requestDelay: 9 }),
       ).toEqual({ ok: true });
@@ -887,10 +885,12 @@ describe("the AI actions", () => {
     it.each([
       ["a temperature above 2", "temperature", 2.5, "advanced.temperatureRange"],
       ["a negative temperature", "temperature", -0.1, "advanced.temperatureRange"],
-      ["maxTokens of zero", "maxTokens", 0, "advanced.maxTokensRange"],
-      ["maxTokens past the ceiling", "maxTokens", 200_001, "advanced.maxTokensRange"],
-      ["a fractional maxTokens", "maxTokens", 10.5, "advanced.maxTokensRange"],
       ["a prompt length of zero", "maxPromptLength", 0, "advanced.maxPromptLengthRange"],
+      // The integer bound, which one field has to carry now that `maxTokens`
+      // (whose fractional case used to cover it) is gone: SQLite would store
+      // `10.5` in an `integer` column without complaining, so `.int()` is the
+      // only thing refusing it.
+      ["a fractional prompt length", "maxPromptLength", 10.5, "advanced.maxPromptLengthRange"],
       [
         "a prompt length past the ceiling",
         "maxPromptLength",
@@ -915,7 +915,7 @@ describe("the AI actions", () => {
         expect(failureMessage(result)).toBeTypeOf("string");
       }
       // Nothing was written: the row still holds the migration's defaults.
-      expect(row()).toMatchObject({ ai_temperature: 0.3, ai_max_tokens: 2000 });
+      expect(row()).toMatchObject({ ai_temperature: 0.3, ai_max_prompt_length: 500 });
     });
 
     it("has no cross-field rule left to break", async () => {
@@ -928,7 +928,7 @@ describe("the AI actions", () => {
       expect(
         await actions.saveAdvanced({ ...VALID_ADVANCED, dailyLimit: 1, monthlyLimit: 1 }),
       ).toEqual({ ok: true });
-      expect(row()).toMatchObject({ ai_temperature: 0.3, ai_max_tokens: 2000 });
+      expect(row()).toMatchObject({ ai_temperature: 0.3, ai_max_prompt_length: 500 });
     });
 
     it("accepts the zero-valued ends of the three ranges that allow zero", async () => {
@@ -951,10 +951,10 @@ describe("the AI actions", () => {
         password: "correct horse battery staple",
       });
       client.writeTransaction((tx) =>
-        tx.insert(schema.userSettings).values({ userId: other.id, aiMaxTokens: 111 }).run(),
+        tx.insert(schema.userSettings).values({ userId: other.id, aiMaxRetries: 7 }).run(),
       );
 
-      expect(await actions.saveAdvanced({ ...VALID_ADVANCED, maxTokens: 999 })).toEqual({
+      expect(await actions.saveAdvanced({ ...VALID_ADVANCED, maxRetries: 9 })).toEqual({
         ok: true,
       });
 
@@ -962,9 +962,9 @@ describe("the AI actions", () => {
       try {
         expect(
           connection
-            .prepare("SELECT ai_max_tokens FROM user_settings WHERE user_id = ?")
+            .prepare("SELECT ai_max_retries FROM user_settings WHERE user_id = ?")
             .get(other.id),
-        ).toEqual({ ai_max_tokens: 111 });
+        ).toEqual({ ai_max_retries: 7 });
       } finally {
         connection.close();
       }

@@ -22,7 +22,6 @@ vi.mock("sonner", () => ({ toast: { error: toastError, success: toastSuccess } }
 
 const ADVANCED: AiAdvanced = {
   temperature: 0.7,
-  maxTokens: 1000,
   maxPromptLength: 8000,
   requestTimeout: 60,
   maxRetries: 3,

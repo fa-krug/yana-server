@@ -1007,6 +1007,62 @@ describe("src/lib/jobs/handlers", () => {
       vi.doUnmock("@/lib/ai/run");
     });
 
+    it("does not pace requests the AI stage never made", async () => {
+      // `aiRequestDelay` spaces *provider requests*, and the handler cannot
+      // decide on its own which loop iterations made one: `applyAiToBlocks()`
+      // has its own reasons to decline (no active provider, a custom prompt
+      // that is whitespace) and answers `requested: false` when it does. Paced
+      // off the feed's options instead, a feed with AI switched on but no usable
+      // provider slept between every article for requests that were never sent
+      // -- five seconds each here, which is what this asserts is not happening.
+      vi.resetModules();
+      const applyAiMock = vi.fn(async (input: { title: string; blocks: unknown[] }) => ({
+        title: input.title,
+        blocks: input.blocks,
+        outcome: { status: "skipped", reason: "noProvider" },
+        requested: false,
+      }));
+      vi.doMock("@/lib/ai/run", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("@/lib/ai/run")>();
+        return { ...actual, applyAiToBlocks: applyAiMock };
+      });
+      const rawArticles = [1, 2, 3].map((n) => ({
+        name: `Unpaced ${n}`,
+        identifier: `https://example.com/unpaced-${n}`,
+        raw_content: "",
+        content: `<p>Body ${n}.</p>`,
+        date: new Date("2026-01-01T00:00:00.000Z"),
+      }));
+      handlers = await import("./index");
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => rawArticles,
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        db.insert(schema.users).values({ id: "ai-pace", email: "ai-pace@example.com" }).run();
+        db.insert(schema.userSettings)
+          .values({ userId: "ai-pace", activeAiProvider: "", aiRequestDelay: 5 })
+          .run();
+        feedId = db
+          .insert(schema.feeds)
+          .values({ name: "Feed", userId: "ai-pace", options: { ai_summarize: true } })
+          .returning({ id: schema.feeds.id })
+          .get().id;
+      });
+
+      const started = Date.now();
+      await handlers.getHandler("aggregate")!(makeJob("aggregate", { feedId }));
+      const elapsed = Date.now() - started;
+
+      expect(applyAiMock).toHaveBeenCalledTimes(3);
+      // Two sleeps of five seconds each is what the old gate would have cost.
+      expect(elapsed).toBeLessThan(2000);
+
+      vi.doUnmock("@/lib/ai/run");
+    });
+
     it("rewrites an article when new comments are appended to its body", async () => {
       const feedId = seedAggregateFeed();
 
@@ -1515,7 +1571,7 @@ describe("src/lib/jobs/handlers", () => {
       }));
       handlers = await import("./index");
 
-      // AI provider replies 429 on every attempt -- applyAiOptions() must
+      // AI provider replies 429 on every attempt -- applyAiToBlocks() must
       // report this as a failure the job propagates, not a silent skip.
       const originalFetch = globalThis.fetch;
       globalThis.fetch = vi.fn().mockResolvedValue({

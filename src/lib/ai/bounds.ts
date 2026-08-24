@@ -29,20 +29,26 @@
  * - **`temperature` 0-2.** Every supported provider refuses a higher value:
  *   OpenAI and Gemini document the range as 0-2, Anthropic as 0-1 (so 2 is
  *   already permissive). Below 0 is not a value any of them defines.
- * - **`maxTokens` 1-200000.** Zero is a *guaranteed* empty completion -- the
- *   call is made, billed for its input, and returns nothing. The ceiling is
- *   above every current model's output limit and is there so a typo cannot
- *   request a summary that costs more than the article.
  *
- * There used to be two more, `dailyLimit` and `monthlyLimit`, capping how many
- * requests a user could make per UTC day and month. They were removed on the
- * owner's explicit instruction -- switched on, AI is expected to run without a
- * quota refusing it -- along with the `ai_requests` table that counted against
- * them. Cost is controlled by not making pointless requests
- * (`fingerprintArticles()`) and by not asking for fields nothing needs
- * (`wantsRewrite` in `./run`), which costs nothing when the work *is* wanted.
+ * There used to be three more. `dailyLimit` and `monthlyLimit` capped how many
+ * requests a user could make per UTC day and month; `maxTokens` capped one
+ * answer's length. All three were removed on the owner's explicit instruction
+ * -- switched on, AI is expected to run without a limit refusing it -- along
+ * with the `ai_requests` table the first two counted against. Cost is
+ * controlled by not making pointless requests (the aggregate handler's
+ * `contentHash` skip) and by not asking for fields nothing needs (`wantsRewrite`
+ * in `./run`), neither of which costs anything when the work *is* wanted.
  * They are also why the cross-field `.superRefine()` in `./actions` is gone:
  * `monthlyLimit >= dailyLimit` was the only rule about a pair.
+ *
+ * `maxTokens` is worth its own note, because it was not merely a ceiling
+ * nobody wanted: it was a live hazard. Its default of 2000 was below what a
+ * rewritten article needs, so a longer one came back truncated mid-JSON, failed
+ * to parse, and spent the whole paid request on an `invalidJson` failure. A
+ * correct value cannot be chosen in advance -- it is the length of an answer
+ * nobody has seen yet -- so `./run` now sends no cap at all, except to
+ * Anthropic, whose API declares the field required (see `ANTHROPIC_MAX_TOKENS`
+ * there).
  * - **`maxPromptLength` 1-100000 characters.** Zero sends an empty article.
  * - **`requestTimeout` 5-600 s.** Below five seconds no provider ever answers,
  *   so every request would abort and every summary fail -- a setting that can
@@ -55,7 +61,7 @@
  */
 
 /**
- * The seven, in the order the form renders them.
+ * The six, in the order the form renders them.
  *
  * The names are the projection's, not the columns' -- `aiTemperature` ->
  * `temperature`. That renaming happens in `getAiStatus()` and in
@@ -63,7 +69,6 @@
  */
 export const AI_ADVANCED_FIELDS = [
   "temperature",
-  "maxTokens",
   "maxPromptLength",
   "requestTimeout",
   "maxRetries",
@@ -82,7 +87,6 @@ export type AiBound = {
 
 export const AI_ADVANCED_BOUNDS = {
   temperature: { min: 0, max: 2, integer: false },
-  maxTokens: { min: 1, max: 200_000, integer: true },
   maxPromptLength: { min: 1, max: 100_000, integer: true },
   requestTimeout: { min: 5, max: 600, integer: true },
   maxRetries: { min: 0, max: 10, integer: true },

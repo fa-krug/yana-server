@@ -1,4 +1,3 @@
-import type { UserSettings } from "@/lib/db/schema";
 import { resolveChromeLabels, type ChromeLabels } from "./chrome-labels";
 import type { HeaderElementData } from "./header/context";
 import { extractHeaderElement } from "./header/extractor";
@@ -25,27 +24,6 @@ export interface RawArticle {
   header_data?: HeaderElementData | null;
   [key: string]: unknown;
 }
-
-/**
- * The feed owner's preferences, as the AI stage reads them: the real, camelCase
- * `UserSettings` row from `src/lib/db/schema/users.ts` (the same type
- * `getSettings()` returns), plus the snake_case fallback keys `AIClient`
- * (`../ai/run`) also accepts for parity with the retired Django settings
- * object.
- *
- * **No longer threaded through this pipeline.** It used to reach AI
- * post-processing via `aggregate()` -> `finalizeArticles()`, and that was its
- * only consumer here -- so when the AI stage moved to the job handlers (where
- * `parseBlocks()` runs, and therefore where a block tree exists to work on),
- * the parameter went with it. `aggregate.ts` and `reload.ts` read the row
- * themselves and hand it straight to `applyAiToBlocks()`. The type stays here
- * because it is the aggregator layer's own vocabulary for that row and both
- * handlers import it from here.
- */
-export type AggregatorUserSettings = Partial<UserSettings> & {
-  ai_request_delay?: number;
-  [key: string]: unknown;
-};
 
 export abstract class BaseAggregator {
   static identifierField = "identifier";
@@ -265,13 +243,14 @@ export abstract class BaseAggregator {
 
   /**
    * `onProgress`, if given, is called with a coarse 0-100 estimate after each
-   * pipeline stage. `aggregate.ts`'s own per-article DB-write loop is fast
-   * (local SQLite writes only) next to everything in here -- the source
-   * fetch, per-article enrichment (comments, header images, full-page
-   * fetches) and now AI summarize/improve/translate -- so without this a
-   * job's progress sat at 0% for nearly its whole real duration and then
-   * jumped straight to 100% during the cheap part, which reads as "stuck"
-   * to anyone watching a running job. The percentages are deliberately
+   * pipeline stage. Everything in here -- the source fetch and per-article
+   * enrichment (comments, header images, full-page fetches) -- used to run
+   * without reporting anything, so a job's progress sat at 0% for nearly its
+   * whole real duration and then jumped straight to 100% during
+   * `aggregate.ts`'s own loop, which reads as "stuck" to anyone watching a
+   * running job. (That loop is no longer the cheap part it was when this was
+   * written: the AI stage moved into it, so a feed with AI options on now
+   * spends most of a run inside the 80-100% band instead of below it.) The percentages are deliberately
    * coarse boundaries, not a measured fraction of work done (there's no way
    * to know how long a given feed's enrichment will take up front) --
    * they exist so the number moves, not so it's precise.

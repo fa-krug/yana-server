@@ -74,7 +74,15 @@ const DAILYMOTION_PATTERNS = [/dailymotion\.com\/(?:video|embed\/video)\/([A-Za-
 
 const TWEET_HOST_SUFFIXES = ["twitter.com", "x.com", "fxtwitter.com"];
 const CLASS_ATTRS = ["data-sanitized-class", "class"];
-/** What `summarySectionHtml()` in `@/lib/ai/run` marks the AI summary with. */
+/**
+ * The class an AI summary's own element carries.
+ *
+ * Nothing writes it any more: the AI stage works on the block tree and builds a
+ * `summary` block directly (`applyAiToBlocks()` in `@/lib/ai/run`), where it
+ * used to emit a marked-up `<section>` for this parser to recognise. It is still
+ * recognised because stored `articles.rawContent` from before that change
+ * encodes a summary this way, and a reload re-parses it.
+ */
 const SUMMARY_CLASS = "yana-ai-summary";
 const EMBED_MARKUP_ATTRS = [
   "data-sanitized-data-embed-content",
@@ -894,7 +902,9 @@ function convert(
         .split(/\s+/)
         .includes(SUMMARY_CLASS)
     ) {
-      // The AI summary's own element, written by `summarySectionHtml()` in
+      // The AI summary's own element. Nothing writes this markup now (see
+      // SUMMARY_CLASS above) -- it is how stored HTML predating the block
+      // tree's own `summary` kind encoded one, written then by
       // `@/lib/ai/run`. `classNames()` reads `data-sanitized-class` as well as
       // `class`, which is what makes this work on both call paths: the reload
       // path runs `sanitizeClassNames()` over this section afterwards.

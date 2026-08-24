@@ -30,7 +30,6 @@ export type AiRuntimeSettings = Partial<UserSettings> & {
   ai_retry_delay?: number;
   ai_max_retry_time?: number;
   ai_temperature?: number;
-  ai_max_tokens?: number;
   ai_request_timeout?: number;
   openai_enabled?: boolean;
   openai_api_key?: string;
@@ -72,6 +71,17 @@ export class ProviderUnauthorizedError extends Error {}
 export type AiGenerationResult =
   | { ok: true; text: string }
   | { ok: false; reason: "noProvider" | "providerUnauthorized" | "providerError" };
+
+/**
+ * The `max_tokens` Anthropic's Messages API requires, since it is the one
+ * provider here that will not accept a request without a ceiling. 16000 rather
+ * than a model's full output limit because these requests are not streamed, and
+ * a non-streaming request that asks for a very large answer can exceed the
+ * API's own request timeout before any of it comes back. It is deliberately far
+ * above the longest article this stage sends, so it is a safety limit and never
+ * a truncation point.
+ */
+const ANTHROPIC_MAX_TOKENS = 16000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -219,13 +229,20 @@ export class AIClient {
    * daily/monthly counter used to gate every call here, and it was removed on
    * the owner's explicit instruction: when AI is switched on it is expected to
    * run without a quota refusing it. Cost control is the caller's job instead,
-   * and it is structural rather than a ceiling -- `fingerprintArticles()` in
-   * `@/lib/aggregators/base` never asks for an article the feed already has,
-   * and `applyAiToBlocks()` below asks only for the fields the feed's options
-   * actually need. A cap only ever refused work that had already been decided
-   * to be worth doing; not asking in the first place costs nothing.
+   * and it is structural rather than a ceiling -- `handleAggregateJob()`'s
+   * `contentHash` comparison never reaches this for an article the feed already
+   * has unchanged, and `applyAiToBlocks()` below asks only for the fields the
+   * feed's options actually need. A cap only ever refused work that had already
+   * been decided to be worth doing; not asking in the first place costs
+   * nothing.
    *
-   * Do not reintroduce one without that decision being revisited.
+   * The same reasoning removed `aiMaxTokens`, and that one was worse than a
+   * ceiling nobody wanted: guessed low it truncated the JSON envelope this
+   * stage asks for, so the whole paid request was spent on an unparseable
+   * answer. Every provider branch below now sends no output cap at all, except
+   * Anthropic's, whose API requires the field (`ANTHROPIC_MAX_TOKENS`).
+   *
+   * Do not reintroduce either without that decision being revisited.
    */
   public async generateResponse(
     prompt: string,
@@ -290,13 +307,19 @@ export class AIClient {
     };
 
     const temperature = this.settings.aiTemperature ?? this.settings.ai_temperature ?? 0.7;
-    const maxTokens = this.settings.aiMaxTokens ?? this.settings.ai_max_tokens ?? 1000;
 
+    // No `max_tokens`. Every OpenAI-compatible provider treats it as optional
+    // and defaults to "as much as the model can answer with", which is the
+    // only correct ceiling for a request whose output length is the article's
+    // length: the setting this replaced defaulted to 1000, and the moment the
+    // stage asked for a rewritten document back, a longer article came back
+    // truncated mid-JSON, failed to parse, and the whole paid request was
+    // spent on an `invalidJson` failure. A cap cannot be set correctly here
+    // without knowing the answer's length in advance, so none is sent.
     const data: AiRequestBody = {
       model,
       messages: [{ role: "user", content: prompt }],
       temperature,
-      max_tokens: maxTokens,
     };
     if (jsonMode) {
       data.response_format = { type: "json_object" };
@@ -342,13 +365,19 @@ export class AIClient {
     const model =
       this.settings.anthropicModel ?? this.settings.anthropic_model ?? "claude-sonnet-4-20250514";
     const temperature = this.settings.aiTemperature ?? this.settings.ai_temperature ?? 0.7;
-    const maxTokens = this.settings.aiMaxTokens ?? this.settings.ai_max_tokens ?? 1000;
     const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
 
     const data = {
       model,
       messages: [{ role: "user", content: prompt }],
-      max_tokens: maxTokens,
+      // The one provider that cannot be sent without a ceiling: Anthropic's
+      // Messages API declares `max_tokens` **required**, so unlike every
+      // OpenAI-compatible branch and Gemini's -- which simply omit theirs --
+      // this one has to name a number. It is a constant rather than a setting
+      // for the reason the setting was removed: an operator cannot know an
+      // article's answer length in advance, and guessing low truncates the
+      // JSON envelope and wastes the whole request.
+      max_tokens: ANTHROPIC_MAX_TOKENS,
       temperature,
     };
 
@@ -378,12 +407,14 @@ export class AIClient {
     };
 
     const temperature = this.settings.aiTemperature ?? this.settings.ai_temperature ?? 0.7;
-    const maxTokens = this.settings.aiMaxTokens ?? this.settings.ai_max_tokens ?? 1000;
     const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
 
+    // No `maxOutputTokens`, for the reason spelled out in
+    // `callOpenaiCompatible()`: omitted, Gemini answers up to the model's own
+    // output limit, which is the only ceiling that cannot truncate a document
+    // this stage asked for in full.
     const generationConfig: Record<string, unknown> = {
       temperature,
-      maxOutputTokens: maxTokens,
     };
 
     if (jsonMode) {
@@ -527,6 +558,44 @@ function leadMediaOf(blocks: Block[]): Block | null {
 }
 
 /**
+ * Whether two opaque blocks are the same piece of media, **by content rather
+ * than by reference**.
+ *
+ * The distinction is the whole point. `textToBlocks()` returns the *same object*
+ * for an embed but a **fresh** one for an image, because an image's caption is
+ * prose a rewrite may have changed (`{ ...block, caption }` in `./block-text`).
+ * So an identity test -- which is what this used to do -- was always false for
+ * an image: the lead was prepended *and* the model's copy stayed, and every AI
+ * rewrite of an article with a lead image stored that image twice. Reproduced
+ * against the real module (one image in, two out) before this existed, and
+ * missed by the three lead-media tests because each asserted only `blocks[0]`.
+ */
+function sameMedia(a: Block, b: Block): boolean {
+  if (a.kind === "image" && b.kind === "image") return a.ref === b.ref;
+  if (a.kind === "embed" && b.kind === "embed") {
+    return a.externalUrl === b.externalUrl && a.thumbnailRef === b.thumbnailRef;
+  }
+  return false;
+}
+
+/**
+ * Put the article's lead media back at index 0, exactly once.
+ *
+ * Restructuring is prose freedom, not licence to move the article's thumbnail:
+ * clients hoist block 0 when it is an image (`ArticleBlockView.leadImageRef`),
+ * so a relocated, dropped **or duplicated** lead image silently changes what a
+ * timeline shows. Every case collapses to the same rule -- drop every copy the
+ * answer contains, then prepend the one from the input -- which is also why a
+ * model that emits `[[M0]]` twice cannot produce two lead images.
+ *
+ * The *input's* block is the one kept, not the answer's: only the input's is
+ * guaranteed to carry the ref this article actually stores.
+ */
+function pinLeadMedia(lead: Block, blocks: Block[]): Block[] {
+  return [lead, ...blocks.filter((block) => !sameMedia(block, lead))];
+}
+
+/**
  * Turn the model's summary prose into the `summary` block, placed after the
  * lead media when there is one and first otherwise.
  *
@@ -561,6 +630,16 @@ export interface AiBlockDocument {
 
 export interface AiBlockResult extends AiBlockDocument {
   outcome: ApplyAiOutcome;
+  /**
+   * Whether a provider request was actually issued.
+   *
+   * The caller paces its inter-request delay on this rather than on "did this
+   * article reach the stage": three arms return without touching the network
+   * (no AI options, no active provider, an article with no blocks), and pacing
+   * on article count slept two seconds before each of them -- ~100s per run on
+   * a 50-article feed whose provider was simply not configured.
+   */
+  requested: boolean;
 }
 
 /**
@@ -590,13 +669,38 @@ export interface AiBlockResult extends AiBlockDocument {
  * dropped would silently change what a timeline shows. If the input led with
  * one, the output does too.
  */
+/**
+ * Whether a feed's options ask for AI at all.
+ *
+ * Exported because `handleAggregateJob()` needs the same answer to pace its
+ * inter-request delay, and it used to carry its own copy -- under a comment
+ * asserting there was no second copy to drift from. The two already disagreed:
+ * a custom prompt of only whitespace is truthy there and `.trim()`-empty here,
+ * so the handler slept `aiRequestDelay` per article for requests it never made.
+ */
+export function wantsAi(options?: Record<string, unknown> | null): boolean {
+  const opts = options ?? {};
+  return Boolean(
+    opts.ai_summarize ||
+    opts.ai_improve_writing ||
+    opts.ai_translate ||
+    (opts.ai_custom_prompt &&
+      typeof opts.ai_custom_prompt_text === "string" &&
+      opts.ai_custom_prompt_text.trim()),
+  );
+}
+
 export async function applyAiToBlocks(
   input: AiBlockDocument,
   options?: Record<string, unknown> | null,
   userSettings?: AiRuntimeSettings,
   onLog?: (message: string) => void,
 ): Promise<AiBlockResult> {
-  const unchanged = (outcome: ApplyAiOutcome): AiBlockResult => ({ ...input, outcome });
+  const unchanged = (outcome: ApplyAiOutcome, requested = false): AiBlockResult => ({
+    ...input,
+    outcome,
+    requested,
+  });
 
   const opts = options || {};
   /**
@@ -723,7 +827,7 @@ export async function applyAiToBlocks(
     const message = `AI processing failed for article '${input.title}' (${generation.reason}). Keeping original content.`;
     console.warn(message);
     onLog?.(message);
-    return unchanged({ status: "failed", reason: generation.reason });
+    return unchanged({ status: "failed", reason: generation.reason }, true);
   }
 
   const answer = parseJsonAnswer(generation.text);
@@ -731,11 +835,16 @@ export async function applyAiToBlocks(
     const message = `AI returned invalid JSON for article '${input.title}': ${generation.text.slice(0, 100)}...`;
     console.warn(message);
     onLog?.(message);
-    return unchanged({ status: "failed", reason: "invalidJson" });
+    return unchanged({ status: "failed", reason: "invalidJson" }, true);
   }
 
   let title = input.title;
-  let blocks = canonicalBlocks(input.blocks);
+  // Canonicalized only on the rewrite path, where the tree has to survive the
+  // notation round trip. A summarize-only request serializes nothing, so
+  // normalizing there was pure loss: it collapsed in-paragraph line breaks and
+  // merged runs for no reason, storing a different tree than the same article
+  // would get on a feed with AI switched off.
+  let blocks = wantsRewrite ? canonicalBlocks(input.blocks) : input.blocks;
 
   if (wantsRewrite) {
     // Only a request that asked for a rewrite may change either. A model that
@@ -750,10 +859,8 @@ export async function applyAiToBlocks(
         blocks = parsed.blocks;
 
         const lead = leadMediaOf(input.blocks);
-        if (lead && !blocks.includes(lead)) {
-          // Moved or dropped. Put it back at the front rather than letting a
-          // rewrite change the article's thumbnail -- see the doc comment.
-          blocks = [lead, ...blocks.filter((block) => block !== lead)];
+        if (lead) {
+          blocks = pinLeadMedia(lead, blocks);
         }
 
         if (parsed.droppedOpaque.length > 0) {
@@ -780,10 +887,15 @@ export async function applyAiToBlocks(
       console.warn(message);
       onLog?.(message);
       return wantsRewrite
-        ? { title, blocks, outcome: { status: "failed", reason: "missingSummary" } }
-        : unchanged({ status: "failed", reason: "missingSummary" });
+        ? {
+            title,
+            blocks,
+            outcome: { status: "failed", reason: "missingSummary" },
+            requested: true,
+          }
+        : unchanged({ status: "failed", reason: "missingSummary" }, true);
     }
   }
 
-  return { title, blocks, outcome: { status: "applied" } };
+  return { title, blocks, outcome: { status: "applied" }, requested: true };
 }

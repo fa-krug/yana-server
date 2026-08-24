@@ -132,7 +132,9 @@ describe("blocksToText / textToBlocks", () => {
       expect(roundTrip(blocks)).toEqual(canonicalBlocks(blocks));
     });
 
-    it("keeps backticks inside a code span literal, by out-fencing them", () => {
+    // Backticks are not delimiters in this notation -- a code run is `<code>`
+    // tags -- so they are ordinary text inside one and need no escaping at all.
+    it("keeps backticks inside a code span literal", () => {
       const blocks = fromHtml("<p><code>a ` b `` c</code></p>");
       expect(roundTrip(blocks)).toEqual(canonicalBlocks(blocks));
     });
@@ -239,12 +241,11 @@ describe("blocksToText / textToBlocks", () => {
       const d = blocksToText(fromHtml("<p>x</p>"));
       const { blocks } = textToBlocks("A **stray marker and *another one", d);
 
-      // What a total parser owes: no throw, one block, and no prose lost. The
-      // asterisks themselves may be read as emphasis (they pair the way any
-      // Markdown reader pairs them) -- that is a model's own stray markup being
-      // interpreted, not text going missing. Nothing this module *writes* is
-      // ever an unescaped delimiter, so this path is only ever reached by an
-      // answer the model shaped itself.
+      // What a total parser owes: no throw, one block, and no prose lost.
+      // Markdown emphasis is not notation here -- inline styling is `<b>`/`<i>`
+      // tags precisely so that two adjacent styled runs cannot serialize to a
+      // row of asterisks nobody can split the same way twice -- so these
+      // asterisks come back as the literal characters the model wrote.
       expect(blocks).toHaveLength(1);
       const runs = (blocks[0] as { runs: { text: string }[] }).runs;
       const words = runs

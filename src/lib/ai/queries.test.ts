@@ -224,7 +224,6 @@ describe("getAiStatus", () => {
   it("drops the `ai` prefix from every advanced value", async () => {
     seed({
       aiTemperature: 1.25,
-      aiMaxTokens: 4096,
       aiMaxPromptLength: 1200,
       aiRequestTimeout: 90,
       aiMaxRetries: 5,
@@ -234,7 +233,6 @@ describe("getAiStatus", () => {
 
     expect((await queries.getAiStatus()).advanced).toEqual({
       temperature: 1.25,
-      maxTokens: 4096,
       maxPromptLength: 1200,
       requestTimeout: 90,
       maxRetries: 5,

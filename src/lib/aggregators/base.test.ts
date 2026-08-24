@@ -147,16 +147,19 @@ describe("BaseAggregator", () => {
       options: { ai_summarize: true },
     };
     const agg = new TestAggregator(feed);
-    let received: unknown[] = [];
-    agg.finalizeArticles = async (articles) => {
-      received = articles;
-      return articles;
+    let receivedArgs: unknown[] = [];
+    agg.finalizeArticles = async (...args) => {
+      receivedArgs = args;
+      return args[0];
     };
 
     const out = await agg.aggregate(undefined, 0);
 
-    expect(received).toBe(out);
-    expect(agg.finalizeArticles.length).toBe(1);
+    // Both halves matter, and the arity is the half that has to be read off the
+    // *base class* rather than off this stub: a `length` taken from the arrow
+    // above would only ever report what this test itself declared.
+    expect(receivedArgs).toEqual([out]);
+    expect(BaseAggregator.prototype.finalizeArticles.length).toBe(1);
   });
 
   it("reports coarse progress after each pipeline stage, in increasing order", async () => {
