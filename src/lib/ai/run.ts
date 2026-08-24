@@ -2,11 +2,9 @@ import * as cheerio from "cheerio";
 import type { Element } from "domhandler";
 
 import { escapeHtml } from "@/lib/aggregators/extract/format";
-import { writeTransaction } from "@/lib/db/client";
 import type { UserSettings } from "@/lib/db/schema";
 
 import { DEEPSEEK_API_URL, MISTRAL_API_URL, OPENROUTER_API_URL, QWEN_API_URL } from "./providers";
-import { checkAndRecordAiUsage } from "./usage";
 
 export interface ArticleInput {
   name?: string;
@@ -79,15 +77,7 @@ export class ProviderUnauthorizedError extends Error {}
 
 export type AiGenerationResult =
   | { ok: true; text: string }
-  | {
-      ok: false;
-      reason:
-        | "noProvider"
-        | "dailyLimitExceeded"
-        | "monthlyLimitExceeded"
-        | "providerUnauthorized"
-        | "providerError";
-    };
+  | { ok: false; reason: "noProvider" | "providerUnauthorized" | "providerError" };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -231,49 +221,26 @@ export class AIClient {
   }
 
   /**
-   * `bypassUsageLimit` skips both the check and the recording of this call
-   * against the daily/monthly caps -- used for a user-triggered single-article
-   * reload (see `applyAiOptions()`'s own `bypassUsageLimit` parameter), which
-   * is a deliberate, one-off action the operator asked for right now, not the
-   * unattended bulk processing those caps exist to bound. It must not merely
-   * skip *enforcement* while still recording the call: doing so would spend
-   * part of the same budget background aggregation relies on, silently
-   * tightening the effective cap for every other AI call that day.
+   * **There is no request cap in front of this, by design.** A per-user
+   * daily/monthly counter used to gate every call here, and it was removed on
+   * the owner's explicit instruction: when AI is switched on it is expected to
+   * run without a quota refusing it. Cost control is the caller's job instead,
+   * and it is structural rather than a ceiling -- `fingerprintArticles()` in
+   * `@/lib/aggregators/base` never asks for an article the feed already has,
+   * and `applyAiOptions()` below asks only for the fields the feed's options
+   * actually need. A cap only ever refused work that had already been decided
+   * to be worth doing; not asking in the first place costs nothing.
+   *
+   * Do not reintroduce one without that decision being revisited.
    */
   public async generateResponse(
     prompt: string,
     jsonMode = false,
     jsonSchema?: Record<string, unknown>,
-    bypassUsageLimit = false,
   ): Promise<AiGenerationResult> {
     if (!this.provider) {
       this.warn("No AI provider selected.");
       return { ok: false, reason: "noProvider" };
-    }
-
-    const userId = this.settings.userId;
-    if (userId && !bypassUsageLimit) {
-      const dailyLimit = this.settings.aiDefaultDailyLimit ?? 200;
-      const monthlyLimit = this.settings.aiDefaultMonthlyLimit ?? 2000;
-      let usage: ReturnType<typeof checkAndRecordAiUsage>;
-      try {
-        usage = writeTransaction((tx) =>
-          checkAndRecordAiUsage(tx, userId, dailyLimit, monthlyLimit),
-        );
-      } catch (error) {
-        this.warn(`AI usage check failed: ${describeError(error)}`);
-        return { ok: false, reason: "providerError" };
-      }
-      if (usage === "dailyLimitExceeded" || usage === "monthlyLimitExceeded") {
-        return { ok: false, reason: usage };
-      }
-    } else if (!userId) {
-      // No settings row carried a userId (nothing in production hits this
-      // today -- both real call sites read a full `user_settings` row --
-      // but a caller that omits one gets the call through unmetered rather
-      // than a thrown error, matching this class's warn-and-continue style
-      // for misconfiguration elsewhere).
-      this.warn("No user id on AI settings; usage limit not enforced for this call.");
     }
 
     try {
@@ -575,18 +542,71 @@ function summarySectionHtml(summary: string): string {
   return `<section data-sanitized-class="yana-ai-summary">${paragraphs}</section>`;
 }
 
+/**
+ * Every attribute `parseBlocks()` (`../aggregators/blocks/parser.ts`) ever
+ * reads, and therefore every attribute worth sending to a provider.
+ *
+ * This is the parser's full set, gathered from its sixteen `getAttr()` call
+ * sites plus its `CLASS_ATTRS`/`EMBED_MARKUP_ATTRS` lists -- not a guess at
+ * which attributes look useful. **Adding a `getAttr()` call over there means
+ * adding its name here**, or the value it wants will have been stripped from
+ * the markup before the model ever saw it, and the block it feeds will come
+ * back empty for AI-processed articles only.
+ */
+const PARSED_ATTRS = new Set([
+  "src",
+  "data-src",
+  "data-lazy-src",
+  "poster",
+  "href",
+  "class",
+  "data-sanitized-class",
+  "data-embed",
+  "data-sanitized-embed",
+  "data-sanitized-data-embed-content",
+]);
+
+/**
+ * Drop the attributes nothing downstream reads, in place.
+ *
+ * The extraction pipeline's `sanitizeHtmlAttributes()`
+ * (`../aggregators/extract/clean.ts`) *renames* rather than removes: `class` ->
+ * `data-sanitized-class`, `style` -> `data-sanitized-style`, `id` ->
+ * `data-sanitized-id`, and every other `data-*` -> `data-sanitized-*`. So a
+ * scraped page arrives here carrying every class name, inline style, id,
+ * tracking attribute and lazy-loading hint it was published with, each fifteen
+ * characters *longer* than the original for the added prefix -- and the prompt
+ * then tells the model to reproduce all of it, so the same bytes are paid for
+ * twice, in and out.
+ *
+ * Measured on real pages (through this repo's own sanitizer), the share of the
+ * prompt that is attributes the parser never reads ran from ~7% on a plain
+ * article page to ~46% on a heavily-marked-up one. None of it can affect the
+ * stored result: there is no `articles.content` column, so the model's markup
+ * only ever becomes the block tree, and the block tree is built from
+ * `PARSED_ATTRS` alone.
+ *
+ * Only for what is *sent*. `articles.rawContent` keeps the true fetched page
+ * for every aggregator that fetches one, which is what `reload.ts` re-extracts
+ * from.
+ */
+function stripUnparsedAttributes($: cheerio.CheerioAPI): void {
+  $("*").each((_, node) => {
+    const element = node as Element;
+    if (element.type !== "tag" || !element.attribs) return;
+    for (const name of Object.keys(element.attribs)) {
+      if (!PARSED_ATTRS.has(name.toLowerCase())) {
+        delete element.attribs[name];
+      }
+    }
+  });
+}
+
 export async function applyAiOptions(
   article: ArticleInput,
   options?: Record<string, unknown> | null,
   userSettings?: AiRuntimeSettings,
   onLog?: (message: string) => void,
-  /**
-   * Set by `reload.ts` for a user-triggered single-article reload -- see the
-   * doc comment on `AIClient.generateResponse()`'s own parameter of the same
-   * name for why a reload doesn't count against the daily/monthly caps the
-   * way unattended aggregation does.
-   */
-  bypassUsageLimit = false,
 ): Promise<ApplyAiOutcome> {
   const opts = options || {};
   /**
@@ -626,10 +646,12 @@ export async function applyAiOptions(
   }
 
   // Parse HTML, keep the lead-media header aside, strip headers, footers,
-  // navs, scripts, styles
+  // navs, scripts, styles -- then strip the attributes nothing downstream
+  // reads, so they are not paid for on the way out and back.
   const $ = cheerio.load(content, null, false);
   const leadHeaderHtml = takeLeadHeaderHtml($);
   $("header, footer, nav, script, style").remove();
+  stripUnparsedAttributes($);
   const cleanHtml = $.html();
 
   const wantsSummary = Boolean(opts.ai_summarize);
@@ -745,7 +767,7 @@ export async function applyAiOptions(
     required: [...(wantsRewrite ? ["title", "content"] : []), ...(wantsSummary ? ["summary"] : [])],
   };
 
-  const generation = await client.generateResponse(fullPrompt, true, jsonSchema, bypassUsageLimit);
+  const generation = await client.generateResponse(fullPrompt, true, jsonSchema);
 
   if (generation.ok) {
     const result = generation.text;
@@ -820,11 +842,10 @@ export async function applyAiOptions(
       return { status: "failed", reason: "invalidJson" };
     }
   } else {
-    // `generation.reason` is one of noProvider/dailyLimitExceeded/
-    // monthlyLimitExceeded/providerUnauthorized/providerError -- surfacing it
-    // (not just "failed") is what tells an operator a 429 apart from a
-    // misconfigured key, without which this looked identical to AI silently
-    // doing nothing.
+    // `generation.reason` is one of noProvider/providerUnauthorized/
+    // providerError -- surfacing it (not just "failed") is what tells an
+    // operator a rejected credential apart from an outage, without which this
+    // looked identical to AI silently doing nothing.
     const message = `AI processing failed for article '${article.name || ""}' (${generation.reason}). Keeping original content.`;
     console.warn(message);
     onLog?.(message);

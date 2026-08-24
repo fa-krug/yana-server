@@ -21,12 +21,6 @@ function makeSettings(overrides: Partial<AiRuntimeSettings> = {}): AiRuntimeSett
   const provider = overrides.activeAiProvider ?? overrides.active_ai_provider ?? "gemini";
   return {
     userId: "test-user",
-    // High enough that the daily/monthly usage check added in Task 9 never
-    // interferes with what these tests actually assert -- usage-limit
-    // behavior itself is covered by `src/lib/ai/usage.test.ts`.
-    aiDefaultDailyLimit: 1000,
-    aiDefaultMonthlyLimit: 1000,
-
     activeAiProvider: provider,
     aiMaxRetries: 3,
     aiRetryDelay: 0, // speed up tests by default
@@ -624,117 +618,73 @@ describe("applyAiOptions & AIClient processing", () => {
     });
   });
 
-  describe("test_ai_usage_limits assertions", () => {
-    it("blocks a call once the daily limit is reached, without reaching the network", async () => {
-      const settings = makeSettings({
-        activeAiProvider: "gemini",
-        aiDefaultDailyLimit: 1,
-        aiDefaultMonthlyLimit: 1000,
-      });
-
-      // Pre-seed one request already recorded today directly via
-      // `writeTransaction`, so "test-user" is already at the daily limit of 1
-      // before `generateResponse()` is ever called -- this proves the
-      // short-circuit fires on a call that would otherwise be the *first* of
-      // the test, not just after this test's own prior calls.
-      const { writeTransaction } = await import("@/lib/db/client");
-      const { aiRequests } = await import("@/lib/db/schema");
-      writeTransaction((tx) => {
-        tx.insert(aiRequests).values({ userId: "test-user", createdAt: new Date() }).run();
-      });
-
-      const fetchMock = vi.fn();
-      globalThis.fetch = fetchMock;
-
-      const client = new AIClient(settings);
-      const result = await client.generateResponse("test prompt");
-
-      expect(result).toMatchObject({ ok: false, reason: "dailyLimitExceeded" });
-      // The actual guarantee this task exists to provide: a blocked call
-      // never reaches the provider over the network.
-      expect(fetchMock).not.toHaveBeenCalled();
-    });
-
-    it("blocks a call once the monthly limit is reached, without reaching the network", async () => {
-      const settings = makeSettings({
-        activeAiProvider: "gemini",
-        aiDefaultDailyLimit: 1000,
-        aiDefaultMonthlyLimit: 1,
-      });
-
-      const { writeTransaction } = await import("@/lib/db/client");
-      const { aiRequests } = await import("@/lib/db/schema");
-      writeTransaction((tx) => {
-        tx.insert(aiRequests).values({ userId: "test-user", createdAt: new Date() }).run();
-      });
-
-      const fetchMock = vi.fn();
-      globalThis.fetch = fetchMock;
-
-      const client = new AIClient(settings);
-      const result = await client.generateResponse("test prompt");
-
-      expect(result).toMatchObject({ ok: false, reason: "monthlyLimitExceeded" });
-      expect(fetchMock).not.toHaveBeenCalled();
-    });
-
-    it("bypassUsageLimit skips both the check and the recording, even at the limit", async () => {
-      const settings = makeSettings({
-        activeAiProvider: "gemini",
-        aiDefaultDailyLimit: 1,
-        aiDefaultMonthlyLimit: 1000,
-      });
-
-      const { writeTransaction } = await import("@/lib/db/client");
-      const { aiRequests } = await import("@/lib/db/schema");
-      writeTransaction((tx) => {
-        tx.insert(aiRequests).values({ userId: "test-user", createdAt: new Date() }).run();
-      });
+  describe("no request cap in front of a call", () => {
+    /**
+     * The per-user daily/monthly request caps, and the `ai_requests` table
+     * that counted against them, were removed on the owner's instruction:
+     * switched on, AI runs without a quota refusing it. These cases exist so
+     * that stays true -- a reintroduced cap, or a stray counter, fails here.
+     */
+    it("lets an unbounded run of calls through, every one reaching the provider", async () => {
+      const settings = makeSettings({ activeAiProvider: "gemini" });
 
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: async () => ({
-          candidates: [{ content: { parts: [{ text: "ok" }] } }],
-        }),
+        json: async () => ({ candidates: [{ content: { parts: [{ text: "ok" }] } }] }),
       } as Response);
       globalThis.fetch = fetchMock;
 
       const client = new AIClient(settings);
-      const result = await client.generateResponse("test prompt", false, undefined, true);
+      for (let i = 0; i < 25; i++) {
+        expect(await client.generateResponse("test prompt")).toEqual({ ok: true, text: "ok" });
+      }
 
-      expect(result).toEqual({ ok: true, text: "ok" });
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-
-      // Bypassing must not record the call either -- otherwise a reload
-      // would quietly eat into the same budget aggregation relies on.
-      const { getDb } = await import("@/lib/db/client");
-      const count = getDb()
-        .select()
-        .from(aiRequests)
-        .all()
-        .filter((r) => r.userId === "test-user").length;
-      expect(count).toBe(1); // only the pre-seeded row, nothing added
+      // 25 is past every default the old caps shipped with on a per-call basis
+      // and well past any plausible small limit, so a cap of any shape would
+      // have short-circuited before here.
+      expect(fetchMock).toHaveBeenCalledTimes(25);
     });
 
-    it("proceeds unmetered and warns when settings carry no userId", async () => {
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    it("records nothing per call: no usage table remains to write to", async () => {
+      const schema = await import("@/lib/db/schema");
+
+      // The table is gone from the schema barrel, not merely unread. Left
+      // behind, a future caller could start counting against it again without
+      // anyone deciding to.
+      expect("aiRequests" in schema).toBe(false);
+    });
+
+    it("cannot answer a limit reason at all", async () => {
+      const settings = makeSettings({ activeAiProvider: "" });
+
+      const client = new AIClient(settings);
+      const result = await client.generateResponse("test prompt");
+
+      // The only failure arms left are noProvider / providerUnauthorized /
+      // providerError -- the two limit reasons are off the union, so a caller
+      // branching on them is a typecheck failure rather than dead code.
+      expect(result).toEqual({ ok: false, reason: "noProvider" });
+    });
+
+    it("needs no userId on the settings row to make a call", async () => {
       const settings = makeSettings({ activeAiProvider: "gemini", userId: undefined });
 
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: async () => ({
-          candidates: [{ content: { parts: [{ text: "hello" }] } }],
-        }),
+        json: async () => ({ candidates: [{ content: { parts: [{ text: "hello" }] } }] }),
       } as Response);
 
       const client = new AIClient(settings);
-      const result = await client.generateResponse("test prompt");
 
-      // Missing userId does not block the call -- it proceeds unmetered.
-      expect(result).toMatchObject({ ok: true, text: "hello" });
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("usage limit not enforced"));
+      // It used to warn "usage limit not enforced for this call" here, because
+      // a missing userId meant the counter had no key. With no counter there is
+      // nothing to not-enforce, so this is an ordinary call now.
+      expect(await client.generateResponse("test prompt")).toMatchObject({
+        ok: true,
+        text: "hello",
+      });
     });
   });
 
@@ -1121,6 +1071,56 @@ describe("applyAiOptions & AIClient processing", () => {
       expect(sent()).toContain("Body one.");
       expect(sent()).not.toContain("article-content");
       expect(sent()).not.toContain("<p>");
+    });
+
+    it("strips attributes the block parser never reads before sending", async () => {
+      const sent = respondWith({ title: "T", content: "<p>x</p>" });
+      const article = {
+        name: "T",
+        content:
+          '<section data-sanitized-class="article-content" data-sanitized-style="color:red"' +
+          ' data-sanitized-id="main" data-sanitized-tracking="abc123" aria-label="Article">' +
+          '<a href="https://example.com/a" rel="nofollow" target="_blank">Link</a>' +
+          '<img src="yana-img://x" alt="A" width="800" loading="lazy" srcset="a 1x, b 2x">' +
+          "</section>",
+      };
+
+      await applyAiOptions(article, { ai_improve_writing: true }, openai());
+
+      const body = sent();
+      // Kept: every one of these is read by `parseBlocks()`.
+      expect(body).toContain("data-sanitized-class");
+      expect(body).toContain("https://example.com/a");
+      expect(body).toContain("yana-img://x");
+      // Dropped: nothing downstream reads any of them, and the prompt asks the
+      // model to reproduce whatever it is given -- so they are billed twice.
+      expect(body).not.toContain("data-sanitized-style");
+      expect(body).not.toContain("data-sanitized-id");
+      expect(body).not.toContain("data-sanitized-tracking");
+      expect(body).not.toContain("aria-label");
+      expect(body).not.toContain("srcset");
+      expect(body).not.toContain("loading");
+      expect(body).not.toContain("nofollow");
+    });
+
+    it("keeps the block tree identical to what the unstripped markup produces", async () => {
+      // The guarantee that makes the strip safe rather than merely cheaper: the
+      // parser reads a closed set of attributes, so dropping the rest cannot
+      // change a single block.
+      const rich =
+        '<section data-sanitized-class="article-content" data-sanitized-style="color:red">' +
+        '<p data-sanitized-id="p1">Text <a href="https://example.com/a" rel="nofollow">link</a>.</p>' +
+        '<img src="yana-img://x" alt="A" width="800" srcset="a 1x">' +
+        "</section>";
+      const lean =
+        '<section data-sanitized-class="article-content">' +
+        '<p>Text <a href="https://example.com/a">link</a>.</p>' +
+        '<img src="yana-img://x">' +
+        "</section>";
+
+      expect(parseBlocks(lean, "https://example.com/a")).toEqual(
+        parseBlocks(rich, "https://example.com/a"),
+      );
     });
 
     it("still sends the markup when the body has to come back", async () => {

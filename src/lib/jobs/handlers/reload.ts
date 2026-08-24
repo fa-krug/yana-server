@@ -60,15 +60,7 @@ function buildErrorBlocks(message: string): Block[] {
  * to see. A translated title is written back too, since that is a field
  * `applyAiOptions()` can change.
  *
- * Two things distinguish this call from `aggregate.ts`'s equivalent one:
- *
- * `bypassUsageLimit: true` -- a reload is a single, deliberate action an
- * operator just asked for, not the unattended bulk processing the daily/
- * monthly AI request caps exist to bound; see the doc comment on
- * `AIClient.generateResponse()`. It is deliberately *not* threaded into
- * `enrichArticles()`/`finalizeArticles()` on the aggregation path, which can
- * process many articles in one run and is exactly the case those caps are
- * for.
+ * One thing distinguishes this call from `aggregate.ts`'s equivalent one:
  *
  * The fresh content is still written to the article even when AI processing
  * fails (translating/summarizing it is a bonus on top of a real refetch, not
@@ -155,13 +147,7 @@ export async function handleReloadJob(job: Job): Promise<void> {
     appendLogLine(job.id, "stdout", "extracted content is empty");
   }
 
-  const aiOutcome = await applyAiOptions(
-    rawArticle,
-    feed.options,
-    settings,
-    aggregator.onLog,
-    true, // bypassUsageLimit -- see the doc comment above.
-  );
+  const aiOutcome = await applyAiOptions(rawArticle, feed.options, settings, aggregator.onLog);
 
   const processed = await aggregator.processContent(rawArticle.content || "", rawArticle);
 

@@ -233,7 +233,7 @@ describe("POST /api/v1/ai/prompt", () => {
     vi.unstubAllGlobals();
   });
 
-  it("429s once the daily request limit is reached", async () => {
+  it("never 429s: repeated prompts all reach the provider", async () => {
     const token = await ownerToken();
     const owner = client
       .getDb()
@@ -248,14 +248,16 @@ describe("POST /api/v1/ai/prompt", () => {
           anthropicApiKey: "sk-ant-test",
           anthropicModel: "claude-haiku-4-5",
           activeAiProvider: "anthropic",
-          aiDefaultDailyLimit: 1,
         })
         .where(eq(schema.userSettings.userId, owner.id))
         .run();
     });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
+    // A fresh Response per call, not one shared instance: a body can only be
+    // read once, so `mockResolvedValue` with a single Response 502s from the
+    // second call onward. The old two-call test never noticed, because its
+    // second call was short-circuited by the cap and never read a body.
+    const fetchMock = vi.fn().mockImplementation(
+      async () =>
         new Response(
           JSON.stringify({
             id: "msg_1",
@@ -265,15 +267,19 @@ describe("POST /api/v1/ai/prompt", () => {
           }),
           { status: 200 },
         ),
-      ),
     );
+    vi.stubGlobal("fetch", fetchMock);
 
-    await promptRequest(token, { prompt: "first" });
-    const response = await promptRequest(token, { prompt: "second" });
+    // This used to assert a 429 with `daily_limit_exceeded` on the second call,
+    // against a daily cap of 1. The per-user request caps were removed, so this
+    // route has no 429 left to answer at all -- ten calls in a row is what
+    // proves it, since any cap small enough to matter would have fired.
+    for (let i = 0; i < 10; i++) {
+      const response = await promptRequest(token, { prompt: `p${i}` });
+      expect(response.status).toBe(200);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(10);
 
-    expect(response.status).toBe(429);
-    const body = await response.json();
-    expect(body.error.code).toBe("daily_limit_exceeded");
     vi.unstubAllGlobals();
   });
 });

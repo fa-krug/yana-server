@@ -39,7 +39,7 @@ behavior ever needs to be reconstructed.
 │   │       ├── account/page.tsx   # /account — profile, password, passkeys
 │   │       ├── integrations/page.tsx # /integrations — YouTube + Reddit credentials
 │   │       ├── ai/page.tsx        # /ai — the active AI provider, its credentials,
-│   │       │                      #   and the nine global tuning values
+│   │       │                      #   and the seven global tuning values
 │   │       ├── settings/page.tsx
 │   │       └── users/             # admin-only. page.tsx (list), new/, [id]/ (edit +
 │   │                              #   delete). The gate lives in the users
@@ -125,7 +125,7 @@ behavior ever needs to be reconstructed.
 │   │   │                          #   actions.ts (the two declarations + the exports),
 │   │   │                          #   result.ts (attempt() binding + SaveResult)
 │   │   ├── ai/                    # providers.ts (client-safe registry — imports
-│   │   │                          #   nothing), bounds.ts (the nine tuning bounds,
+│   │   │                          #   nothing), bounds.ts (the seven tuning bounds,
 │   │   │                          #   read by the form and the schema — likewise),
 │   │   │                          #   columns.ts (provider -> columns, and
 │   │   │                          #   resolveModel()'s hasDynamicModels split),
@@ -134,7 +134,7 @@ behavior ever needs to be reconstructed.
 │   │   │                          #   SERVER-ONLY by lint rule), queries.ts
 │   │   │                          #   (SERVER-ONLY, masked only), actions.ts (seven
 │   │   │                          #   defineIntegration() declarations, the active
-│   │   │                          #   provider, the nine tuning values,
+│   │   │                          #   provider, the seven tuning values,
 │   │   │                          #   listOpenrouterModels()), result.ts
 │   │   ├── users/                 # fields.ts (client-safe constants — imports only
 │   │   │                          #   auth/roles), queries.ts (SERVER-ONLY reads),
@@ -1886,49 +1886,53 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   stored value is still not trusted and still falls back to the default, the
   same as every other provider's unconfigured case.
 
-- **`aiDefaultDailyLimit`/`aiDefaultMonthlyLimit` went from decorative to
-  enforced, at one chokepoint.** Both settings have existed among the nine
-  tuning values (with bounds in `src/lib/ai/bounds.ts`) since phase 7, but
-  nothing read them until the same 2026-08-04 plan added a new table,
-  **`ai_requests`** (`src/lib/db/schema/ai.ts` — one row per attempted call,
-  `(userId, createdAt)` indexed), and **`checkAndRecordAiUsage()`**
-  (`src/lib/ai/usage.ts`). Neither `old/core/ai_client.py` nor yana-ios ever
-  enforced these limits — confirmed by reading both — so there was no oracle
-  to port from; this is new behaviour, not a port. It is called once, inside
-  **`AIClient.generateResponse()`** (`src/lib/ai/run.ts`), before any outbound
-  provider call — the same chokepoint `applyAiOptions()` (the background
-  AI-post-processing path, reached from `BaseAggregator.applyAiProcessing()`
-  on every aggregation run and from `src/lib/jobs/handlers/reload.ts`) already
-  runs through, so both callers inherit enforcement rather than needing their
-  own check. Three facts a caller cannot get right by guessing:
-  **usage is recorded for every attempted call, not only successful ones** —
-  the setting is documented as the most AI requests Yana makes, which is about
-  outbound calls, and counting only successes would let a provider outage or a
-  string of 500s bypass the limit entirely; **reset windows are calendar UTC
-  day/month**, not a rolling window, matching this repo's existing
-  `timeZone: "UTC"` convention, and `checkAndRecordAiUsage()` opportunistically
-  deletes a user's rows older than the start of the current UTC month on every
-  call (the daily window is a subset of the monthly one, so nothing needs a row
-  older than that, and no separate cleanup job exists); and the read-then-write
-  is **atomic under the caller's own `writeTransaction()`** (`BEGIN IMMEDIATE`),
-  the same ordering guarantee `setActiveProvider()` already relies on, so two
-  concurrent calls from the same user cannot both read "one under the limit"
-  and both proceed. `generateResponse()`'s return type changed from
-  `string | null` to `AiGenerationResult` —
-  `{ ok: true; text } | { ok: false; reason }`, `reason` one of `noProvider` /
-  `dailyLimitExceeded` / `monthlyLimitExceeded` / `providerUnauthorized` /
-  `providerError` — so a caller can tell a rate limit from a provider failure
-  instead of both collapsing to `null`. **`providerUnauthorized` is a fourth
-  reason, added with OpenRouter rather than by the 2026-08-04 plan**: it is
-  thrown as `ProviderUnauthorizedError` (`src/lib/ai/run.ts`) from
-  `requestWithRetry()` on a 401 or 403 from the provider — the credential
-  itself was rejected, not a transient failure — and caught in
+- **There is no per-user AI request cap, and its absence is a decision.** The
+  2026-08-04 plan added one — `aiDefaultDailyLimit`/`aiDefaultMonthlyLimit`
+  among the tuning values, an `ai_requests` table
+  (`src/lib/db/schema/ai.ts`), and `checkAndRecordAiUsage()`
+  (`src/lib/ai/usage.ts`) gating `AIClient.generateResponse()`. All of it was
+  **removed on the owner's explicit instruction**: with AI switched on it is
+  expected to run without a quota refusing it. Gone with it are both settings
+  and their two `bounds.ts` entries (nine tuning values → seven), the
+  `monthlyLimit >= dailyLimit` `.superRefine()` in `src/lib/ai/actions.ts`
+  (the only cross-field rule that schema ever had, and the reason
+  `advanced-section.tsx` submits the card as one unit — it still does, but now
+  only because the knobs are one group, not because the server needs the pair),
+  the `dailyLimitExceeded`/`monthlyLimitExceeded` arms of
+  `AiGenerationResult`, the `bypassUsageLimit` parameter that `reload.ts`
+  passed to opt a hand-triggered reload out of the caps, the
+  `daily_limit_exceeded`/`monthly_limit_exceeded` codes on
+  `POST /api/v1/ai/prompt` (which can no longer answer 429 at all), and seven
+  catalog keys per locale. Migration `0019_drop_ai_request_limits` drops the
+  table and the two columns — drops only, so `drizzle-kit generate` produced it
+  non-interactively, exactly as the split-migration rule above predicts.
+
+  **What replaced it is structural, not a ceiling, and that is the whole
+  point.** A cap only ever refused work already decided to be worth doing,
+  while the two real sources of waste were requests nobody wanted in the first
+  place: an article the feed already had (now skipped upstream by
+  `fingerprintArticles()` — see the `contentHash` bullet) and fields nothing
+  reads (now not asked for — see `wantsRewrite` below). Neither costs anything
+  when the work _is_ wanted, which a quota cannot say. **Do not reintroduce a
+  cap without that decision being revisited**; `run.test.ts`'s "no request cap
+  in front of a call" block is what fails if one appears, including a check
+  that `aiRequests` is absent from the schema barrel so nothing can quietly
+  start counting again.
+
+  `generateResponse()` still returns `AiGenerationResult` —
+  `{ ok: true; text } | { ok: false; reason }` — rather than the
+  `string | null` it began as, with `reason` now one of `noProvider` /
+  `providerUnauthorized` / `providerError`. **`providerUnauthorized` is the one
+  worth keeping straight**: thrown as `ProviderUnauthorizedError`
+  (`src/lib/ai/run.ts`) from `requestWithRetry()` on a 401 or 403 — the
+  credential itself was rejected, not a transient failure — and caught in
   `generateResponse()`'s own catch, distinctly from every other failure, which
   still collapses to the generic `providerError`. The distinction exists for
   the same reason `/ai`'s own probes separate `rejected` from `unreachable`/
   `unexpected`: "your key is wrong" and "something went wrong" want different
   advice, and a native client polling this reason can tell someone to fix
   their OpenRouter key rather than just retry.
+
 - **How much a provider is asked for depends on which options are on:
   `wantsRewrite` in `applyAiOptions()` (`src/lib/ai/run.ts`).** Only three
   options rewrite the body — `ai_improve_writing`, `ai_translate`, and a custom
@@ -1950,7 +1954,8 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
     had to cross the wire so a returned body could line up with it tag for tag;
     with nothing coming back there is nothing to line up, and on a scraped page
     the tags are a large share of the prompt. A request that _does_ rewrite the
-    body still gets the full `cleanHtml`.
+    body still gets `cleanHtml` — but see the next bullet for what that no
+    longer contains.
   - **A volunteered `title` or `content` is ignored on that path.** A model
     answering a question it was not asked is renaming an article nobody asked to
     have renamed; the missing-summary failure arm therefore leaves a
@@ -1958,15 +1963,46 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
     one still keeps the rewrite (that asymmetry is what the two
     `missingSummary` tests in `run.test.ts` pin).
 
-  **`aiMaxPromptLength` does _not_ bound any of this, and its name invites the
-  assumption that it does.** It is read in exactly one place —
-  `POST /api/v1/ai/prompt`, to refuse an over-long prompt from the native
-  client — while the article path sends whole scraped pages with no length
-  bound at all. Its default is `500`, which is a sane ceiling for a
-  hand-typed mobile prompt and would truncate essentially every article to a
-  fragment, so it must not simply be pointed at this path; a bound here needs
-  its own setting and its own default. `bounds.ts`'s own doc line ("Zero sends
-  an empty article") describes an intent that was never wired up.
+  **On the rewrite path, `cleanHtml` carries only the attributes
+  `parseBlocks()` actually reads** — `stripUnparsedAttributes()` in
+  `src/lib/ai/run.ts` drops the rest before the prompt is built. This is not
+  cosmetic tidying, because the extraction pipeline's
+  `sanitizeHtmlAttributes()` (`src/lib/aggregators/extract/clean.ts`)
+  **renames rather than removes**: `class` → `data-sanitized-class`, `style` →
+  `data-sanitized-style`, `id` → `data-sanitized-id`, every other `data-*` →
+  `data-sanitized-*`. So a scraped page reached the provider carrying every
+  class name, inline style, id, tracking attribute and lazy-loading hint it was
+  published with, each fifteen characters _longer_ than the original for the
+  added prefix — and the "preserve ALL HTML tags" paragraph then told the model
+  to reproduce all of it, so the same bytes were billed twice. Measured through
+  this repo's own sanitizer on real pages, the never-read share of the prompt
+  ran from ~7% on a plain article page to ~46% on a heavily-marked-up one.
+
+  Two things make the strip safe rather than merely cheaper, and both are worth
+  knowing before touching it:
+  - **`PARSED_ATTRS` is the parser's full set, not a guess** — gathered from
+    every `getAttr()` call site in `src/lib/aggregators/blocks/parser.ts` plus
+    its `CLASS_ATTRS`/`EMBED_MARKUP_ATTRS` lists. **A new `getAttr()` call over
+    there needs a new entry here**, or the value it wants is stripped before the
+    model sees it and the block it feeds comes back empty _for AI-processed
+    articles only_ — green in every test that does not run AI.
+  - **There is no `articles.content` column.** The model's markup only ever
+    becomes the block tree (plus `articles.rawContent`, for the aggregators that
+    fetch no full page), and the block tree is built from `PARSED_ATTRS` alone —
+    which `run.test.ts` pins by parsing a rich and a stripped document and
+    asserting the two block trees are equal.
+
+    **`aiMaxPromptLength` does _not_ bound any of this, and its name invites the
+    assumption that it does.** It is read in exactly one place —
+    `POST /api/v1/ai/prompt`, to refuse an over-long prompt from the native
+    client — while the article path sends whole scraped pages with no length
+    bound at all, and deliberately keeps none: the request caps were removed on
+    the owner's instruction (see the no-request-cap bullet above), and a length
+    cap is the same kind of ceiling, refusing work already decided to be worth
+    doing. Its default is `500`, which is a sane ceiling for a hand-typed mobile
+    prompt and would truncate essentially every article to a fragment, so it must
+    not simply be pointed at this path. `bounds.ts`'s own doc line ("Zero sends an
+    empty article") describes an intent that was never wired up.
 
 - **An AI-processed article's document has a fixed order: the lead-media
   `<header>` first, the summary second, the article after them — both optional,
@@ -2343,7 +2379,8 @@ credential store, `src/lib/secrets.ts`, and the live YouTube and Reddit probes
 whose verdict derives the `*Enabled` flags), phase 7 (the AI tab at `/ai` —
 `src/lib/ai/` and `src/components/ai/`: a client-safe provider registry, three
 live probes reusing phase 6's `defineIntegration()` descriptor, the
-`active_ai_provider` preference and the nine global tuning values), phases 8–10
+`active_ai_provider` preference and the then-nine global tuning values, now
+seven — see the no-request-cap bullet above), phases 8–10
 (the tags, feeds and articles CRUD tabs, built on phase 5's kit), phase 11
 (a–c: extraction core, embeds/media, and the per-site aggregators), phase 12
 (scheduling and the `jobs` table's in-process worker), phase 13 (the
@@ -2392,9 +2429,12 @@ forward from phase 5's review", where the CRUD kit's contracts are.
 design at
 `docs/superpowers/specs/2026-08-04-ai-provider-expansion-and-prompt-endpoint-design.md`)
 shipped the provider expansion to six (openai/anthropic/gemini/mistral/qwen/deepseek),
-the first real enforcement of the daily/monthly AI request limits, and the new
-`POST /api/v1/ai/prompt` mobile endpoint — see the `/ai` bullets above for what
-changed and why. **OpenRouter was added on a later, separate branch**, taking
+the first real enforcement of the daily/monthly AI request limits (**since
+removed in full** — that plan's `ai_requests` table, its
+`checkAndRecordAiUsage()` gate and both settings are gone; see the
+no-request-cap bullet above, and read that plan's limit sections as history),
+and the new `POST /api/v1/ai/prompt` mobile endpoint — see the `/ai` bullets
+above for what changed and why. **OpenRouter was added on a later, separate branch**, taking
 the total to seven: a seventh `defineIntegration()` declaration, the
 `hasDynamicModels`/live-catalog machinery, and `ProviderUnauthorizedError` /
 `providerUnauthorized` / `provider_unauthorized` threaded from `run.ts` through

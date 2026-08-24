@@ -14,14 +14,18 @@ import type { AiAdvanced, AiStatus } from "@/lib/ai/queries";
 import { attempt } from "@/lib/ai/result";
 
 /**
- * The nine global tuning values, saved as one unit.
+ * The seven global tuning values, saved as one unit.
  *
- * **One Save for the whole card, not one per field, because the values are
- * interdependent.** `monthlyLimit >= dailyLimit` is a rule about a *pair*, so a
- * field that saved itself could never state it: lowering the monthly cap first
- * would be refused against a daily cap the operator is about to lower too. The
- * server checks the pair in one `.superRefine()` (`@/lib/ai/actions`) and this
- * card submits the pair.
+ * **One Save for the whole card, not one per field.** The original reason was a
+ * cross-field rule -- `monthlyLimit >= dailyLimit`, which a field saving itself
+ * could never state, since lowering the monthly cap first would be refused
+ * against a daily cap the operator was about to lower too. That rule and both
+ * request caps are gone (see `@/lib/ai/bounds`), so every remaining bound is a
+ * property of a single field and nothing here *requires* one submission any
+ * more. It stays one because the card is one group of related knobs an operator
+ * tunes together, not because the server could not accept them separately --
+ * worth knowing before adding a per-field save on the strength of the old
+ * comment.
  *
  * **`min`/`max` on the inputs are a convenience, never the check.** They are the
  * same bounds the server enforces, spelled out here so a browser can catch a
@@ -46,7 +50,7 @@ import { attempt } from "@/lib/ai/result";
  * `@/components/settings/library-section.tsx` establishes. Unlike the provider
  * card, this needs no separate pending branch: `min`/`max`/`step` come from
  * `AI_ADVANCED_BOUNDS`, which is dependency-free and needs no query, so every
- * one of the nine inputs already renders with its real bounds regardless of
+ * one of the inputs already renders with its real bounds regardless of
  * `advanced` -- only the *value* differs, an empty draft rather than one seeded
  * from a loaded row, and `disabled` follows `pending` the same way it follows
  * `saving`.
@@ -108,7 +112,7 @@ export function AdvancedSectionForm({
       ) as AiAdvanced;
       // Through `attempt()`, never a bare await: an action can fail without
       // returning, and the rejection would escalate to the (app) error boundary
-      // and replace the page along with the nine half-edited fields.
+      // and replace the page along with the half-edited fields.
       const result = await attempt(() => saveAdvanced(values));
       if (result.ok) {
         toast.success(t("advanced.saved"));
@@ -194,7 +198,7 @@ function AdvancedSectionShell({
       </CardHeader>
       <CardContent>
         <form onSubmit={onSubmit} className="space-y-4">
-          {/* One column on a phone, two from `sm:` -- nine labelled numbers in
+          {/* One column on a phone, two from `sm:` -- labelled numbers in
               one column is a long scroll, and two columns of a 100000-wide
               number do not fit a narrow viewport. */}
           <div className="grid gap-4 sm:grid-cols-2">
@@ -223,7 +227,7 @@ function AdvancedSectionResolved({ promise }: { promise: Promise<AiStatus> }) {
  * What the page renders. The fallback is the real form, in its pending
  * state -- see the Design Reference in
  * docs/superpowers/plans/2026-08-16-streaming-controls-migration.md -- so the
- * heading, every label, help text and all nine inputs (with their real bounds
+ * heading, every label, help text and every input (with its real bounds
  * already set) are on screen, disabled, from the first frame and only the
  * stored values stream in afterward.
  *
