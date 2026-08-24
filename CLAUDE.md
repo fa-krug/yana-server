@@ -39,7 +39,7 @@ behavior ever needs to be reconstructed.
 │   │       ├── account/page.tsx   # /account — profile, password, passkeys
 │   │       ├── integrations/page.tsx # /integrations — YouTube + Reddit credentials
 │   │       ├── ai/page.tsx        # /ai — the active AI provider, its credentials,
-│   │       │                      #   and the nine global tuning values
+│   │       │                      #   and the six global tuning values
 │   │       ├── settings/page.tsx
 │   │       └── users/             # admin-only. page.tsx (list), new/, [id]/ (edit +
 │   │                              #   delete). The gate lives in the users
@@ -59,7 +59,7 @@ behavior ever needs to be reconstructed.
 │   │   │                           #   binding of ../section-kit.tsx
 │   │   ├── ai/                     # provider-section.tsx (the picker + one
 │   │   │                           #   provider's credentials), advanced-section.tsx
-│   │   │                           #   (the nine numbers, saved as one unit) and
+│   │   │                           #   (the six numbers, saved as one unit) and
 │   │   │                           #   section-parts.tsx — the `ai` binding of
 │   │   │                           #   ../section-kit.tsx
 │   │   ├── users/                  # the kit, wired to users: users-table.tsx,
@@ -125,7 +125,7 @@ behavior ever needs to be reconstructed.
 │   │   │                          #   actions.ts (the two declarations + the exports),
 │   │   │                          #   result.ts (attempt() binding + SaveResult)
 │   │   ├── ai/                    # providers.ts (client-safe registry — imports
-│   │   │                          #   nothing), bounds.ts (the nine tuning bounds,
+│   │   │                          #   nothing), bounds.ts (the six tuning bounds,
 │   │   │                          #   read by the form and the schema — likewise),
 │   │   │                          #   columns.ts (provider -> columns, and
 │   │   │                          #   resolveModel()'s hasDynamicModels split),
@@ -134,8 +134,13 @@ behavior ever needs to be reconstructed.
 │   │   │                          #   SERVER-ONLY by lint rule), queries.ts
 │   │   │                          #   (SERVER-ONLY, masked only), actions.ts (seven
 │   │   │                          #   defineIntegration() declarations, the active
-│   │   │                          #   provider, the nine tuning values,
-│   │   │                          #   listOpenrouterModels()), result.ts
+│   │   │                          #   provider, the six tuning values,
+│   │   │                          #   listOpenrouterModels()), result.ts,
+│   │   │                          #   run.ts (AIClient + applyAiToBlocks: the AI
+│   │   │                          #   stage, which works on the block tree),
+│   │   │                          #   block-text.ts (the blocks <-> prose codec
+│   │   │                          #   that stage sends; URLs and non-prose
+│   │   │                          #   blocks cross as opaque indices)
 │   │   ├── users/                 # fields.ts (client-safe constants — imports only
 │   │   │                          #   auth/roles), queries.ts (SERVER-ONLY reads),
 │   │   │                          #   actions.ts (writes), result.ts (attempt() binding)
@@ -958,6 +963,37 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   aggregation cycle. A `null` hash means "changed" — every row predating the
   column settles after one pass, and no backfill exists.
 
+  **The fingerprint is computed from the article _as fetched_, and the ordering
+  that makes that true is load-bearing.** `rawArticleContentHash()` (same
+  module) is the one derivation, called by `handleAggregateJob()` before it
+  touches the row — and **AI post-processing runs below that check**, so nothing
+  in the value can depend on model output. It did once: the AI stage rewrote
+  `raw.name`/`raw.content` **in place** inside the aggregator pipeline, upstream
+  of the handler, so for any feed with an AI option enabled the fingerprint was
+  a hash of a non-deterministic answer — a different string on every run at the
+  default `ai_temperature` of 0.3. Everything this hash exists to prevent was
+  therefore happening every cycle for exactly those feeds: full rewrite, block
+  tree deleted and reinserted, `updatedAt` bumped, article back in `/api/v1`'s
+  sync `updated` stream. And the far larger cost, because the skip sat
+  downstream of the provider request it should have prevented: every article
+  sent to the provider again on every run, for a result discarded moments later.
+
+  **A change that moves AI back above this call re-breaks both at once.** That
+  is one of the two reasons the AI stage lives in the job handlers rather than
+  in `finalizeArticles()`; the other is independent and structural — blocks only
+  exist once `parseBlocks()` has run, and AI works on blocks now (see the
+  `applyAiToBlocks()` bullet below). `handlers.test.ts`'s "calls AI for a new
+  article and never again while it stays unchanged" and "calls AI again once the
+  source article really changes" are the pair that fails if either half slips.
+
+  **The hash still does not cover `finalizeArticles()`'s own stages** — the
+  `processContent()` step the YouTube and Reddit aggregators run. Same trap
+  already stated below for `parseBlocks`/`plainTextOf`, widened: a change there
+  will not re-derive existing articles. Those stages are deterministic functions
+  of the fetched article, which is what makes fingerprinting the input sound.
+  Hashes for YouTube and Reddit articles therefore changed once on deploy and
+  settled after one pass, the same settlement a `null` hash gets.
+
   **The invariant binds every writer, not just the aggregator: anything that
   changes an article's content must set `contentHash` to null** (or recompute
   it). A stale hash does not merely go out of date — it makes the aggregate
@@ -975,6 +1011,41 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   re-parsed, where they used to be re-derived every cycle. The full statement is
   the `contentHash` comment in `src/lib/db/schema/articles.ts`; this is its
   summary, not a second version of it.
+
+  **That trap has already been paid once, and knowing how is the point.** The
+  `inlineContext()` fix in `parseBlocks()` (see the bullet below) corrected
+  styling and hrefs that were being dropped, but it does **not** re-derive an
+  article already stored: its fingerprint still matches, so the skip fires and
+  the old, lossy block tree stays. Articles fixed themselves only as their
+  source changed. Nulling every `contentHash` to force a re-parse was considered
+  and rejected: it would put every article back through the full write path
+  _and_ through a fresh provider request, which is the exact cost the rest of
+  this branch exists to remove. A parser fix that has to reach stored rows needs
+  a re-parse path that reads `articles.rawContent` and rewrites blocks **without**
+  calling AI; there is no such job today.
+
+- **`convert()` must hand `inlineRuns()` an element's own inline context —
+  `inlineContext()` in `src/lib/aggregators/blocks/parser.ts`.** `inlineRuns()`
+  reads a tag only while descending _into_ it, so an inline element that is a
+  **direct child** of a converted container needs its own tag applied before the
+  descent. `convert()` did not do that: its `INLINE_TAGS` branch called
+  `inlineRuns($, node, baseUrl)` with no styles and no link, and the element's
+  own `<b>`/`<i>`/`<a href>` contributed nothing.
+
+  It looked fine because the case everyone tests worked: `<p>a <b>x</b></p>`
+  keeps its styling, since the `p` branch hands the _paragraph_ to
+  `inlineRuns()` and the `b` is therefore a child. Every other container lost
+  it — `<li>`, a bare `<blockquote>`, any `<div>` whose text is not wrapped in a
+  `<p>`. And the styling was the mild half: **a link in that position lost its
+  href entirely**, so every bulleted list of links in every article stored plain
+  text with no URL. Measured, not theorised — the same markup in a `<p>` and in
+  an `<li>` gave one link and none.
+
+  So **a new container branch in `convert()` has to pass `inlineContext()`'s
+  result**, not call `inlineRuns()` bare. `parser.test.ts`'s "inline styling and
+  links survive as a direct child of any container" block covers a list item, an
+  ordered list item, a bare blockquote, a bare div and a paragraph together,
+  precisely because passing for one container proved nothing about the others.
 
 - **Article search goes through the `articles_fts` FTS5 external-content table,
   via `toFtsQuery()`** (`src/lib/articles/search-query.ts`). It replaced a
@@ -1846,91 +1917,233 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   stored value is still not trusted and still falls back to the default, the
   same as every other provider's unconfigured case.
 
-- **`aiDefaultDailyLimit`/`aiDefaultMonthlyLimit` went from decorative to
-  enforced, at one chokepoint.** Both settings have existed among the nine
-  tuning values (with bounds in `src/lib/ai/bounds.ts`) since phase 7, but
-  nothing read them until the same 2026-08-04 plan added a new table,
-  **`ai_requests`** (`src/lib/db/schema/ai.ts` — one row per attempted call,
-  `(userId, createdAt)` indexed), and **`checkAndRecordAiUsage()`**
-  (`src/lib/ai/usage.ts`). Neither `old/core/ai_client.py` nor yana-ios ever
-  enforced these limits — confirmed by reading both — so there was no oracle
-  to port from; this is new behaviour, not a port. It is called once, inside
-  **`AIClient.generateResponse()`** (`src/lib/ai/run.ts`), before any outbound
-  provider call — the same chokepoint `applyAiOptions()` (the background
-  AI-post-processing path, reached from `BaseAggregator.applyAiProcessing()`
-  on every aggregation run and from `src/lib/jobs/handlers/reload.ts`) already
-  runs through, so both callers inherit enforcement rather than needing their
-  own check. Three facts a caller cannot get right by guessing:
-  **usage is recorded for every attempted call, not only successful ones** —
-  the setting is documented as the most AI requests Yana makes, which is about
-  outbound calls, and counting only successes would let a provider outage or a
-  string of 500s bypass the limit entirely; **reset windows are calendar UTC
-  day/month**, not a rolling window, matching this repo's existing
-  `timeZone: "UTC"` convention, and `checkAndRecordAiUsage()` opportunistically
-  deletes a user's rows older than the start of the current UTC month on every
-  call (the daily window is a subset of the monthly one, so nothing needs a row
-  older than that, and no separate cleanup job exists); and the read-then-write
-  is **atomic under the caller's own `writeTransaction()`** (`BEGIN IMMEDIATE`),
-  the same ordering guarantee `setActiveProvider()` already relies on, so two
-  concurrent calls from the same user cannot both read "one under the limit"
-  and both proceed. `generateResponse()`'s return type changed from
-  `string | null` to `AiGenerationResult` —
-  `{ ok: true; text } | { ok: false; reason }`, `reason` one of `noProvider` /
-  `dailyLimitExceeded` / `monthlyLimitExceeded` / `providerUnauthorized` /
-  `providerError` — so a caller can tell a rate limit from a provider failure
-  instead of both collapsing to `null`. **`providerUnauthorized` is a fourth
-  reason, added with OpenRouter rather than by the 2026-08-04 plan**: it is
-  thrown as `ProviderUnauthorizedError` (`src/lib/ai/run.ts`) from
-  `requestWithRetry()` on a 401 or 403 from the provider — the credential
-  itself was rejected, not a transient failure — and caught in
+- **There is no per-user AI request cap and no output-token cap, and the
+  absence of both is a decision.** The
+  2026-08-04 plan added one — `aiDefaultDailyLimit`/`aiDefaultMonthlyLimit`
+  among the tuning values, an `ai_requests` table
+  (`src/lib/db/schema/ai.ts`), and `checkAndRecordAiUsage()`
+  (`src/lib/ai/usage.ts`) gating `AIClient.generateResponse()`. All of it was
+  **removed on the owner's explicit instruction**: with AI switched on it is
+  expected to run without a quota refusing it. Gone with it are both settings
+  and their two `bounds.ts` entries, the
+  `monthlyLimit >= dailyLimit` `.superRefine()` in `src/lib/ai/actions.ts`
+  (the only cross-field rule that schema ever had, and the reason
+  `advanced-section.tsx` submits the card as one unit — it still does, but now
+  only because the knobs are one group, not because the server needs the pair),
+  the `dailyLimitExceeded`/`monthlyLimitExceeded` arms of
+  `AiGenerationResult`, the `bypassUsageLimit` parameter that `reload.ts`
+  passed to opt a hand-triggered reload out of the caps, the
+  `daily_limit_exceeded`/`monthly_limit_exceeded` codes on
+  `POST /api/v1/ai/prompt` (which can no longer answer 429 at all), and seven
+  catalog keys per locale. Migration `0019_drop_ai_request_limits` drops the
+  table and the two columns — drops only, so `drizzle-kit generate` produced it
+  non-interactively, exactly as the split-migration rule above predicts.
+
+  **`aiMaxTokens` went the same way, on the same instruction, and it was the
+  more damaging of the two.** `0020_drop_ai_max_tokens` drops the column; the
+  `maxTokens` bound, the `advanced.maxTokens*` catalog keys and the field's
+  place in `AI_ADVANCED_FIELDS` went with it, taking the tuning values from
+  seven to **six**. A request cap only ever refused work; this one _corrupted_
+  it. Its default of 2000 was below what a rewritten article needs, so a longer
+  one came back truncated mid-JSON, failed to parse, and spent the whole paid
+  request on an `invalidJson` failure — and no correct value exists to set it
+  to, because it is the length of an answer nobody has seen yet. So
+  `src/lib/ai/run.ts` now sends **no output cap at all**: no `max_tokens` on any
+  OpenAI-compatible provider, no `maxOutputTokens` on Gemini. The one exception
+  is Anthropic, whose Messages API declares `max_tokens` **required** — that
+  branch sends the `ANTHROPIC_MAX_TOKENS` constant (16000, chosen well above any
+  article this stage sends and below what a non-streaming request can return
+  before the API's own timeout), which is a safety limit rather than a
+  truncation point. `run.test.ts`'s per-provider sweep asserts the absence on
+  every other provider, so a reintroduced cap fails a test rather than only
+  failing on a long article. **The probes are unaffected and must stay that
+  way**: every `max_tokens: 1` in `src/lib/ai/*.ts` and
+  `src/lib/integrations/probe.ts` is a deliberate one-token credential check,
+  not a user-facing ceiling.
+
+  **What replaced it is structural, not a ceiling, and that is the whole
+  point.** A cap only ever refused work already decided to be worth doing,
+  while the two real sources of waste were requests nobody wanted in the first
+  place: an article the feed already had (now skipped by the handler's
+  `contentHash` check, which AI runs below — see the `contentHash` bullet) and
+  fields nothing
+  reads (now not asked for — see `wantsRewrite` below). Neither costs anything
+  when the work _is_ wanted, which a quota cannot say. **Do not reintroduce a
+  cap without that decision being revisited**; `run.test.ts`'s "no request cap
+  in front of a call" block is what fails if one appears, including a check
+  that `aiRequests` is absent from the schema barrel so nothing can quietly
+  start counting again. That block is also why that file needs no database
+  fixture: with the counter gone `run.ts` reaches no database at all, so the
+  temp-database-plus-`vi.resetModules()` shape it used to carry — fifteen cold
+  dynamic imports for a dependency the module no longer has — was removed and
+  the import is static.
+
+  `generateResponse()` still returns `AiGenerationResult` —
+  `{ ok: true; text } | { ok: false; reason }` — rather than the
+  `string | null` it began as, with `reason` now one of `noProvider` /
+  `providerUnauthorized` / `providerError`. **`providerUnauthorized` is the one
+  worth keeping straight**: thrown as `ProviderUnauthorizedError`
+  (`src/lib/ai/run.ts`) from `requestWithRetry()` on a 401 or 403 — the
+  credential itself was rejected, not a transient failure — and caught in
   `generateResponse()`'s own catch, distinctly from every other failure, which
   still collapses to the generic `providerError`. The distinction exists for
   the same reason `/ai`'s own probes separate `rejected` from `unreachable`/
   `unexpected`: "your key is wrong" and "something went wrong" want different
   advice, and a native client polling this reason can tell someone to fix
   their OpenRouter key rather than just retry.
-- **An AI-processed article's document has a fixed order: the lead-media
-  `<header>` first, the summary second, the article after them — both optional,
-  neither allowed anywhere else.** `applyAiOptions()` (`src/lib/ai/run.ts`) is
-  what holds that, and each half was a real defect before it did:
-  - **The header is detached, not merely stripped.** The model must not see the
-    media markup (it rewrites, translates or drops it), so the strip itself is
-    right — but the model's answer _replaces the whole document_, so a header
-    that is only removed is a header that is **gone**. It was: any feed with
-    `ai_summarize`/`ai_improve_writing`/`ai_translate`/`ai_custom_prompt` on
-    lost its lead image from `articles.content` and from the block tree
-    `aggregate.ts` parses out of it — taking the client's lead image and
-    timeline thumbnail with it, because `ArticleBlockView.leadImageRef` hoists
-    the first block only when it is an image. `takeLeadHeaderHtml()` now sets it
-    aside and the success path puts it back at the front. Only a **leading**
-    `<header>` is kept: one further down the body is chrome (byline, date, site
-    logo), which `headerBlocks()` in `blocks/parser.ts` already strips of its
-    images. The reload path is where the asymmetry showed: `reload.ts` calls
-    `applyAiOptions()` _before_ `processContent()`, which rebuilds the header
+
+- **`plainTextOf()` lives in `src/lib/aggregators/blocks/plain-text.ts`, not in
+  `parser.ts`** — and `parser.ts` re-exports it, so the callers that already have
+  cheerio in their graph keep one import. It is a pure walk over the block tree
+  and touches no HTML, but from inside `parser.ts` its module-level
+  `import * as cheerio` reached every importer: `src/lib/ai/run.ts` is one (for
+  the plain-text prompt a summarize-only request sends), so
+  `POST /api/v1/ai/prompt` was pulling the whole HTML parser into its graph for a
+  function that never uses it. Nothing reachable from `run.ts` imports cheerio
+  now. A future block-tree helper that needs no HTML belongs beside it rather
+  than in `parser.ts`, for the same reason.
+- **The AI stage works on the block tree, not HTML: `applyAiToBlocks()` in
+  `src/lib/ai/run.ts`, with the codec in `src/lib/ai/block-text.ts`.** The block
+  tree is what gets stored — there is no `articles.content` column — so HTML was
+  only ever transport, and expensive transport: every tag, every
+  `data-sanitized-*` attribute and every URL was billed on the way in and, since
+  the prompt demanded the document back verbatim, again on the way out. Measured
+  on real pages the block notation is **12–19% the size of the HTML it
+  replaces**, in and out.
+
+  **Where it runs is not a free choice.** `parseBlocks()` is a one-way
+  HTML → blocks conversion with **no inverse**, so the stage has to sit
+  downstream of it — which means the job handlers (`aggregate.ts`,
+  `reload.ts`), not `BaseAggregator.finalizeArticles()`. Putting it back in the
+  pipeline would mean inventing a blocks → HTML serializer for the handler to
+  re-parse, _and_ would move AI above the `contentHash` check again (see that
+  bullet for what that broke). Two consequences already banked: the aggregator
+  no longer receives the owner's `userSettings` at all — `aggregate()` dropped
+  the parameter, since AI was its only consumer, and an aggregator has no
+  business holding a user's AI credentials — and both call paths finally run the
+  same order (extract, process, parse, then AI).
+
+  **What the model can do:** merge, split and reorder blocks freely. The answer
+  is read on its own terms rather than checked against the shape that went out,
+  which is what makes "improve clarity and flow" an honest instruction; the HTML
+  form forbade restructuring in the prompt ("the exact same structure as the
+  input") and had no way to enforce it.
+
+  **What it cannot even see, and therefore cannot break:**
+  - **Every URL.** A link is `[label](L3)`, an index into a side table. It cannot
+    corrupt an href, add a tracking parameter or translate one — and URLs are a
+    large share of the bytes on a link-dense page.
+  - **Every non-prose block.** Images, embeds, code blocks and dividers are
+    `[[M7]]` placeholders. Movable, never editable, so a `yana-img://` ref, an
+    embed provider or a line of code cannot come back altered. Code is not sent
+    at all, which is both cheaper and the only correct answer for a translation.
+  - An image's **caption** does ride along after its placeholder, because that
+    is prose a rewrite should reach. An embed's `title` does not: it is the
+    provider's own title for someone else's video.
+
+  **The lead media stays the lead media.** Restructuring is prose freedom, not
+  licence to move the article's thumbnail: clients hoist block 0 when it is an
+  image (`ArticleBlockView.leadImageRef`), so a relocated or dropped lead image
+  silently changes what a timeline shows. If the input led with one, the output
+  does too — which also replaced the old `takeLeadHeaderHtml()` detach-and-restore
+  dance, needed only because the model used to be able to rewrite media markup.
+
+  **Three properties of the codec are what let the stage trust an answer it did
+  not build**, all pinned in `block-text.test.ts`:
+  - **`textToBlocks(blocksToText(b))` is `canonicalBlocks(b)`.** That exported
+    normal form _is_ the specification, not a tidy-up: the notation is
+    line-oriented and cannot carry a newline **inside** a paragraph, and
+    `parseBlocks()` does emit those (HTML source line breaks, and its own table
+    flattening). Serialized raw, such a run came back as two paragraphs — found
+    by running the round trip over live pages, where a 7-block article read back
+    as 9. `canonicalBlocks()` collapses whitespace (except inside a `code` run,
+    where it is content), merges adjacent identically-styled runs and trims
+    paragraph edges, and is idempotent.
+  - **The parser is total.** An unrecognised sequence stays literal text rather
+    than throwing, so a mangled answer degrades to plain prose instead of
+    failing the article — and a truncated one cannot produce "unparseable
+    markup" at all, which was a real failure arm of the HTML form.
+  - **Inline styles are tags (`<b>`, `<i>`, `<s>`, `<code>`), not Markdown
+    emphasis.** Two adjacent styled runs serialize to `**bold***italic*` — five
+    asterisks no reader can split the same way twice — and prose is full of
+    asterisks and tildes that would each need escaping. Tags cannot run together
+    ambiguously, carry no attributes, and a model handles them more reliably
+    than any notation invented here. Only `\`, `<`, `[` and `]` are escaped.
+
+  **How much is asked for still depends on which options are on
+  (`wantsRewrite`).** Only `ai_improve_writing`, `ai_translate` and a custom
+  instruction (free-form, so assumed to) rewrite the body. `ai_summarize` alone
+  sends **plain text** and asks for `summary` alone — no notation spec, no
+  document coming back. The echo it replaced was the single most expensive thing
+  this stage did: the model was told to reproduce the whole document, so a
+  summarize-only article was billed for roughly as many **output** tokens as
+  input ones to hand back a string this process already held. It was also what
+  made `aiMaxTokens` (default 2000) a live hazard rather than a cap — a longer
+  article came back truncated, the JSON failed to parse, and the whole request
+  was spent on an `invalidJson` failure. That setting is gone entirely now (see
+  the no-cap bullet above); this is the failure that made removing it the fix
+  rather than raising it. A volunteered `title` or `document` is
+  ignored on that path, so the missing-summary arm leaves a summarize-only
+  article completely untouched while a summarize-plus-rewrite one keeps the
+  rewrite.
+
+  **A dropped placeholder is reported, not swallowed.** `textToBlocks()` returns
+  `droppedOpaque`, and the stage logs it to the triggering job's own output:
+  silently losing an article's image looks exactly like an article that never
+  had one.
+
+  **Superseded by this, and gone:** `stripUnparsedAttributes()`/`PARSED_ATTRS`
+  (the attribute strip that made the HTML prompt cheaper — moot once no HTML is
+  sent), `takeLeadHeaderHtml()`, `summarySectionHtml()` and the
+  `yana-ai-summary` marker class on the _write_ side. `parseBlocks()` still
+  recognises that class, because it is how the aggregation path's stored HTML
+  used to encode a summary; the stage now builds a `summary` block directly.
+
+- **An AI-processed article's document has a fixed order: the lead media first,
+  the summary second, the article after them — both optional, neither allowed
+  anywhere else.** `applyAiToBlocks()` (`src/lib/ai/run.ts`) holds it, and each
+  half was a real defect before something held it:
+  - **The lead media survives.** It used to be an HTML `<header>` that the
+    prompt-building code had to _detach and restore_, because the model's answer
+    replaced the whole document and a header merely stripped was a header gone —
+    which it was: any feed with an AI option on lost its lead image from the
+    stored block tree, taking the client's lead image and timeline thumbnail
+    with it (`ArticleBlockView.leadImageRef` hoists the first block only when it
+    is an image). None of that machinery is needed now: media are opaque
+    `[[M<n>]]` placeholders the model cannot edit, so the only remaining rule is
+    positional — if the input led with an image or embed, `applyAiToBlocks()`
+    puts that same block back at index 0, whether the model moved it or dropped
+    it. That also retired the reload-path asymmetry the old mechanism had
+    (`reload.ts` ran AI _before_ `processContent()`, which rebuilt the header
     afterwards, so a reloaded article kept its header while an aggregated one
-    did not — same content, two orders, two outcomes.
-  - **The summary is its own field and its own element; it does not replace the
-    article.** `ai_summarize` used to ask for a summary in `content`, which both
-    destroyed the body and contradicted the prompt's own closing paragraph
+    did not — same content, two orders, two outcomes). Both paths now run
+    extract → process → parse → AI.
+  - **The summary is its own field and its own block; it does not replace the
+    article.** `ai_summarize` once asked for the summary _in_ `content`, which
+    both destroyed the body and contradicted the prompt's own closing paragraph
     ("the exact same structure as the input") — the model was told to summarize
-    and to preserve, in one request. The response contract is now
-    `{title, content, summary}` (the `summary` key, its prompt sentence and its
-    slot in Gemini's `responseSchema` all appear **only** when summarization was
-    asked for), and `summarySectionHtml()` wraps the returned prose in
-    `<section data-sanitized-class="yana-ai-summary">`. `data-sanitized-class`
-    rather than `class` matches `formatArticleContent()`'s own
-    `article-content`/`article-comments`, and survives the reload path's later
-    `sanitizeClassNames()` — but the **name** deliberately breaks that pair's
-    `article-*` convention, because unlike those two wrappers this marker
-    _decides a block kind_ and the parser cannot tell it from a scraped page's
-    own markup: `article-summary` is an ordinary CSS class in the wild, so a
-    site using it would have its teaser served to clients as this article's AI
-    summary. The prose is **escaped**: it is model output on its
-    way into stored HTML, and asking for plain text is not the same as getting
-    it. A requested summary that does not come back is
-    `{ status: "failed", reason: "missingSummary" }` — everything that _did_
-    come back is still applied — because a silent no-summary is
+    and to preserve, in one request. It is a separate `summary` key now, present
+    in the prompt and in Gemini's `responseSchema` **only** when summarization
+    was asked for, and the stage builds a `summary` **block** directly rather
+    than emitting a `<section data-sanitized-class="yana-ai-summary">` marker for
+    `parseBlocks()` to recognise. (The parser still recognises that class — it is
+    how stored HTML from before this encoded a summary — so removing it from the
+    parser would strand those articles.) A requested summary that does not come
+    back is `{ status: "failed", reason: "missingSummary" }`, with a rewrite that
+    _did_ come back still applied, because a silent no-summary is
     indistinguishable from AI never having run.
+
+  **`aiMaxPromptLength` bounds none of this, and its name invites the assumption
+  that it does.** It is read in exactly one place — `POST /api/v1/ai/prompt`, to
+  refuse an over-long prompt from the native client — while the article path
+  sends whole articles with no length bound, and deliberately keeps none: the
+  request caps were removed on the owner's instruction (see the no-request-cap
+  bullet above), and a length cap is the same kind of ceiling, refusing work
+  already decided to be worth doing. Its default is `500`, a sane ceiling for a
+  hand-typed mobile prompt and one that would truncate essentially every article
+  to a fragment, so it must not simply be pointed at this path. `bounds.ts`'s own
+  doc line ("Zero sends an empty article") describes an intent that was never
+  wired up.
 
   **The summary has a block kind of its own; the header does not, and that
   asymmetry is deliberate.** `summary` is the tenth entry in `BLOCK_KINDS` —
@@ -1948,8 +2161,11 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   is still positional, because it has no kind: it reaches a client as an ordinary
   `image` or `embed` block that happens to be first, exactly as a lead image
   always has. So block 0 is the lead media, block 1 the summary — each shifting
-  up when the one before it is absent — and `run.test.ts` pins the finished
-  document _and_ pins it again through `parseBlocks()`.
+  up when the one before it is absent — and `run.test.ts`'s "the summary" and
+  "the lead media" blocks pin the finished document position by position. There
+  is no second pass through `parseBlocks()` to pin any more: the stage is handed
+  a tree and returns a tree, so the parser is upstream of it rather than on
+  both sides.
 
   **Adding the kind was additive on the wire and `FORMAT_VERSION` stays 1.**
   The format's own extensibility rule is that an unknown block type is skipped,
@@ -1960,14 +2176,15 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   so until that client learns the kind, an AI summary is invisible there rather
   than shown as prose — the price of the dedicated element, paid once.
 
-  **The two call paths nest differently and only the block tree is common to
-  them**, which is the other reason the header's rule is positional. On aggregation the
-  three are siblings, because the header already existed when AI ran; on reload
-  `processContent()` runs _afterwards_ and wraps the AI's output — summary
-  included — inside `article-content`, prepending the header outside it. Same
-  block tree either way, so a consumer must read position, never the nesting;
-  `run.test.ts` runs the reload shape through `formatArticleContent()` and
-  `parseBlocks()` for exactly that reason.
+  **The two call paths used to nest differently; they no longer do.** When AI
+  worked on HTML, aggregation produced three siblings (the header already existed
+  when AI ran) while reload's `processContent()` ran _afterwards_ and wrapped the
+  AI's output — summary included — inside `article-content` with the header
+  outside it. Same block tree, two nestings, which is why a consumer had to read
+  position and never nesting. Both paths now run extract → process → parse → AI,
+  so the AI stage is handed one already-parsed tree in both, and the positional
+  rule holds because `applyAiToBlocks()` enforces it rather than because the two
+  shapes happened to agree.
 
 - **`POST /api/v1/ai/prompt`** (`src/app/api/v1/ai/prompt/route.ts`) is the
   native client's server-mediated "ask AI" call, added by the same plan: a
@@ -1980,8 +2197,8 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   `src/lib/jobs/handlers/retention.ts` reads a settings row directly outside a
   session context. Its failure modes are machine-readable `ApiError` codes
   (`invalid_prompt`, `prompt_too_long`, `no_active_provider`,
-  `daily_limit_exceeded`, `monthly_limit_exceeded`, `provider_unauthorized`,
-  `provider_error`) for the native client to branch on — never provider prose,
+  `provider_unauthorized`, `provider_error` — the two `*_limit_exceeded` codes
+  went with the request caps, so this route can no longer answer 429 at all) for the native client to branch on — never provider prose,
   per this API's existing no-echo convention. `provider_unauthorized` (502) is
   the `providerUnauthorized` reason above, given its own code rather than
   falling into the generic `provider_error` (502) — both answer 502 because
@@ -2264,7 +2481,8 @@ credential store, `src/lib/secrets.ts`, and the live YouTube and Reddit probes
 whose verdict derives the `*Enabled` flags), phase 7 (the AI tab at `/ai` —
 `src/lib/ai/` and `src/components/ai/`: a client-safe provider registry, three
 live probes reusing phase 6's `defineIntegration()` descriptor, the
-`active_ai_provider` preference and the nine global tuning values), phases 8–10
+`active_ai_provider` preference and the then-nine global tuning values, now
+six — see the no-request-cap bullet above), phases 8–10
 (the tags, feeds and articles CRUD tabs, built on phase 5's kit), phase 11
 (a–c: extraction core, embeds/media, and the per-site aggregators), phase 12
 (scheduling and the `jobs` table's in-process worker), phase 13 (the
@@ -2313,9 +2531,12 @@ forward from phase 5's review", where the CRUD kit's contracts are.
 design at
 `docs/superpowers/specs/2026-08-04-ai-provider-expansion-and-prompt-endpoint-design.md`)
 shipped the provider expansion to six (openai/anthropic/gemini/mistral/qwen/deepseek),
-the first real enforcement of the daily/monthly AI request limits, and the new
-`POST /api/v1/ai/prompt` mobile endpoint — see the `/ai` bullets above for what
-changed and why. **OpenRouter was added on a later, separate branch**, taking
+the first real enforcement of the daily/monthly AI request limits (**since
+removed in full** — that plan's `ai_requests` table, its
+`checkAndRecordAiUsage()` gate and both settings are gone; see the
+no-request-cap bullet above, and read that plan's limit sections as history),
+and the new `POST /api/v1/ai/prompt` mobile endpoint — see the `/ai` bullets
+above for what changed and why. **OpenRouter was added on a later, separate branch**, taking
 the total to seven: a seventh `defineIntegration()` declaration, the
 `hasDynamicModels`/live-catalog machinery, and `ProviderUnauthorizedError` /
 `providerUnauthorized` / `provider_unauthorized` threaded from `run.ts` through

@@ -105,7 +105,7 @@ export function BlockNode({ node }: { node: BlockNodeType }) {
         </blockquote>
       );
 
-    // The AI summary (`applyAiOptions()` in @/lib/ai/run): a kind of its own so
+    // The AI summary (`applyAiToBlocks()` in @/lib/ai/run): a kind of its own so
     // it can be told from body prose without counting positions.
     case "summary":
       return (

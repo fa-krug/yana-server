@@ -137,7 +137,7 @@ const AI_OPTIONS: OptionSpec[] = [
   },
   /**
    * The checkbox/value pair mirrors `ai_translate` + `ai_translate_language`:
-   * the flag is what `applyAiOptions()` gates on, the text is what it sends.
+   * the flag is what `applyAiToBlocks()` gates on, the text is what it sends.
    * Checked with empty text is a no-op, exactly as an unchecked box is —
    * see the gating comment in `src/lib/ai/run.ts`.
    */

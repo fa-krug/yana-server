@@ -1,5 +1,3 @@
-import { applyAiOptions } from "../ai/run";
-import type { UserSettings } from "@/lib/db/schema";
 import { resolveChromeLabels, type ChromeLabels } from "./chrome-labels";
 import type { HeaderElementData } from "./header/context";
 import { extractHeaderElement } from "./header/extractor";
@@ -26,20 +24,6 @@ export interface RawArticle {
   header_data?: HeaderElementData | null;
   [key: string]: unknown;
 }
-
-/**
- * Per-user preferences threaded through to AI post-processing
- * (`applyAiOptions` in `../ai/run`). Both `src/lib/jobs/handlers/aggregate.ts`
- * and `reload.ts` read the feed owner's row directly (there is no session to
- * call `getSettings()` from in a job handler) and pass it in here: the real,
- * camelCase `UserSettings` row from `src/lib/db/schema/users.ts` (the same
- * type `getSettings()` returns), plus the snake_case fallback keys `AIClient`
- * (`../ai/run`) also reads for parity with the retired Django settings object.
- */
-export type AggregatorUserSettings = Partial<UserSettings> & {
-  ai_request_delay?: number;
-  [key: string]: unknown;
-};
 
 export abstract class BaseAggregator {
   static identifierField = "identifier";
@@ -199,27 +183,21 @@ export abstract class BaseAggregator {
     return articles;
   }
 
-  async finalizeArticles(
-    articles: RawArticle[],
-    userSettings?: AggregatorUserSettings,
-  ): Promise<RawArticle[]> {
-    return this.applyAiProcessing(articles, userSettings);
-  }
-
-  protected async applyAiProcessing(
-    articles: RawArticle[],
-    userSettings?: AggregatorUserSettings,
-  ): Promise<RawArticle[]> {
-    if (!this.feed.options) return articles;
-    for (let i = 0; i < articles.length; i++) {
-      if (i > 0 && userSettings) {
-        const delay = (userSettings.aiRequestDelay ?? userSettings.ai_request_delay ?? 2) * 1000;
-        if (delay > 0) {
-          await new Promise((resolve) => setTimeout(resolve, delay));
-        }
-      }
-      await applyAiOptions(articles[i], this.feed.options, userSettings, this.onLog);
-    }
+  /**
+   * A hook for the aggregators that still have post-fetch work of their own
+   * (YouTube and Reddit splice in embeds and header media). The base
+   * implementation does nothing.
+   *
+   * **AI post-processing is deliberately not here any more.** It works on the
+   * block tree now (`applyAiToBlocks()` in `@/lib/ai/run`), and blocks only
+   * exist once `parseBlocks()` has run -- which happens in the job handlers,
+   * downstream of this whole pipeline. Running AI here would mean serializing
+   * blocks back to HTML for the handler to re-parse, and there is no
+   * blocks -> HTML direction. The handlers call it themselves, after the
+   * "nothing changed" check, which is also what keeps an unchanged article from
+   * costing a provider request.
+   */
+  async finalizeArticles(articles: RawArticle[]): Promise<RawArticle[]> {
     return articles;
   }
 
@@ -265,13 +243,14 @@ export abstract class BaseAggregator {
 
   /**
    * `onProgress`, if given, is called with a coarse 0-100 estimate after each
-   * pipeline stage. `aggregate.ts`'s own per-article DB-write loop is fast
-   * (local SQLite writes only) next to everything in here -- the source
-   * fetch, per-article enrichment (comments, header images, full-page
-   * fetches) and now AI summarize/improve/translate -- so without this a
-   * job's progress sat at 0% for nearly its whole real duration and then
-   * jumped straight to 100% during the cheap part, which reads as "stuck"
-   * to anyone watching a running job. The percentages are deliberately
+   * pipeline stage. Everything in here -- the source fetch and per-article
+   * enrichment (comments, header images, full-page fetches) -- used to run
+   * without reporting anything, so a job's progress sat at 0% for nearly its
+   * whole real duration and then jumped straight to 100% during
+   * `aggregate.ts`'s own loop, which reads as "stuck" to anyone watching a
+   * running job. (That loop is no longer the cheap part it was when this was
+   * written: the AI stage moved into it, so a feed with AI options on now
+   * spends most of a run inside the 80-100% band instead of below it.) The percentages are deliberately
    * coarse boundaries, not a measured fraction of work done (there's no way
    * to know how long a given feed's enrichment will take up front) --
    * they exist so the number moves, not so it's precise.
@@ -279,7 +258,6 @@ export abstract class BaseAggregator {
   async aggregate(
     clock?: () => Date,
     collectedToday?: number,
-    userSettings?: AggregatorUserSettings,
     onProgress?: (percent: number) => void,
   ): Promise<RawArticle[]> {
     this.validate();
@@ -294,7 +272,7 @@ export abstract class BaseAggregator {
     onProgress?.(20);
     articles = await this.enrichArticles(articles);
     onProgress?.(60);
-    articles = await this.finalizeArticles(articles, userSettings);
+    articles = await this.finalizeArticles(articles);
     onProgress?.(80);
     return articles;
   }

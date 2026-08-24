@@ -876,6 +876,193 @@ describe("src/lib/jobs/handlers", () => {
       );
     });
 
+    it("calls AI for a new article and never again while it stays unchanged", async () => {
+      // The cost guarantee, end to end. AI runs in this handler now, *below*
+      // the contentHash check -- so an article the feed keeps returning
+      // unchanged (the normal case for a 30-minute interval against a site that
+      // publishes a few times a day) costs one request ever, not one per run.
+      vi.resetModules();
+      const applyAiMock = vi.fn(async (input: { title: string; blocks: unknown[] }) => ({
+        title: input.title,
+        blocks: input.blocks,
+        outcome: { status: "applied" },
+      }));
+      vi.doMock("@/lib/ai/run", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("@/lib/ai/run")>();
+        return { ...actual, applyAiToBlocks: applyAiMock };
+      });
+      const rawArticles = [
+        {
+          name: "Fingerprinted",
+          identifier: "https://example.com/fp",
+          raw_content: "",
+          content: "<p>Body.</p>",
+          date: new Date("2026-01-01T00:00:00.000Z"),
+        },
+      ];
+      handlers = await import("./index");
+      // The hoisted `vi.mock` factory, not a `doMock`: `vi.resetModules()`
+      // clears the module registry but not the mocks registry (see
+      // `beforeEach`), so a `doMock` here would stand for every later test in
+      // this file -- which is why the tests that do use one are grouped at the
+      // end.
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => rawArticles,
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        db.insert(schema.users).values({ id: "ai-agg", email: "ai-agg@example.com" }).run();
+        db.insert(schema.userSettings)
+          .values({
+            userId: "ai-agg",
+            activeAiProvider: "openai",
+            openaiEnabled: true,
+            openaiApiKey: "sk-test",
+            aiRequestDelay: 0,
+          })
+          .run();
+        feedId = db
+          .insert(schema.feeds)
+          .values({
+            name: "Feed",
+            userId: "ai-agg",
+            options: { ai_summarize: true },
+          })
+          .returning({ id: schema.feeds.id })
+          .get().id;
+      });
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+
+      await aggregateHandler!(makeJob("aggregate", { feedId }));
+      expect(applyAiMock).toHaveBeenCalledTimes(1);
+
+      const secondJob = makeJob("aggregate", { feedId });
+      await aggregateHandler!(secondJob);
+
+      // Same source article, so the stored fingerprint still matches and the
+      // handler `continue`s before it ever reaches the provider.
+      expect(applyAiMock).toHaveBeenCalledTimes(1);
+      expect(logLines(secondJob.id)).toContain(
+        "upserted articles: 0 created, 0 updated, 1 unchanged",
+      );
+
+      // `vi.resetModules()` clears the module registry but not the mocks
+      // registry (see `beforeEach`), so a `doMock` left in place here would
+      // stand for every later test in this file.
+      vi.doUnmock("@/lib/ai/run");
+    });
+
+    it("calls AI again once the source article really changes", async () => {
+      vi.resetModules();
+      const applyAiMock = vi.fn(async (input: { title: string; blocks: unknown[] }) => ({
+        title: input.title,
+        blocks: input.blocks,
+        outcome: { status: "applied" },
+      }));
+      vi.doMock("@/lib/ai/run", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("@/lib/ai/run")>();
+        return { ...actual, applyAiToBlocks: applyAiMock };
+      });
+      const raw = {
+        name: "Changing",
+        identifier: "https://example.com/ch",
+        raw_content: "",
+        content: "<p>First body.</p>",
+        date: new Date("2026-01-01T00:00:00.000Z"),
+      };
+      handlers = await import("./index");
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => [raw],
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        db.insert(schema.users).values({ id: "ai-ch", email: "ai-ch@example.com" }).run();
+        db.insert(schema.userSettings)
+          .values({ userId: "ai-ch", activeAiProvider: "openai", aiRequestDelay: 0 })
+          .run();
+        feedId = db
+          .insert(schema.feeds)
+          .values({ name: "Feed", userId: "ai-ch", options: { ai_summarize: true } })
+          .returning({ id: schema.feeds.id })
+          .get().id;
+      });
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+      await aggregateHandler!(makeJob("aggregate", { feedId }));
+      expect(applyAiMock).toHaveBeenCalledTimes(1);
+
+      raw.content = "<p>Second, genuinely different body.</p>";
+      await aggregateHandler!(makeJob("aggregate", { feedId }));
+
+      // The skip must not become a permanent block: a real edit upstream has to
+      // reach the provider again, or the article keeps a summary of text that no
+      // longer exists.
+      expect(applyAiMock).toHaveBeenCalledTimes(2);
+
+      vi.doUnmock("@/lib/ai/run");
+    });
+
+    it("does not pace requests the AI stage never made", async () => {
+      // `aiRequestDelay` spaces *provider requests*, and the handler cannot
+      // decide on its own which loop iterations made one: `applyAiToBlocks()`
+      // has its own reasons to decline (no active provider, a custom prompt
+      // that is whitespace) and answers `requested: false` when it does. Paced
+      // off the feed's options instead, a feed with AI switched on but no usable
+      // provider slept between every article for requests that were never sent
+      // -- five seconds each here, which is what this asserts is not happening.
+      vi.resetModules();
+      const applyAiMock = vi.fn(async (input: { title: string; blocks: unknown[] }) => ({
+        title: input.title,
+        blocks: input.blocks,
+        outcome: { status: "skipped", reason: "noProvider" },
+        requested: false,
+      }));
+      vi.doMock("@/lib/ai/run", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("@/lib/ai/run")>();
+        return { ...actual, applyAiToBlocks: applyAiMock };
+      });
+      const rawArticles = [1, 2, 3].map((n) => ({
+        name: `Unpaced ${n}`,
+        identifier: `https://example.com/unpaced-${n}`,
+        raw_content: "",
+        content: `<p>Body ${n}.</p>`,
+        date: new Date("2026-01-01T00:00:00.000Z"),
+      }));
+      handlers = await import("./index");
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => rawArticles,
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        db.insert(schema.users).values({ id: "ai-pace", email: "ai-pace@example.com" }).run();
+        db.insert(schema.userSettings)
+          .values({ userId: "ai-pace", activeAiProvider: "", aiRequestDelay: 5 })
+          .run();
+        feedId = db
+          .insert(schema.feeds)
+          .values({ name: "Feed", userId: "ai-pace", options: { ai_summarize: true } })
+          .returning({ id: schema.feeds.id })
+          .get().id;
+      });
+
+      const started = Date.now();
+      await handlers.getHandler("aggregate")!(makeJob("aggregate", { feedId }));
+      const elapsed = Date.now() - started;
+
+      expect(applyAiMock).toHaveBeenCalledTimes(3);
+      // Two sleeps of five seconds each is what the old gate would have cost.
+      expect(elapsed).toBeLessThan(2000);
+
+      vi.doUnmock("@/lib/ai/run");
+    });
+
     it("rewrites an article when new comments are appended to its body", async () => {
       const feedId = seedAggregateFeed();
 
@@ -1384,7 +1571,7 @@ describe("src/lib/jobs/handlers", () => {
       }));
       handlers = await import("./index");
 
-      // AI provider replies 429 on every attempt -- applyAiOptions() must
+      // AI provider replies 429 on every attempt -- applyAiToBlocks() must
       // report this as a failure the job propagates, not a silent skip.
       const originalFetch = globalThis.fetch;
       globalThis.fetch = vi.fn().mockResolvedValue({
@@ -1672,11 +1859,39 @@ describe("src/lib/jobs/handlers", () => {
       expect(article!.rawContent).toContain("Real article body");
     });
 
-    it("passes the feed owner's real user_settings row into aggregate(), not undefined", async () => {
+    it("passes the feed owner's real user_settings row into the AI stage, not undefined", async () => {
+      // This used to assert the row reached `aggregate()`'s third argument,
+      // because that is how it got to the AI stage inside the pipeline. AI runs
+      // here now and `aggregate()` takes no settings at all -- but the defect
+      // the test exists for is the same one: handed `undefined`, the AI stage
+      // returns early on its own "no userSettings" guard, so a feed's
+      // summarize/translate options silently never run.
       vi.resetModules();
-      const aggregateMock = vi.fn().mockResolvedValue([]);
+      // Rest args rather than named ones: this asserts against the second and
+      // third argument without declaring parameters it never reads.
+      const applyAiMock = vi.fn(async (...args: unknown[]) => {
+        const input = args[0] as { title: string; blocks: unknown[] };
+        return { title: input.title, blocks: input.blocks, outcome: { status: "applied" } };
+      });
+      vi.doMock("@/lib/ai/run", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("@/lib/ai/run")>();
+        return { ...actual, applyAiToBlocks: applyAiMock };
+      });
+      // `vi.doMock` rather than the hoisted mock: an earlier test in this file
+      // doMocks the factory and never unmocks it, so `vi.mocked()` no longer
+      // finds a spy here.
       vi.doMock("@/lib/aggregators/factory", () => ({
-        createAggregator: () => ({ aggregate: aggregateMock }),
+        createAggregator: () => ({
+          aggregate: async () => [
+            {
+              name: "A",
+              identifier: "https://example.com/a",
+              raw_content: "",
+              content: "<p>Body.</p>",
+              date: new Date("2026-01-01T00:00:00.000Z"),
+            },
+          ],
+        }),
       }));
       handlers = await import("./index");
 
@@ -1687,26 +1902,28 @@ describe("src/lib/jobs/handlers", () => {
           .values({ userId: "ai-user", activeAiProvider: "openai", openaiEnabled: true })
           .run();
 
-        const feed = db
+        feedId = db
           .insert(schema.feeds)
           .values({
             name: "Test Feed",
             userId: "ai-user",
             aggregator: "full_website",
             enabled: true,
+            options: { ai_summarize: true },
           })
           .returning({ id: schema.feeds.id })
-          .get();
-        feedId = feed.id;
+          .get().id;
       });
 
       const aggregateHandler = handlers.getHandler("aggregate");
-      const job = makeJob("aggregate", { feedId });
-      await aggregateHandler!(job);
+      await aggregateHandler!(makeJob("aggregate", { feedId }));
 
-      expect(aggregateMock).toHaveBeenCalledTimes(1);
-      const [, , settingsArg] = aggregateMock.mock.calls[0]!;
+      expect(applyAiMock).toHaveBeenCalledTimes(1);
+      const [, optionsArg, settingsArg] = applyAiMock.mock.calls[0]!;
+      expect(optionsArg).toMatchObject({ ai_summarize: true });
       expect(settingsArg).toMatchObject({ userId: "ai-user", activeAiProvider: "openai" });
+
+      vi.doUnmock("@/lib/ai/run");
     });
 
     it("passes today's already-collected article count as collectedToday, not always 0", async () => {
@@ -1915,22 +2132,40 @@ describe("src/lib/jobs/handlers", () => {
 
     it("re-applies the feed's AI options (e.g. translation) to the freshly reloaded content", async () => {
       vi.resetModules();
-      let contentSeenByAi = "";
-      const applyAiOptionsMock = vi.fn(
+      // The AI stage takes and returns a block tree now, not HTML -- so what
+      // this asserts it was handed is `blocks`, and the fake answers in kind.
+      let blocksSeenByAi: unknown[] = [];
+      const applyAiMock = vi.fn(
         async (
-          article: { name?: string; content?: string; [key: string]: unknown },
+          input: { title: string; blocks: unknown[] },
           _options?: Record<string, unknown> | null,
           _userSettings?: Record<string, unknown>,
         ) => {
-          contentSeenByAi = article.content || "";
-          article.name = "Translated Title";
-          article.content = "<p>Translated content</p>";
-          return article;
+          blocksSeenByAi = input.blocks;
+          return {
+            title: "Translated Title",
+            blocks: [
+              {
+                kind: "paragraph",
+                runs: [
+                  {
+                    text: "Translated content",
+                    bold: false,
+                    italic: false,
+                    code: false,
+                    strikethrough: false,
+                    link: "",
+                  },
+                ],
+              },
+            ],
+            outcome: { status: "applied" },
+          };
         },
       );
       vi.doMock("@/lib/ai/run", async (importOriginal) => {
         const actual = await importOriginal<typeof import("@/lib/ai/run")>();
-        return { ...actual, applyAiOptions: applyAiOptionsMock };
+        return { ...actual, applyAiToBlocks: applyAiMock };
       });
       vi.doMock("@/lib/aggregators/factory", () => ({
         createAggregator: () => ({
@@ -1984,9 +2219,13 @@ describe("src/lib/jobs/handlers", () => {
       const job = makeJob("article.reload", { articleId });
       await reloadHandler!(job);
 
-      expect(applyAiOptionsMock).toHaveBeenCalledTimes(1);
-      const [, optionsArg, settingsArg] = applyAiOptionsMock.mock.calls[0]!;
-      expect(contentSeenByAi).toBe("<p>Fresh from source</p>");
+      expect(applyAiMock).toHaveBeenCalledTimes(1);
+      const [, optionsArg, settingsArg] = applyAiMock.mock.calls[0]!;
+      // Parsed from the freshly fetched page, and parsed *before* AI ran --
+      // which is the whole reason the stage moved here.
+      expect(blocksSeenByAi).toEqual([
+        { kind: "paragraph", runs: [expect.objectContaining({ text: "Fresh from source" })] },
+      ]);
       expect(optionsArg).toMatchObject({ ai_translate: true });
       expect(settingsArg).toMatchObject({ userId: "ai-user", activeAiProvider: "openai" });
 

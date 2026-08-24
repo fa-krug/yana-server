@@ -5,7 +5,7 @@
  */
 
 import * as cheerio from "cheerio";
-import { AggregatorUserSettings, BaseAggregator, FeedLike, RawArticle } from "../../base";
+import { BaseAggregator, FeedLike, RawArticle } from "../../base";
 import { mapWithConcurrency } from "../../concurrency";
 import { AggregatorError, ArticleSkipError } from "../../errors";
 import { getHeaderImageRef, HeaderElementData } from "../../header/context";
@@ -421,56 +421,50 @@ export class RedditAggregator extends BaseAggregator {
     return results.filter((a): a is RawArticle => a !== null);
   }
 
-  override async finalizeArticles(
-    articles: RawArticle[],
-    userSettings?: AggregatorUserSettings,
-  ): Promise<RawArticle[]> {
-    const processedArticles = await this.applyAiProcessing(articles, userSettings);
+  override async finalizeArticles(articles: RawArticle[]): Promise<RawArticle[]> {
+    // AI post-processing used to run here first. It works on the block tree
+    // now, which only exists downstream in the job handler -- see
+    // `BaseAggregator.finalizeArticles()`.
+    return mapWithConcurrency(articles, this.concurrency, async (article): Promise<RawArticle> => {
+      const includeHeaderImage = (this.feed.options?.include_header_image as boolean) ?? true;
+      // `include_header_image: false` suppresses the video header too, not just
+      // the image one: both are headers, and a user who turned headers off got a
+      // `<video>` anyway. Nothing is lost -- `addLinkMedia()` in `./content.ts`
+      // still renders the post's own `v.redd.it` link in the body.
+      const headerSourceUrl = includeHeaderImage
+        ? (article._reddit_header_image_url as string | null)
+        : null;
+      const redditVideo = includeHeaderImage
+        ? ((article._reddit_video_info as
+            { hlsUrl?: string; fallbackUrl?: string } | null | undefined) ?? null)
+        : null;
+      const videoUrl = (article._reddit_video_url as string | null | undefined) ?? null;
 
-    return mapWithConcurrency(
-      processedArticles,
-      this.concurrency,
-      async (article): Promise<RawArticle> => {
-        const includeHeaderImage = (this.feed.options?.include_header_image as boolean) ?? true;
-        // `include_header_image: false` suppresses the video header too, not just
-        // the image one: both are headers, and a user who turned headers off got a
-        // `<video>` anyway. Nothing is lost -- `addLinkMedia()` in `./content.ts`
-        // still renders the post's own `v.redd.it` link in the body.
-        const headerSourceUrl = includeHeaderImage
-          ? (article._reddit_header_image_url as string | null)
-          : null;
-        const redditVideo = includeHeaderImage
-          ? ((article._reddit_video_info as
-              { hlsUrl?: string; fallbackUrl?: string } | null | undefined) ?? null)
-          : null;
-        const videoUrl = (article._reddit_video_url as string | null | undefined) ?? null;
+      const built = await this._buildHeaderForArticle(
+        article.content || "",
+        article.name,
+        headerSourceUrl,
+        videoUrl,
+        redditVideo,
+      );
+      article.content = built.content;
+      article.header_html = built.headerHtml;
 
-        const built = await this._buildHeaderForArticle(
-          article.content || "",
-          article.name,
-          headerSourceUrl,
-          videoUrl,
-          redditVideo,
-        );
-        article.content = built.content;
-        article.header_html = built.headerHtml;
+      if (article.content || built.headerHtml) {
+        article.content = await this.processContent(article.content, article);
+      }
 
-        if (article.content || built.headerHtml) {
-          article.content = await this.processContent(article.content, article);
-        }
+      delete article._reddit_post_data;
+      delete article._reddit_subreddit;
+      delete article._reddit_crosspost;
+      delete article._reddit_num_comments;
+      delete article._reddit_header_image_url;
+      delete article._reddit_video_url;
+      delete article._reddit_video_info;
+      delete article.header_html;
 
-        delete article._reddit_post_data;
-        delete article._reddit_subreddit;
-        delete article._reddit_crosspost;
-        delete article._reddit_num_comments;
-        delete article._reddit_header_image_url;
-        delete article._reddit_video_url;
-        delete article._reddit_video_info;
-        delete article.header_html;
-
-        return article;
-      },
-    );
+      return article;
+    });
   }
 
   /**

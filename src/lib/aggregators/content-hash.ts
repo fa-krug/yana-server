@@ -53,3 +53,53 @@ export function articleContentHash(input: ArticleContentInput): string {
     )
     .digest("hex");
 }
+
+/**
+ * The `RawArticle` fields the fingerprint is derived from, structurally rather
+ * than by importing `RawArticle` from `./base` -- that module imports the AI
+ * runtime, and this one is deliberately dependency-free apart from `node:crypto`.
+ */
+export interface RawArticleFingerprintSource {
+  name?: string;
+  content?: string;
+  raw_content?: string;
+  date?: Date | null;
+  author?: string;
+  icon?: string | null;
+}
+
+/**
+ * The one derivation of `ArticleContentInput` from a freshly aggregated
+ * article, called by `handleAggregateJob()` before it does anything else with
+ * the row.
+ *
+ * **It fingerprints the article as *fetched*, and the ordering that makes that
+ * true is load-bearing.** AI post-processing runs *below* this check now
+ * (`applyAiToBlocks()`, on the block tree, in the job handler), so nothing in
+ * this value can depend on model output. It did once: the AI stage (then
+ * `applyAiOptions()`) rewrote `name` and `content` in place inside the
+ * aggregator pipeline, upstream of the handler, so the fingerprint was a hash
+ * of a non-deterministic answer -- a different string on every run at the
+ * default `ai_temperature` of 0.3. Everything the hash exists to prevent was
+ * therefore happening every cycle for exactly the feeds with AI enabled: full
+ * rewrite, block tree deleted and reinserted, `updatedAt` bumped, article back
+ * in `/api/v1`'s sync `updated` stream. And the far larger cost, because the
+ * skip sat downstream of the provider request it should have prevented: every
+ * article sent to the provider again on every run.
+ *
+ * So a change that moves AI back above this call re-breaks both at once.
+ *
+ * The `content || raw_content` / `raw_content || content` pair mirrors what
+ * the handler stores: the block tree is parsed from the first, the
+ * `articles.rawContent` column holds the second.
+ */
+export function rawArticleContentHash(raw: RawArticleFingerprintSource): string {
+  return articleContentHash({
+    name: raw.name || "Untitled",
+    html: raw.content || raw.raw_content || "",
+    rawContent: raw.raw_content || raw.content || "",
+    date: raw.date ?? null,
+    author: raw.author || "",
+    icon: raw.icon || null,
+  });
+}

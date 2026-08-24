@@ -22,9 +22,6 @@ vi.mock("sonner", () => ({ toast: { error: toastError, success: toastSuccess } }
 
 const ADVANCED: AiAdvanced = {
   temperature: 0.7,
-  maxTokens: 1000,
-  dailyLimit: 100,
-  monthlyLimit: 1000,
   maxPromptLength: 8000,
   requestTimeout: 60,
   maxRetries: 3,
@@ -56,9 +53,11 @@ describe("<AdvancedSection>", () => {
     // Asserted against de.json, where the label is nothing like the field name.
     expect(field("Temperatur").value).toBe("0.7");
     expect(field("Anfrage-Timeout (Sekunden)").value).toBe("60");
-    // Nine fields, one Save: the pair rule (`monthlyLimit >= dailyLimit`) cannot
-    // be checked by a field that saves itself.
-    expect(screen.getAllByRole("spinbutton")).toHaveLength(9);
+    // One Save for the whole card. Counted from `AI_ADVANCED_FIELDS` rather
+    // than as a literal, so removing or adding a tuning value does not need an
+    // edit here -- which is what a hard-coded 9 needed when the two request
+    // caps were removed.
+    expect(screen.getAllByRole("spinbutton")).toHaveLength(AI_ADVANCED_FIELDS.length);
     expect(screen.getAllByRole("button", { name: "Speichern" })).toHaveLength(1);
   });
 
@@ -66,7 +65,7 @@ describe("<AdvancedSection>", () => {
     // Read from `AI_ADVANCED_BOUNDS` rather than restated, because restating
     // them is the defect this pins: `@/lib/ai/actions` builds its zod schema out
     // of the same table, so a hint the browser shows and the rule the server
-    // applies cannot disagree. Asserting nine literals here would be a third
+    // applies cannot disagree. Asserting the numbers here would be a third
     // copy able to drift from both.
     render();
 
@@ -79,20 +78,20 @@ describe("<AdvancedSection>", () => {
         String(AI_ADVANCED_BOUNDS[name].min),
         String(AI_ADVANCED_BOUNDS[name].max),
       ]);
-      // Only `temperature` is a float column; the other eight are `.int()`
+      // Only `temperature` is a float column; every other field is `.int()`
       // server-side and must not offer a fractional step.
       expect([name, input.step]).toEqual([name, AI_ADVANCED_BOUNDS[name].integer ? "1" : "0.1"]);
     }
   });
 
-  it("submits all nine values as numbers, including the ones untouched", async () => {
+  it("submits every value as a number, including the ones untouched", async () => {
     render();
 
-    fireEvent.change(field("Monatslimit für Anfragen"), { target: { value: "2500" } });
+    fireEvent.change(field("Maximale Prompt-Länge"), { target: { value: "2500" } });
     submit();
 
     await waitFor(() =>
-      expect(saveAdvanced).toHaveBeenCalledWith({ ...ADVANCED, monthlyLimit: 2500 }),
+      expect(saveAdvanced).toHaveBeenCalledWith({ ...ADVANCED, maxPromptLength: 2500 }),
     );
     expect(toastSuccess).toHaveBeenCalledWith("KI-Einstellungen gespeichert.");
   });
@@ -112,22 +111,23 @@ describe("<AdvancedSection>", () => {
   });
 
   it("shows the refusal the server named, not a generic one", async () => {
-    // The cross-field rule and an ordinary range failure both land on
-    // `monthlyLimit` and want different advice; the server picks, and only its
-    // catalog key crosses the wire.
-    saveAdvanced.mockResolvedValue({ ok: false, errorKey: "advanced.monthlyBelowDaily" });
+    // Only the server's own catalog key crosses the wire -- never a zod
+    // message, which would reach a German UI in English. This used to use
+    // `advanced.monthlyBelowDaily`, the cross-field rule's key, which went with
+    // the request caps; any field's range key proves the same thing.
+    saveAdvanced.mockResolvedValue({ ok: false, errorKey: "advanced.maxPromptLengthRange" });
     render();
 
-    fireEvent.change(field("Monatslimit für Anfragen"), { target: { value: "10" } });
+    fireEvent.change(field("Maximale Prompt-Länge"), { target: { value: "0" } });
     submit();
 
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith(
-        expect.stringContaining("mindestens so groß sein wie das Tageslimit"),
+        expect.stringContaining("Prompt-Länge muss zwischen"),
       ),
     );
-    // The typed values stay: nine numbers are not worth retyping over one.
-    expect(field("Monatslimit für Anfragen").value).toBe("10");
+    // The typed values stay: a card of numbers is not worth retyping over one.
+    expect(field("Maximale Prompt-Länge").value).toBe("0");
   });
 
   it("falls back to the namespace's own message when the server names no key", async () => {
@@ -145,7 +145,7 @@ describe("<AdvancedSection>", () => {
 
   it("survives a save that rejects instead of returning", async () => {
     // Unhandled, this rejection escalates to the (app) error boundary and
-    // replaces the page along with the nine half-edited fields. `attempt()` is
+    // replaces the page along with the half-edited fields. `attempt()` is
     // what turns it into a toast.
     saveAdvanced.mockRejectedValue(new Error("the container restarted"));
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -167,11 +167,11 @@ describe("<AdvancedSection>", () => {
   });
 
   describe("pending", () => {
-    it("renders all nine fields with their real bounds, disabled and empty", () => {
+    it("renders every field with its real bounds, disabled and empty", () => {
       renderWithProviders(<AdvancedSectionForm pending />);
 
       const fields = screen.getAllByRole("spinbutton") as HTMLInputElement[];
-      expect(fields).toHaveLength(9);
+      expect(fields).toHaveLength(AI_ADVANCED_FIELDS.length);
       expect(fields.every((f) => f.disabled)).toBe(true);
       expect(fields.every((f) => f.value === "")).toBe(true);
       // Bounds come from AI_ADVANCED_BOUNDS, which imports nothing -- so they

@@ -3,6 +3,7 @@ import { DEFAULT_CHROME_LABELS } from "../chrome-labels";
 import { buildHeaderHtml } from "../extract/format";
 import { isSafeUrl, parseBlocks, plainTextOf } from "./parser";
 import type {
+  Block,
   Blockquote,
   CodeBlock,
   EmbedBlock,
@@ -69,6 +70,66 @@ describe("parseBlocks", () => {
     const p = blocks[0] as Paragraph;
     expect(p.runs[0].link).toBe("https://example.com/blog/article2.html");
     expect(p.runs[2].link).toBe("");
+  });
+
+  describe("inline styling and links survive as a direct child of any container", () => {
+    /**
+     * The regression this covers: `inlineRuns()` reads a tag only while
+     * descending *into* it, and `convert()` used to hand it an inline element
+     * with no styling context -- so the element's own `<b>`/`<i>`/`<a href>`
+     * was ignored. It worked in a `<p>` (that branch passes the paragraph, so
+     * the styled tag is a child) and nowhere else.
+     */
+    const styleFlags = (blocks: Block[]) =>
+      (JSON.stringify(blocks).match(/"(bold|italic|code|strikethrough)":true/g) || []).length;
+
+    it.each([
+      ["a list item", "<ul><li>a <b>x</b></li></ul>"],
+      ["an ordered list item", "<ol><li>a <i>x</i></li></ol>"],
+      ["a bare blockquote", "<blockquote>a <b>x</b></blockquote>"],
+      ["a bare div", "<div>a <b>x</b></div>"],
+      ["a paragraph, as it always did", "<p>a <b>x</b></p>"],
+    ])("keeps styling inside %s", (_label, html) => {
+      expect(styleFlags(parseBlocks(html, "https://example.com/"))).toBe(1);
+    });
+
+    it("keeps a link's href inside a list item", () => {
+      // The more serious half: the href was dropped outright, so every
+      // bulleted list of links in every article stored plain text.
+      const blocks = parseBlocks(
+        '<ul><li>See <a href="https://example.com/target">the docs</a> here</li></ul>',
+        "https://example.com/",
+      );
+
+      const item = (blocks[0] as ListBlock).items[0][0] as Paragraph;
+      expect(item.runs.map((r) => r.link)).toEqual(["", "https://example.com/target", ""]);
+    });
+
+    it("still refuses an unsafe href in that position", () => {
+      // The fix routes through the same `resolveUrl`/`isSafeUrl` path as a
+      // link in a paragraph, so it must not have opened a hole.
+      const blocks = parseBlocks(
+        '<ul><li><a href="javascript:alert(1)">x</a></li></ul>',
+        "https://example.com/",
+      );
+
+      const item = (blocks[0] as ListBlock).items[0][0] as Paragraph;
+      expect(item.runs.every((r) => r.link === "")).toBe(true);
+    });
+
+    it("combines an element's own styling with its children's", () => {
+      const blocks = parseBlocks(
+        '<ul><li><a href="https://example.com/z"><b>bold link</b></a></li></ul>',
+        "https://example.com/",
+      );
+
+      const item = (blocks[0] as ListBlock).items[0][0] as Paragraph;
+      expect(item.runs[0]).toMatchObject({
+        text: "bold link",
+        bold: true,
+        link: "https://example.com/z",
+      });
+    });
   });
 
   it("parses headings h1-h6", () => {
