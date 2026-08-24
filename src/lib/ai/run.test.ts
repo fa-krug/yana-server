@@ -534,7 +534,11 @@ describe("applyAiOptions & AIClient processing", () => {
   describe("test_ai_json_extraction assertions", () => {
     it("extracts json payload when response contains surrounding markdown fluff and checks Gemini schema payload", async () => {
       const userSettings = makeSettings({ activeAiProvider: "gemini" });
-      const options = { ai_summarize: true };
+      // `ai_improve_writing` rather than `ai_summarize`: this test's subject is
+      // the markdown-fenced JSON payload, and only a request that rewrites the
+      // body asks for 'title'/'content' at all (see `wantsRewrite` in
+      // `./run`). Summarize-only asks for 'summary' and nothing else.
+      const options = { ai_improve_writing: true };
 
       let capturedUrl = "";
       let capturedBody:
@@ -1082,10 +1086,67 @@ describe("applyAiOptions & AIClient processing", () => {
     it("asks for the summary in its own field, never in place of the content", async () => {
       const sent = respondWith({ title: "T", summary: "S.", content: BODY });
 
-      await applyAiOptions({ name: "T", content: BODY }, { ai_summarize: true }, openai());
+      await applyAiOptions(
+        { name: "T", content: BODY },
+        { ai_summarize: true, ai_improve_writing: true },
+        openai(),
+      );
 
       expect(sent()).toContain("into the 'summary' field");
       expect(sent()).toContain("never replace it with the summary");
+    });
+
+    it("does not ask for the article back when only a summary was requested", async () => {
+      const sent = respondWith({ summary: "S." });
+
+      await applyAiOptions({ name: "T", content: BODY }, { ai_summarize: true }, openai());
+
+      // The echo was the expensive half: the model was told to reproduce the
+      // whole document, so a summarize-only article was billed for about as
+      // many output tokens as input ones to hand back a copy of a string this
+      // process already had.
+      expect(sent()).toContain("the key 'summary'");
+      expect(sent()).not.toContain("'content'");
+      expect(sent()).toContain("do not echo the article back");
+      // ... and the structural "preserve ALL HTML tags" contract, which only
+      // exists to make a returned body line up with the input, goes with it.
+      expect(sent()).not.toContain("Preserve ALL HTML tags");
+    });
+
+    it("sends the article's text, not its markup, when only a summary was requested", async () => {
+      const sent = respondWith({ summary: "S." });
+
+      await applyAiOptions({ name: "T", content: BODY }, { ai_summarize: true }, openai());
+
+      expect(sent()).toContain("Body one.");
+      expect(sent()).not.toContain("article-content");
+      expect(sent()).not.toContain("<p>");
+    });
+
+    it("still sends the markup when the body has to come back", async () => {
+      const sent = respondWith({ title: "T", content: BODY });
+
+      await applyAiOptions({ name: "T", content: BODY }, { ai_improve_writing: true }, openai());
+
+      expect(sent()).toContain("article-content");
+      expect(sent()).toContain("Preserve ALL HTML tags");
+    });
+
+    it("keeps the original title and body when only a summary was requested", async () => {
+      // A model that volunteers a title for a request that never asked for one
+      // is renaming an article nobody asked to have renamed -- and the body it
+      // volunteers is a paraphrase of the one we already have.
+      respondWith({ title: "Model's own title", summary: "S.", content: "<p>Paraphrase.</p>" });
+      const article = { name: "Original", content: `${HEADER}\n\n${BODY}` };
+
+      const outcome = await applyAiOptions(article, { ai_summarize: true }, openai());
+
+      expect(outcome).toEqual({ status: "applied" });
+      expect(article.name).toBe("Original");
+      expect(article.content).toContain("<p>Body one.</p>");
+      expect(article.content).not.toContain("Paraphrase.");
+      expect(article.content.startsWith(HEADER)).toBe(true);
+      expect(article.content).toContain('data-sanitized-class="yana-ai-summary"');
     });
 
     it("puts the summary first when the article has no header", async () => {
@@ -1171,7 +1232,15 @@ describe("applyAiOptions & AIClient processing", () => {
       const onLog = vi.fn();
       const article = { name: "T", content: `${HEADER}\n\n${BODY}` };
 
-      const outcome = await applyAiOptions(article, { ai_summarize: true }, openai(), onLog);
+      const outcome = await applyAiOptions(
+        article,
+        // Paired with a rewrite, so there *is* something else to keep -- which
+        // is what this case is about. Summarize-only asks for nothing but the
+        // summary, so the case below is the whole of it there.
+        { ai_summarize: true, ai_improve_writing: true },
+        openai(),
+        onLog,
+      );
 
       expect(outcome).toEqual({ status: "failed", reason: "missingSummary" });
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("no summary"));
@@ -1180,6 +1249,21 @@ describe("applyAiOptions & AIClient processing", () => {
       expect(article.name).toBe("New title");
       expect(article.content.startsWith(HEADER)).toBe(true);
       expect(article.content).toContain("<p>Rewritten.</p>");
+    });
+
+    it("leaves a summarize-only article untouched when the summary did not come back", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      respondWith({ title: "New title", content: "<p>Rewritten.</p>" });
+      const article = { name: "T", content: `${HEADER}\n\n${BODY}` };
+
+      const outcome = await applyAiOptions(article, { ai_summarize: true }, openai());
+
+      expect(outcome).toEqual({ status: "failed", reason: "missingSummary" });
+      // Nothing was asked for but the summary, so a volunteered title and body
+      // are not "what did come back" -- they are answers to a different
+      // question, and applying them would rewrite the article on a failure.
+      expect(article.name).toBe("T");
+      expect(article.content).toBe(`${HEADER}\n\n${BODY}`);
     });
 
     it("declares 'summary' in the provider's JSON schema only when it was asked for", async () => {

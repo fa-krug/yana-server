@@ -6,6 +6,8 @@ import Database from "better-sqlite3";
 import { eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { rawArticleContentHash } from "@/lib/aggregators/content-hash";
+
 import { applyMigrationsAt } from "../../db/test-support";
 
 vi.mock("@/lib/aggregators/factory", () => ({
@@ -871,6 +873,58 @@ describe("src/lib/jobs/handlers", () => {
       // The block tree was not deleted and reinserted: same rows, same ids.
       expect(secondBlocks.map((b) => b.id)).toEqual(firstBlocks.map((b) => b.id));
       expect(firstBlocks.length).toBeGreaterThan(0);
+      expect(logLines(secondJob.id)).toContain(
+        "upserted articles: 0 created, 0 updated, 1 unchanged",
+      );
+    });
+
+    it("hands the aggregator the stored hash, so AI never runs for an unchanged article", async () => {
+      const feedId = seedAggregateFeed();
+      const rawArticles = [
+        {
+          name: "Fingerprinted",
+          identifier: "https://example.com/fp",
+          raw_content: "",
+          content: "<p>Body.</p>",
+          date: new Date("2026-01-01T00:00:00.000Z"),
+        },
+      ];
+
+      const factory = await import("@/lib/aggregators/factory");
+      const seen: Array<string | null> = [];
+      // A stub that behaves the way `BaseAggregator.fingerprintArticles()`
+      // does: ask the hook, and mark the article when the answer matches. This
+      // is the wiring the AI skip depends on -- without the hook set, the
+      // pipeline has no way to know an article is already stored and spends a
+      // provider request on it on every single run.
+      const stub = {
+        storedContentHash: undefined as ((identifier: string) => string | null) | undefined,
+        aggregate: async () => {
+          for (const raw of rawArticles) {
+            const hash = rawArticleContentHash(raw);
+            const stored = stub.storedContentHash?.(raw.identifier) ?? null;
+            seen.push(stored);
+            Object.assign(raw, { content_hash: hash, unchanged: stored === hash });
+          }
+          return rawArticles;
+        },
+      };
+      vi.mocked(factory.createAggregator).mockReturnValue(
+        stub as unknown as ReturnType<typeof factory.createAggregator>,
+      );
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+
+      await aggregateHandler!(makeJob("aggregate", { feedId }));
+      // Nothing stored yet: the article is new, so AI must run for it.
+      expect(seen).toEqual([null]);
+
+      const secondJob = makeJob("aggregate", { feedId });
+      await aggregateHandler!(secondJob);
+
+      // Second run: the hook answers with the hash the first run stored, which
+      // is what lets the pipeline skip the provider entirely.
+      expect(seen[1]).toBe(rawArticleContentHash(rawArticles[0]));
       expect(logLines(secondJob.id)).toContain(
         "upserted articles: 0 created, 0 updated, 1 unchanged",
       );

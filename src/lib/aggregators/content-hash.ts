@@ -53,3 +53,51 @@ export function articleContentHash(input: ArticleContentInput): string {
     )
     .digest("hex");
 }
+
+/**
+ * The `RawArticle` fields the fingerprint is derived from, structurally rather
+ * than by importing `RawArticle` from `./base` -- that module imports the AI
+ * runtime, and this one is deliberately dependency-free apart from `node:crypto`.
+ */
+export interface RawArticleFingerprintSource {
+  name?: string;
+  content?: string;
+  raw_content?: string;
+  date?: Date | null;
+  author?: string;
+  icon?: string | null;
+}
+
+/**
+ * The one derivation of `ArticleContentInput` from a freshly aggregated
+ * article, shared by the two places that need the same fingerprint for the
+ * same article: `BaseAggregator.fingerprintArticles()` computes it *before*
+ * AI post-processing runs, and `handleAggregateJob()` reads that precomputed
+ * value back rather than deriving a second one.
+ *
+ * The two halves used to be one expression in the job handler, computed
+ * *after* `applyAiOptions()` had already rewritten `name` and `content` in
+ * place -- which made the fingerprint a hash of model output. At the default
+ * `ai_temperature` of 0.3 that is a different string on every run, so the
+ * "nothing changed, skip every write" branch could never fire for a feed with
+ * any AI option enabled: every article was rewritten, re-parsed and pushed
+ * back into `/api/v1`'s sync `updated` stream on every aggregation cycle, and
+ * -- far more expensively -- every article was sent to the provider again on
+ * every cycle, because the skip that would have prevented it was downstream of
+ * the call it needed to prevent. Fingerprinting the article as *fetched* is
+ * what makes the value stable, and therefore what makes the skip work at all.
+ *
+ * The `content || raw_content` / `raw_content || content` pair mirrors what
+ * the handler stores: the block tree is parsed from the first, the
+ * `articles.rawContent` column holds the second.
+ */
+export function rawArticleContentHash(raw: RawArticleFingerprintSource): string {
+  return articleContentHash({
+    name: raw.name || "Untitled",
+    html: raw.content || raw.raw_content || "",
+    rawContent: raw.raw_content || raw.content || "",
+    date: raw.date ?? null,
+    author: raw.author || "",
+    icon: raw.icon || null,
+  });
+}

@@ -1,6 +1,7 @@
 import { applyAiOptions } from "../ai/run";
 import type { UserSettings } from "@/lib/db/schema";
 import { resolveChromeLabels, type ChromeLabels } from "./chrome-labels";
+import { rawArticleContentHash } from "./content-hash";
 import type { HeaderElementData } from "./header/context";
 import { extractHeaderElement } from "./header/extractor";
 
@@ -24,6 +25,21 @@ export interface RawArticle {
   author?: string;
   icon?: string | null;
   header_data?: HeaderElementData | null;
+  /**
+   * The fingerprint of this article *as fetched*, set by
+   * `fingerprintArticles()` before any AI post-processing runs, and read back
+   * by `handleAggregateJob()` instead of deriving a second one from the
+   * already-rewritten article. See `rawArticleContentHash()` in
+   * `./content-hash` for why it has to be computed at that point.
+   */
+  content_hash?: string;
+  /**
+   * `true` when `content_hash` equals the hash already stored for this
+   * article, i.e. nothing about it changed since the last run. Set by
+   * `fingerprintArticles()`; `applyAiProcessing()` sends no request for such
+   * an article and `handleAggregateJob()` writes nothing for it.
+   */
+  unchanged?: boolean;
   [key: string]: unknown;
 }
 
@@ -84,6 +100,23 @@ export abstract class BaseAggregator {
    * whoever is watching the job that triggered them.
    */
   public onLog?: (message: string) => void;
+
+  /**
+   * The `contentHash` already stored for one of this feed's articles, or
+   * `null` when the article is new (or was left with a null hash by a run
+   * that crashed part-way). Set by `aggregate.ts` right after
+   * `createAggregator()`, alongside `onLog`.
+   *
+   * It is a hook rather than a query in here because `BaseAggregator` has no
+   * database access of its own -- and it is a hook at all because the answer
+   * is needed *inside* the pipeline, before `finalizeArticles()` spends a
+   * provider request on an article the handler is about to discard anyway.
+   * Left unset (every test that builds an aggregator directly, and
+   * `reload.ts`, which works on a single article the user asked for by hand)
+   * nothing is ever considered unchanged, so the behaviour is exactly what it
+   * was before this existed.
+   */
+  public storedContentHash?: (identifier: string) => string | null;
 
   constructor(public feed: FeedLike) {
     this.identifier = feed.identifier || "";
@@ -199,6 +232,32 @@ export abstract class BaseAggregator {
     return articles;
   }
 
+  /**
+   * Fingerprint every article as fetched, and mark the ones that have not
+   * changed since the last run.
+   *
+   * This runs between `enrichArticles()` and `finalizeArticles()`, and the
+   * position is the whole point: `finalizeArticles()` is where AI
+   * post-processing lives, so this is the last moment at which "we already
+   * have this exact article" is still knowable. The check used to sit in
+   * `handleAggregateJob()`, *after* the pipeline had finished -- which meant
+   * an unchanged article was still summarized, translated or rewritten by the
+   * provider on every single cycle, and the skip only saved the local database
+   * write. For a feed whose source keeps returning the same top entries (the
+   * normal case: a 30-minute update interval against a site that publishes a
+   * few times a day) that was one paid request per article per run, forever,
+   * for a result thrown away moments later.
+   */
+  protected fingerprintArticles(articles: RawArticle[]): RawArticle[] {
+    for (const article of articles) {
+      article.content_hash = rawArticleContentHash(article);
+      article.unchanged = Boolean(
+        article.identifier && this.storedContentHash?.(article.identifier) === article.content_hash,
+      );
+    }
+    return articles;
+  }
+
   async finalizeArticles(
     articles: RawArticle[],
     userSettings?: AggregatorUserSettings,
@@ -211,15 +270,35 @@ export abstract class BaseAggregator {
     userSettings?: AggregatorUserSettings,
   ): Promise<RawArticle[]> {
     if (!this.feed.options) return articles;
-    for (let i = 0; i < articles.length; i++) {
-      if (i > 0 && userSettings) {
+
+    // `unchanged` articles are skipped outright -- see `fingerprintArticles()`.
+    // The spacing delay is counted between *requests*, not between array
+    // positions, or a run whose first few entries are all already stored would
+    // sleep `aiRequestDelay` seconds before a request it never made.
+    let requested = false;
+    let skipped = 0;
+
+    for (const article of articles) {
+      if (article.unchanged) {
+        skipped++;
+        continue;
+      }
+
+      if (requested && userSettings) {
         const delay = (userSettings.aiRequestDelay ?? userSettings.ai_request_delay ?? 2) * 1000;
         if (delay > 0) {
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
-      await applyAiOptions(articles[i], this.feed.options, userSettings, this.onLog);
+
+      await applyAiOptions(article, this.feed.options, userSettings, this.onLog);
+      requested = true;
     }
+
+    if (skipped > 0) {
+      this.onLog?.(`AI post-processing skipped for ${skipped} unchanged article(s)`);
+    }
+
     return articles;
   }
 
@@ -293,6 +372,7 @@ export abstract class BaseAggregator {
     articles = await this.filterArticles(articles);
     onProgress?.(20);
     articles = await this.enrichArticles(articles);
+    articles = this.fingerprintArticles(articles);
     onProgress?.(60);
     articles = await this.finalizeArticles(articles, userSettings);
     onProgress?.(80);

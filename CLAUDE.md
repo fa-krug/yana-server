@@ -958,6 +958,46 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   aggregation cycle. A `null` hash means "changed" — every row predating the
   column settles after one pass, and no backfill exists.
 
+  **The fingerprint is computed from the article _as fetched_, before AI
+  post-processing, and that is the fourth load-bearing thing about it.**
+  `rawArticleContentHash()` (same module) is the one derivation, called from
+  `BaseAggregator.fingerprintArticles()` between `enrichArticles()` and
+  `finalizeArticles()`; the handler reads the result back off
+  `raw.content_hash` rather than deriving a second one. It used to be derived
+  in the handler _after_ the pipeline had run, which meant it hashed
+  `raw.name`/`raw.content` **as `applyAiOptions()` had already rewritten them
+  in place** — so for a feed with any AI option enabled the fingerprint was a
+  hash of model output, and at any non-zero `ai_temperature` (the default is
+  0.3) a different string on every run. Everything this hash exists to prevent
+  was therefore happening on every cycle for exactly those feeds: full rewrite,
+  block tree deleted and reinserted, `updatedAt` bumped, article back in the
+  sync `updated` stream. Two consequences of the move:
+  - **The hash no longer covers anything `finalizeArticles()` does** — the AI
+    rewrite, and the `processContent()` step the YouTube and Reddit
+    aggregators run after it. This is the same trap already stated below for
+    `parseBlocks`/`plainTextOf`, widened: a change to either of those stages
+    will not re-derive existing articles. Those stages are deterministic
+    functions of the fetched article, which is what makes fingerprinting the
+    input sound; AI is not, which is what made fingerprinting the output
+    unsound.
+  - **Hashes for YouTube and Reddit articles change once on deploy** (their
+    stored value covered post-`processContent()` content), so those rows
+    rewrite on the first run and settle after it — the same one-pass
+    settlement a `null` hash gets.
+
+  **The write skip and the AI skip are two independent mechanisms, deliberately.**
+  `handleAggregateJob()` asks its own question — compare `hash` against the
+  stored value via its memoized `storedContentHash()` — and skips the writes on
+  a match, exactly as it always did. `raw.unchanged`, set by
+  `fingerprintArticles()` from the same hook, is what keeps an unchanged article
+  out of a **paid provider request**, and it has to be decided upstream because
+  `finalizeArticles()` is where AI runs. Do not collapse the handler's check
+  into `if (raw.unchanged)`: it was written that way first, and it made the
+  write skip depend on the aggregator having run the pipeline step — a stub or a
+  future path that does not sets `unchanged` to nothing, and every article is
+  rewritten. The AI skip degrades safely (no flag, no skip, the old cost); the
+  write skip must not degrade at all.
+
   **The invariant binds every writer, not just the aggregator: anything that
   changes an article's content must set `contentHash` to null** (or recompute
   it). A stale hash does not merely go out of date — it makes the aggregate
@@ -1889,6 +1929,45 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   `unexpected`: "your key is wrong" and "something went wrong" want different
   advice, and a native client polling this reason can tell someone to fix
   their OpenRouter key rather than just retry.
+- **How much a provider is asked for depends on which options are on:
+  `wantsRewrite` in `applyAiOptions()` (`src/lib/ai/run.ts`).** Only three
+  options rewrite the body — `ai_improve_writing`, `ai_translate`, and a custom
+  instruction, which is free-form and so has to be assumed to. `ai_summarize`
+  alone does not, and the request is shaped accordingly:
+  - **The response contract drops `title`/`content`, asking for `summary`
+    alone** — the prompt's key list, the "preserve ALL HTML tags" structural
+    paragraph and the Gemini `responseSchema` all shrink together, and the
+    finished document is built around `cleanHtml` (the locally stripped body
+    this process already holds) rather than the model's copy of it. The echo was
+    the single most expensive thing this function did: the model was told to
+    reproduce the whole document, so a summarize-only article was billed for
+    roughly as many **output** tokens as input ones to hand back a string we
+    already had. It was also what made `aiMaxTokens` (default 2000) a live
+    hazard rather than a cap — an article longer than it came back truncated,
+    the JSON failed to parse, and the entire request was spent on an
+    `invalidJson` failure.
+  - **The input is the article's _text_, not its markup.** The HTML only ever
+    had to cross the wire so a returned body could line up with it tag for tag;
+    with nothing coming back there is nothing to line up, and on a scraped page
+    the tags are a large share of the prompt. A request that _does_ rewrite the
+    body still gets the full `cleanHtml`.
+  - **A volunteered `title` or `content` is ignored on that path.** A model
+    answering a question it was not asked is renaming an article nobody asked to
+    have renamed; the missing-summary failure arm therefore leaves a
+    summarize-only article completely untouched, where a summarize-plus-rewrite
+    one still keeps the rewrite (that asymmetry is what the two
+    `missingSummary` tests in `run.test.ts` pin).
+
+  **`aiMaxPromptLength` does _not_ bound any of this, and its name invites the
+  assumption that it does.** It is read in exactly one place —
+  `POST /api/v1/ai/prompt`, to refuse an over-long prompt from the native
+  client — while the article path sends whole scraped pages with no length
+  bound at all. Its default is `500`, which is a sane ceiling for a
+  hand-typed mobile prompt and would truncate essentially every article to a
+  fragment, so it must not simply be pointed at this path; a bound here needs
+  its own setting and its own default. `bounds.ts`'s own doc line ("Zero sends
+  an empty article") describes an intent that was never wired up.
+
 - **An AI-processed article's document has a fixed order: the lead-media
   `<header>` first, the summary second, the article after them — both optional,
   neither allowed anywhere else.** `applyAiOptions()` (`src/lib/ai/run.ts`) is

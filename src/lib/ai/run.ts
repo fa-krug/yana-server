@@ -633,14 +633,36 @@ export async function applyAiOptions(
   const cleanHtml = $.html();
 
   const wantsSummary = Boolean(opts.ai_summarize);
+  /**
+   * Whether the *article itself* has to come back from the provider.
+   *
+   * Only three options rewrite the body -- improve-writing, translate, and a
+   * custom instruction, which is free-form and so has to be assumed to. A feed
+   * with `ai_summarize` alone needs nothing but the summary, and asking for the
+   * article anyway was the single most expensive thing this function did: the
+   * model was told to echo the entire document back verbatim, so every
+   * summarize-only article was billed for roughly as many *output* tokens as
+   * input ones, to produce a copy of a string we already had in `cleanHtml`.
+   * Worse, the echo is what made `aiMaxTokens` a live hazard -- an article
+   * longer than the cap came back truncated, the JSON failed to parse, and the
+   * whole request was spent for an `invalidJson` failure.
+   */
+  const wantsRewrite = Boolean(opts.ai_improve_writing || opts.ai_translate || customPrompt);
+
+  const responseKeys = [
+    ...(wantsRewrite ? ["'title'", "'content'"] : []),
+    ...(wantsSummary ? ["'summary'"] : []),
+  ];
 
   const promptParts: string[] = [];
 
   promptParts.push(
     "You are an AI assistant that processes article content. " +
-      "You will receive an article title and content in HTML format. " +
-      "You must return the result as a JSON object with keys 'title' and 'content'" +
-      (wantsSummary ? " and 'summary'" : "") +
+      (wantsRewrite
+        ? "You will receive an article title and content in HTML format. "
+        : "You will receive an article title and its text. ") +
+      `You must return the result as a JSON object with ${responseKeys.length > 1 ? "keys" : "the key"} ` +
+      responseKeys.join(" and ") +
       ". " +
       "Do not include any markdown formatting (like ```json) in the response, just the raw JSON string.",
   );
@@ -653,8 +675,10 @@ export async function applyAiOptions(
     // keep the exact structure of the input.
     promptParts.push(
       "Write a concise summary of the article, 2-3 sentences, into the 'summary' field. " +
-        "Plain prose only: no HTML tags, no markdown, no leading label. " +
-        "The 'content' field must still carry the complete article -- never replace it with the summary.",
+        "Plain prose only: no HTML tags, no markdown, no leading label." +
+        (wantsRewrite
+          ? " The 'content' field must still carry the complete article -- never replace it with the summary."
+          : " Return the summary only: do not echo the article back."),
     );
   }
 
@@ -689,25 +713,36 @@ export async function applyAiOptions(
     );
   }
 
-  promptParts.push(
-    "The input content is HTML with stripped headers/footers. " +
-      "CRITICAL: Preserve ALL HTML tags and structure in your output. " +
-      "This includes: links (<a>), paragraphs (<p>), headings (<h1>-<h6>), lists (<ul>, <ol>, <li>), " +
-      "images (<img>), divs, spans, and all other HTML elements. " +
-      "Your output 'content' field must be valid HTML with the exact same structure as the input.",
-  );
+  if (wantsRewrite) {
+    promptParts.push(
+      "The input content is HTML with stripped headers/footers. " +
+        "CRITICAL: Preserve ALL HTML tags and structure in your output. " +
+        "This includes: links (<a>), paragraphs (<p>), headings (<h1>-<h6>), lists (<ul>, <ol>, <li>), " +
+        "images (<img>), divs, spans, and all other HTML elements. " +
+        "Your output 'content' field must be valid HTML with the exact same structure as the input.",
+    );
+  }
 
-  const inputData = { title: article.name || "", content: cleanHtml };
+  /**
+   * Summarize-only sends the article's *text*, not its markup. The structural
+   * paragraph above is the only reason the HTML ever had to go over the wire:
+   * nothing comes back that has to line up with it, so the tags are input
+   * tokens paid for and then discarded -- on a typical scraped page a third to
+   * a half of the whole prompt. Any request that does rewrite the body still
+   * gets the HTML, because its output has to match it tag for tag.
+   */
+  const inputBody = wantsRewrite ? cleanHtml : $.root().text().replace(/\s+/g, " ").trim();
+
+  const inputData = { title: article.name || "", content: inputBody };
   const fullPrompt = promptParts.join("\n") + "\n\nInput Data:\n" + JSON.stringify(inputData);
 
   const jsonSchema = {
     type: "OBJECT",
     properties: {
-      title: { type: "STRING" },
-      content: { type: "STRING" },
+      ...(wantsRewrite ? { title: { type: "STRING" }, content: { type: "STRING" } } : {}),
       ...(wantsSummary ? { summary: { type: "STRING" } } : {}),
     },
-    required: wantsSummary ? ["title", "content", "summary"] : ["title", "content"],
+    required: [...(wantsRewrite ? ["title", "content"] : []), ...(wantsSummary ? ["summary"] : [])],
   };
 
   const generation = await client.generateResponse(fullPrompt, true, jsonSchema, bypassUsageLimit);
@@ -736,12 +771,27 @@ export async function applyAiOptions(
     }
 
     if (parsedResult) {
-      if (typeof parsedResult.title === "string") {
+      // Only a request that asked for a rewrite may change the title. A
+      // summarize-only run does not ask for one, and a model that volunteers
+      // one anyway is renaming an article nobody asked to have renamed.
+      if (wantsRewrite && typeof parsedResult.title === "string") {
         article.name = parsedResult.title;
       }
       const summaryHtml =
         typeof parsedResult.summary === "string" ? summarySectionHtml(parsedResult.summary) : "";
-      if (typeof parsedResult.content === "string") {
+      // The body to place the header and summary around: the model's rewrite
+      // when one was asked for, otherwise the article we already have. Reusing
+      // `cleanHtml` is what lets a summarize-only request skip the echo -- and
+      // it is the *stripped* html rather than the original `content`, so the
+      // document a summarized article ends up with is the same shape a
+      // rewritten one does (header restored, footer/nav/script/style gone)
+      // rather than a second, subtly different one.
+      const body = wantsRewrite
+        ? typeof parsedResult.content === "string"
+          ? parsedResult.content
+          : null
+        : cleanHtml;
+      if (body !== null && (summaryHtml || wantsRewrite)) {
         // The finished document's fixed order: the lead-media header first
         // when there is one, the summary second when there is one, the article
         // itself after them. Both are optional and neither may appear anywhere
@@ -750,9 +800,7 @@ export async function applyAiOptions(
         // there, so a client need not count blocks to find it; the header has
         // no kind of its own and stays positional (an `image` or `embed` block
         // like any other), which is why the order is still a rule.
-        article.content = [leadHeaderHtml, summaryHtml, parsedResult.content]
-          .filter(Boolean)
-          .join("\n\n");
+        article.content = [leadHeaderHtml, summaryHtml, body].filter(Boolean).join("\n\n");
       }
       if (wantsSummary && !summaryHtml) {
         // Summarization was asked for and did not happen. Reported rather than

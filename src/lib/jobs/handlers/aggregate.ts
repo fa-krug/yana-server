@@ -2,7 +2,7 @@ import { and, count, eq, gte } from "drizzle-orm";
 
 import { parseBlocks, plainTextOf } from "@/lib/aggregators/blocks/parser";
 import { writeBlocks } from "@/lib/aggregators/blocks/storage";
-import { articleContentHash } from "@/lib/aggregators/content-hash";
+import { rawArticleContentHash } from "@/lib/aggregators/content-hash";
 import { resolveFeedCredentials } from "@/lib/aggregators/credential-resolution";
 import { createAggregator } from "@/lib/aggregators/factory";
 import { getDb, writeTransaction } from "@/lib/db/client";
@@ -53,6 +53,34 @@ export async function handleAggregateJob(job: Job): Promise<void> {
   appendLogLine(job.id, "stdout", `aggregating feed "${feed.name}" (${feed.aggregator})`);
   const aggregator = createAggregator(resolveFeedCredentials(feed, settings ?? null));
   aggregator.onLog = (message) => appendLogLine(job.id, "stdout", message);
+  // One narrow indexed read per identifier -- one small column, never
+  // `rawContent`/`plainText`, which is the whole point: comparing the large
+  // columns directly would cost the very I/O the skip saves. Memoized because
+  // it is now asked twice for the same article, once by the pipeline (below)
+  // and once by this handler's own loop, and the two want the same answer: the
+  // value as it stood before this run wrote anything.
+  const storedHashes = new Map<string, string | null>();
+  const storedContentHash = (identifier: string): string | null => {
+    const cached = storedHashes.get(identifier);
+    if (cached !== undefined) return cached;
+    const value =
+      db
+        .select({ contentHash: articles.contentHash })
+        .from(articles)
+        .where(and(eq(articles.feedId, feedId), eq(articles.identifier, identifier)))
+        .get()?.contentHash ?? null;
+    storedHashes.set(identifier, value);
+    return value;
+  };
+
+  // The same answer, but needed *inside* the pipeline rather than after it:
+  // `finalizeArticles()` is where AI post-processing happens, so this is the
+  // last point at which an article this feed already stores unchanged can be
+  // kept out of a paid provider request whose result is discarded here anyway.
+  // It is deliberately only an *AI* skip -- the write skip below asks this
+  // handler's own question, so an aggregator that never ran the pipeline step
+  // (a stub, a future path) still skips its writes exactly as it always did.
+  aggregator.storedContentHash = storedContentHash;
   const rawArticles = await aggregator.aggregate(undefined, collectedToday, settings, (percent) =>
     progress(job.id, percent),
   );
@@ -100,29 +128,34 @@ export async function handleAggregateJob(job: Job): Promise<void> {
     const rawContentToStore = raw.raw_content || raw.content || "";
     const rawDate = raw.date ?? null;
 
-    const hash = articleContentHash({
-      name: raw.name || "Untitled",
-      html: htmlContent,
-      rawContent: rawContentToStore,
-      date: rawDate,
-      author: raw.author || "",
-      icon: raw.icon || null,
-    });
+    // Read back, never recomputed here. `fingerprintArticles()` in
+    // `@/lib/aggregators/base` computed this before `finalizeArticles()` ran,
+    // which is what makes it a fingerprint of the article as *fetched* rather
+    // than of whatever `applyAiOptions()` rewrote it into -- see
+    // `rawArticleContentHash()` for why that distinction decided whether this
+    // skip could ever fire at all. The fallback covers an aggregator reached
+    // by some path that never ran the pipeline step: hashing here is then the
+    // old behaviour, which is correct, just no longer able to save the
+    // provider request.
+    const hash =
+      raw.content_hash ??
+      rawArticleContentHash({
+        name: raw.name,
+        content: htmlContent,
+        raw_content: rawContentToStore,
+        date: rawDate,
+        author: raw.author,
+        icon: raw.icon,
+      });
 
-    // Read outside the write transaction, and narrow: one small column, never
-    // `rawContent`/`plainText`. This is the whole point -- comparing the large
-    // columns directly would cost the very I/O the skip saves.
-    const known = db
-      .select({ contentHash: articles.contentHash })
-      .from(articles)
-      .where(and(eq(articles.feedId, feedId), eq(articles.identifier, raw.identifier)))
-      .get();
-
-    if (known && known.contentHash === hash) {
+    if (storedContentHash(raw.identifier) === hash) {
       // Nothing about this article changed since the last run. Skipping is
       // not just cheaper: `articles.updatedAt` carries `$onUpdate`, so an
       // unconditional rewrite would put every unchanged article back into
-      // /api/v1's sync `updated` stream on every aggregation cycle.
+      // /api/v1's sync `updated` stream on every aggregation cycle. When the
+      // pipeline reached the same conclusion (`raw.unchanged`), the far larger
+      // saving already happened upstream: no provider request was made for
+      // this article at all.
       unchanged++;
       progress(job.id, 80 + Math.floor(((i + 1) / total) * 20));
       continue;
