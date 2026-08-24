@@ -588,6 +588,67 @@ function tweetEmbed($: cheerio.CheerioAPI, element: Element): EmbedBlock | null 
   return null;
 }
 
+/**
+ * What one inline tag adds to the styling in force for its own subtree.
+ *
+ * **Extracted so it can be applied to an element as well as to a child.** It
+ * used to be a `switch` inside `inlineRuns()`, which reads a tag only while
+ * descending *into* it -- so an inline element that was a direct child of a
+ * converted container had its own tag ignored entirely. `convert()` called
+ * `inlineRuns($, node, baseUrl)` with no styles and no link, and the element's
+ * own `<b>`/`<i>`/`<a href>` contributed nothing.
+ *
+ * That was not a cosmetic loss. `<p>a <b>x</b></p>` kept its styling (the `p`
+ * branch hands the *paragraph* to `inlineRuns()`, so the `b` is a child), but
+ * `<li>a <b>x</b></li>` did not -- and neither did any container whose text is
+ * not wrapped in a `<p>`, including a bare `<blockquote>` or `<div>`. **A link
+ * in that position lost its href**, so every bulleted list of links in every
+ * article stored plain text with no URL at all. Both halves are covered by
+ * `parser.test.ts`'s "inline styling and links survive as a direct child of
+ * any container" cases.
+ */
+function inlineContext(
+  node: Element,
+  tag: string,
+  baseUrl: string,
+  styles: Set<string>,
+  link: string,
+): { styles: Set<string>; link: string } {
+  const childStyles = new Set(styles);
+  let childLink = link;
+
+  switch (tag) {
+    case "b":
+    case "strong":
+      childStyles.add("bold");
+      break;
+    case "i":
+    case "em":
+    case "cite":
+    case "var":
+      childStyles.add("italic");
+      break;
+    case "code":
+    case "kbd":
+      childStyles.add("code");
+      break;
+    case "s":
+    case "strike":
+    case "del":
+      childStyles.add("strikethrough");
+      break;
+    case "a": {
+      const href = getAttr(node, "href");
+      if (href) {
+        childLink = resolveUrl(href, baseUrl);
+      }
+      break;
+    }
+  }
+
+  return { styles: childStyles, link: childLink };
+}
+
 function inlineRuns(
   $: cheerio.CheerioAPI,
   element: Element,
@@ -625,37 +686,13 @@ function inlineRuns(
       continue;
     }
 
-    const childStyles = new Set(styles);
-    let childLink = link;
-
-    switch (tag) {
-      case "b":
-      case "strong":
-        childStyles.add("bold");
-        break;
-      case "i":
-      case "em":
-      case "cite":
-      case "var":
-        childStyles.add("italic");
-        break;
-      case "code":
-      case "kbd":
-        childStyles.add("code");
-        break;
-      case "s":
-      case "strike":
-      case "del":
-        childStyles.add("strikethrough");
-        break;
-      case "a": {
-        const href = getAttr(node as Element, "href");
-        if (href) {
-          childLink = resolveUrl(href, baseUrl);
-        }
-        break;
-      }
-    }
+    const { styles: childStyles, link: childLink } = inlineContext(
+      node as Element,
+      tag,
+      baseUrl,
+      styles,
+      link,
+    );
 
     runs.push(...inlineRuns($, node as Element, baseUrl, childStyles, childLink));
   }
@@ -727,7 +764,11 @@ function convert(
     }
 
     if (INLINE_TAGS.has(tag)) {
-      inline.push(...inlineRuns($, node as Element, baseUrl));
+      // The element's *own* tag counts: `inlineRuns()` reads a tag only while
+      // descending into it, so passing no context here dropped this element's
+      // styling and, for an `<a>`, its href. See `inlineContext()`.
+      const own = inlineContext(node as Element, tag, baseUrl, new Set(), "");
+      inline.push(...inlineRuns($, node as Element, baseUrl, own.styles, own.link));
       const mediaList = recoverableMedia($, node as Element);
       for (const media of mediaList) {
         const block = mediaBlock($, media, baseUrl);

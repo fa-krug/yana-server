@@ -112,10 +112,8 @@ function escapeLineStart(line: string): string {
  * - **Whitespace collapsed**, except inside a `code` run, where it is content.
  * - **Adjacent runs with identical styling merged.** The notation has no way to
  *   express a boundary between two identically-styled spans, and no reason to.
- *   `parseBlocks()` produces such pairs routinely -- `<li>a <i>b</i></li>`
- *   yields two runs both with `italic: false`, because inline styling is
- *   dropped inside list items (a defect in that parser, not here:
- *   `<p>a <i>b</i></p>` keeps it).
+ *   `parseBlocks()` produces such pairs routinely: `<p>a<span>b</span>c</p>`
+ *   yields three runs with identical styling, one per source node.
  * - **Edge whitespace trimmed** off a paragraph, heading or caption, and empty
  *   runs dropped, since a line's leading and trailing space cannot survive a
  *   line-oriented format and means nothing rendered.

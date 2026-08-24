@@ -1012,6 +1012,41 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   the `contentHash` comment in `src/lib/db/schema/articles.ts`; this is its
   summary, not a second version of it.
 
+  **That trap has already been paid once, and knowing how is the point.** The
+  `inlineContext()` fix in `parseBlocks()` (see the bullet below) corrected
+  styling and hrefs that were being dropped, but it does **not** re-derive an
+  article already stored: its fingerprint still matches, so the skip fires and
+  the old, lossy block tree stays. Articles fixed themselves only as their
+  source changed. Nulling every `contentHash` to force a re-parse was considered
+  and rejected: it would put every article back through the full write path
+  _and_ through a fresh provider request, which is the exact cost the rest of
+  this branch exists to remove. A parser fix that has to reach stored rows needs
+  a re-parse path that reads `articles.rawContent` and rewrites blocks **without**
+  calling AI; there is no such job today.
+
+- **`convert()` must hand `inlineRuns()` an element's own inline context —
+  `inlineContext()` in `src/lib/aggregators/blocks/parser.ts`.** `inlineRuns()`
+  reads a tag only while descending _into_ it, so an inline element that is a
+  **direct child** of a converted container needs its own tag applied before the
+  descent. `convert()` did not do that: its `INLINE_TAGS` branch called
+  `inlineRuns($, node, baseUrl)` with no styles and no link, and the element's
+  own `<b>`/`<i>`/`<a href>` contributed nothing.
+
+  It looked fine because the case everyone tests worked: `<p>a <b>x</b></p>`
+  keeps its styling, since the `p` branch hands the _paragraph_ to
+  `inlineRuns()` and the `b` is therefore a child. Every other container lost
+  it — `<li>`, a bare `<blockquote>`, any `<div>` whose text is not wrapped in a
+  `<p>`. And the styling was the mild half: **a link in that position lost its
+  href entirely**, so every bulleted list of links in every article stored plain
+  text with no URL. Measured, not theorised — the same markup in a `<p>` and in
+  an `<li>` gave one link and none.
+
+  So **a new container branch in `convert()` has to pass `inlineContext()`'s
+  result**, not call `inlineRuns()` bare. `parser.test.ts`'s "inline styling and
+  links survive as a direct child of any container" block covers a list item, an
+  ordered list item, a bare blockquote, a bare div and a paragraph together,
+  precisely because passing for one container proved nothing about the others.
+
 - **Article search goes through the `articles_fts` FTS5 external-content table,
   via `toFtsQuery()`** (`src/lib/articles/search-query.ts`). It replaced a
   `LIKE '%term%'` over `plainText` — the largest column on the table — which

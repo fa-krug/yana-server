@@ -80,9 +80,7 @@ describe("blocksToText / textToBlocks", () => {
 
   describe("canonicalBlocks is the round trip's specification", () => {
     it("is idempotent, so it is a normal form rather than a transformation", () => {
-      const blocks = fromHtml(
-        "<p>A  paragraph\nwith   odd   spacing.</p><ul><li>a <i>b</i></li></ul>",
-      );
+      const blocks = fromHtml("<p>A  paragraph\nwith   odd   spacing.</p><p>a<span>b</span>c</p>");
       const once = canonicalBlocks(blocks);
 
       expect(canonicalBlocks(once)).toEqual(once);
