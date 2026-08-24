@@ -71,7 +71,7 @@ export interface Blockquote {
 /**
  * The article's AI-written summary, second in the document (after the
  * lead-media image, when there is one) and never anywhere else -- see the
- * document-order rule on `applyAiOptions()` in `@/lib/ai/run`.
+ * document-order rule on `applyAiToBlocks()` in `@/lib/ai/run`.
  *
  * A kind of its own rather than the paragraph it used to parse as, so a client
  * can style, collapse or skip it without counting blocks. It wraps blocks

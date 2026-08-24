@@ -70,22 +70,24 @@ export interface RawArticleFingerprintSource {
 
 /**
  * The one derivation of `ArticleContentInput` from a freshly aggregated
- * article, shared by the two places that need the same fingerprint for the
- * same article: `BaseAggregator.fingerprintArticles()` computes it *before*
- * AI post-processing runs, and `handleAggregateJob()` reads that precomputed
- * value back rather than deriving a second one.
+ * article, called by `handleAggregateJob()` before it does anything else with
+ * the row.
  *
- * The two halves used to be one expression in the job handler, computed
- * *after* `applyAiOptions()` had already rewritten `name` and `content` in
- * place -- which made the fingerprint a hash of model output. At the default
- * `ai_temperature` of 0.3 that is a different string on every run, so the
- * "nothing changed, skip every write" branch could never fire for a feed with
- * any AI option enabled: every article was rewritten, re-parsed and pushed
- * back into `/api/v1`'s sync `updated` stream on every aggregation cycle, and
- * -- far more expensively -- every article was sent to the provider again on
- * every cycle, because the skip that would have prevented it was downstream of
- * the call it needed to prevent. Fingerprinting the article as *fetched* is
- * what makes the value stable, and therefore what makes the skip work at all.
+ * **It fingerprints the article as *fetched*, and the ordering that makes that
+ * true is load-bearing.** AI post-processing runs *below* this check now
+ * (`applyAiToBlocks()`, on the block tree, in the job handler), so nothing in
+ * this value can depend on model output. It did once: the AI stage (then
+ * `applyAiOptions()`) rewrote `name` and `content` in place inside the
+ * aggregator pipeline, upstream of the handler, so the fingerprint was a hash
+ * of a non-deterministic answer -- a different string on every run at the
+ * default `ai_temperature` of 0.3. Everything the hash exists to prevent was
+ * therefore happening every cycle for exactly the feeds with AI enabled: full
+ * rewrite, block tree deleted and reinserted, `updatedAt` bumped, article back
+ * in `/api/v1`'s sync `updated` stream. And the far larger cost, because the
+ * skip sat downstream of the provider request it should have prevented: every
+ * article sent to the provider again on every run.
+ *
+ * So a change that moves AI back above this call re-breaks both at once.
  *
  * The `content || raw_content` / `raw_content || content` pair mirrors what
  * the handler stores: the block tree is parsed from the first, the

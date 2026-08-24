@@ -6,7 +6,7 @@ import { writeBlocks } from "@/lib/aggregators/blocks/storage";
 import type { Block } from "@/lib/aggregators/blocks/types";
 import { resolveFeedCredentials } from "@/lib/aggregators/credential-resolution";
 import { createAggregator } from "@/lib/aggregators/factory";
-import { applyAiOptions } from "@/lib/ai/run";
+import { applyAiToBlocks } from "@/lib/ai/run";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, feeds, userSettings, type Job } from "@/lib/db/schema";
 import { appendLogLine } from "../queue";
@@ -52,13 +52,13 @@ function buildErrorBlocks(message: string): Block[] {
  * to call `videos.list`) fails every time, landing in the error-notice branch
  * above instead of ever reaching the source.
  *
- * AI post-processing (`applyAiOptions()`, the feed's summarize/improve/translate
+ * AI post-processing (`applyAiToBlocks()`, the feed's summarize/improve/translate
  * options) runs between `extractContent()` and `processContent()`, mirroring
  * `enrichArticles()` -> `finalizeArticles()`'s order on a fresh aggregation run:
  * it needs the *distilled* content extractContent() produced, before
  * processContent() splices in embeds/header markup the AI call has no reason
  * to see. A translated title is written back too, since that is a field
- * `applyAiOptions()` can change.
+ * `applyAiToBlocks()` can change.
  *
  * One thing distinguishes this call from `aggregate.ts`'s equivalent one:
  *
@@ -90,7 +90,7 @@ export async function handleReloadJob(job: Job): Promise<void> {
   }
 
   // Read once, up front, and handed to both resolveFeedCredentials() (which
-  // would otherwise re-run this same query itself) and applyAiOptions() below.
+  // would otherwise re-run this same query itself) and applyAiToBlocks() below.
   const settings = db.select().from(userSettings).where(eq(userSettings.userId, feed.userId)).get();
 
   const aggregator = createAggregator(resolveFeedCredentials(feed, settings ?? null));
@@ -147,19 +147,30 @@ export async function handleReloadJob(job: Job): Promise<void> {
     appendLogLine(job.id, "stdout", "extracted content is empty");
   }
 
-  const aiOutcome = await applyAiOptions(rawArticle, feed.options, settings, aggregator.onLog);
-
+  // AI runs *after* processContent() now, not before it, and both call paths
+  // are the same order for the first time: extract, process, parse, then AI on
+  // the block tree. The old ordering existed so the model would not see the
+  // embed and header markup processContent() splices in -- with blocks it
+  // cannot, because every image, embed and code block crosses as an opaque
+  // index (see `@/lib/ai/block-text`), so the reason for the asymmetry is gone.
   const processed = await aggregator.processContent(rawArticle.content || "", rawArticle);
 
-  const blocks = parseBlocks(processed, article.identifier);
-  const plainText = plainTextOf(blocks);
+  const ai = await applyAiToBlocks(
+    { title: rawArticle.name || article.name, blocks: parseBlocks(processed, article.identifier) },
+    feed.options,
+    settings,
+    aggregator.onLog,
+  );
+  const aiOutcome = ai.outcome;
 
-  await writeBlocks(article.id, blocks);
+  const plainText = plainTextOf(ai.blocks);
+
+  await writeBlocks(article.id, ai.blocks);
 
   writeTransaction((tx) => {
     tx.update(articles)
       .set({
-        name: rawArticle.name || article.name,
+        name: ai.title || article.name,
         rawContent: freshHtml,
         plainText,
         // Same reason as the failed-refetch branch above: reload has just

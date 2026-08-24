@@ -1,19 +1,13 @@
-import * as cheerio from "cheerio";
-import type { Element } from "domhandler";
-
-import { escapeHtml } from "@/lib/aggregators/extract/format";
+import { plainTextOf } from "@/lib/aggregators/blocks/parser";
+import type { Block } from "@/lib/aggregators/blocks/types";
 import type { UserSettings } from "@/lib/db/schema";
+
+import { blocksToText, canonicalBlocks, textToBlocks } from "./block-text";
 
 import { DEEPSEEK_API_URL, MISTRAL_API_URL, OPENROUTER_API_URL, QWEN_API_URL } from "./providers";
 
-export interface ArticleInput {
-  name?: string;
-  content?: string;
-  [key: string]: unknown;
-}
-
 /**
- * What `AIClient` and `applyAiOptions` accept for a user's AI configuration.
+ * What `AIClient` and `applyAiToBlocks` accept for a user's AI configuration.
  *
  * `getSettings()`'s real row is `UserSettings` -- camelCase, one field per
  * column -- so `Partial<UserSettings>` covers every production caller. Every
@@ -227,7 +221,7 @@ export class AIClient {
    * run without a quota refusing it. Cost control is the caller's job instead,
    * and it is structural rather than a ceiling -- `fingerprintArticles()` in
    * `@/lib/aggregators/base` never asks for an article the feed already has,
-   * and `applyAiOptions()` below asks only for the fields the feed's options
+   * and `applyAiToBlocks()` below asks only for the fields the feed's options
    * actually need. A cap only ever refused work that had already been decided
    * to be worth doing; not asking in the first place costs nothing.
    *
@@ -468,8 +462,8 @@ export class AIClient {
 }
 
 /**
- * What `applyAiOptions()` actually did, distinct from the `ArticleInput` it
- * mutates in place -- a caller that asked for AI processing (a feed's
+ * What the AI stage actually did, distinct from the block tree it returns -- a
+ * caller that asked for AI processing (a feed's
  * summarize/improve-writing/translate options) and didn't get it needs to be
  * able to tell that apart from "no AI options were configured at all," which
  * is a normal, silent no-op rather than a failure.
@@ -478,136 +472,132 @@ export type ApplyAiOutcome =
   { status: "skipped" } | { status: "applied" } | { status: "failed"; reason: string };
 
 /**
- * Detach the article's lead-media `<header>` -- the one every aggregator emits
- * as the first element of its content (`buildHeaderHtml()` in
- * `@/lib/aggregators/extract/format`, Tagesschau's and Reddit's own
- * `media-header`) -- and hand back its HTML so the caller can put it back at
- * the first position afterwards.
+ * The notation spec the model is given, once per request.
  *
- * Only a *leading* header is taken, because only a leading header is the lead
- * media: a `<header>` further down the body is decorative chrome (byline, date,
- * site logo), which `headerBlocks()` in `../aggregators/blocks/parser.ts`
- * already strips of its images. Everything else the strip below removes
- * (footer/nav/script/style, and any non-leading header) stays removed.
- *
- * This has to be detached-and-restored rather than simply left in place: the
- * model must not see the media markup (it rewrites, translates or drops it),
- * and its answer *replaces* the whole document -- so a header that is only
- * removed is a header that is gone. It was: with any AI option enabled, an
- * aggregated article lost its lead image both from `articles.content` and from
- * the block tree parsed out of it, taking the client's lead image and timeline
- * thumbnail with it.
+ * Short on purpose: it is paid for on every article, and every line of it is a
+ * rule the parser actually enforces. `[[M<n>]]` and `(L<n>)` are the two that
+ * matter most -- they are the reason a rewrite cannot corrupt an image ref, an
+ * embed, a line of code or a URL, because none of those is in the document to
+ * corrupt.
  */
-function takeLeadHeaderHtml($: cheerio.CheerioAPI): string | null {
-  const first = $.root().children().first();
-  if (
-    first.length === 0 ||
-    (first.get(0) as Element | undefined)?.name?.toLowerCase() !== "header"
-  ) {
-    return null;
+const NOTATION_SPEC = [
+  "The document uses this notation. Return the same notation, nothing else:",
+  "- A blank line separates blocks.",
+  '- "# " to "###### " begin a heading. "- " begins a list item, "1. " an ordered one. "> " begins a quoted line.',
+  "- Inline styles are <b>bold</b>, <i>italic</i>, <s>struck</s>, <code>code</code>.",
+  '- "[label](L3)" is a link. Rewrite the label, never the "(L3)", and never invent an index.',
+  '- "[[M7]]" stands for an image, video, embed or code block. Reproduce every one of them exactly, on its own line. You may move them; never edit, duplicate or drop one.',
+  "- A backslash escapes the character after it.",
+].join("\n");
+
+/** A tolerant read of a model's JSON answer: bare, fenced, or embedded. */
+function parseJsonAnswer(raw: string): Record<string, unknown> | null {
+  const attempt = (text: string): Record<string, unknown> | null => {
+    try {
+      const value: unknown = JSON.parse(text);
+      return typeof value === "object" && value !== null
+        ? (value as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const direct = attempt(raw);
+  if (direct) return direct;
+
+  const fenced = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/.exec(raw);
+  if (fenced) {
+    const parsed = attempt(fenced[1]);
+    if (parsed) return parsed;
   }
-  return $.html(first);
+
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start !== -1 && end > start) {
+    return attempt(raw.substring(start, end + 1));
+  }
+  return null;
+}
+
+/** The article's lead media: block 0, when it is an image or an embed. */
+function leadMediaOf(blocks: Block[]): Block | null {
+  const first = blocks[0];
+  return first && (first.kind === "image" || first.kind === "embed") ? first : null;
 }
 
 /**
- * The summary's own element, second in the finished document, and the marker
- * `parseBlocks()` turns into a `summary` block.
+ * Turn the model's summary prose into the `summary` block, placed after the
+ * lead media when there is one and first otherwise.
  *
- * `data-sanitized-class` rather than `class` matches what
- * `formatArticleContent()` writes for `article-content`/`article-comments`:
- * the aggregators' own sanitizer (`sanitizeClassNames()`) renames `class` to
- * exactly this, and the reload path runs that sanitizer *after* this function,
- * so writing the sanitized name here keeps the two paths emitting one shape.
- *
- * The name breaks that pair's `article-*` convention on purpose. Those two are
- * wrappers nothing parses; this one *decides a block kind*, and the parser
- * cannot tell our marker from a scraped page's own markup -- `article-summary`
- * is an ordinary CSS class out there, so a site using it would have its teaser
- * served to clients as this article's AI summary. `yana-ai-summary` is ours.
- *
- * The text is escaped, never interpolated raw: it is model output on its way
- * into stored HTML, and asking for plain prose (see the prompt) is not a
- * guarantee of getting it.
+ * The prose is split on blank lines into paragraphs *inside* the one block --
+ * the shape `SummaryBlock` exists for, so a two-paragraph answer does not push
+ * the article down the document.
  */
-function summarySectionHtml(summary: string): string {
+function withSummary(blocks: Block[], summary: string): Block[] {
   const paragraphs = summary
     .split(/\n\s*\n|\n/)
     .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => `<p>${escapeHtml(line)}</p>`)
-    .join("");
-  if (!paragraphs) {
-    return "";
-  }
-  return `<section data-sanitized-class="yana-ai-summary">${paragraphs}</section>`;
+    .filter(Boolean);
+  if (paragraphs.length === 0) return blocks;
+
+  const block: Block = {
+    kind: "summary",
+    blocks: paragraphs.map((text) => ({
+      kind: "paragraph" as const,
+      runs: [{ text, bold: false, italic: false, code: false, strikethrough: false, link: "" }],
+    })),
+  };
+
+  const at = leadMediaOf(blocks) ? 1 : 0;
+  return [...blocks.slice(0, at), block, ...blocks.slice(at)];
+}
+
+/** What the AI stage was given, and what it hands back. */
+export interface AiBlockDocument {
+  title: string;
+  blocks: Block[];
+}
+
+export interface AiBlockResult extends AiBlockDocument {
+  outcome: ApplyAiOutcome;
 }
 
 /**
- * Every attribute `parseBlocks()` (`../aggregators/blocks/parser.ts`) ever
- * reads, and therefore every attribute worth sending to a provider.
+ * Run a feed's AI options over an article's **block tree**, not its HTML.
  *
- * This is the parser's full set, gathered from its sixteen `getAttr()` call
- * sites plus its `CLASS_ATTRS`/`EMBED_MARKUP_ATTRS` lists -- not a guess at
- * which attributes look useful. **Adding a `getAttr()` call over there means
- * adding its name here**, or the value it wants will have been stripped from
- * the markup before the model ever saw it, and the block it feeds will come
- * back empty for AI-processed articles only.
+ * The block tree is what gets stored -- there is no `articles.content` column
+ * -- so this is the format the stage should always have worked in.
+ * `blocksToText()` (`./block-text`) renders it as compact prose in which every
+ * URL and every non-prose block is an opaque index, and `textToBlocks()` reads
+ * the answer back. Three things follow, and each was a real failure mode of the
+ * HTML round trip this replaces:
+ *
+ * - **The model can restructure.** Merging, splitting and reordering blocks is
+ *   allowed and expected for an improve-writing request, because the answer is
+ *   read on its own terms rather than checked against the shape that went out.
+ *   The HTML form forbade it in the prompt ("the exact same structure as the
+ *   input") and had no way to enforce it.
+ * - **It cannot damage what it cannot see.** An image ref, an embed, a line of
+ *   code and every URL are indices, so a rewrite cannot alter one, and a
+ *   truncated answer cannot produce unparseable markup -- the parser is total.
+ * - **It costs a fraction as much.** Measured on real pages, the document is
+ *   12-19% the size of the HTML it replaces, in *and* out.
+ *
+ * **The lead media stays the lead media.** Restructuring is prose freedom, not
+ * licence to move the article's thumbnail: clients hoist block 0 when it is an
+ * image (`ArticleBlockView.leadImageRef`), so an image the model relocated or
+ * dropped would silently change what a timeline shows. If the input led with
+ * one, the output does too.
  */
-const PARSED_ATTRS = new Set([
-  "src",
-  "data-src",
-  "data-lazy-src",
-  "poster",
-  "href",
-  "class",
-  "data-sanitized-class",
-  "data-embed",
-  "data-sanitized-embed",
-  "data-sanitized-data-embed-content",
-]);
-
-/**
- * Drop the attributes nothing downstream reads, in place.
- *
- * The extraction pipeline's `sanitizeHtmlAttributes()`
- * (`../aggregators/extract/clean.ts`) *renames* rather than removes: `class` ->
- * `data-sanitized-class`, `style` -> `data-sanitized-style`, `id` ->
- * `data-sanitized-id`, and every other `data-*` -> `data-sanitized-*`. So a
- * scraped page arrives here carrying every class name, inline style, id,
- * tracking attribute and lazy-loading hint it was published with, each fifteen
- * characters *longer* than the original for the added prefix -- and the prompt
- * then tells the model to reproduce all of it, so the same bytes are paid for
- * twice, in and out.
- *
- * Measured on real pages (through this repo's own sanitizer), the share of the
- * prompt that is attributes the parser never reads ran from ~7% on a plain
- * article page to ~46% on a heavily-marked-up one. None of it can affect the
- * stored result: there is no `articles.content` column, so the model's markup
- * only ever becomes the block tree, and the block tree is built from
- * `PARSED_ATTRS` alone.
- *
- * Only for what is *sent*. `articles.rawContent` keeps the true fetched page
- * for every aggregator that fetches one, which is what `reload.ts` re-extracts
- * from.
- */
-function stripUnparsedAttributes($: cheerio.CheerioAPI): void {
-  $("*").each((_, node) => {
-    const element = node as Element;
-    if (element.type !== "tag" || !element.attribs) return;
-    for (const name of Object.keys(element.attribs)) {
-      if (!PARSED_ATTRS.has(name.toLowerCase())) {
-        delete element.attribs[name];
-      }
-    }
-  });
-}
-
-export async function applyAiOptions(
-  article: ArticleInput,
+export async function applyAiToBlocks(
+  input: AiBlockDocument,
   options?: Record<string, unknown> | null,
   userSettings?: AiRuntimeSettings,
   onLog?: (message: string) => void,
-): Promise<ApplyAiOutcome> {
+): Promise<AiBlockResult> {
+  const unchanged = (outcome: ApplyAiOutcome): AiBlockResult => ({ ...input, outcome });
+
   const opts = options || {};
   /**
    * The feed's own extra instruction (`ai_custom_prompt` +
@@ -619,236 +609,181 @@ export async function applyAiOptions(
     opts.ai_custom_prompt && typeof opts.ai_custom_prompt_text === "string"
       ? opts.ai_custom_prompt_text.trim()
       : "";
-  const aiEnabled = Boolean(
-    opts.ai_summarize || opts.ai_improve_writing || opts.ai_translate || customPrompt,
-  );
+  const wantsSummary = Boolean(opts.ai_summarize);
+  /**
+   * Whether the article body has to come back at all. Only three options
+   * rewrite it -- improve-writing, translate, and a custom instruction, which
+   * is free-form and so has to be assumed to. `ai_summarize` alone needs
+   * nothing but the summary, so it sends plain text and gets three sentences
+   * back rather than paying for a copy of a document we already hold.
+   */
+  const wantsRewrite = Boolean(opts.ai_improve_writing || opts.ai_translate || customPrompt);
 
-  if (!aiEnabled) {
-    return { status: "skipped" };
+  if (!wantsSummary && !wantsRewrite) {
+    return unchanged({ status: "skipped" });
   }
 
   if (!userSettings) {
     console.warn("No userSettings provided for AI processing.");
-    return { status: "failed", reason: "noProvider" };
+    return unchanged({ status: "failed", reason: "noProvider" });
   }
-
-  const provider = userSettings.activeAiProvider ?? userSettings.active_ai_provider;
-  if (!provider) {
+  if (!(userSettings.activeAiProvider ?? userSettings.active_ai_provider)) {
     console.warn("No active AI provider selected.");
-    return { status: "failed", reason: "noProvider" };
+    return unchanged({ status: "failed", reason: "noProvider" });
+  }
+  if (input.blocks.length === 0) {
+    return unchanged({ status: "skipped" });
   }
 
   const client = new AIClient(userSettings, onLog);
+  const document = blocksToText(input.blocks);
 
-  const content = article.content || "";
-  if (!content) {
-    return { status: "skipped" };
-  }
-
-  // Parse HTML, keep the lead-media header aside, strip headers, footers,
-  // navs, scripts, styles -- then strip the attributes nothing downstream
-  // reads, so they are not paid for on the way out and back.
-  const $ = cheerio.load(content, null, false);
-  const leadHeaderHtml = takeLeadHeaderHtml($);
-  $("header, footer, nav, script, style").remove();
-  stripUnparsedAttributes($);
-  const cleanHtml = $.html();
-
-  const wantsSummary = Boolean(opts.ai_summarize);
-  /**
-   * Whether the *article itself* has to come back from the provider.
-   *
-   * Only three options rewrite the body -- improve-writing, translate, and a
-   * custom instruction, which is free-form and so has to be assumed to. A feed
-   * with `ai_summarize` alone needs nothing but the summary, and asking for the
-   * article anyway was the single most expensive thing this function did: the
-   * model was told to echo the entire document back verbatim, so every
-   * summarize-only article was billed for roughly as many *output* tokens as
-   * input ones, to produce a copy of a string we already had in `cleanHtml`.
-   * Worse, the echo is what made `aiMaxTokens` a live hazard -- an article
-   * longer than the cap came back truncated, the JSON failed to parse, and the
-   * whole request was spent for an `invalidJson` failure.
-   */
-  const wantsRewrite = Boolean(opts.ai_improve_writing || opts.ai_translate || customPrompt);
-
+  const promptParts: string[] = [];
   const responseKeys = [
-    ...(wantsRewrite ? ["'title'", "'content'"] : []),
+    ...(wantsRewrite ? ["'title'", "'document'"] : []),
     ...(wantsSummary ? ["'summary'"] : []),
   ];
 
-  const promptParts: string[] = [];
-
   promptParts.push(
     "You are an AI assistant that processes article content. " +
-      (wantsRewrite
-        ? "You will receive an article title and content in HTML format. "
-        : "You will receive an article title and its text. ") +
-      `You must return the result as a JSON object with ${responseKeys.length > 1 ? "keys" : "the key"} ` +
+      `You must answer with a JSON object with ${responseKeys.length > 1 ? "keys" : "the key"} ` +
       responseKeys.join(" and ") +
-      ". " +
-      "Do not include any markdown formatting (like ```json) in the response, just the raw JSON string.",
+      ". Do not wrap it in markdown fences; return the raw JSON.",
   );
 
   if (wantsSummary) {
-    // The summary is its own field and its own element in the finished
-    // document -- it does NOT replace the article. Asking for a summary *in*
-    // `content` (what this used to do) both destroyed the body and
-    // contradicted the structural paragraph below, which demands `content`
-    // keep the exact structure of the input.
     promptParts.push(
       "Write a concise summary of the article, 2-3 sentences, into the 'summary' field. " +
-        "Plain prose only: no HTML tags, no markdown, no leading label." +
-        (wantsRewrite
-          ? " The 'content' field must still carry the complete article -- never replace it with the summary."
-          : " Return the summary only: do not echo the article back."),
-    );
-  }
-
-  if (opts.ai_improve_writing) {
-    promptParts.push(
-      "Rewrite the content to improve clarity, flow, and style. " +
-        "IMPORTANT: Preserve the complete HTML structure including all tags. " +
-        "Keep all links (<a> tags) exactly as they are - do not modify href attributes or remove any links. " +
-        "Only improve the text content itself.",
-    );
-  }
-
-  if (opts.ai_translate) {
-    const targetLang =
-      typeof opts.ai_translate_language === "string" ? opts.ai_translate_language : "English";
-    promptParts.push(
-      `Translate the title${wantsSummary ? ", summary" : ""} and content to ${targetLang}. ` +
-        "IMPORTANT: Do NOT translate link labels (the text inside <a> tags). " +
-        "Keep link text in the original language. Only translate regular text content.",
-    );
-  }
-
-  if (customPrompt) {
-    // Delimited and labelled as the user's own text, and placed *before* the
-    // structural paragraph below rather than last: the JSON/HTML contract the
-    // response parser depends on has to be the final word, or a custom prompt
-    // (deliberately or not) reshapes the output into something unparseable.
-    promptParts.push(
-      "The user of this feed has supplied the following additional instruction. " +
-        "Follow it where it does not conflict with the output format required below:\n" +
-        `"""\n${customPrompt}\n"""`,
+        "Plain prose only: no notation, no markdown, no leading label." +
+        (wantsRewrite ? "" : " Return the summary only; do not reproduce the article."),
     );
   }
 
   if (wantsRewrite) {
+    promptParts.push(NOTATION_SPEC);
+
+    if (opts.ai_improve_writing) {
+      promptParts.push(
+        "Rewrite the document to improve clarity, flow and style. " +
+          "You may merge, split and reorder blocks where that reads better -- the structure is " +
+          "yours to change. Keep every link label meaningful and keep every [[M...]] placeholder.",
+      );
+    }
+
+    if (opts.ai_translate) {
+      const targetLang =
+        typeof opts.ai_translate_language === "string" ? opts.ai_translate_language : "English";
+      promptParts.push(
+        `Translate the title${wantsSummary ? ", summary" : ""} and document to ${targetLang}. ` +
+          "Translate link labels too, but never the (L...) index inside them.",
+      );
+    }
+
+    if (customPrompt) {
+      // Delimited and labelled as the user's own text, and placed before the
+      // closing contract below: the JSON/notation shape the parser depends on
+      // has to be the final word, or a custom prompt (deliberately or not)
+      // reshapes the output into something unreadable.
+      promptParts.push(
+        "The user of this feed has supplied the following additional instruction. " +
+          "Follow it where it does not conflict with the output format required below:\n" +
+          `"""\n${customPrompt}\n"""`,
+      );
+    }
+
     promptParts.push(
-      "The input content is HTML with stripped headers/footers. " +
-        "CRITICAL: Preserve ALL HTML tags and structure in your output. " +
-        "This includes: links (<a>), paragraphs (<p>), headings (<h1>-<h6>), lists (<ul>, <ol>, <li>), " +
-        "images (<img>), divs, spans, and all other HTML elements. " +
-        "Your output 'content' field must be valid HTML with the exact same structure as the input.",
+      "Put the rewritten document in the 'document' field, in the notation described above, " +
+        "and the article title in 'title'.",
     );
   }
 
-  /**
-   * Summarize-only sends the article's *text*, not its markup. The structural
-   * paragraph above is the only reason the HTML ever had to go over the wire:
-   * nothing comes back that has to line up with it, so the tags are input
-   * tokens paid for and then discarded -- on a typical scraped page a third to
-   * a half of the whole prompt. Any request that does rewrite the body still
-   * gets the HTML, because its output has to match it tag for tag.
-   */
-  const inputBody = wantsRewrite ? cleanHtml : $.root().text().replace(/\s+/g, " ").trim();
-
-  const inputData = { title: article.name || "", content: inputBody };
-  const fullPrompt = promptParts.join("\n") + "\n\nInput Data:\n" + JSON.stringify(inputData);
+  const payload = wantsRewrite
+    ? { title: input.title, document: document.text }
+    : { title: input.title, text: plainTextOf(input.blocks) };
 
   const jsonSchema = {
     type: "OBJECT",
     properties: {
-      ...(wantsRewrite ? { title: { type: "STRING" }, content: { type: "STRING" } } : {}),
+      ...(wantsRewrite ? { title: { type: "STRING" }, document: { type: "STRING" } } : {}),
       ...(wantsSummary ? { summary: { type: "STRING" } } : {}),
     },
-    required: [...(wantsRewrite ? ["title", "content"] : []), ...(wantsSummary ? ["summary"] : [])],
+    required: [
+      ...(wantsRewrite ? ["title", "document"] : []),
+      ...(wantsSummary ? ["summary"] : []),
+    ],
   };
 
-  const generation = await client.generateResponse(fullPrompt, true, jsonSchema);
+  const generation = await client.generateResponse(
+    promptParts.join("\n") + "\n\nInput:\n" + JSON.stringify(payload),
+    true,
+    jsonSchema,
+  );
 
-  if (generation.ok) {
-    const result = generation.text;
-    let parsedResult: { title?: string; content?: string; summary?: string } | null = null;
-    try {
-      parsedResult = JSON.parse(result);
-    } catch {
-      const match = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/.exec(result);
-      if (match) {
-        try {
-          parsedResult = JSON.parse(match[1]);
-        } catch {}
-      }
-      if (!parsedResult) {
-        const start = result.indexOf("{");
-        const end = result.lastIndexOf("}");
-        if (start !== -1 && end !== -1 && end > start) {
-          try {
-            parsedResult = JSON.parse(result.substring(start, end + 1));
-          } catch {}
+  if (!generation.ok) {
+    const message = `AI processing failed for article '${input.title}' (${generation.reason}). Keeping original content.`;
+    console.warn(message);
+    onLog?.(message);
+    return unchanged({ status: "failed", reason: generation.reason });
+  }
+
+  const answer = parseJsonAnswer(generation.text);
+  if (!answer) {
+    const message = `AI returned invalid JSON for article '${input.title}': ${generation.text.slice(0, 100)}...`;
+    console.warn(message);
+    onLog?.(message);
+    return unchanged({ status: "failed", reason: "invalidJson" });
+  }
+
+  let title = input.title;
+  let blocks = canonicalBlocks(input.blocks);
+
+  if (wantsRewrite) {
+    // Only a request that asked for a rewrite may change either. A model that
+    // volunteers a title for a summarize-only request is renaming an article
+    // nobody asked to have renamed.
+    if (typeof answer.title === "string" && answer.title.trim()) {
+      title = answer.title;
+    }
+    if (typeof answer.document === "string") {
+      const parsed = textToBlocks(answer.document, document);
+      if (parsed.blocks.length > 0) {
+        blocks = parsed.blocks;
+
+        const lead = leadMediaOf(input.blocks);
+        if (lead && !blocks.includes(lead)) {
+          // Moved or dropped. Put it back at the front rather than letting a
+          // rewrite change the article's thumbnail -- see the doc comment.
+          blocks = [lead, ...blocks.filter((block) => block !== lead)];
+        }
+
+        if (parsed.droppedOpaque.length > 0) {
+          const message =
+            `AI dropped ${parsed.droppedOpaque.length} media/code block(s) from article ` +
+            `'${title}'; the rest of the rewrite was kept.`;
+          console.warn(message);
+          onLog?.(message);
         }
       }
     }
+  }
 
-    if (parsedResult) {
-      // Only a request that asked for a rewrite may change the title. A
-      // summarize-only run does not ask for one, and a model that volunteers
-      // one anyway is renaming an article nobody asked to have renamed.
-      if (wantsRewrite && typeof parsedResult.title === "string") {
-        article.name = parsedResult.title;
-      }
-      const summaryHtml =
-        typeof parsedResult.summary === "string" ? summarySectionHtml(parsedResult.summary) : "";
-      // The body to place the header and summary around: the model's rewrite
-      // when one was asked for, otherwise the article we already have. Reusing
-      // `cleanHtml` is what lets a summarize-only request skip the echo -- and
-      // it is the *stripped* html rather than the original `content`, so the
-      // document a summarized article ends up with is the same shape a
-      // rewritten one does (header restored, footer/nav/script/style gone)
-      // rather than a second, subtly different one.
-      const body = wantsRewrite
-        ? typeof parsedResult.content === "string"
-          ? parsedResult.content
-          : null
-        : cleanHtml;
-      if (body !== null && (summaryHtml || wantsRewrite)) {
-        // The finished document's fixed order: the lead-media header first
-        // when there is one, the summary second when there is one, the article
-        // itself after them. Both are optional and neither may appear anywhere
-        // else -- `parseBlocks()` turns this straight into the block tree the
-        // clients read. The summary carries its own `summary` block kind
-        // there, so a client need not count blocks to find it; the header has
-        // no kind of its own and stays positional (an `image` or `embed` block
-        // like any other), which is why the order is still a rule.
-        article.content = [leadHeaderHtml, summaryHtml, body].filter(Boolean).join("\n\n");
-      }
-      if (wantsSummary && !summaryHtml) {
-        // Summarization was asked for and did not happen. Reported rather than
-        // swallowed, for the reason every other arm here is: AI features
-        // failing silently is indistinguishable from AI never having run. What
-        // did come back (title, content, header) is already applied above.
-        const message = `AI returned no summary for article '${article.name || ""}'.`;
-        console.warn(message);
-        onLog?.(message);
-        return { status: "failed", reason: "missingSummary" };
-      }
-      return { status: "applied" };
+  if (wantsSummary) {
+    if (typeof answer.summary === "string" && answer.summary.trim()) {
+      blocks = withSummary(blocks, answer.summary);
     } else {
-      const message = `AI returned invalid JSON for article '${article.name || ""}': ${result.slice(0, 100)}...`;
+      // Summarization was asked for and did not happen. Reported rather than
+      // swallowed, for the reason every other arm here is: AI features failing
+      // silently are indistinguishable from AI never having run. A rewrite that
+      // did come back is still applied; a summarize-only request has nothing
+      // else to keep, so it is returned untouched.
+      const message = `AI returned no summary for article '${title}'.`;
       console.warn(message);
       onLog?.(message);
-      return { status: "failed", reason: "invalidJson" };
+      return wantsRewrite
+        ? { title, blocks, outcome: { status: "failed", reason: "missingSummary" } }
+        : unchanged({ status: "failed", reason: "missingSummary" });
     }
-  } else {
-    // `generation.reason` is one of noProvider/providerUnauthorized/
-    // providerError -- surfacing it (not just "failed") is what tells an
-    // operator a rejected credential apart from an outage, without which this
-    // looked identical to AI silently doing nothing.
-    const message = `AI processing failed for article '${article.name || ""}' (${generation.reason}). Keeping original content.`;
-    console.warn(message);
-    onLog?.(message);
-    return { status: "failed", reason: generation.reason };
   }
+
+  return { title, blocks, outcome: { status: "applied" } };
 }

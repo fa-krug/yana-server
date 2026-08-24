@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { applyMigrationsAt } from "../db/test-support";
 import { BaseAggregator, FeedLike, RawArticle } from "./base";
-import { rawArticleContentHash } from "./content-hash";
 
 class TestAggregator extends BaseAggregator {
   public fetchedLimit?: number;
@@ -137,21 +136,27 @@ describe("BaseAggregator", () => {
     expect(agg.concurrency).toBe(2);
   });
 
-  it("passes userSettings through aggregate to finalizeArticles and applyAiProcessing", async () => {
+  it("hands finalizeArticles the pipeline's articles, and nothing else", async () => {
+    // `aggregate()` used to thread the owner's `userSettings` down to
+    // `finalizeArticles()`, for one consumer: the AI stage. That stage works on
+    // the block tree now and runs in the job handler, so the parameter went
+    // with it -- an aggregator has no business reading a user's AI credentials.
     const feed: FeedLike = {
       identifier: "https://example.com/rss",
       dailyLimit: 20,
       options: { ai_summarize: true },
     };
     const agg = new TestAggregator(feed);
-    let passedSettings: unknown = null;
-    agg.finalizeArticles = async (articles, userSettings) => {
-      passedSettings = userSettings;
+    let received: unknown[] = [];
+    agg.finalizeArticles = async (articles) => {
+      received = articles;
       return articles;
     };
-    const mockSettings = { activeAiProvider: "gemini" };
-    await agg.aggregate(undefined, 0, mockSettings);
-    expect(passedSettings).toBe(mockSettings);
+
+    const out = await agg.aggregate(undefined, 0);
+
+    expect(received).toBe(out);
+    expect(agg.finalizeArticles.length).toBe(1);
   });
 
   it("reports coarse progress after each pipeline stage, in increasing order", async () => {
@@ -159,7 +164,7 @@ describe("BaseAggregator", () => {
     const agg = new TestAggregator(feed);
     const reported: number[] = [];
 
-    await agg.aggregate(undefined, 0, undefined, (percent) => reported.push(percent));
+    await agg.aggregate(undefined, 0, (percent) => reported.push(percent));
 
     expect(reported).toEqual([10, 20, 60, 80]);
   });
@@ -172,7 +177,6 @@ describe("BaseAggregator", () => {
     await agg.aggregate(
       () => new Date(),
       5,
-      undefined,
       (percent) => reported.push(percent),
     );
 
@@ -266,10 +270,7 @@ describe("BaseAggregator", () => {
       expect(labels.comments).toBe("Comments");
     });
   });
-  describe("fingerprintArticles: not paying a provider for an article we already have", () => {
-    const DATE = new Date("2026-01-01T00:00:00.000Z");
-
-    /** Two fixed articles, so their fingerprints are stable across runs. */
+  describe("the pipeline no longer runs AI", () => {
     class FixedAggregator extends BaseAggregator {
       async fetchSourceData(): Promise<unknown> {
         return null;
@@ -281,144 +282,44 @@ describe("BaseAggregator", () => {
             identifier: "https://example.com/1",
             raw_content: "",
             content: "<p>One.</p>",
-            date: DATE,
-          },
-          {
-            name: "Second",
-            identifier: "https://example.com/2",
-            raw_content: "",
-            content: "<p>Two.</p>",
-            date: DATE,
+            date: new Date("2026-01-01T00:00:00.000Z"),
           },
         ];
       }
-    }
-
-    const aiFeed = (): FeedLike => ({
-      identifier: "https://example.com/rss",
-      dailyLimit: 20,
-      maxArticleAgeDays: 0,
-      options: { ai_summarize: true },
-    });
-
-    const settings = {
-      activeAiProvider: "openai",
-      openaiEnabled: true,
-      openaiApiKey: "sk-test",
-      aiRequestDelay: 0,
-    };
-
-    /** Counts outbound provider requests -- the thing that costs money. */
-    function countingFetch(): () => number {
-      let calls = 0;
-      globalThis.fetch = vi.fn().mockImplementation(async () => {
-        calls++;
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ choices: [{ message: { content: '{"summary":"S."}' } }] }),
-        } as Response;
-      });
-      return () => calls;
     }
 
     afterEach(() => {
       vi.restoreAllMocks();
     });
 
-    it("sends no provider request for an article whose stored hash still matches", async () => {
-      const calls = countingFetch();
-      const agg = new FixedAggregator(aiFeed());
+    it("makes no provider request, even with AI options set and a provider configured", async () => {
+      const calls = vi.fn();
+      globalThis.fetch = calls;
 
-      // What the first run would have stored for article 1, and nothing for 2.
-      const stored = rawArticleContentHash({
-        name: "First",
-        content: "<p>One.</p>",
-        raw_content: "",
-        date: DATE,
+      const agg = new FixedAggregator({
+        identifier: "https://example.com/rss",
+        dailyLimit: 20,
+        maxArticleAgeDays: 0,
+        options: { ai_summarize: true, ai_improve_writing: true },
       });
-      agg.storedContentHash = (identifier) =>
-        identifier === "https://example.com/1" ? stored : null;
 
-      const articles = await agg.aggregate(undefined, 0, settings);
+      const articles = await agg.aggregate(undefined, 0);
 
-      // One request, for the article that is actually new. Before the
-      // fingerprint moved ahead of `finalizeArticles()`, this was two -- and
-      // two again on the next run, and every run after it, because the skip
-      // that existed sat downstream of the call it needed to prevent.
-      expect(calls()).toBe(1);
-      expect(articles[0].unchanged).toBe(true);
-      expect(articles[1].unchanged).toBe(false);
+      // AI moved to the job handlers, which is where `parseBlocks()` runs and
+      // therefore the only place a block tree exists to work on. There is no
+      // longer even a way to hand an aggregator the credentials it would need:
+      // `aggregate()` takes no `userSettings`. It would also be doing it for
+      // articles the
+      // handler is about to skip as unchanged.
+      expect(calls).not.toHaveBeenCalled();
       expect(articles[0].content).toBe("<p>One.</p>");
-      expect(articles[1].content).toContain("yana-ai-summary");
     });
 
-    it("sends no request at all when every article is already stored unchanged", async () => {
-      const calls = countingFetch();
-      const agg = new FixedAggregator(aiFeed());
-      const hashes = new Map([
-        [
-          "https://example.com/1",
-          rawArticleContentHash({
-            name: "First",
-            content: "<p>One.</p>",
-            raw_content: "",
-            date: DATE,
-          }),
-        ],
-        [
-          "https://example.com/2",
-          rawArticleContentHash({
-            name: "Second",
-            content: "<p>Two.</p>",
-            raw_content: "",
-            date: DATE,
-          }),
-        ],
-      ]);
-      agg.storedContentHash = (identifier) => hashes.get(identifier) ?? null;
+    it("leaves finalizeArticles an identity the site aggregators extend", async () => {
+      const agg = new FixedAggregator({ identifier: "x", dailyLimit: 20, maxArticleAgeDays: 0 });
+      const input = await agg.parseToRawArticles();
 
-      await agg.aggregate(undefined, 0, settings);
-
-      expect(calls()).toBe(0);
-    });
-
-    it("fingerprints every article and marks none unchanged with no hook set", async () => {
-      const calls = countingFetch();
-      const agg = new FixedAggregator(aiFeed());
-
-      const articles = await agg.aggregate(undefined, 0, settings);
-
-      // The hook is what `aggregate.ts` sets; unset (reload.ts, and every test
-      // that builds an aggregator directly) the behaviour is what it always
-      // was -- every article processed -- but the fingerprint is still
-      // computed, because the job handler reads it back instead of deriving
-      // its own from an article AI has already rewritten.
-      expect(calls()).toBe(2);
-      expect(articles.every((a) => a.unchanged === false)).toBe(true);
-      expect(articles.every((a) => typeof a.content_hash === "string")).toBe(true);
-    });
-
-    it("stops the fingerprint depending on what the model returned", async () => {
-      countingFetch();
-      const agg = new FixedAggregator(aiFeed());
-      const first = await agg.aggregate(undefined, 0, settings);
-      const firstHashes = first.map((a) => a.content_hash);
-
-      // A different summary on the second run -- which is the normal case at
-      // any temperature above zero. The fingerprint must not move with it, or
-      // no article is ever "unchanged" and the skip is dead code.
-      globalThis.fetch = vi.fn().mockImplementation(async () => ({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          choices: [{ message: { content: '{"summary":"A completely different summary."}' } }],
-        }),
-      })) as unknown as typeof fetch;
-
-      const second = await new FixedAggregator(aiFeed()).aggregate(undefined, 0, settings);
-
-      expect(second.map((a) => a.content_hash)).toEqual(firstHashes);
+      expect(await agg.finalizeArticles(input)).toBe(input);
     });
   });
 });

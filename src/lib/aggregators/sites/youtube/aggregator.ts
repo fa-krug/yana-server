@@ -324,14 +324,13 @@ export class YouTubeAggregator extends BaseAggregator {
     return htmlContent;
   }
 
-  override async finalizeArticles(
-    articles: RawArticle[],
-    userSettings?: Record<string, unknown>,
-  ): Promise<RawArticle[]> {
-    const processedArticles = await this.applyAiProcessing(articles, userSettings);
+  override async finalizeArticles(articles: RawArticle[]): Promise<RawArticle[]> {
+    // AI post-processing used to run here, ahead of this loop. It works on the
+    // block tree now, which only exists downstream in the job handler -- see
+    // `BaseAggregator.finalizeArticles()`.
     const finalized: RawArticle[] = [];
 
-    for (const article of processedArticles) {
+    for (const article of articles) {
       // processContent() (below) already derives the video id from
       // article.identifier and prepends its own createYoutubeEmbedHtml()
       // facade, so building a second one here duplicated the embed in every
