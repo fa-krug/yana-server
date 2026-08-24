@@ -1992,6 +1992,16 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   advice, and a native client polling this reason can tell someone to fix
   their OpenRouter key rather than just retry.
 
+- **`plainTextOf()` lives in `src/lib/aggregators/blocks/plain-text.ts`, not in
+  `parser.ts`** — and `parser.ts` re-exports it, so the callers that already have
+  cheerio in their graph keep one import. It is a pure walk over the block tree
+  and touches no HTML, but from inside `parser.ts` its module-level
+  `import * as cheerio` reached every importer: `src/lib/ai/run.ts` is one (for
+  the plain-text prompt a summarize-only request sends), so
+  `POST /api/v1/ai/prompt` was pulling the whole HTML parser into its graph for a
+  function that never uses it. Nothing reachable from `run.ts` imports cheerio
+  now. A future block-tree helper that needs no HTML belongs beside it rather
+  than in `parser.ts`, for the same reason.
 - **The AI stage works on the block tree, not HTML: `applyAiToBlocks()` in
   `src/lib/ai/run.ts`, with the codec in `src/lib/ai/block-text.ts`.** The block
   tree is what gets stored — there is no `articles.content` column — so HTML was

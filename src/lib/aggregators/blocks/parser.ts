@@ -2,6 +2,11 @@ import * as cheerio from "cheerio";
 import type { AnyNode, Element, Text } from "domhandler";
 import type { Block, EmbedBlock, ImageBlock, InlineRun, ListBlock } from "./types";
 
+// Re-exported so the callers that already have cheerio in their graph (both job
+// handlers, which also call `parseBlocks()`) keep one import. See its own module
+// for why it does not live here.
+export { plainTextOf } from "./plain-text";
+
 /**
  * Schemes a stored link is allowed to carry.
  * Allowlisted: http, https, mailto.
@@ -940,58 +945,4 @@ export function parseBlocks(html: string, baseUrl: string = ""): Block[] {
   const $ = cheerio.load(html);
   const container = selectContainer($);
   return convert($, container, baseUrl);
-}
-
-/**
- * Flatten blocks to visible text for search indexing.
- */
-export function plainTextOf(blocks: Block[]): string {
-  const parts: string[] = [];
-
-  function runsText(runs: InlineRun[]): string {
-    return runs.map((r) => r.text).join("");
-  }
-
-  function walk(items: Block[]): void {
-    for (const block of items) {
-      switch (block.kind) {
-        case "paragraph":
-        case "heading":
-          parts.push(runsText(block.runs));
-          break;
-        case "list":
-          for (const item of block.items) {
-            walk(item);
-          }
-          break;
-        case "blockquote":
-        case "summary":
-          walk(block.blocks);
-          break;
-        case "image": {
-          const captionText = runsText(block.caption);
-          if (captionText) {
-            parts.push(captionText);
-          }
-          break;
-        }
-        case "embed":
-          if (block.title) {
-            parts.push(block.title);
-          }
-          break;
-        case "code_block":
-          parts.push(block.text);
-          break;
-        case "divider":
-          break;
-      }
-    }
-  }
-
-  walk(blocks);
-  return parts
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0)
-    .join("\n\n");
 }

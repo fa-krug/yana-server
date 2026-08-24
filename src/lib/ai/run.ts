@@ -1,4 +1,4 @@
-import { plainTextOf } from "@/lib/aggregators/blocks/parser";
+import { plainTextOf } from "@/lib/aggregators/blocks/plain-text";
 import type { Block } from "@/lib/aggregators/blocks/types";
 import type { UserSettings } from "@/lib/db/schema";
 
