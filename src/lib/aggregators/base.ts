@@ -214,6 +214,53 @@ export abstract class BaseAggregator {
     return extractHeaderElement(url, alt, userId, this.onLog);
   }
 
+  private _sourceTitle: string | null = null;
+
+  /**
+   * The title the last `fetchArticleContent()` saw at the source, or `null`
+   * when this aggregator has no way to know one.
+   *
+   * **This exists because `articles.name` is not necessarily source text.** A
+   * feed with an AI option on stores the model's own title there (see
+   * `applyAiToBlocks()` in `@/lib/ai/run`), so `reload.ts` -- which re-derives
+   * everything else from source -- used to hand that value straight back to
+   * the AI stage as the article's title. Two things came of it, and the second
+   * is what a user reported: a repeated reload asked the model to improve an
+   * already-improved title (drift), and a *translate* request arrived carrying
+   * a title already in the target language beside a document that was not,
+   * which is a contradictory instruction -- "translate this to German" over
+   * `{"title": "<German>", "document": "<English>"}`. A model that reads that
+   * as "already translated" answers with the document unchanged, and because
+   * an unchanged document still parses, the article was stored with a
+   * translated title and an untranslated body, silently, with a green job.
+   *
+   * So an aggregator that *does* see the source's own title while refetching
+   * says so through `noteSourceTitle()`, and `reload.ts` prefers it over the
+   * stored name -- the same value a fresh aggregation run would have used.
+   *
+   * **Only meaningful after a single `fetchArticleContent()` call**, which is
+   * exactly reload's shape (one article, one aggregator instance) and is the
+   * same restriction Reddit's `_lastReloaded*` stash already carries. The
+   * `FullWebsiteAggregator` family deliberately notes nothing: its
+   * `fetchArticleContent()` also runs *concurrently, per article* inside
+   * `enrichArticles()`, where one instance-level value could only be the last
+   * writer's -- and a scraped page's `<title>` is the site's headline plus its
+   * own branding, not the feed's title for the article. Those feeds keep the
+   * stored name on reload, as before.
+   */
+  get sourceTitle(): string | null {
+    return this._sourceTitle;
+  }
+
+  /**
+   * Record the source's own title for the article `fetchArticleContent()` just
+   * fetched. Empty and whitespace-only titles are `null`: a caller must be able
+   * to treat "no title" as one case, not two.
+   */
+  protected noteSourceTitle(title: string | null | undefined): void {
+    this._sourceTitle = (title ?? "").trim() || null;
+  }
+
   fetchArticleContent(_url: string): Promise<string> {
     return Promise.resolve("");
   }

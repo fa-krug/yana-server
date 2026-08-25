@@ -61,6 +61,39 @@ describe("RssAggregator", () => {
       expect(content).toBe("");
     });
 
+    it("reports the entry's own title, unescaped exactly as parseToRawArticles does", async () => {
+      // `reload.ts` reads this instead of `articles.name`, which on a feed with
+      // an AI option on holds the model's previous answer rather than source
+      // text -- see `noteSourceTitle()` in ./base.
+      const feed: FeedLike = { identifier: "https://example.com/rss", dailyLimit: 20 };
+      const agg = new RssAggregator(feed);
+      vi.spyOn(agg, "fetchSourceData").mockResolvedValue({
+        title: "Example Feed",
+        entries: [
+          {
+            title: "Apple&#8217;s New M4 Chip",
+            link: "https://example.com/m4",
+            summary: "<p>Updated summary</p>",
+          },
+        ],
+      });
+
+      expect(agg.sourceTitle).toBeNull();
+      await agg.fetchArticleContent("https://example.com/m4");
+
+      expect(agg.sourceTitle).toBe("Apple’s New M4 Chip");
+    });
+
+    it("reports no source title when the entry is no longer in the feed", async () => {
+      const feed: FeedLike = { identifier: "https://example.com/rss", dailyLimit: 20 };
+      const agg = new RssAggregator(feed);
+      vi.spyOn(agg, "fetchSourceData").mockResolvedValue({ title: "Example Feed", entries: [] });
+
+      await agg.fetchArticleContent("https://example.com/gone");
+
+      expect(agg.sourceTitle).toBeNull();
+    });
+
     it("returns empty rather than throwing when the feed itself can no longer be fetched", async () => {
       const feed: FeedLike = { identifier: "https://example.com/rss", dailyLimit: 20 };
       const agg = new RssAggregator(feed);

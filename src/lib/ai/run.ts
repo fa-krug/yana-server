@@ -512,7 +512,7 @@ export type ApplyAiOutcome =
  * corrupt.
  */
 const NOTATION_SPEC = [
-  "The document uses this notation. Return the same notation, nothing else:",
+  "The document uses this notation. Answer in the same notation, and nothing else:",
   "- A blank line separates blocks.",
   '- "# " to "###### " begin a heading. "- " begins a list item, "1. " an ordered one. "> " begins a quoted line.',
   "- Inline styles are <b>bold</b>, <i>italic</i>, <s>struck</s>, <code>code</code>.",
@@ -723,6 +723,14 @@ export async function applyAiToBlocks(
    */
   const wantsRewrite = Boolean(opts.ai_improve_writing || opts.ai_translate || customPrompt);
 
+  /** What this feed asked for, for the log line on the applied path below. */
+  const asked = [
+    opts.ai_summarize ? "summarize" : null,
+    opts.ai_improve_writing ? "improve" : null,
+    opts.ai_translate ? "translate" : null,
+    customPrompt ? "custom" : null,
+  ].filter((label): label is string => label !== null);
+
   if (!wantsSummary && !wantsRewrite) {
     return unchanged({ status: "skipped" });
   }
@@ -777,9 +785,21 @@ export async function applyAiToBlocks(
     if (opts.ai_translate) {
       const targetLang =
         typeof opts.ai_translate_language === "string" ? opts.ai_translate_language : "English";
+      // Spelled out to the point of redundancy, and every clause is here
+      // because the short version ("Translate the title and document to X")
+      // produced answers that translated the title and handed the document
+      // back untouched -- reported by a user for a Reddit article, whose
+      // document is long and mostly quoted comments, which is exactly the
+      // shape a model shortcuts on. The notation spec above is seven lines of
+      // "keep this exactly", so the one line asking for a *changed* document
+      // has to say so unmistakably, and has to name the parts a model
+      // otherwise skips: a quoted line looks like a citation to leave alone.
       promptParts.push(
-        `Translate the title${wantsSummary ? ", summary" : ""} and document to ${targetLang}. ` +
-          "Translate link labels too, but never the (L...) index inside them.",
+        `Translate the title${wantsSummary ? ", the summary" : ""} and the whole document into ` +
+          `${targetLang}. Every line of the document must come back in ${targetLang}: headings, ` +
+          "list items, quoted lines and image captions included. Translate link labels too, but " +
+          "never the (L...) index inside them, and never the [[M...]] placeholders. Returning " +
+          "the document in its original language is not an acceptable answer.",
       );
     }
 
@@ -845,32 +865,111 @@ export async function applyAiToBlocks(
   // merged runs for no reason, storing a different tree than the same article
   // would get on a feed with AI switched off.
   let blocks = wantsRewrite ? canonicalBlocks(input.blocks) : input.blocks;
+  /** How many blocks the rewrite came back as, before any summary block. */
+  let rewrittenCount = blocks.length;
 
   if (wantsRewrite) {
-    // Only a request that asked for a rewrite may change either. A model that
-    // volunteers a title for a summarize-only request is renaming an article
-    // nobody asked to have renamed.
-    if (typeof answer.title === "string" && answer.title.trim()) {
-      title = answer.title;
-    }
+    let rewritten: Block[] | null = null;
+
     if (typeof answer.document === "string") {
       const parsed = textToBlocks(answer.document, document);
       if (parsed.blocks.length > 0) {
-        blocks = parsed.blocks;
+        // **Did the model change anything at all?** Asked in the one place it
+        // can be asked cheaply and exactly: `blocksToText()` of the answer's
+        // tree is byte-identical to what was sent precisely when the answer is
+        // the input echoed back, because the notation is a normal form (the
+        // round-trip contract in `./block-text`). Comparing the serialized
+        // forms rather than the trees is deliberate -- a deep compare would
+        // have to know that `canonicalBlocks()` and `textToBlocks()` build
+        // their objects with different key order, and would miss an echo whose
+        // whitespace differed.
+        //
+        // A model that reproduces the document instead of rewriting it is not
+        // a hypothetical: it is what a user saw as "reload only translates the
+        // title", with the (unchanged) English body stored over the English
+        // body, the title stored translated, and the job green. An echo parses
+        // perfectly, so nothing downstream could tell.
+        const echoed =
+          plainTextOf(input.blocks).trim() !== "" &&
+          blocksToText(parsed.blocks).text === document.text;
+
+        if (echoed && opts.ai_translate) {
+          // For a translation this is not a judgement call: a document
+          // identical to the one sent is, by definition, not translated. Fails
+          // rather than warns, for the same reason `missingDocument` does --
+          // a translated title over an untranslated body is the broken article
+          // this whole arm exists to stop storing.
+          //
+          // The one false positive is a feed whose source is *already* in the
+          // target language, where an unchanged document is the right answer.
+          // The message says so, because the fix there is to turn translation
+          // off for that feed rather than to make this quieter.
+          const message =
+            `AI returned the document unchanged for article '${input.title}', so it was not ` +
+            `translated. Nothing was stored. (If this feed's articles are already in the ` +
+            `target language, turn translation off for it.)`;
+          console.warn(message);
+          onLog?.(message);
+          return unchanged({ status: "failed", reason: "documentUnchanged" }, true);
+        }
+
+        if (echoed) {
+          // Improve-writing and a custom instruction are a different matter:
+          // "this reads fine as it is" is a legitimate answer, so this is a
+          // note in the job's own log rather than a failure.
+          const message = `AI returned the document unchanged for article '${input.title}'.`;
+          console.warn(message);
+          onLog?.(message);
+        }
+
+        rewritten = parsed.blocks;
 
         const lead = leadMediaOf(input.blocks);
         if (lead) {
-          blocks = pinLeadMedia(lead, blocks);
+          rewritten = pinLeadMedia(lead, rewritten);
         }
 
         if (parsed.droppedOpaque.length > 0) {
           const message =
             `AI dropped ${parsed.droppedOpaque.length} media/code block(s) from article ` +
-            `'${title}'; the rest of the rewrite was kept.`;
+            `'${input.title}'; the rest of the rewrite was kept.`;
           console.warn(message);
           onLog?.(message);
         }
       }
+    }
+
+    if (!rewritten) {
+      // A rewrite was asked for and the document did not come back -- absent,
+      // not a string, empty, or notation that read as no blocks at all.
+      //
+      // **Reported, and the title left alone with it.** This arm used to fall
+      // through: the answer's `title` was applied and the source blocks were
+      // stored beside it, on an outcome of `applied`. That is a translated
+      // title over an untranslated body -- the article a user reported after
+      // reloading a Reddit post -- stored silently, with the job green and
+      // nothing in its log. A title and a body are one answer to one rewrite
+      // request, so half of it is not partial success: the article stays wholly
+      // as the source has it, the job reports the failure, and (in
+      // `handleAggregateJob`) no `contentHash` is stored, so the next cycle
+      // tries again. Deliberately *not* symmetrical with `missingSummary`
+      // below, which keeps a rewrite that did come back: a summary is an
+      // addition an article reads fine without, where a rewritten title over an
+      // untouched body is a visibly broken article.
+      const message = `AI returned no rewritten document for article '${input.title}'.`;
+      console.warn(message);
+      onLog?.(message);
+      return unchanged({ status: "failed", reason: "missingDocument" }, true);
+    }
+
+    blocks = rewritten;
+    rewrittenCount = rewritten.length;
+
+    // Only a request that asked for a rewrite may change the title. A model
+    // that volunteers one for a summarize-only request is renaming an article
+    // nobody asked to have renamed.
+    if (typeof answer.title === "string" && answer.title.trim()) {
+      title = answer.title;
     }
   }
 
@@ -896,6 +995,23 @@ export async function applyAiToBlocks(
         : unchanged({ status: "failed", reason: "missingSummary" }, true);
     }
   }
+
+  // **One line on the applied path, and it is worth its space.** Every failure
+  // arm above logs; success logged nothing at all -- so a reload whose job log
+  // read "reloaded article content" and nothing else was indistinguishable
+  // between "this feed never asked for AI", "the provider was never called"
+  // and "the model answered and its answer changed nothing". That ambiguity is
+  // what made the "reload only translates the title" report take a round of
+  // guessing to place: the one question the log could not answer was whether
+  // the stage had run. It can now, per article, in one line.
+  onLog?.(
+    `AI (${asked.join("+")}) applied to '${input.title}': ` +
+      (wantsRewrite
+        ? `document ${input.blocks.length} -> ${rewrittenCount} blocks, ` +
+          `title ${title === input.title ? "unchanged" : "rewritten"}`
+        : "summary only") +
+      (wantsSummary ? ", summary added" : ""),
+  );
 
   return { title, blocks, outcome: { status: "applied" }, requested: true };
 }

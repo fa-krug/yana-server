@@ -1710,6 +1710,226 @@ describe("src/lib/jobs/handlers", () => {
       expect(lines).toContain("reloaded article content");
     });
 
+    it("sends the source's own title to the AI stage, not the title a previous AI run wrote", async () => {
+      // The bug this pins was reported as "reloading a Reddit post only
+      // translates the title": `articles.name` on a feed with AI on is the
+      // model's own previous answer, so handing it back made a translate
+      // request self-contradictory -- an already-German title beside an English
+      // document, under "translate this to German".
+      vi.resetModules();
+      vi.doMock("@/lib/aggregators/factory", () => ({
+        createAggregator: () => ({
+          sourceTitle: "The post's own English title",
+          fetchArticleContent: async () => "<p>Fresh from the source</p>",
+          extractHeaderElement: async () => null,
+          extractContent: (html: string) => html,
+          processContent: (html: string) => html,
+        }),
+      }));
+      handlers = await import("./index");
+
+      const originalFetch = globalThis.fetch;
+      let sent = "";
+      globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+        sent = String(init.body);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      text: JSON.stringify({
+                        title: "Der eigene Titel des Beitrags",
+                        document: "Frisch von der Quelle",
+                      }),
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+        } as Response;
+      });
+
+      let articleId = 0;
+      client.writeTransaction((db) => {
+        const user = db
+          .insert(schema.users)
+          .values({ id: "source-title-user", email: "source-title@example.com" })
+          .returning({ id: schema.users.id })
+          .get();
+        db.insert(schema.userSettings)
+          .values({
+            userId: user.id,
+            activeAiProvider: "gemini",
+            geminiEnabled: true,
+            geminiApiKey: "test-key",
+            aiMaxRetries: 0,
+          })
+          .run();
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({
+            name: "Feed",
+            userId: user.id,
+            options: { ai_translate: true, ai_translate_language: "German" },
+          })
+          .returning({ id: schema.feeds.id })
+          .get();
+
+        const article = db
+          .insert(schema.articles)
+          .values({
+            name: "Ein vom letzten Lauf übersetzter Titel",
+            identifier: "https://example.com/art-1",
+            feedId: feed.id,
+            rawContent: "<p>Stale, previously stored</p>",
+            plainText: "stale",
+            date: new Date(),
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        articleId = article.id;
+      });
+
+      const reloadHandler = handlers.getHandler("article.reload");
+      const job = makeJob("article.reload", { articleId });
+
+      try {
+        await reloadHandler!(job);
+
+        expect(sent).toContain("The post's own English title");
+        expect(sent).not.toContain("Ein vom letzten Lauf übersetzter Titel");
+
+        const reloaded = client
+          .getDb()
+          .select()
+          .from(schema.articles)
+          .where(eq(schema.articles.id, articleId))
+          .get();
+        expect(reloaded?.name).toBe("Der eigene Titel des Beitrags");
+        expect(reloaded?.plainText).toContain("Frisch von der Quelle");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("keeps the stored name when the aggregator cannot know the source's title", async () => {
+      // The `FullWebsiteAggregator` family notes none -- a scraped page's
+      // <title> is the site's headline plus its own branding -- so those feeds
+      // keep behaving exactly as they did.
+      vi.resetModules();
+      vi.doMock("@/lib/aggregators/factory", () => ({
+        createAggregator: () => ({
+          sourceTitle: null,
+          fetchArticleContent: async () => "<p>Fresh from the source</p>",
+          extractHeaderElement: async () => null,
+          extractContent: (html: string) => html,
+          processContent: (html: string) => html,
+        }),
+      }));
+      handlers = await import("./index");
+
+      let articleId = 0;
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "Feed", userId: user!.id })
+          .returning({ id: schema.feeds.id })
+          .get();
+
+        const article = db
+          .insert(schema.articles)
+          .values({
+            name: "The stored name",
+            identifier: "https://example.com/art-1",
+            feedId: feed.id,
+            rawContent: "<p>Stale, previously stored</p>",
+            plainText: "stale",
+            date: new Date(),
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        articleId = article.id;
+      });
+
+      const reloadHandler = handlers.getHandler("article.reload");
+      await reloadHandler!(makeJob("article.reload", { articleId }));
+
+      const reloaded = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, articleId))
+        .get();
+      expect(reloaded?.name).toBe("The stored name");
+      expect(reloaded?.plainText).toContain("Fresh from the source");
+    });
+
+    it("picks up a title the source has changed, with AI off", async () => {
+      vi.resetModules();
+      vi.doMock("@/lib/aggregators/factory", () => ({
+        createAggregator: () => ({
+          sourceTitle: "The renamed post",
+          fetchArticleContent: async () => "<p>Fresh from the source</p>",
+          extractHeaderElement: async () => null,
+          extractContent: (html: string) => html,
+          processContent: (html: string) => html,
+        }),
+      }));
+      handlers = await import("./index");
+
+      let articleId = 0;
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "Feed", userId: user!.id })
+          .returning({ id: schema.feeds.id })
+          .get();
+
+        const article = db
+          .insert(schema.articles)
+          .values({
+            name: "The name it had before",
+            identifier: "https://example.com/art-1",
+            feedId: feed.id,
+            rawContent: "<p>Stale, previously stored</p>",
+            plainText: "stale",
+            date: new Date(),
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        articleId = article.id;
+      });
+
+      const reloadHandler = handlers.getHandler("article.reload");
+      await reloadHandler!(makeJob("article.reload", { articleId }));
+
+      const reloaded = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, articleId))
+        .get();
+      expect(reloaded?.name).toBe("The renamed post");
+    });
+
     it("writes an error article and logs when the original page can no longer be fetched", async () => {
       vi.resetModules();
       vi.doMock("@/lib/aggregators/factory", () => ({

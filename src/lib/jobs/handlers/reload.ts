@@ -63,6 +63,23 @@ function buildErrorBlocks(message: string): Block[] {
  * translated title is written back too, since that is a field
  * `applyAiToBlocks()` can change.
  *
+ * **The title the AI stage is given comes from source, not from
+ * `articles.name`** -- `aggregator.sourceTitle`, when the aggregator saw one
+ * while refetching (see `noteSourceTitle()` in
+ * `@/lib/aggregators/base`). `articles.name` is not source text on a feed with
+ * an AI option on: it is the model's own previous answer. Handing that back as
+ * "the article's title" made a reload ask for a rewrite of a rewrite (a title
+ * drifting a little further on every reload) and, worse, made a *translate*
+ * request self-contradictory -- `{"title": "<already German>", "document":
+ * "<English>"}` under "translate this to German", which a model can reasonably
+ * read as "already translated" and answer with the document unchanged. An
+ * unchanged document still parses, so the article was then stored with a
+ * translated title and an untranslated body, silently, on a job that reported
+ * success: exactly the "reload only translates the title" a user reported for a
+ * Reddit post. An aggregator that cannot know the source's title (the
+ * `FullWebsiteAggregator` family) reports `null` and the stored name is used, as
+ * before.
+ *
  * One thing distinguishes this call from `aggregate.ts`'s equivalent one:
  *
  * The fresh content is still written to the article even when AI processing
@@ -133,8 +150,13 @@ export async function handleReloadJob(job: Job): Promise<void> {
     return;
   }
 
+  // Prefer what the source calls this article right now -- see the note above.
+  // `null` from an aggregator that cannot know means the stored name, which is
+  // what every reload used before this.
+  const sourceTitle = aggregator.sourceTitle;
+
   const rawArticle: RawArticle = {
-    name: article.name,
+    name: sourceTitle ?? article.name,
     identifier: article.identifier,
     raw_content: freshHtml,
     content: "",
@@ -173,7 +195,11 @@ export async function handleReloadJob(job: Job): Promise<void> {
   writeTransaction((tx) => {
     tx.update(articles)
       .set({
-        name: ai.title || article.name,
+        // `ai.title` is the AI stage's answer when it ran and the source's own
+        // title when it did not (it echoes its input), so a reload of a feed
+        // with AI off now also picks up a title the source has changed --
+        // the same thing an aggregation run does with every content change.
+        name: ai.title || sourceTitle || article.name,
         rawContent: freshHtml,
         plainText,
         // Same reason as the failed-refetch branch above: reload has just
