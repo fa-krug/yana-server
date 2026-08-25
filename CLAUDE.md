@@ -2168,6 +2168,18 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
     one arm — absent, not a string, empty, and notation that reads as no blocks
     at all — because none of them is a document.
 
+  **The applied path logs one line per article, and its absence is what made
+  this bug a guessing game.** Every failure arm in `applyAiToBlocks()` logs;
+  success logged nothing at all — so a reload whose job log read
+  `reloaded article content` and nothing else was indistinguishable between
+  "this feed never asked for AI", "the provider was never called" and "the model
+  answered and its answer changed nothing". The line names what was asked for
+  and what changed
+  (`AI (translate) applied to 'X': document 12 -> 11 blocks, title rewritten`),
+  which is the one question a job log has to be able to answer about this stage.
+  It goes to `onLog` only, not `console` — a success is not a warning, and the
+  operator reads it on `/jobs/<id>`.
+
   **The translate instruction is spelled out to the point of redundancy, and
   every clause of it is load-bearing.** The short version — "Translate the
   title and document to X" — produced answers that translated the title and

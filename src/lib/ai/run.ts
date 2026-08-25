@@ -723,6 +723,14 @@ export async function applyAiToBlocks(
    */
   const wantsRewrite = Boolean(opts.ai_improve_writing || opts.ai_translate || customPrompt);
 
+  /** What this feed asked for, for the log line on the applied path below. */
+  const asked = [
+    opts.ai_summarize ? "summarize" : null,
+    opts.ai_improve_writing ? "improve" : null,
+    opts.ai_translate ? "translate" : null,
+    customPrompt ? "custom" : null,
+  ].filter((label): label is string => label !== null);
+
   if (!wantsSummary && !wantsRewrite) {
     return unchanged({ status: "skipped" });
   }
@@ -857,6 +865,8 @@ export async function applyAiToBlocks(
   // merged runs for no reason, storing a different tree than the same article
   // would get on a feed with AI switched off.
   let blocks = wantsRewrite ? canonicalBlocks(input.blocks) : input.blocks;
+  /** How many blocks the rewrite came back as, before any summary block. */
+  let rewrittenCount = blocks.length;
 
   if (wantsRewrite) {
     let rewritten: Block[] | null = null;
@@ -953,6 +963,7 @@ export async function applyAiToBlocks(
     }
 
     blocks = rewritten;
+    rewrittenCount = rewritten.length;
 
     // Only a request that asked for a rewrite may change the title. A model
     // that volunteers one for a summarize-only request is renaming an article
@@ -984,6 +995,23 @@ export async function applyAiToBlocks(
         : unchanged({ status: "failed", reason: "missingSummary" }, true);
     }
   }
+
+  // **One line on the applied path, and it is worth its space.** Every failure
+  // arm above logs; success logged nothing at all -- so a reload whose job log
+  // read "reloaded article content" and nothing else was indistinguishable
+  // between "this feed never asked for AI", "the provider was never called"
+  // and "the model answered and its answer changed nothing". That ambiguity is
+  // what made the "reload only translates the title" report take a round of
+  // guessing to place: the one question the log could not answer was whether
+  // the stage had run. It can now, per article, in one line.
+  onLog?.(
+    `AI (${asked.join("+")}) applied to '${input.title}': ` +
+      (wantsRewrite
+        ? `document ${input.blocks.length} -> ${rewrittenCount} blocks, ` +
+          `title ${title === input.title ? "unchanged" : "rewritten"}`
+        : "summary only") +
+      (wantsSummary ? ", summary added" : ""),
+  );
 
   return { title, blocks, outcome: { status: "applied" }, requested: true };
 }

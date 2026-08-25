@@ -959,6 +959,43 @@ describe("applyAiToBlocks & AIClient processing", () => {
         expect(result.blocks).toEqual(input.blocks);
       });
 
+      it("says on the job's log that it ran, what it was asked for and what changed", async () => {
+        // The line whose absence made this bug a guessing game: a job log that
+        // read "reloaded article content" and nothing else could not say
+        // whether the stage had run at all.
+        respondWith({ title: "Übersetzter Titel", document: "Absatz eins.\n\nAbsatz zwei." });
+        const onLog = vi.fn();
+
+        const result = await applyAiToBlocks(
+          docOf(BODY),
+          { ai_translate: true, ai_translate_language: "German" },
+          openai(),
+          onLog,
+        );
+
+        expect(result.outcome).toEqual({ status: "applied" });
+        expect(onLog).toHaveBeenCalledWith(
+          "AI (translate) applied to 'Original': document 1 -> 2 blocks, title rewritten",
+        );
+      });
+
+      it("names every option it was asked for, and reports a title left alone", async () => {
+        respondWith({ title: "Original", document: "Rewritten.", summary: "Kurzfassung." });
+        const onLog = vi.fn();
+
+        await applyAiToBlocks(
+          docOf(BODY),
+          { ai_summarize: true, ai_improve_writing: true, ai_translate: true },
+          openai(),
+          onLog,
+        );
+
+        expect(onLog).toHaveBeenCalledWith(
+          "AI (summarize+improve+translate) applied to 'Original': " +
+            "document 1 -> 1 blocks, title unchanged, summary added",
+        );
+      });
+
       it("fails a translation whose document came back unchanged, rather than storing it", async () => {
         // The remaining shape of "reload only translates the title": a model
         // that translates the title and echoes the document back. The echo
