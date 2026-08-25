@@ -306,14 +306,20 @@ export class AIClient {
    * network failure, or the provider simply not being configured any more.
    *
    * **The fallback engages *after* the primary's retry policy is exhausted,
-   * not instead of it.** `aiMaxRetries`/`aiRetryDelay`/`aiMaxRetryTime` are the
-   * operator's stated answer to "how long is a 429 worth waiting out", and a
-   * chain that abandoned the primary on its first 429 would quietly overrule
-   * that -- sending work to the second-choice provider (and, for a paid one,
-   * the second-choice bill) while the first was still going to answer. The
-   * budget cap is what bounds the wait: `aiMaxRetryTime` defaults to 60
-   * seconds, so the fallback is reached in about a minute at worst rather than
-   * after an unbounded backoff.
+   * not instead of it.** `aiMaxRetries` and `aiRetryDelay` are the operator's
+   * stated answer to "how long is a 429 worth waiting out", and a chain that
+   * abandoned the primary on its first 429 would quietly overrule that --
+   * sending work to the second-choice provider (and, for a paid one, the
+   * second-choice bill) while the first was still going to answer.
+   *
+   * At the defaults that wait is short: `aiMaxRetries` 3 and `aiRetryDelay` 2
+   * back off 2s + 4s + 8s, so the fallback is reached about fourteen seconds
+   * in. `aiMaxRetryTime` is the backstop above that, and it is **not** a
+   * setting -- there is no column and no field on `/ai`, so it is always its
+   * 60-second default (see the note on {@link AiRuntimeSettings}). It only
+   * comes into play once an operator raises the two that *are* settings high
+   * enough for the backoff to run past a minute; the wait is bounded either
+   * way, which is what makes the fallback reachable rather than starved.
    *
    * The reported failure reason is the whole chain's, not the last attempt's:
    * `providerUnauthorized` only when *every* provider tried refused the

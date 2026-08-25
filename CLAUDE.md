@@ -1944,11 +1944,20 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
     already named is an ordinary act), which is why the derivation checks it
     rather than trusting every writer.
   - **The fallback engages _after_ the primary's retry policy, not instead of
-    it.** `aiMaxRetries`/`aiRetryDelay`/`aiMaxRetryTime` are the operator's
-    stated answer to "how long is a 429 worth waiting out"; abandoning the
-    primary on its first 429 would overrule that and send work — and, for a
-    paid provider, the bill — to the second choice while the first was still
-    going to answer. `aiMaxRetryTime` (60s by default) is what bounds the wait.
+    it.** `aiMaxRetries` and `aiRetryDelay` are the operator's stated answer to
+    "how long is a 429 worth waiting out"; abandoning the primary on its first
+    429 would overrule that and send work — and, for a paid provider, the bill —
+    to the second choice while the first was still going to answer. At the
+    defaults (3 retries, 2s delay) the backoff is 2 + 4 + 8 = 14s, so the
+    fallback is reached about fourteen seconds in. **`aiMaxRetryTime` is the
+    backstop above that and is not a setting** — no `user_settings` column, not
+    in `AI_ADVANCED_FIELDS`, so nothing in production writes it and it is always
+    its 60-second default (`src/lib/ai/run.ts` records why: it is inherited from
+    `old/core/ai_client.py`'s `getattr(..., "ai_max_retry_time", 60)`, which
+    likewise always fell back). It bites only once the two real settings are
+    raised enough for the backoff to run past a minute. One trap in its check:
+    the budget is skipped entirely when `aiRetryDelay` is `0` (the guard is
+    `waitSeconds > 0`), which is what the test fixtures exploit to run fast.
   - **`AiGenerationResult`'s success arm carries `provider`, the provider that
     actually answered.** With a chain that is a different question from "which
     provider is active", and `POST /api/v1/ai/prompt` returns both the provider
