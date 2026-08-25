@@ -117,6 +117,29 @@ export const userSettings = sqliteTable(
     activeAiProvider: text("active_ai_provider").notNull().default(""),
 
     /**
+     * The provider a request falls back to when the active one will not answer
+     * -- refused credentials, a rate limit its own retry policy could not ride
+     * out, an outage, or a network failure. `""` means there is no fallback and
+     * a failed request is simply a failed request, which is what every row
+     * before this column existed keeps meaning.
+     *
+     * **A preference, exactly like `active_ai_provider` above, and derived the
+     * same way on the read side** (`fallbackProvider()` in
+     * `src/lib/ai/queries.ts`): what is written here is only honoured while the
+     * named provider's own `*Enabled` flag agrees, and never when it names the
+     * provider that is already active -- a chain that retries the endpoint that
+     * just failed is not a fallback. Nothing erases the column when either
+     * condition stops holding, for the reason spelled out above: the derivation
+     * brings the choice back by itself once the flag does, and clearing would
+     * discard a selection the operator never changed.
+     *
+     * **A fallback needs an active provider to fall back *from*.** With
+     * `active_ai_provider` empty the AI features are off entirely, and this
+     * column is inert rather than a second way to switch them on.
+     */
+    fallbackAiProvider: text("fallback_ai_provider").notNull().default(""),
+
+    /**
      * **The eight defaults below (one base URL plus each of the seven providers'
      * default model) are hand-maintained duplicates of
      * `src/lib/ai/providers.ts`**, and `src/lib/ai/defaults.test.ts` is what

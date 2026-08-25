@@ -1,0 +1,1 @@
+ALTER TABLE `user_settings` ADD `fallback_ai_provider` text DEFAULT '' NOT NULL;

@@ -4,7 +4,13 @@ import type { UserSettings } from "@/lib/db/schema";
 
 import { blocksToText, canonicalBlocks, textToBlocks } from "./block-text";
 
-import { DEEPSEEK_API_URL, MISTRAL_API_URL, OPENROUTER_API_URL, QWEN_API_URL } from "./providers";
+import {
+  DEEPSEEK_API_URL,
+  MISTRAL_API_URL,
+  OPENROUTER_API_URL,
+  QWEN_API_URL,
+  type AiProviderKey,
+} from "./providers";
 
 /**
  * What `AIClient` and `applyAiToBlocks` accept for a user's AI configuration.
@@ -25,6 +31,7 @@ import { DEEPSEEK_API_URL, MISTRAL_API_URL, OPENROUTER_API_URL, QWEN_API_URL } f
  */
 export type AiRuntimeSettings = Partial<UserSettings> & {
   active_ai_provider?: string;
+  fallback_ai_provider?: string;
   aiMaxRetryTime?: number;
   ai_max_retries?: number;
   ai_retry_delay?: number;
@@ -69,7 +76,15 @@ export type AiRequestBody = Record<string, unknown>;
 export class ProviderUnauthorizedError extends Error {}
 
 export type AiGenerationResult =
-  | { ok: true; text: string }
+  /**
+   * `provider` is **the provider that actually answered**, which the fallback
+   * chain makes a different question from "which provider is active". A caller
+   * that reports one to a user -- `POST /api/v1/ai/prompt` returns it, along
+   * with the model, in its response body -- must read it from here rather than
+   * from the settings row, or a fallback answer is attributed to the endpoint
+   * that failed, together with a model it was never asked for.
+   */
+  | { ok: true; text: string; provider: AiProviderKey }
   | { ok: false; reason: "noProvider" | "providerUnauthorized" | "providerError" };
 
 /**
@@ -107,14 +122,51 @@ function describeError(err: unknown): string {
   return String(err);
 }
 
+/**
+ * The providers a request is tried against, in order.
+ *
+ * **The read-side twin of `fallbackProvider()` in `./queries`, and it has to
+ * be**: that one derives what `/ai` *shows*, this one derives what a request
+ * actually *does*, and a page promising a fallback that the runtime does not
+ * attempt would be the same class of silent disagreement the "Active" badge
+ * over a dead provider is. The two conditions are identical -- a fallback
+ * needs an active provider to fall back from, and it is never the active
+ * provider itself.
+ *
+ * The one condition it does **not** repeat is the `*Enabled` flag check.
+ * `./queries` reads a full `UserSettings` row and can consult
+ * `AI_COLUMNS[key].enabled`; this takes an `AiRuntimeSettings`, whose fields
+ * are all optional and readable under two spellings, and each `callXxx()`
+ * method below already refuses its own provider when the flag is off or no key
+ * is stored -- returning `null`, which is precisely the signal that moves the
+ * chain on to the next entry. Duplicating the lookup here would add a second
+ * place to keep the column map, and would change nothing about the outcome.
+ */
+function providerChain(settings: AiRuntimeSettings): string[] {
+  const active = settings.activeAiProvider ?? settings.active_ai_provider ?? "";
+  if (!active) return [];
+  const fallback = settings.fallbackAiProvider ?? settings.fallback_ai_provider ?? "";
+  return fallback && fallback !== active ? [active, fallback] : [active];
+}
+
 export class AIClient {
   private settings: AiRuntimeSettings;
-  private provider: string;
+  /**
+   * The providers this client will try, in order: the active one, then the
+   * fallback when there is a usable one. Empty means AI is switched off.
+   *
+   * **Built once in the constructor rather than read per call**, so every
+   * request in a client's lifetime uses the same chain -- and so the two rules
+   * that make a fallback a fallback (it must differ from the primary, and it
+   * cannot exist without one) are applied in a single place. See
+   * {@link providerChain}.
+   */
+  private providers: string[];
   private onLog?: (message: string) => void;
 
   constructor(settings: AiRuntimeSettings, onLog?: (message: string) => void) {
     this.settings = settings || {};
-    this.provider = this.settings.activeAiProvider ?? this.settings.active_ai_provider ?? "";
+    this.providers = providerChain(this.settings);
     this.onLog = onLog;
   }
 
@@ -243,46 +295,158 @@ export class AIClient {
    * Anthropic's, whose API requires the field (`ANTHROPIC_MAX_TOKENS`).
    *
    * Do not reintroduce either without that decision being revisited.
+   *
+   * ## The fallback chain
+   *
+   * The request is tried against the active provider and then, when the
+   * operator configured one, against the fallback -- see {@link providerChain}
+   * for what makes an entry eligible. Anything that stops the active provider
+   * answering moves the request on: refused credentials, a non-retryable
+   * status, a rate limit its own retry policy could not ride out, a timeout, a
+   * network failure, or the provider simply not being configured any more.
+   *
+   * **The fallback engages *after* the primary's retry policy is exhausted,
+   * not instead of it.** `aiMaxRetries` and `aiRetryDelay` are the operator's
+   * stated answer to "how long is a 429 worth waiting out", and a chain that
+   * abandoned the primary on its first 429 would quietly overrule that --
+   * sending work to the second-choice provider (and, for a paid one, the
+   * second-choice bill) while the first was still going to answer.
+   *
+   * At the defaults that wait is short: `aiMaxRetries` 3 and `aiRetryDelay` 2
+   * back off 2s + 4s + 8s, so the fallback is reached about fourteen seconds
+   * in. `aiMaxRetryTime` is the backstop above that, and it is **not** a
+   * setting -- there is no column and no field on `/ai`, so it is always its
+   * 60-second default (see the note on {@link AiRuntimeSettings}). It only
+   * comes into play once an operator raises the two that *are* settings high
+   * enough for the backoff to run past a minute; the wait is bounded either
+   * way, which is what makes the fallback reachable rather than starved.
+   *
+   * The reported failure reason is the whole chain's, not the last attempt's:
+   * `providerUnauthorized` only when *every* provider tried refused the
+   * credentials, since that is the one reason a caller can act on and a
+   * mixture of causes is not it.
    */
   public async generateResponse(
     prompt: string,
     jsonMode = false,
     jsonSchema?: Record<string, unknown>,
   ): Promise<AiGenerationResult> {
-    if (!this.provider) {
+    if (this.providers.length === 0) {
       this.warn("No AI provider selected.");
       return { ok: false, reason: "noProvider" };
     }
 
-    try {
+    /**
+     * Whether every provider tried so far refused the credentials, which is
+     * what decides the reason reported if the whole chain fails.
+     *
+     * `providerUnauthorized` is a specific, actionable answer -- it reaches
+     * `POST /api/v1/ai/prompt` as its own `provider_unauthorized` code, so a
+     * native client can tell someone to fix a key rather than just retry -- and
+     * it is only honest when it is the *whole* story. A primary whose key was
+     * rejected and a fallback that timed out is not "your keys are wrong"; it
+     * collapses to the generic `providerError`, the same as any other mixture.
+     */
+    let allUnauthorized = true;
+    let attempted = 0;
+
+    for (const [index, provider] of this.providers.entries()) {
+      const handler = this.handlerFor(provider, prompt, jsonMode, jsonSchema);
+      if (!handler) {
+        /**
+         * Not an attempt: no request was made and no credential was judged, so
+         * this must not count towards `allUnauthorized` either -- a chain of
+         * nothing but unrecognised names has to answer `providerError` rather
+         * than report a rejection nobody made.
+         */
+        this.warn(`Unknown AI provider: ${provider}`);
+        continue;
+      }
+
+      if (index > 0) {
+        this.warn(`Falling back to the ${provider} AI provider.`);
+      }
+
+      attempted += 1;
+
       let text: string | null;
-      if (this.provider === "openai") {
-        text = await this.callOpenai(prompt, jsonMode);
-      } else if (this.provider === "anthropic") {
-        text = await this.callAnthropic(prompt);
-      } else if (this.provider === "gemini") {
-        text = await this.callGemini(prompt, jsonMode, jsonSchema);
-      } else if (this.provider === "mistral") {
-        text = await this.callMistral(prompt, jsonMode);
-      } else if (this.provider === "qwen") {
-        text = await this.callQwen(prompt, jsonMode);
-      } else if (this.provider === "deepseek") {
-        text = await this.callDeepseek(prompt, jsonMode);
-      } else if (this.provider === "openrouter") {
-        text = await this.callOpenrouter(prompt, jsonMode);
-      } else {
-        this.warn(`Unknown AI provider: ${this.provider}`);
-        return { ok: false, reason: "providerError" };
+      try {
+        text = await handler.call();
+      } catch (e: unknown) {
+        if (e instanceof ProviderUnauthorizedError) {
+          this.warn(`The ${provider} AI provider rejected the stored credentials.`);
+        } else {
+          this.warn(`The ${provider} AI call failed: ${describeError(e)}`);
+          allUnauthorized = false;
+        }
+        continue;
       }
-      return text === null ? { ok: false, reason: "providerError" } : { ok: true, text };
-    } catch (e: unknown) {
-      if (e instanceof ProviderUnauthorizedError) {
-        this.warn(`AI provider rejected the stored credentials: ${describeError(e)}`);
-        return { ok: false, reason: "providerUnauthorized" };
+
+      if (text !== null) {
+        return { ok: true, text, provider: handler.key };
       }
-      this.warn(`AI API call failed: ${describeError(e)}`);
-      return { ok: false, reason: "providerError" };
+
+      // Every other `null` is a real failed attempt that is not a rejection:
+      // the flag off, no key stored, a non-retryable status, a rate limit the
+      // retry policy could not ride out, a network failure, or an answer whose
+      // shape the provider's own branch did not recognise.
+      allUnauthorized = false;
     }
+
+    return {
+      ok: false,
+      reason: attempted > 0 && allUnauthorized ? "providerUnauthorized" : "providerError",
+    };
+  }
+
+  /**
+   * The call for one provider name, paired with the key narrowed to an
+   * {@link AiProviderKey}, or `null` when nothing here can serve it.
+   *
+   * **A table rather than the `if`/`else if` ladder this replaced, and the
+   * `satisfies` is the point of it.** The ladder's final `else` was the only
+   * thing standing between a provider added to `AI_PROVIDERS` and a runtime
+   * "Unknown AI provider" -- a registry entry, a form field, a probe and a
+   * column, all working, and the one thing that actually calls the provider
+   * silently doing nothing. `Record<AiProviderKey, ...>` makes that a
+   * `npm run typecheck` failure at the table instead.
+   *
+   * It is also what makes "unknown" a *decidable* fact for
+   * {@link generateResponse}'s chain: `null` from a real provider's branch
+   * means the call failed and the chain should count it, while `null` from
+   * here means there was never a call to make. The ladder collapsed both into
+   * the same value.
+   *
+   * Returning a thunk rather than awaiting inside keeps the `try`/`catch`
+   * where the chain needs it -- around one provider's call, so a
+   * {@link ProviderUnauthorizedError} from the primary advances the loop
+   * instead of aborting it, which is the single most important reason a
+   * fallback exists.
+   *
+   * The narrowed `key` comes back with it because this is the one place the
+   * `string` off the settings row is proved to be a real provider, and
+   * {@link AiGenerationResult} has to carry it to whoever reports which
+   * provider answered.
+   */
+  private handlerFor(
+    provider: string,
+    prompt: string,
+    jsonMode: boolean,
+    jsonSchema?: Record<string, unknown>,
+  ): { key: AiProviderKey; call: () => Promise<string | null> } | null {
+    const handlers = {
+      openai: () => this.callOpenai(prompt, jsonMode),
+      anthropic: () => this.callAnthropic(prompt),
+      gemini: () => this.callGemini(prompt, jsonMode, jsonSchema),
+      mistral: () => this.callMistral(prompt, jsonMode),
+      qwen: () => this.callQwen(prompt, jsonMode),
+      deepseek: () => this.callDeepseek(prompt, jsonMode),
+      openrouter: () => this.callOpenrouter(prompt, jsonMode),
+    } satisfies Record<AiProviderKey, () => Promise<string | null>>;
+
+    if (!(provider in handlers)) return null;
+    const key = provider as AiProviderKey;
+    return { key, call: handlers[key] };
   }
 
   /**
@@ -335,7 +499,7 @@ export class AIClient {
     const enabled = this.settings.openaiEnabled ?? this.settings.openai_enabled;
     const apiKey = this.settings.openaiApiKey ?? this.settings.openai_api_key;
     if (!enabled || !apiKey) {
-      console.warn("OpenAI is not enabled or configured.");
+      this.warn("OpenAI is not enabled or configured.");
       return null;
     }
 
@@ -351,7 +515,7 @@ export class AIClient {
     const enabled = this.settings.anthropicEnabled ?? this.settings.anthropic_enabled;
     const apiKey = this.settings.anthropicApiKey ?? this.settings.anthropic_api_key;
     if (!enabled || !apiKey) {
-      console.warn("Anthropic is not enabled or configured.");
+      this.warn("Anthropic is not enabled or configured.");
       return null;
     }
 
@@ -395,7 +559,7 @@ export class AIClient {
     const enabled = this.settings.geminiEnabled ?? this.settings.gemini_enabled;
     const apiKey = this.settings.geminiApiKey ?? this.settings.gemini_api_key;
     if (!enabled || !apiKey) {
-      console.warn("Gemini is not enabled or configured.");
+      this.warn("Gemini is not enabled or configured.");
       return null;
     }
 
@@ -444,7 +608,7 @@ export class AIClient {
     const enabled = this.settings.mistralEnabled ?? this.settings.mistral_enabled;
     const apiKey = this.settings.mistralApiKey ?? this.settings.mistral_api_key;
     if (!enabled || !apiKey) {
-      console.warn("Mistral is not enabled or configured.");
+      this.warn("Mistral is not enabled or configured.");
       return null;
     }
     const model =
@@ -457,7 +621,7 @@ export class AIClient {
     const enabled = this.settings.qwenEnabled ?? this.settings.qwen_enabled;
     const apiKey = this.settings.qwenApiKey ?? this.settings.qwen_api_key;
     if (!enabled || !apiKey) {
-      console.warn("Qwen is not enabled or configured.");
+      this.warn("Qwen is not enabled or configured.");
       return null;
     }
     const model = this.settings.qwenModel ?? this.settings.qwen_model ?? "qwen3.5-flash";
@@ -469,7 +633,7 @@ export class AIClient {
     const enabled = this.settings.deepseekEnabled ?? this.settings.deepseek_enabled;
     const apiKey = this.settings.deepseekApiKey ?? this.settings.deepseek_api_key;
     if (!enabled || !apiKey) {
-      console.warn("DeepSeek is not enabled or configured.");
+      this.warn("DeepSeek is not enabled or configured.");
       return null;
     }
     const model =
@@ -482,7 +646,7 @@ export class AIClient {
     const enabled = this.settings.openrouterEnabled ?? this.settings.openrouter_enabled;
     const apiKey = this.settings.openrouterApiKey ?? this.settings.openrouter_api_key;
     if (!enabled || !apiKey) {
-      console.warn("OpenRouter is not enabled or configured.");
+      this.warn("OpenRouter is not enabled or configured.");
       return null;
     }
     const model =
