@@ -408,7 +408,11 @@ describe("applyAiToBlocks & AIClient processing", () => {
 
       const client = new AIClient(settings);
       for (let i = 0; i < 25; i++) {
-        expect(await client.generateResponse("test prompt")).toEqual({ ok: true, text: "ok" });
+        expect(await client.generateResponse("test prompt")).toEqual({
+          ok: true,
+          text: "ok",
+          provider: "gemini",
+        });
       }
 
       // 25 is past every default the old caps shipped with on a per-call basis
@@ -537,7 +541,9 @@ describe("applyAiToBlocks & AIClient processing", () => {
         const client = new AIClient(settings);
         const result = await client.generateResponse("test prompt");
 
-        expect(result).toEqual({ ok: true, text });
+        // `provider` is the provider that actually answered, which the
+        // fallback chain makes a different question from "which is active".
+        expect(result).toEqual({ ok: true, text, provider: key });
         expect(fetchMock).toHaveBeenCalledTimes(1);
         const calledUrl = fetchMock.mock.calls[0]?.[0] as string;
         expect(calledUrl).toBe(expectedUrlFor(key, provider, apiKey));
@@ -564,6 +570,236 @@ describe("applyAiToBlocks & AIClient processing", () => {
         }
       },
     );
+  });
+
+  /**
+   * The fallback chain: what a request does when the active provider will not
+   * answer.
+   *
+   * Gemini is the primary throughout and OpenAI the fallback, because the two
+   * take different URLs and parse different response shapes -- so which
+   * provider actually served an answer is visible in the assertions rather
+   * than inferred from a call count.
+   */
+  describe("the fallback provider", () => {
+    /** Gemini primary, OpenAI fallback, both configured and enabled. */
+    const withFallback = (overrides: Partial<AiRuntimeSettings> = {}) =>
+      makeSettings({
+        activeAiProvider: "gemini",
+        fallbackAiProvider: "openai",
+        geminiEnabled: true,
+        openaiEnabled: true,
+        ...overrides,
+      });
+
+    const geminiOk = (text: string) =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({ candidates: [{ content: { parts: [{ text }] } }] }),
+      }) as Response;
+
+    const openaiOk = (text: string) =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: text } }] }),
+      }) as Response;
+
+    const failed = (status: number) =>
+      ({ ok: false, status, statusText: `status ${status}` }) as Response;
+
+    /** The provider each recorded call went to, read off the URL. */
+    const calledProviders = (fetchMock: ReturnType<typeof vi.fn>) =>
+      fetchMock.mock.calls.map(([url]) =>
+        String(url).includes("generativelanguage.googleapis.com") ? "gemini" : "openai",
+      );
+
+    it("never reaches the fallback while the active provider answers", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(geminiOk("primary reply"));
+      globalThis.fetch = fetchMock;
+
+      const result = await new AIClient(withFallback()).generateResponse("p");
+
+      expect(result).toEqual({ ok: true, text: "primary reply", provider: "gemini" });
+      expect(calledProviders(fetchMock)).toEqual(["gemini"]);
+    });
+
+    it("falls back when the active provider rejects the credentials", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(failed(401))
+        .mockResolvedValueOnce(openaiOk("fallback reply"));
+      globalThis.fetch = fetchMock;
+
+      const result = await new AIClient(withFallback()).generateResponse("p");
+
+      expect(result).toEqual({ ok: true, text: "fallback reply", provider: "openai" });
+      // A 401 is never retried, so the primary is called exactly once -- and
+      // before this chain existed it aborted `generateResponse()` outright
+      // rather than advancing to anything.
+      expect(calledProviders(fetchMock)).toEqual(["gemini", "openai"]);
+    });
+
+    it("falls back once the active provider's rate-limit retries are exhausted", async () => {
+      // `aiMaxRetries` is 3 in the fixture, so four 429s exhaust the policy;
+      // the fallback engages after it rather than instead of it.
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(failed(429))
+        .mockResolvedValueOnce(failed(429))
+        .mockResolvedValueOnce(failed(429))
+        .mockResolvedValueOnce(failed(429))
+        .mockResolvedValueOnce(openaiOk("fallback reply"));
+      globalThis.fetch = fetchMock;
+
+      const result = await new AIClient(withFallback()).generateResponse("p");
+
+      expect(result).toEqual({ ok: true, text: "fallback reply", provider: "openai" });
+      expect(calledProviders(fetchMock)).toEqual([
+        "gemini",
+        "gemini",
+        "gemini",
+        "gemini",
+        "openai",
+      ]);
+    });
+
+    it("falls back on a server error and on a network failure alike", async () => {
+      const onServerError = vi
+        .fn()
+        .mockResolvedValueOnce(failed(500))
+        .mockResolvedValueOnce(openaiOk("after 500"));
+      globalThis.fetch = onServerError;
+      expect(await new AIClient(withFallback()).generateResponse("p")).toEqual({
+        ok: true,
+        text: "after 500",
+        provider: "openai",
+      });
+
+      const onNetworkFailure = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("ECONNREFUSED"))
+        .mockResolvedValueOnce(openaiOk("after network failure"));
+      globalThis.fetch = onNetworkFailure;
+      expect(await new AIClient(withFallback()).generateResponse("p")).toEqual({
+        ok: true,
+        text: "after network failure",
+        provider: "openai",
+      });
+    });
+
+    it("falls back when the active provider is no longer configured at all", async () => {
+      // No request is made for the primary -- its flag is off -- so the very
+      // first call goes to the fallback.
+      const fetchMock = vi.fn().mockResolvedValue(openaiOk("fallback reply"));
+      globalThis.fetch = fetchMock;
+
+      const result = await new AIClient(withFallback({ geminiEnabled: false })).generateResponse(
+        "p",
+      );
+
+      expect(result).toEqual({ ok: true, text: "fallback reply", provider: "openai" });
+      expect(calledProviders(fetchMock)).toEqual(["openai"]);
+    });
+
+    it("reports providerUnauthorized only when every provider refused", async () => {
+      const bothRefused = vi.fn().mockResolvedValue(failed(401));
+      globalThis.fetch = bothRefused;
+      expect(await new AIClient(withFallback()).generateResponse("p")).toEqual({
+        ok: false,
+        reason: "providerUnauthorized",
+      });
+      expect(calledProviders(bothRefused)).toEqual(["gemini", "openai"]);
+
+      // A rejection plus anything else is not "your keys are wrong", so it
+      // collapses to the generic reason a caller cannot act on specifically.
+      const mixed = vi.fn().mockResolvedValueOnce(failed(401)).mockResolvedValueOnce(failed(500));
+      globalThis.fetch = mixed;
+      expect(await new AIClient(withFallback()).generateResponse("p")).toEqual({
+        ok: false,
+        reason: "providerError",
+      });
+    });
+
+    it("makes no second attempt when the fallback names the active provider", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(failed(500));
+      globalThis.fetch = fetchMock;
+
+      const result = await new AIClient(
+        withFallback({ fallbackAiProvider: "gemini" }),
+      ).generateResponse("p");
+
+      expect(result).toEqual({ ok: false, reason: "providerError" });
+      // Retrying the endpoint that just failed is not a fallback: one call,
+      // not two. (500 is not retried, so this count is the chain's alone.)
+      expect(calledProviders(fetchMock)).toEqual(["gemini"]);
+    });
+
+    it("ignores a fallback when no provider is active at all", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(openaiOk("should not happen"));
+      globalThis.fetch = fetchMock;
+
+      const result = await new AIClient(withFallback({ activeAiProvider: "" })).generateResponse(
+        "p",
+      );
+
+      // A fallback is not a second way to switch the AI features on.
+      expect(result).toEqual({ ok: false, reason: "noProvider" });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("reads the chain under snake_case column names too", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(failed(500))
+        .mockResolvedValueOnce(openaiOk("fallback reply"));
+      globalThis.fetch = fetchMock;
+
+      const result = await new AIClient({
+        active_ai_provider: "gemini",
+        fallback_ai_provider: "openai",
+        gemini_enabled: true,
+        gemini_api_key: "k",
+        openai_enabled: true,
+        openai_api_key: "k",
+        aiRetryDelay: 0,
+      }).generateResponse("p");
+
+      expect(result).toEqual({ ok: true, text: "fallback reply", provider: "openai" });
+      expect(calledProviders(fetchMock)).toEqual(["gemini", "openai"]);
+    });
+
+    it("answers providerError, not a rejection, for a chain of unknown names", async () => {
+      const fetchMock = vi.fn();
+      globalThis.fetch = fetchMock;
+
+      const result = await new AIClient({
+        activeAiProvider: "not-a-provider",
+        fallbackAiProvider: "also-not-a-provider",
+      }).generateResponse("p");
+
+      // Nothing was asked and no credential was judged, so `allUnauthorized`
+      // must not survive a chain that made no attempt.
+      expect(result).toEqual({ ok: false, reason: "providerError" });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("reports the fallback in the triggering job's own log", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(failed(500))
+        .mockResolvedValueOnce(openaiOk("fallback reply"));
+      globalThis.fetch = fetchMock;
+      const logged: string[] = [];
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      await new AIClient(withFallback(), (message) => logged.push(message)).generateResponse("p");
+
+      // Otherwise a silently-switched provider is indistinguishable from the
+      // primary having worked -- and the bill lands on the wrong account.
+      expect(logged.some((line) => /falling back to the openai/i.test(line))).toBe(true);
+    });
   });
 
   /**

@@ -1917,6 +1917,57 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   stored value is still not trusted and still falls back to the default, the
   same as every other provider's unconfigured case.
 
+- **A request is tried against the active provider and then, optionally, a
+  fallback — `fallback_ai_provider`, the column beside `active_ai_provider`.**
+  When the active provider will not answer (refused credentials, a
+  non-retryable status, a rate limit its own retry policy could not ride out, a
+  timeout, a network failure, or a provider that is simply no longer
+  configured), the same request goes to the fallback. `""` means there is none,
+  which is what every row predating the column keeps meaning. Five things about
+  it:
+  - **The chain is built in two places that must agree**, and they answer
+    different questions: `fallbackProvider()` (`src/lib/ai/queries.ts`) derives
+    what `/ai` _shows_, `providerChain()` (`src/lib/ai/run.ts`) derives what a
+    request _does_. Both apply the same two rules — a fallback needs an active
+    provider to fall back _from_, and it is never the active provider itself —
+    because a page promising a fallback the runtime would not attempt is the
+    same class of silent disagreement as an "Active" badge over a dead
+    provider. Only the queries half additionally checks the `*Enabled` flag: it
+    has a full `UserSettings` row to read `AI_COLUMNS[key].enabled` from, while
+    each `callXxx()` in `run.ts` already refuses its own provider when the flag
+    is off, returning the `null` that moves the chain along.
+  - **It is a preference, and the `*Enabled` flag is the permission** — the
+    exact arrangement `active_ai_provider` documents above, including that
+    nothing erases the column when either condition stops holding.
+    `setFallbackProvider()` refuses to _write_ the active provider, but that
+    state is still reachable (switching the _active_ provider to the one
+    already named is an ordinary act), which is why the derivation checks it
+    rather than trusting every writer.
+  - **The fallback engages _after_ the primary's retry policy, not instead of
+    it.** `aiMaxRetries`/`aiRetryDelay`/`aiMaxRetryTime` are the operator's
+    stated answer to "how long is a 429 worth waiting out"; abandoning the
+    primary on its first 429 would overrule that and send work — and, for a
+    paid provider, the bill — to the second choice while the first was still
+    going to answer. `aiMaxRetryTime` (60s by default) is what bounds the wait.
+  - **`AiGenerationResult`'s success arm carries `provider`, the provider that
+    actually answered.** With a chain that is a different question from "which
+    provider is active", and `POST /api/v1/ai/prompt` returns both the provider
+    and its model in its body — read from the settings row via the _active_
+    key, a fallback answer was attributed to the endpoint that had just failed,
+    along with a model it was never asked for. The route still reads
+    `activeProvider()` for its `no_active_provider` check, which is a different
+    question again. The failure arm reports `providerUnauthorized` only when
+    _every_ provider tried refused the credentials: it is the one reason a
+    caller can act on, and a mixture of causes is not it.
+  - **The picker on `/ai` writes on change, and it is the one control on that
+    card that does.** Both reasons the provider picker is save-on-press (see
+    `provider-section.tsx`) are arguments about credentials, and there are none
+    here: the list is built from providers that already passed a probe, so
+    `fallbackNotVerified` is unreachable from the control, and there is no key
+    field beside it for a Save to belong to. The list also excludes the active
+    provider — filtered rather than offered-and-refused, because nothing an
+    operator could do _in that control_ would make such an entry work.
+
 - **There is no per-user AI request cap and no output-token cap, and the
   absence of both is a decision.** The
   2026-08-04 plan added one — `aiDefaultDailyLimit`/`aiDefaultMonthlyLimit`

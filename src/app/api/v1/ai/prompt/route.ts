@@ -75,10 +75,16 @@ export async function POST(request: Request): Promise<Response> {
       throw new ApiError(502, "provider_error", "The AI provider could not fulfil this prompt.");
     }
 
+    // `result.provider`, never `providerKey`: with a fallback configured the
+    // provider that answered can be the second one in the chain, and reporting
+    // the active provider's name -- and, worse, the active provider's model --
+    // would attribute the answer to an endpoint that just failed. The check
+    // above still reads the *active* provider, because that is what decides
+    // whether the AI features are on at all.
     return Response.json({
       response: result.text,
-      provider: providerKey,
-      model: settings[AI_COLUMNS[providerKey].model],
+      provider: result.provider,
+      model: settings[AI_COLUMNS[result.provider].model],
     });
   } catch (error) {
     if (error instanceof ApiError) return apiErrorResponse(error);

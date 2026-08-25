@@ -712,6 +712,115 @@ describe("the AI actions", () => {
     });
   });
 
+  describe("setFallbackProvider", () => {
+    /** Active gemini, verified openai standing by to be chosen as the fallback. */
+    const ready = () =>
+      seed({
+        geminiApiKey: GEMINI_KEY,
+        geminiEnabled: true,
+        activeAiProvider: "gemini",
+        openaiApiKey: OPENAI_KEY,
+        openaiEnabled: true,
+      });
+
+    it("stores a verified provider that is not the active one", async () => {
+      ready();
+
+      expect(await actions.setFallbackProvider("openai")).toEqual({ ok: true });
+      expect(row()).toMatchObject({ fallback_ai_provider: "openai" });
+    });
+
+    it("allows the empty string, which removes the fallback", async () => {
+      ready();
+      await actions.setFallbackProvider("openai");
+
+      expect(await actions.setFallbackProvider("")).toEqual({ ok: true });
+      expect(row()).toMatchObject({ fallback_ai_provider: "" });
+    });
+
+    it("refuses a provider whose credentials have not passed a probe", async () => {
+      // Same reasoning as the active provider's own refusal: a fallback that
+      // was never verified is a chain that fails silently at its second link
+      // instead of its first.
+      ready();
+
+      const result = await actions.setFallbackProvider("anthropic");
+
+      expect(result).toEqual({ ok: false, errorKey: "fallbackNotVerified" });
+      expect(failureMessage(result)).toBeTypeOf("string");
+      expect(row()).toMatchObject({ fallback_ai_provider: "" });
+    });
+
+    it("refuses an unknown provider key", async () => {
+      ready();
+
+      const result = await actions.setFallbackProvider("unknown");
+
+      expect(result).toEqual({ ok: false, errorKey: "unknownProvider" });
+      expect(failureMessage(result)).toBeTypeOf("string");
+      expect(row()).toMatchObject({ fallback_ai_provider: "" });
+    });
+
+    it("refuses the active provider — retrying the endpoint that failed is not a fallback", async () => {
+      ready();
+
+      const result = await actions.setFallbackProvider("gemini");
+
+      expect(result).toEqual({ ok: false, errorKey: "fallbackSameAsActive" });
+      expect(failureMessage(result)).toBeTypeOf("string");
+      expect(row()).toMatchObject({ fallback_ai_provider: "" });
+    });
+
+    it("refuses a fallback while the AI features are switched off", async () => {
+      // Inert in that state, and a picker that accepts a choice which changes
+      // nothing is the silent failure this page exists to avoid.
+      seed({ openaiApiKey: OPENAI_KEY, openaiEnabled: true, activeAiProvider: "" });
+
+      const result = await actions.setFallbackProvider("openai");
+
+      expect(result).toEqual({ ok: false, errorKey: "fallbackNeedsActive" });
+      expect(failureMessage(result)).toBeTypeOf("string");
+      expect(row()).toMatchObject({ fallback_ai_provider: "" });
+    });
+
+    /**
+     * The *stored* preference decides, not the derived one. An operator whose
+     * active provider has a temporarily refused key is picking a fallback for
+     * the provider they chose -- reading the derivation here would answer "no
+     * active provider" and refuse the one act that would fix the situation.
+     */
+    it("still accepts a fallback while the active provider's own key is refused", async () => {
+      seed({
+        geminiApiKey: GEMINI_KEY,
+        geminiEnabled: false,
+        activeAiProvider: "gemini",
+        openaiApiKey: OPENAI_KEY,
+        openaiEnabled: true,
+      });
+
+      expect(await actions.setFallbackProvider("openai")).toEqual({ ok: true });
+      expect(row()).toMatchObject({ fallback_ai_provider: "openai" });
+    });
+
+    /**
+     * A preference, exactly like `active_ai_provider`: nothing erases it when
+     * it stops holding, because the read side derives what is in force and
+     * clearing would discard a selection the operator never changed. Switching
+     * the active provider *to* the fallback is the reachable case, and it is
+     * the read side (`fallbackProvider()`) that answers `""` for it.
+     */
+    it("leaves the column alone when the active provider becomes the fallback", async () => {
+      ready();
+      await actions.setFallbackProvider("openai");
+
+      expect(await actions.setActiveProvider("openai")).toEqual({ ok: true });
+      expect(row()).toMatchObject({
+        active_ai_provider: "openai",
+        fallback_ai_provider: "openai",
+      });
+    });
+  });
+
   /**
    * **The ordering hazard: a provider can be active and *then* stop working.**
    *

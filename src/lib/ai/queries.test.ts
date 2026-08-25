@@ -221,6 +221,86 @@ describe("getAiStatus", () => {
     });
   });
 
+  describe("the fallback provider", () => {
+    it("is empty on a fresh row", async () => {
+      expect((await queries.getAiStatus()).fallback).toBe("");
+    });
+
+    it("is reported when both it and the active provider are switched on", async () => {
+      seed({
+        activeAiProvider: "gemini",
+        geminiEnabled: true,
+        fallbackAiProvider: "openai",
+        openaiEnabled: true,
+      });
+
+      expect((await queries.getAiStatus()).fallback).toBe("openai");
+    });
+
+    /** The same permission check the active provider gets, for the same reason. */
+    it("is empty when the provider it names is not verified", async () => {
+      seed({
+        activeAiProvider: "gemini",
+        geminiEnabled: true,
+        fallbackAiProvider: "openai",
+        openaiApiKey: OPENAI_KEY,
+        openaiEnabled: false,
+      });
+
+      expect((await queries.getAiStatus()).fallback).toBe("");
+    });
+
+    it("is empty when the column names a provider Yana does not support", async () => {
+      seed({
+        activeAiProvider: "gemini",
+        geminiEnabled: true,
+        fallbackAiProvider: "not-a-provider",
+      });
+
+      expect((await queries.getAiStatus()).fallback).toBe("");
+    });
+
+    /**
+     * Reachable without going through `setFallbackProvider()`, which refuses
+     * to write it: switching the *active* provider to the one already named
+     * here is an ordinary, allowed act. Falling back to the endpoint that just
+     * failed is not a fallback, so the read side has to say so too.
+     */
+    it("is empty when it names the active provider", async () => {
+      seed({
+        activeAiProvider: "gemini",
+        geminiEnabled: true,
+        fallbackAiProvider: "gemini",
+      });
+
+      expect((await queries.getAiStatus()).fallback).toBe("");
+    });
+
+    /** A fallback needs an active provider to fall back *from*. */
+    it("is empty while the AI features are switched off", async () => {
+      seed({ activeAiProvider: "", fallbackAiProvider: "openai", openaiEnabled: true });
+
+      const status = await queries.getAiStatus();
+      expect(status.active).toBe("");
+      expect(status.fallback).toBe("");
+    });
+
+    /** Not a second way to switch AI on: an unusable active provider takes the
+     * fallback with it, so the page never reports a chain the runtime would
+     * refuse to start (`applyAiToBlocks()` gives up on an empty
+     * `active_ai_provider` before an `AIClient` is built at all). */
+    it("is empty when the active provider it would serve is itself unverified", async () => {
+      seed({
+        activeAiProvider: "gemini",
+        geminiEnabled: false,
+        fallbackAiProvider: "openai",
+        openaiEnabled: true,
+      });
+
+      expect((await queries.getAiStatus()).fallback).toBe("");
+    });
+  });
+
   it("drops the `ai` prefix from every advanced value", async () => {
     seed({
       aiTemperature: 1.25,

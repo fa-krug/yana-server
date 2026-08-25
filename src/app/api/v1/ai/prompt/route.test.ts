@@ -201,6 +201,60 @@ describe("POST /api/v1/ai/prompt", () => {
     vi.unstubAllGlobals();
   });
 
+  /**
+   * With a fallback configured the provider that answers can be the second one
+   * in the chain -- so the two fields this endpoint reports about the answer
+   * have to come from the answer, not from `active_ai_provider`. Reporting the
+   * active provider would attribute a fallback reply to the endpoint that just
+   * failed, together with a model it was never asked for.
+   */
+  it("names the fallback provider and its model when the fallback served the answer", async () => {
+    const token = await ownerToken();
+    const owner = client
+      .getDb()
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.email, "o@example.com"))
+      .get()!;
+    client.writeTransaction((tx) => {
+      tx.update(schema.userSettings)
+        .set({
+          anthropicEnabled: true,
+          anthropicApiKey: "sk-ant-test",
+          anthropicModel: "claude-haiku-4-5",
+          activeAiProvider: "anthropic",
+          deepseekEnabled: true,
+          deepseekApiKey: "sk-deepseek-test",
+          deepseekModel: "deepseek-v4-pro",
+          fallbackAiProvider: "deepseek",
+          // A 401 is not retried, so this is one call to each provider.
+          aiRetryDelay: 0,
+        })
+        .where(eq(schema.userSettings.userId, owner.id))
+        .run();
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("nope", { status: 401 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: "Hello there." } }] }), {
+          status: 200,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await promptRequest(token, { prompt: "Hello there" });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      response: "Hello there.",
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    vi.unstubAllGlobals();
+  });
+
   it("502s with provider_unauthorized when the stored credentials are rejected", async () => {
     const token = await ownerToken();
     const owner = client

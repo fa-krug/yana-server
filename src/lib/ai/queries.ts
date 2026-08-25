@@ -90,6 +90,17 @@ export type AiStatus = {
    * that never appear with nothing in the UI to say why.
    */
   active: AiProviderKey | "";
+  /**
+   * The provider a request falls back to when {@link AiStatus.active} will not
+   * answer, or `""` for none.
+   *
+   * Derived by {@link fallbackProvider}, on exactly the reasoning
+   * {@link AiStatus.active} states -- the column is a preference and the
+   * `*Enabled` flag is the permission -- plus two conditions of its own: a
+   * fallback is inert without an active provider to fall back *from*, and it is
+   * never the active provider itself.
+   */
+  fallback: AiProviderKey | "";
   providers: Record<AiProviderKey, AiProviderStatus>;
   advanced: AiAdvanced;
 };
@@ -103,6 +114,36 @@ export function providerEnabled(settings: UserSettings, key: AiProviderKey): boo
 export function activeProvider(settings: UserSettings): AiProviderKey | "" {
   const provider = providerByKey(settings.activeAiProvider);
   return provider && providerEnabled(settings, provider.key) ? provider.key : "";
+}
+
+/**
+ * {@link AiStatus.fallback}: the stored preference, but only when it can
+ * actually serve as one.
+ *
+ * Three conditions, and each rules out a state the column can genuinely hold:
+ *
+ * 1. **There is an active provider.** With AI switched off there is nothing to
+ *    fall back from, and a fallback must never be a second way to switch the
+ *    features on -- `applyAiToBlocks()` refuses outright on an empty
+ *    `active_ai_provider`, and this answering a provider there would put the
+ *    two halves of the feature into disagreement.
+ * 2. **The named provider's own flag agrees**, the same permission check
+ *    {@link activeProvider} makes, for the same reason: a preference recorded
+ *    before a key was removed or refused must not put a dead endpoint into the
+ *    chain.
+ * 3. **It is not the active provider.** Falling back to the endpoint that just
+ *    failed is not a fallback; it is the same request again, at double the
+ *    latency and the cost. `setFallbackProvider()` refuses to write that, but
+ *    the state is reachable without it -- switching the *active* provider to
+ *    the one already named here is an ordinary, allowed act -- so it is
+ *    checked where it is used, the same argument `safeAvatarSrc()` rests on.
+ */
+export function fallbackProvider(settings: UserSettings): AiProviderKey | "" {
+  const active = activeProvider(settings);
+  if (active === "") return "";
+  const provider = providerByKey(settings.fallbackAiProvider);
+  if (!provider || provider.key === active) return "";
+  return providerEnabled(settings, provider.key) ? provider.key : "";
 }
 
 export async function getAiStatus(): Promise<AiStatus> {
@@ -126,6 +167,7 @@ export async function getAiStatus(): Promise<AiStatus> {
 
   return {
     active: activeProvider(settings),
+    fallback: fallbackProvider(settings),
     providers,
     advanced: {
       temperature: settings.aiTemperature,

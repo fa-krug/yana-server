@@ -605,6 +605,77 @@ export async function setActiveProvider(key: string): Promise<AiResult> {
 }
 
 /**
+ * Choose the provider a request falls back to when the active one will not
+ * answer, or `""` for none.
+ *
+ * {@link setActiveProvider}'s twin, and every rule it states applies here
+ * unchanged: the provider must have passed a probe, the read and the write are
+ * one `BEGIN IMMEDIATE` transaction so the flag cannot go false between them,
+ * `""` needs no check, and what is written is a *preference* that the read side
+ * (`fallbackProvider()` in `./queries`) is free to disregard once it stops
+ * holding. Read that action's doc comment for why none of that is restated.
+ *
+ * Two refusals are its own:
+ *
+ * - **The fallback may not be the active provider.** Retrying the endpoint that
+ *   just failed is not a fallback, and offering it would promise a resilience
+ *   the runtime cannot deliver. `providerChain()` in `./run` drops it anyway --
+ *   the state is reachable by switching the *active* provider afterwards, which
+ *   is an ordinary act nothing should refuse -- so this check exists to give
+ *   the operator an answer at the moment they ask for it, not to keep the
+ *   column clean.
+ * - **A fallback with AI switched off is refused**, rather than stored against
+ *   the day a provider is activated. It is inert in that state (see the column's
+ *   own comment in `schema/users.ts`), and a picker that accepts a choice which
+ *   changes nothing is the silent-failure shape this page exists to avoid.
+ *   Switching AI off later does *not* clear it, for the preference reason above.
+ */
+export async function setFallbackProvider(key: string): Promise<AiResult> {
+  const userId = await currentUserId();
+
+  const provider = key === "" ? null : providerByKey(key);
+  if (key !== "" && !provider) return { ok: false, errorKey: "unknownProvider" };
+
+  let outcome: "written" | "disabled" | "sameAsActive" | "noActive" | "missing";
+  try {
+    outcome = writeTransaction((tx) => {
+      const row = tx.select().from(userSettings).where(eq(userSettings.userId, userId)).get();
+      if (!row) return "missing" as const;
+      if (provider) {
+        if (!row[AI_COLUMNS[provider.key].enabled]) return "disabled" as const;
+        // The *stored* preference, not the derived one: an operator whose
+        // active provider has a temporarily refused key is choosing a fallback
+        // for the provider they picked, and the derivation would read that as
+        // "no active provider" and refuse the whole thing.
+        if (row.activeAiProvider === "") return "noActive" as const;
+        if (row.activeAiProvider === provider.key) return "sameAsActive" as const;
+      }
+
+      tx.update(userSettings)
+        .set({ fallbackAiProvider: provider ? provider.key : "" })
+        .where(eq(userSettings.userId, userId))
+        .run();
+      return "written" as const;
+    });
+  } catch (error) {
+    // Logged, not returned: a driver message is not a catalog key either.
+    console.error(`${LOG_PREFIX} failed to set the fallback provider`, error);
+    return { ok: false, errorKey: "saveFailed" };
+  }
+
+  if (outcome === "missing") {
+    logMissingRow(userId);
+    return { ok: false, errorKey: "saveFailed" };
+  }
+  if (outcome === "disabled") return { ok: false, errorKey: "fallbackNotVerified" };
+  if (outcome === "sameAsActive") return { ok: false, errorKey: "fallbackSameAsActive" };
+  if (outcome === "noActive") return { ok: false, errorKey: "fallbackNeedsActive" };
+
+  revalidatePath(AI_PATH);
+  return { ok: true };
+}
+
+/**
  * The six global tuning values, **built from `AI_ADVANCED_BOUNDS` rather than
  * typed out here.**
  *

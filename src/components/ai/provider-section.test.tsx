@@ -8,19 +8,27 @@ import { renderWithProviders } from "@/test/render";
 
 import { ProviderSectionForm } from "./provider-section";
 
-const { listOpenrouterModels, removeProvider, saveProvider, setActiveProvider, testProvider } =
-  vi.hoisted(() => ({
-    listOpenrouterModels: vi.fn(),
-    removeProvider: vi.fn(),
-    saveProvider: vi.fn(),
-    setActiveProvider: vi.fn(),
-    testProvider: vi.fn(),
-  }));
+const {
+  listOpenrouterModels,
+  removeProvider,
+  saveProvider,
+  setActiveProvider,
+  setFallbackProvider,
+  testProvider,
+} = vi.hoisted(() => ({
+  listOpenrouterModels: vi.fn(),
+  removeProvider: vi.fn(),
+  saveProvider: vi.fn(),
+  setActiveProvider: vi.fn(),
+  setFallbackProvider: vi.fn(),
+  testProvider: vi.fn(),
+}));
 vi.mock("@/lib/ai/actions", () => ({
   listOpenrouterModels,
   removeProvider,
   saveProvider,
   setActiveProvider,
+  setFallbackProvider,
   testProvider,
 }));
 
@@ -105,6 +113,7 @@ describe("<ProviderSection>", () => {
     testProvider.mockResolvedValue({ ok: true });
     removeProvider.mockResolvedValue({ ok: true });
     setActiveProvider.mockResolvedValue({ ok: true });
+    setFallbackProvider.mockResolvedValue({ ok: true });
     listOpenrouterModels.mockResolvedValue({ ok: true, models: [] });
   });
 
@@ -644,6 +653,128 @@ describe("<ProviderSection>", () => {
     });
   });
 
+  /**
+   * The fallback picker: the one control on this card that writes the moment
+   * it changes, because there is no credential beside it for a Save to belong
+   * to (see the component's own header).
+   */
+  describe("the fallback provider", () => {
+    /** Anthropic active and verified, Gemini verified and available as a fallback. */
+    const TWO_VERIFIED: Record<AiProviderKey, AiProviderStatus> = {
+      ...PROVIDERS,
+      gemini: { ...PROVIDERS.gemini, enabled: true, apiKeyMasked: MASK },
+    };
+
+    function renderFallback(
+      overrides: {
+        active?: AiProviderKey | "";
+        fallback?: AiProviderKey | "";
+        providers?: Record<AiProviderKey, AiProviderStatus>;
+        locale?: "en" | "de";
+      } = {},
+    ) {
+      const { active = "anthropic", fallback = "", providers = TWO_VERIFIED } = overrides;
+      return renderWithProviders(
+        <ProviderSectionForm active={active} fallback={fallback} providers={providers} />,
+        { locale: overrides.locale ?? "de" },
+      );
+    }
+
+    it("offers only verified providers, and never the active one", () => {
+      renderFallback();
+
+      fireEvent.click(document.querySelector<HTMLElement>("#ai-fallback")!);
+      const offered = screen.getAllByRole("option").map((option) => option.textContent);
+
+      // Listing an entry the server would refuse is the dead end the provider
+      // picker's own history documents: nothing an operator could do *in this
+      // control* would make it work.
+      expect(offered).toEqual(["Keiner", "Gemini"]);
+    });
+
+    it("reads the stored fallback on the collapsed trigger", () => {
+      const { container } = renderFallback({ fallback: "gemini" });
+
+      // Base UI resolves this from `items` alone, so a fallback missing from
+      // the built list would print the raw key here.
+      expect(triggerText(container, "ai-fallback")).toBe("Gemini");
+    });
+
+    it("writes the moment it changes, without pressing Save", async () => {
+      renderFallback();
+
+      choose("ai-fallback", "Gemini");
+
+      await waitFor(() => expect(setFallbackProvider).toHaveBeenCalledWith("gemini"));
+      expect(saveProvider).not.toHaveBeenCalled();
+      // Not the credential reporter's "Zugangsdaten geprüft und gespeichert." --
+      // this path verified nothing and saved no credential.
+      await waitFor(() =>
+        expect(toastSuccess).toHaveBeenCalledWith("Ausweichanbieter gespeichert."),
+      );
+    });
+
+    it("says the fallback was removed, not saved, when it is cleared", async () => {
+      renderFallback({ fallback: "gemini" });
+
+      choose("ai-fallback", "Keiner");
+
+      await waitFor(() => expect(setFallbackProvider).toHaveBeenCalledWith(""));
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Ausweichanbieter entfernt."));
+    });
+
+    it("puts the picker back when the server refuses", async () => {
+      // The choice is the only thing that changed, so a picker left showing a
+      // rejected value is a page stating a fallback that does not exist.
+      setFallbackProvider.mockResolvedValue({ ok: false, errorKey: "fallbackNotVerified" });
+      const { container } = renderFallback({ fallback: "gemini" });
+
+      choose("ai-fallback", "Keiner");
+
+      await waitFor(() =>
+        expect(toastError).toHaveBeenCalledWith(
+          "Speichere und prüfe die Zugangsdaten dieses Anbieters, bevor du ihn als Ausweichanbieter festlegst.",
+        ),
+      );
+      expect(triggerText(container, "ai-fallback")).toBe("Gemini");
+    });
+
+    it("is off, and says why, while the AI features are switched off", () => {
+      renderFallback({ active: "" });
+
+      expect(document.querySelector<HTMLButtonElement>("#ai-fallback")!.disabled).toBe(true);
+      expect(
+        screen.getByText(
+          "Wähle zuerst einen aktiven Anbieter — ein Ausweichanbieter braucht einen, für den er einspringt.",
+        ),
+      ).toBeTruthy();
+    });
+
+    it("is off, and says why, when no second provider is verified", () => {
+      // The default fixture verifies Anthropic alone, which is also the active
+      // provider -- so there is nothing left to offer.
+      renderFallback({ providers: PROVIDERS });
+
+      expect(document.querySelector<HTMLButtonElement>("#ai-fallback")!.disabled).toBe(true);
+      expect(
+        screen.getByText(
+          "Prüfe die Zugangsdaten eines zweiten Anbieters, um ihn als Ausweichanbieter anzubieten.",
+        ),
+      ).toBeTruthy();
+    });
+
+    it("stays on the card when the provider picker moves to None", () => {
+      // It belongs to the card, not to whichever provider is selected, so it
+      // does not appear and disappear the way the credential fields do.
+      renderFallback();
+
+      choose("ai-provider", "Keiner (deaktiviert)");
+
+      expect(screen.queryByLabelText("API-Schlüssel")).toBe(null);
+      expect(screen.getByLabelText("Ausweichanbieter")).toBeTruthy();
+    });
+  });
+
   describe("pending", () => {
     it("renders the provider picker disabled, with no selection", () => {
       // A disabled trigger cannot be opened to inspect its popup (Base UI
@@ -659,6 +790,18 @@ describe("<ProviderSection>", () => {
       const trigger = document.querySelector<HTMLButtonElement>("#ai-provider")!;
       expect(trigger.disabled).toBe(true);
       expect(trigger.dataset.placeholder).toBe("");
+    });
+
+    it("renders the fallback picker disabled and empty, never a guessed list", () => {
+      // Which providers are verified is unknown while pending, so there is no
+      // honest list -- and no `value` either, for the same reason the provider
+      // picker above has none: `""` is the real "None" item here too.
+      renderWithProviders(<ProviderSectionForm pending />);
+
+      const trigger = document.querySelector<HTMLButtonElement>("#ai-fallback")!;
+      expect(trigger.disabled).toBe(true);
+      expect(trigger.dataset.placeholder).toBe("");
+      expect(screen.queryAllByRole("option").length).toBe(0);
     });
 
     it("renders the model picker disabled and empty, never a guessed list", () => {

@@ -31,6 +31,7 @@ import {
   removeProvider,
   saveProvider,
   setActiveProvider,
+  setFallbackProvider,
   testProvider,
 } from "@/lib/ai/actions";
 import {
@@ -81,15 +82,28 @@ import { attemptCall } from "@/lib/attempt";
  * Nothing is hidden while the two disagree: {@link hintKey} states, under the
  * picker, whether the choice on screen is the one the server is acting on.
  *
- * ## Two selects, and the `<Select>` trap applies to both
+ * ## The fallback picker writes immediately, and it is the exception
+ *
+ * Under the provider picker sits a second one: which provider a request falls
+ * back to when the active one will not answer. It **saves on change**, against
+ * everything the section above says -- and the reason is that both arguments
+ * for save-on-press are arguments about *credentials*. There are none to verify
+ * here: the list is built from providers that have already passed a probe, so
+ * the refusal that made a first pick fail cannot happen, and there is no key
+ * field beside it for a Save to belong to. Pressing "Save and verify" to store
+ * a preference that verifies nothing would be the mislabelled outcome the
+ * "None (disabled)" branch of {@link ProviderSectionForm}'s own save already
+ * takes care to avoid.
+ *
+ * ## Three selects, and the `<Select>` trap applies to all of them
  *
  * Base UI resolves the collapsed trigger's label from the root's `items` prop
  * alone and never reads `<SelectItem>`'s text (CLAUDE.md), so each list is built
- * once and feeds both. Getting this wrong prints `gemini-3.5-flash-lite` on the
- * trigger while the open popup looks perfect.
+ * once and feeds both halves of its own select. Getting this wrong prints
+ * `gemini-3.5-flash-lite` on the trigger while the open popup looks perfect.
  *
- * **`""` is a real value here, not "nothing selected", and that needs one piece
- * of care.** Base UI's `hasSelectedValue` is `stringifyAsValue(value) !== ""`,
+ * **`""` is a real value in the provider and fallback pickers alike, not
+ * "nothing selected", and that needs one piece of care.** Base UI's `hasSelectedValue` is `stringifyAsValue(value) !== ""`,
  * so an empty string reads as *unselected* -- which only matters because
  * `<Select.Value>` prefers its own `placeholder` prop over resolving a label
  * when nothing is selected. This one passes no `placeholder`, so the resolver
@@ -136,10 +150,12 @@ type Selection = AiProviderKey | "";
 
 export function ProviderSectionForm({
   active = "",
+  fallback = "",
   providers,
   pending = false,
 }: {
   active?: Selection;
+  fallback?: Selection;
   providers?: Record<AiProviderKey, AiProviderStatus>;
   pending?: boolean;
 }) {
@@ -173,6 +189,26 @@ export function ProviderSectionForm({
     null,
   );
   const [refreshingModels, startRefreshModels] = useTransition();
+  /**
+   * The fallback picker, and **the one control on this card that writes the
+   * moment it changes** rather than waiting for Save.
+   *
+   * The two reasons the *provider* picker is save-on-press (see the header)
+   * both come from it having credentials to verify: a first pick of an
+   * unconfigured provider would be refused, and the refusal left a dead end.
+   * Neither applies here, because the list is built from providers that are
+   * *already* verified -- so `setFallbackProvider()` cannot answer
+   * `fallbackNotVerified` from this control, there is nothing to type in
+   * alongside it, and Save's own label ("Save and verify") describes an act
+   * this choice is not part of. Local state exists only so the picker can be
+   * reverted when the server refuses after all.
+   *
+   * A fourth transition rather than folding into `busy`: choosing a fallback
+   * has no bearing on the credential fields, so it neither blocks Save/Test
+   * nor is blocked by them.
+   */
+  const [fallbackChoice, setFallbackChoice] = useState<Selection>(fallback);
+  const [savingFallback, startSaveFallback] = useTransition();
 
   const provider = selected === "" ? null : (providerByKey(selected) ?? null);
   // `providers` is only ever absent while pending, which returns before this
@@ -197,6 +233,52 @@ export function ProviderSectionForm({
         ({ value, label }) => ({ value, label }),
       )
     : [];
+
+  /**
+   * What the fallback picker offers: "None", plus every provider that is
+   * already verified and is not the active one.
+   *
+   * **Filtered rather than offered-and-refused.** `setFallbackProvider()`
+   * rejects both excluded cases with their own catalog keys, but a dropdown
+   * whose entries answer with an error toast is the dead end the provider
+   * picker's own history documents -- and here there is nothing an operator
+   * could do *in this control* to make such an entry work, so listing it says
+   * only "not that one" without saying what would help. The two hints below
+   * carry that instead.
+   */
+  const fallbackItems: { value: Selection; label: string }[] = [
+    { value: "", label: t("provider.fallbackNone") },
+    ...(providers
+      ? AI_PROVIDERS.filter((entry) => entry.key !== active && providers[entry.key].enabled).map(
+          (entry) => ({ value: entry.key as Selection, label: entry.label }),
+        )
+      : []),
+  ];
+  /** Nothing but "None" to choose from -- a second verified provider is needed. */
+  const noFallbackAvailable = fallbackItems.length === 1;
+
+  /**
+   * Write the fallback, and put the picker back if the server refuses.
+   *
+   * Reverting matters more here than on a save-on-press control: the choice is
+   * the only thing that changed, so a picker left showing a value the server
+   * rejected is a page stating a fallback that does not exist.
+   */
+  function chooseFallback(next: Selection) {
+    const previous = fallbackChoice;
+    setFallbackChoice(next);
+    startSaveFallback(async () => {
+      const result = await attempt(() => setFallbackProvider(next));
+      if (result.ok) {
+        toast.success(t(next === "" ? "provider.fallbackCleared" : "provider.fallbackSaved"));
+        return;
+      }
+      setFallbackChoice(previous);
+      // The namespace's own `saveFailed` -- "Could not save these settings." --
+      // because a preference is what this control writes, never a credential.
+      toast.error(t(result.errorKey ?? "saveFailed"));
+    });
+  }
 
   /**
    * The line under the picker: what the server is acting on, against what is on
@@ -415,6 +497,19 @@ export function ProviderSectionForm({
           </Select>
         }
         providerHint={null}
+        fallbackControl={
+          // Which providers are verified is unknown while pending, so there is
+          // no honest list -- disabled and empty, the same treatment the model
+          // select gets, and no `value` for the same reason the provider
+          // picker above has none: `""` is the real "None" item here too.
+          <Select items={[] as { value: string; label: string }[]} disabled>
+            <SelectTrigger id="ai-fallback" className="w-full sm:w-64">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent />
+          </Select>
+        }
+        fallbackHint={null}
         modelControl={
           // Which provider is active is unknown, so there is no honest list
           // to offer -- disabled and empty, not a guessed catalog.
@@ -489,6 +584,42 @@ export function ProviderSectionForm({
         </Select>
       }
       providerHint={t(hintKey)}
+      fallbackControl={
+        <Select
+          items={fallbackItems}
+          value={fallbackChoice}
+          // Off entirely with no active provider to fall back from, and with
+          // no second verified provider to offer -- both states the hint
+          // below explains rather than leaving as an inert control.
+          disabled={active === "" || noFallbackAvailable || savingFallback}
+          onValueChange={(value) => {
+            // Base UI reports `null` for a clearable selection, which this one
+            // never is. `""` is the listed "None" item, not an absence.
+            if (value === null) return;
+            chooseFallback(value);
+          }}
+        >
+          <SelectTrigger id="ai-fallback" className="w-full sm:w-64">
+            {/* No `placeholder`: it would win over the resolved label for the
+                `""` item -- see the header. */}
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {fallbackItems.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      }
+      fallbackHint={t(
+        active === ""
+          ? "provider.fallbackOffHint"
+          : noFallbackAvailable
+            ? "provider.fallbackNoneAvailable"
+            : "provider.fallbackHint",
+      )}
       modelControl={
         provider ? (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -643,6 +774,8 @@ function ProviderSectionShell({
   statusBadge,
   providerControl,
   providerHint,
+  fallbackControl,
+  fallbackHint,
   modelControl,
   apiKeyControl,
   apiKeyHelp,
@@ -659,6 +792,8 @@ function ProviderSectionShell({
   statusBadge: ReactNode;
   providerControl: ReactNode;
   providerHint: ReactNode;
+  fallbackControl: ReactNode;
+  fallbackHint: ReactNode;
   modelControl: ReactNode;
   apiKeyControl: ReactNode;
   apiKeyHelp: ReactNode;
@@ -683,6 +818,15 @@ function ProviderSectionShell({
             <Label htmlFor="ai-provider">{t("provider.label")}</Label>
             {providerControl}
             <div className="text-sm text-muted-foreground">{providerHint}</div>
+          </div>
+
+          {/* Always present, unlike the slots below it: the fallback belongs to
+              the card rather than to whichever provider is selected, so it does
+              not appear and disappear as the picker above it changes. */}
+          <div className="grid gap-2">
+            <Label htmlFor="ai-fallback">{t("provider.fallbackLabel")}</Label>
+            {fallbackControl}
+            <div className="text-sm text-muted-foreground">{fallbackHint}</div>
           </div>
 
           {modelControl ? (
@@ -724,7 +868,13 @@ function ProviderSectionShell({
 /** Calls use(); suspends until the promise resolves; renders the form for real. */
 function ProviderSectionResolved({ promise }: { promise: Promise<AiStatus> }) {
   const status = use(promise);
-  return <ProviderSectionForm active={status.active} providers={status.providers} />;
+  return (
+    <ProviderSectionForm
+      active={status.active}
+      fallback={status.fallback}
+      providers={status.providers}
+    />
+  );
 }
 
 /**
