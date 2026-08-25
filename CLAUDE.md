@@ -2132,6 +2132,55 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
     back is `{ status: "failed", reason: "missingSummary" }`, with a rewrite that
     _did_ come back still applied, because a silent no-summary is
     indistinguishable from AI never having run.
+  - **A requested rewrite whose `document` did not come back is
+    `{ status: "failed", reason: "missingDocument" }`, and the answer's `title`
+    is _not_ applied on its own.** This arm used to fall through: the title was
+    taken, the source blocks were stored beside it, and the outcome said
+    `applied` — a translated title over an untranslated body, written silently
+    on a green job with nothing in its log. It is what a user saw as "reloading
+    a Reddit post only translates the title", and the reload path's own
+    contribution to that is the bullet below; this half is why it could not be
+    noticed. A title and a body are one answer to one rewrite request, so half
+    of it is not partial success: the article stays wholly as the source has it,
+    the job reports the failure, and `handleAggregateJob()` stores no
+    `contentHash`, so the next cycle tries again. **Deliberately not symmetrical
+    with `missingSummary`**, which keeps the rewrite it got: a summary is an
+    addition an article reads fine without, where a rewritten title over an
+    untouched body is a visibly broken article. Four cases collapse into this
+    one arm — absent, not a string, empty, and notation that reads as no blocks
+    at all — because none of them is a document.
+
+  **The AI stage is never handed its own previous output as input, and the
+  reload path is where that had to be enforced.** `articles.name` is not source
+  text on a feed with an AI option on — it is the model's answer — so
+  `reload.ts`, which re-derives everything else from source, used to hand it
+  back as "the article's title". Two consequences, the second reported from a
+  running instance: a repeated reload asked for a rewrite of a rewrite (a title
+  drifting further on every reload), and a **translate** request arrived
+  self-contradictory — `{"title": "<already German>", "document": "<English>"}`
+  under "translate this to German" — which a model can read as "already
+  translated" and answer with the document echoed back unchanged. An unchanged
+  document still parses, so before the `missingDocument` arm above existed the
+  article was stored with a translated title over an untranslated body, on a job
+  that reported success. The seam is **`noteSourceTitle()`/`sourceTitle` on
+  `BaseAggregator`** (`src/lib/aggregators/base.ts`): an aggregator that sees
+  the source's own title while refetching says so, and `reload.ts` prefers it
+  over the stored name — for the AI request _and_ for the `name` it writes, so a
+  reload with AI off now also picks up a title the source has changed, the same
+  thing an aggregation run does with every content change. Three report one:
+  Reddit (the post's title, off `effectivePostData`, so a crosspost reports the
+  original's — exactly what `parseToRawArticles()` stores), YouTube (the video's
+  title) and plain RSS (the entry's, `unescapeEntities()`'d the same way
+  `parseToRawArticles()` does it). **The `FullWebsiteAggregator` family
+  deliberately reports none**, and both halves of that reason matter: its
+  `fetchArticleContent()` also runs _concurrently, per article_ inside
+  `enrichArticles()`, where one instance-level value could only be the last
+  writer's — and a scraped page's `<title>` is the site's headline plus its own
+  branding, not the feed's title for the article. Those feeds keep the stored
+  name on reload, as before. The same "only meaningful after a single
+  `fetchArticleContent()` call" restriction Reddit's `_lastReloaded*` stash
+  already carried applies here, and reload is exactly that shape: one article,
+  one aggregator instance.
 
   **`aiMaxPromptLength` bounds none of this, and its name invites the assumption
   that it does.** It is read in exactly one place — `POST /api/v1/ai/prompt`, to

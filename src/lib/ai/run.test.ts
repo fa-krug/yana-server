@@ -915,6 +915,50 @@ describe("applyAiToBlocks & AIClient processing", () => {
         });
       });
 
+      it("reports a rewrite whose document did not come back, and keeps the title as it was", async () => {
+        // The defect a user reported as "reload only translates the title": the
+        // answer's title used to be applied on its own, the source blocks
+        // stored beside it and the outcome reported as `applied` -- a
+        // translated title over an untranslated body, on a green job with
+        // nothing in its log.
+        vi.spyOn(console, "warn").mockImplementation(() => {});
+        respondWith({ title: "Übersetzter Titel" });
+        const onLog = vi.fn();
+
+        const input = docOf(BODY);
+        const result = await applyAiToBlocks(
+          input,
+          { ai_translate: true, ai_translate_language: "German" },
+          openai(),
+          onLog,
+        );
+
+        expect(result.outcome).toEqual({ status: "failed", reason: "missingDocument" });
+        expect(result.title).toBe("Original");
+        expect(result.blocks).toEqual(input.blocks);
+        expect(result.requested).toBe(true);
+        expect(onLog).toHaveBeenCalledWith(expect.stringContaining("no rewritten document"));
+      });
+
+      it.each([
+        ["an empty document", ""],
+        ["notation that reads as no blocks at all", "   \n\n  "],
+      ])("reports %s the same way as an absent one", async (_label, document) => {
+        vi.spyOn(console, "warn").mockImplementation(() => {});
+        respondWith({ title: "Übersetzter Titel", document });
+
+        const input = docOf(BODY);
+        const result = await applyAiToBlocks(
+          input,
+          { ai_translate: true, ai_translate_language: "German" },
+          openai(),
+        );
+
+        expect(result.outcome).toEqual({ status: "failed", reason: "missingDocument" });
+        expect(result.title).toBe("Original");
+        expect(result.blocks).toEqual(input.blocks);
+      });
+
       it("keeps a rewrite that came back when the requested summary did not", async () => {
         vi.spyOn(console, "warn").mockImplementation(() => {});
         respondWith({ title: "New title", document: "Rewritten prose." });

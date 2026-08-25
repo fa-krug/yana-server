@@ -512,7 +512,7 @@ export type ApplyAiOutcome =
  * corrupt.
  */
 const NOTATION_SPEC = [
-  "The document uses this notation. Return the same notation, nothing else:",
+  "The document uses this notation. Answer in the same notation, and nothing else:",
   "- A blank line separates blocks.",
   '- "# " to "###### " begin a heading. "- " begins a list item, "1. " an ordered one. "> " begins a quoted line.',
   "- Inline styles are <b>bold</b>, <i>italic</i>, <s>struck</s>, <code>code</code>.",
@@ -847,30 +847,58 @@ export async function applyAiToBlocks(
   let blocks = wantsRewrite ? canonicalBlocks(input.blocks) : input.blocks;
 
   if (wantsRewrite) {
-    // Only a request that asked for a rewrite may change either. A model that
-    // volunteers a title for a summarize-only request is renaming an article
-    // nobody asked to have renamed.
-    if (typeof answer.title === "string" && answer.title.trim()) {
-      title = answer.title;
-    }
+    let rewritten: Block[] | null = null;
+
     if (typeof answer.document === "string") {
       const parsed = textToBlocks(answer.document, document);
       if (parsed.blocks.length > 0) {
-        blocks = parsed.blocks;
+        rewritten = parsed.blocks;
 
         const lead = leadMediaOf(input.blocks);
         if (lead) {
-          blocks = pinLeadMedia(lead, blocks);
+          rewritten = pinLeadMedia(lead, rewritten);
         }
 
         if (parsed.droppedOpaque.length > 0) {
           const message =
             `AI dropped ${parsed.droppedOpaque.length} media/code block(s) from article ` +
-            `'${title}'; the rest of the rewrite was kept.`;
+            `'${input.title}'; the rest of the rewrite was kept.`;
           console.warn(message);
           onLog?.(message);
         }
       }
+    }
+
+    if (!rewritten) {
+      // A rewrite was asked for and the document did not come back -- absent,
+      // not a string, empty, or notation that read as no blocks at all.
+      //
+      // **Reported, and the title left alone with it.** This arm used to fall
+      // through: the answer's `title` was applied and the source blocks were
+      // stored beside it, on an outcome of `applied`. That is a translated
+      // title over an untranslated body -- the article a user reported after
+      // reloading a Reddit post -- stored silently, with the job green and
+      // nothing in its log. A title and a body are one answer to one rewrite
+      // request, so half of it is not partial success: the article stays wholly
+      // as the source has it, the job reports the failure, and (in
+      // `handleAggregateJob`) no `contentHash` is stored, so the next cycle
+      // tries again. Deliberately *not* symmetrical with `missingSummary`
+      // below, which keeps a rewrite that did come back: a summary is an
+      // addition an article reads fine without, where a rewritten title over an
+      // untouched body is a visibly broken article.
+      const message = `AI returned no rewritten document for article '${input.title}'.`;
+      console.warn(message);
+      onLog?.(message);
+      return unchanged({ status: "failed", reason: "missingDocument" }, true);
+    }
+
+    blocks = rewritten;
+
+    // Only a request that asked for a rewrite may change the title. A model
+    // that volunteers one for a summarize-only request is renaming an article
+    // nobody asked to have renamed.
+    if (typeof answer.title === "string" && answer.title.trim()) {
+      title = answer.title;
     }
   }
 

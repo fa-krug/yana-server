@@ -659,6 +659,13 @@ export class RedditAggregator extends BaseAggregator {
       crosspost = { originalSubreddit: originalPost.subreddit || "" };
     }
 
+    // The post's own title, for the same reason as the three stashes below:
+    // reload has no other way to reach it, and `articles.name` may be a
+    // previous AI run's output rather than source text (see `noteSourceTitle()`
+    // in ../../base.ts). Read off `effectivePostData`, so a crosspost reports
+    // the original post's title -- exactly what parseToRawArticles() stores.
+    this.noteSourceTitle(effectivePostData.title);
+
     // Same derivation as parseToRawArticles() -- reload never calls
     // finalizeArticles(), so processContent() reads these back off the
     // instance instead of off the _reddit_* fields a normal aggregation run

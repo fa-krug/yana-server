@@ -52,6 +52,11 @@ export class RssAggregator extends BaseAggregator {
     try {
       const feed = await this.fetchSourceData();
       const entry = feed.entries.find((e) => e.link === url);
+      // Unescaped exactly as parseToRawArticles() below does it, so reload and
+      // a fresh aggregation run report the same title for the same entry. It is
+      // what keeps reload from feeding a previous AI run's title back into the
+      // AI stage -- see `noteSourceTitle()` in ./base.
+      this.noteSourceTitle(entry ? unescapeEntities(entry.title || "") : null);
       return entry?.summary || "";
     } catch {
       return "";

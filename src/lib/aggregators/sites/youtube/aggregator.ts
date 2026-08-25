@@ -367,6 +367,10 @@ export class YouTubeAggregator extends BaseAggregator {
       const comments = await client.fetchVideoComments(videoId, 10);
       this._last_reloaded_video = videos[0];
       this._last_reloaded_comments = comments;
+      // The video's current title, so reload runs AI over the source's own
+      // title rather than over the title a previous AI run wrote -- see
+      // `noteSourceTitle()` in ../../base.ts.
+      this.noteSourceTitle(videos[0].snippet?.title);
 
       return videos[0].snippet?.description || "";
     } catch {
