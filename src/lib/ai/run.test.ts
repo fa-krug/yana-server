@@ -959,6 +959,67 @@ describe("applyAiToBlocks & AIClient processing", () => {
         expect(result.blocks).toEqual(input.blocks);
       });
 
+      it("fails a translation whose document came back unchanged, rather than storing it", async () => {
+        // The remaining shape of "reload only translates the title": a model
+        // that translates the title and echoes the document back. The echo
+        // parses perfectly, so before this it was stored over the article and
+        // the job reported success.
+        vi.spyOn(console, "warn").mockImplementation(() => {});
+        const onLog = vi.fn();
+
+        // Two passes: the first learns the notation the model is shown, the
+        // second answers with exactly that -- an echo, built from the real
+        // document rather than from a guess at what it looks like.
+        const seen = respondWith({ title: "T", document: "Rewritten." });
+        const input = docOf(BODY);
+        const options = { ai_translate: true, ai_translate_language: "German" };
+        await applyAiToBlocks(input, options, openai());
+        const echo = documentSent(seen());
+        expect(echo).not.toBe("");
+
+        respondWith({ title: "Übersetzter Titel", document: echo });
+        const result = await applyAiToBlocks(input, options, openai(), onLog);
+
+        expect(result.outcome).toEqual({ status: "failed", reason: "documentUnchanged" });
+        expect(result.title).toBe("Original");
+        expect(result.blocks).toEqual(input.blocks);
+        expect(onLog).toHaveBeenCalledWith(expect.stringContaining("unchanged"));
+      });
+
+      it("keeps an improve-writing answer that came back unchanged, and says so in the log", async () => {
+        // "This reads fine as it is" is a legitimate answer to that request,
+        // unlike to a translation -- so a note, not a failure.
+        vi.spyOn(console, "warn").mockImplementation(() => {});
+        const onLog = vi.fn();
+
+        const seen = respondWith({ title: "T", document: "Rewritten." });
+        const input = docOf(BODY);
+        await applyAiToBlocks(input, { ai_improve_writing: true }, openai());
+        const echo = documentSent(seen());
+
+        respondWith({ title: "Same title", document: echo });
+        const result = await applyAiToBlocks(input, { ai_improve_writing: true }, openai(), onLog);
+
+        expect(result.outcome).toEqual({ status: "applied" });
+        expect(result.title).toBe("Same title");
+        expect(onLog).toHaveBeenCalledWith(expect.stringContaining("unchanged"));
+      });
+
+      it("tells the model the document must not come back in its original language", async () => {
+        const sent = respondWith({ title: "T", document: "Übersetzt." });
+
+        await applyAiToBlocks(
+          docOf(BODY),
+          { ai_translate: true, ai_translate_language: "German" },
+          openai(),
+        );
+
+        const prompt = JSON.parse(sent()).messages[0].content as string;
+        expect(prompt).toContain("Every line of the document must come back in German");
+        expect(prompt).toContain("quoted lines");
+        expect(prompt).toContain("not an acceptable answer");
+      });
+
       it("keeps a rewrite that came back when the requested summary did not", async () => {
         vi.spyOn(console, "warn").mockImplementation(() => {});
         respondWith({ title: "New title", document: "Rewritten prose." });

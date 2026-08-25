@@ -2132,6 +2132,24 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
     back is `{ status: "failed", reason: "missingSummary" }`, with a rewrite that
     _did_ come back still applied, because a silent no-summary is
     indistinguishable from AI never having run.
+  - **A requested rewrite whose document comes back _unchanged_ is caught
+    too, and for a translation that is a failure**
+    (`{ status: "failed", reason: "documentUnchanged" }`). The check is
+    `blocksToText(answer) === document.text` — byte-identical exactly when the
+    answer is the input echoed back, which the notation's round-trip normal form
+    is what makes exact. Serialized forms are compared rather than trees on
+    purpose: a deep compare would have to know that `canonicalBlocks()` and
+    `textToBlocks()` build their objects with different key order, and would
+    miss an echo whose whitespace differed. An echo parses perfectly, so nothing
+    downstream could tell — it was stored over the article with the title
+    stored translated and the job green, which is the second half of the
+    "reload only translates the title" report. For `ai_improve_writing` or a
+    custom instruction it is a **log note, not a failure**: "this reads fine as
+    it is" is a legitimate answer to those. For `ai_translate` it cannot be —
+    a document identical to the one sent is by definition not translated — and
+    the one false positive (a feed whose source is _already_ in the target
+    language) is named in the message, because the fix there is to turn
+    translation off for that feed rather than to make this quieter.
   - **A requested rewrite whose `document` did not come back is
     `{ status: "failed", reason: "missingDocument" }`, and the answer's `title`
     is _not_ applied on its own.** This arm used to fall through: the title was
@@ -2149,6 +2167,24 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
     untouched body is a visibly broken article. Four cases collapse into this
     one arm — absent, not a string, empty, and notation that reads as no blocks
     at all — because none of them is a document.
+
+  **The translate instruction is spelled out to the point of redundancy, and
+  every clause of it is load-bearing.** The short version — "Translate the
+  title and document to X" — produced answers that translated the title and
+  handed the document back untouched, on articles whose title and body were both
+  in the source language, which is the defect a user reported for Reddit
+  reloads. Two things make that answer easy for a model to reach: the notation
+  spec above it is seven lines of "reproduce this exactly" (and read "Return the
+  same notation, nothing else" until this branch reworded it to "Answer in the
+  same notation"), and a Reddit article's document is long and mostly quoted
+  comments — the shape a model shortcuts on. So the instruction now names the
+  parts that get skipped (headings, list items, **quoted lines**, image
+  captions — a quoted line reads as a citation to leave alone), says the whole
+  document must come back in the target language, and says outright that
+  returning it in the original language is not an acceptable answer.
+  `run.test.ts` asserts those phrases against the real request body, because a
+  prompt is only a prompt: the `documentUnchanged` arm above is what happens
+  when a model ignores it anyway.
 
   **The AI stage is never handed its own previous output as input, and the
   reload path is where that had to be enforced.** `articles.name` is not source

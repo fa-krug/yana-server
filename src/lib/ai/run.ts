@@ -777,9 +777,21 @@ export async function applyAiToBlocks(
     if (opts.ai_translate) {
       const targetLang =
         typeof opts.ai_translate_language === "string" ? opts.ai_translate_language : "English";
+      // Spelled out to the point of redundancy, and every clause is here
+      // because the short version ("Translate the title and document to X")
+      // produced answers that translated the title and handed the document
+      // back untouched -- reported by a user for a Reddit article, whose
+      // document is long and mostly quoted comments, which is exactly the
+      // shape a model shortcuts on. The notation spec above is seven lines of
+      // "keep this exactly", so the one line asking for a *changed* document
+      // has to say so unmistakably, and has to name the parts a model
+      // otherwise skips: a quoted line looks like a citation to leave alone.
       promptParts.push(
-        `Translate the title${wantsSummary ? ", summary" : ""} and document to ${targetLang}. ` +
-          "Translate link labels too, but never the (L...) index inside them.",
+        `Translate the title${wantsSummary ? ", the summary" : ""} and the whole document into ` +
+          `${targetLang}. Every line of the document must come back in ${targetLang}: headings, ` +
+          "list items, quoted lines and image captions included. Translate link labels too, but " +
+          "never the (L...) index inside them, and never the [[M...]] placeholders. Returning " +
+          "the document in its original language is not an acceptable answer.",
       );
     }
 
@@ -852,6 +864,54 @@ export async function applyAiToBlocks(
     if (typeof answer.document === "string") {
       const parsed = textToBlocks(answer.document, document);
       if (parsed.blocks.length > 0) {
+        // **Did the model change anything at all?** Asked in the one place it
+        // can be asked cheaply and exactly: `blocksToText()` of the answer's
+        // tree is byte-identical to what was sent precisely when the answer is
+        // the input echoed back, because the notation is a normal form (the
+        // round-trip contract in `./block-text`). Comparing the serialized
+        // forms rather than the trees is deliberate -- a deep compare would
+        // have to know that `canonicalBlocks()` and `textToBlocks()` build
+        // their objects with different key order, and would miss an echo whose
+        // whitespace differed.
+        //
+        // A model that reproduces the document instead of rewriting it is not
+        // a hypothetical: it is what a user saw as "reload only translates the
+        // title", with the (unchanged) English body stored over the English
+        // body, the title stored translated, and the job green. An echo parses
+        // perfectly, so nothing downstream could tell.
+        const echoed =
+          plainTextOf(input.blocks).trim() !== "" &&
+          blocksToText(parsed.blocks).text === document.text;
+
+        if (echoed && opts.ai_translate) {
+          // For a translation this is not a judgement call: a document
+          // identical to the one sent is, by definition, not translated. Fails
+          // rather than warns, for the same reason `missingDocument` does --
+          // a translated title over an untranslated body is the broken article
+          // this whole arm exists to stop storing.
+          //
+          // The one false positive is a feed whose source is *already* in the
+          // target language, where an unchanged document is the right answer.
+          // The message says so, because the fix there is to turn translation
+          // off for that feed rather than to make this quieter.
+          const message =
+            `AI returned the document unchanged for article '${input.title}', so it was not ` +
+            `translated. Nothing was stored. (If this feed's articles are already in the ` +
+            `target language, turn translation off for it.)`;
+          console.warn(message);
+          onLog?.(message);
+          return unchanged({ status: "failed", reason: "documentUnchanged" }, true);
+        }
+
+        if (echoed) {
+          // Improve-writing and a custom instruction are a different matter:
+          // "this reads fine as it is" is a legitimate answer, so this is a
+          // note in the job's own log rather than a failure.
+          const message = `AI returned the document unchanged for article '${input.title}'.`;
+          console.warn(message);
+          onLog?.(message);
+        }
+
         rewritten = parsed.blocks;
 
         const lead = leadMediaOf(input.blocks);
