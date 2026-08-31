@@ -132,6 +132,68 @@ describe("parseBlocks", () => {
     });
   });
 
+  // A `<br>` parses as a "\n" run, so the `<br><br>` a great many CMSs use to
+  // separate paragraphs inside a single `<p>` stored two breaks in a row and
+  // every client rendered the blank line they add. Reported against a
+  // Mein-MMO article whose body does it twice.
+  it("collapses consecutive line breaks down to a single one", () => {
+    const p = parseBlocks(`<p>Above<br><br>Below</p>`)[0] as Paragraph;
+    expect(p.runs.map((r) => r.text)).toEqual(["Above", "\n", "Below"]);
+  });
+
+  it("collapses a longer stretch of breaks the same way", () => {
+    const p = parseBlocks(`<p>Above<br><br><br><br>Below</p>`)[0] as Paragraph;
+    expect(p.runs.map((r) => r.text)).toEqual(["Above", "\n", "Below"]);
+  });
+
+  // Whitespace between two breaks survives normalize() as its own " " run, so
+  // a collapse that only grouped adjacent newline runs would leave two breaks.
+  it("collapses breaks that whitespace runs sit between", () => {
+    const p = parseBlocks(`<p>Above<br> <br>\n<br>Below</p>`)[0] as Paragraph;
+    expect(p.runs.map((r) => r.text)).toEqual(["Above", "\n", "Below"]);
+  });
+
+  it("keeps a single line break, and leaves ordinary spacing alone", () => {
+    const p = parseBlocks(`<p>Above<br>Below and <b>bold</b></p>`)[0] as Paragraph;
+    expect(p.runs.map((r) => r.text)).toEqual(["Above", "\n", "Below and ", "bold"]);
+  });
+
+  it("collapses breaks in any container, not only a paragraph", () => {
+    const list = parseBlocks(`<ul><li>Above<br><br>Below</li></ul>`)[0] as ListBlock;
+    const item = list.items[0][0] as Paragraph;
+    expect(item.runs.map((r) => r.text)).toEqual(["Above", "\n", "Below"]);
+  });
+
+  it("drops leading and trailing breaks entirely", () => {
+    const p = parseBlocks(`<p><br><br>Only<br><br></p>`)[0] as Paragraph;
+    expect(p.runs.map((r) => r.text)).toEqual(["Only"]);
+  });
+
+  it("emits the collapsed break unstyled, whatever the runs around it carry", () => {
+    const p = parseBlocks(
+      `<p><b><a href="https://example.com">Above<br><br>Below</a></b></p>`,
+    )[0] as Paragraph;
+    expect(p.runs).toEqual([
+      {
+        text: "Above",
+        bold: true,
+        italic: false,
+        code: false,
+        strikethrough: false,
+        link: "https://example.com",
+      },
+      { text: "\n", bold: false, italic: false, code: false, strikethrough: false, link: "" },
+      {
+        text: "Below",
+        bold: true,
+        italic: false,
+        code: false,
+        strikethrough: false,
+        link: "https://example.com",
+      },
+    ]);
+  });
+
   it("parses headings h1-h6", () => {
     const html = `<h1>Title 1</h1><h2>Title 2</h2><h3>Title 3</h3><h4>Title 4</h4><h5>Title 5</h5><h6>Title 6</h6>`;
     const blocks = parseBlocks(html);

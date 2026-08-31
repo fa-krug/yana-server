@@ -140,8 +140,53 @@ function makeRun(text: string, styles: Set<string>, link: string): InlineRun {
   };
 }
 
+/**
+ * Collapse every stretch of consecutive line breaks down to a single one.
+ *
+ * A `<br>` becomes a `"\n"` run, and a great many articles separate their
+ * paragraphs with `<br><br>` inside one `<p>` rather than with real
+ * paragraphs -- so the stored block tree carried two or more breaks in a row
+ * and every client rendered the blank lines they add. Mein-MMO does it twice
+ * in a single article body, which is where this was reported from.
+ *
+ * A stretch is *every* consecutive blank run, not only the newline ones:
+ * `<br> <br>` parses as `"\n"`, `" "`, `"\n"` (the whitespace between two
+ * breaks survives `normalize()` as a single space), and a group broken by
+ * that space would collapse to two breaks rather than one. A blank group with
+ * no break in it is left exactly as it was -- that is ordinary horizontal
+ * spacing between two words, not a blank line.
+ *
+ * The replacement is an unstyled run: nothing renders bold, italic or linked
+ * whitespace, and taking the first run's attributes would only make two
+ * identical-looking line breaks compare unequal.
+ */
+function collapseLineBreaks(runs: InlineRun[]): InlineRun[] {
+  const result: InlineRun[] = [];
+  let index = 0;
+  while (index < runs.length) {
+    if (runs[index].text.trim()) {
+      result.push(runs[index]);
+      index += 1;
+      continue;
+    }
+    let end = index;
+    let hasBreak = false;
+    while (end < runs.length && !runs[end].text.trim()) {
+      hasBreak = hasBreak || runs[end].text.includes("\n");
+      end += 1;
+    }
+    if (hasBreak) {
+      result.push(makeRun("\n", new Set(), ""));
+    } else {
+      result.push(...runs.slice(index, end));
+    }
+    index = end;
+  }
+  return result;
+}
+
 function trimmed(runs: InlineRun[]): InlineRun[] {
-  const result = runs.filter((run) => Boolean(run.text));
+  const result = collapseLineBreaks(runs.filter((run) => Boolean(run.text)));
   while (result.length > 0 && !result[0].text.trim()) {
     result.shift();
   }
