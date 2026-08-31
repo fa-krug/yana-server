@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { FeedLike } from "./base";
 import { RssAggregator } from "./rss";
-import { ParsedFeed } from "./rss-parser";
+import { ParsedFeed, parseXmlFeed } from "./rss-parser";
 
 describe("RssAggregator", () => {
   it("parses feed items into RawArticle objects with unescaped metadata", async () => {
@@ -29,6 +29,51 @@ describe("RssAggregator", () => {
     expect(articles[0].identifier).toBe("https://example.com/m4");
     expect(articles[0].content).toBe("<p>Article summary</p>");
     expect(articles[0].date).toBeInstanceOf(Date);
+  });
+
+  /**
+   * Parser, pass-through and filter together, on the shape that motivated
+   * them: Mein-MMO ships its affiliate deal articles in its main feed with the
+   * legally required label as a category. Trimmed from the live
+   * `https://mein-mmo.de/feed/` on 2026-08-31 -- titles, links and categories
+   * verbatim -- because each piece of this path was cheap to get right alone
+   * and the whole was only ever wrong at the seams (the parser dropped
+   * `<category>` entirely, so nothing downstream could have worked).
+   */
+  it("drops a labelled article from a real feed's shape, end to end", async () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+      <rss version="2.0">
+        <channel>
+          <title>MeinMMO</title>
+          <item>
+            <title>Episches Gangster-Abenteuer: Mafia bekommt ihr fuer PS5 und Xbox guenstig</title>
+            <link>https://mein-mmo.de/episches-gangster-abenteuer-disc-version-mafia-ps5-xbox-richtig-guenstig/</link>
+            <description><![CDATA[<p>Deal</p>]]></description>
+            <category><![CDATA[Anzeige]]></category>
+            <category><![CDATA[Deals]]></category>
+          </item>
+          <item>
+            <title>WoW: Naechster Privat-Server schliesst in wenigen Tagen</title>
+            <link>https://mein-mmo.de/wow-privat-server-schliesst/</link>
+            <description><![CDATA[<p>News</p>]]></description>
+            <category><![CDATA[Community]]></category>
+            <category><![CDATA[MMORPG]]></category>
+          </item>
+        </channel>
+      </rss>`;
+
+    const agg = new RssAggregator({ identifier: "https://mein-mmo.de/feed/", dailyLimit: 20 });
+    vi.spyOn(agg, "fetchSourceData").mockResolvedValue(parseXmlFeed(xml));
+    const logged: string[] = [];
+    agg.onLog = (message) => logged.push(message);
+
+    const articles = await agg.aggregate();
+
+    expect(articles.map((article) => article.identifier)).toEqual([
+      "https://mein-mmo.de/wow-privat-server-schliesst/",
+    ]);
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toContain('advertising ("Anzeige")');
   });
 
   describe("fetchArticleContent (reload)", () => {

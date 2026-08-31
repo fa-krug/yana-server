@@ -71,6 +71,98 @@ describe("BaseAggregator", () => {
     expect(articles[0].name).toBe("Recent Article");
   });
 
+  /**
+   * The advertising half of `filterArticles()`. It deletes rather than flags,
+   * so what these cases pin is as much the *log line* as the drop: a dropped
+   * article leaves nothing else behind for an operator to look at.
+   */
+  describe("advertising filter", () => {
+    function articlesWith(overrides: Array<Partial<RawArticle>>): RawArticle[] {
+      return overrides.map((extra, index) => ({
+        name: `Article ${index}`,
+        identifier: `https://example.com/${index}`,
+        raw_content: "",
+        content: "",
+        date: new Date(),
+        ...extra,
+      }));
+    }
+
+    it("drops an article the source labelled, and says so with the label", async () => {
+      const agg = new TestAggregator({ identifier: "test", dailyLimit: 20 });
+      const logged: string[] = [];
+      agg.onLog = (message) => logged.push(message);
+
+      const filtered = await agg.filterArticles(
+        articlesWith([
+          { name: "Mafia guenstig", categories: ["Anzeige", "Deals"] },
+          { name: "WoW-Server schliesst", categories: ["MMORPG", "News"] },
+          { name: "Netzteil im Test (Anzeige)" },
+        ]),
+      );
+
+      expect(filtered.map((article) => article.name)).toEqual(["WoW-Server schliesst"]);
+      expect(logged).toEqual([
+        'skipping "Mafia guenstig": the source labels it as advertising ("Anzeige")',
+        'skipping "Netzteil im Test (Anzeige)": the source labels it as advertising ("Anzeige")',
+      ]);
+    });
+
+    it("keeps a deal round-up nobody was paid for", async () => {
+      const agg = new TestAggregator({ identifier: "test", dailyLimit: 20 });
+
+      const filtered = await agg.filterArticles(
+        articlesWith([
+          { name: "Die besten Angebote der Woche", categories: ["Schnaeppchen", "Deals"] },
+          { name: "Apple TV wird teurer", categories: ["werbefrei", "Streaming"] },
+        ]),
+      );
+
+      expect(filtered).toHaveLength(2);
+    });
+
+    // `!== false`, so every feed created before the option existed is covered.
+    it("is on for a feed with no options at all, and off only when set to false", async () => {
+      const labelled = () => articlesWith([{ name: "Etwas", categories: ["Advertorial"] }]);
+
+      const noOptions = new TestAggregator({ identifier: "test", dailyLimit: 20 });
+      expect(await noOptions.filterArticles(labelled())).toHaveLength(0);
+
+      const otherOptions = new TestAggregator({
+        identifier: "test",
+        dailyLimit: 20,
+        options: { include_comments: true },
+      });
+      expect(await otherOptions.filterArticles(labelled())).toHaveLength(0);
+
+      const optedOut = new TestAggregator({
+        identifier: "test",
+        dailyLimit: 20,
+        options: { skip_ads: false },
+      });
+      expect(await optedOut.filterArticles(labelled())).toHaveLength(1);
+    });
+
+    // The two halves are independent: turning the age filter off with a 0
+    // must not take the advertising filter with it.
+    it("still runs when maxArticleAgeDays is 0", async () => {
+      const agg = new TestAggregator({
+        identifier: "test",
+        dailyLimit: 20,
+        maxArticleAgeDays: 0,
+      });
+
+      const filtered = await agg.filterArticles(
+        articlesWith([
+          { name: "Alt aber gut", date: new Date("2020-01-01T00:00:00Z") },
+          { name: "Etwas", categories: ["Anzeige"] },
+        ]),
+      );
+
+      expect(filtered.map((article) => article.name)).toEqual(["Alt aber gut"]);
+    });
+  });
+
   it("applies morning aggression before 10 AM", () => {
     const feed: FeedLike = { identifier: "https://example.com/rss", dailyLimit: 20 };
     const agg = new TestAggregator(feed);

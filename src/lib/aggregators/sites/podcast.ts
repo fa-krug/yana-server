@@ -176,6 +176,10 @@ export class PodcastAggregator extends RssAggregator {
         date: this.parseDate(entry.published),
         author: unescapeEntities(entry.author || ""),
         icon: null,
+        // Same reason as `RssAggregator.parseToRawArticles()`: the advertising
+        // check in `filterArticles()` reads these. A sponsored episode is
+        // labelled the same way a sponsored article is.
+        categories: entry.categories,
         _media_url: mediaUrl,
         _media_type: mediaType,
         _duration: duration,
