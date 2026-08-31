@@ -78,6 +78,12 @@ export class RssAggregator extends BaseAggregator {
         date: this.parseDate(entry.published),
         author: unescapeEntities(entry.author || ""),
         icon: null,
+        // Carried for `filterArticles()`'s advertising check and nothing else
+        // -- see `FeedEntry.categories` in ./rss-parser. Not unescaped: a
+        // label is compared against a fixed vocabulary rather than displayed,
+        // and `unescapeEntities` handles a fixed entity list, so running it
+        // here would only add a way for the two spellings to disagree.
+        categories: entry.categories,
       });
     }
 

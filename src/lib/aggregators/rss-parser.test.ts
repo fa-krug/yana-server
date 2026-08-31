@@ -41,6 +41,57 @@ describe("rss-parser", () => {
       expect(parsed.entries[0].summary).toBe("Item 1 Description");
     });
 
+    /**
+     * The categories are read for one consumer: the advertising filter in
+     * `BaseAggregator.filterArticles()`. This is Mein-MMO's real shape -- the
+     * label sits beside topical categories, and the entry order is what the
+     * feed emits.
+     */
+    it("reads an RSS item's categories", () => {
+      const rssXml = `<?xml version="1.0"?>
+      <rss version="2.0">
+        <channel>
+          <title>Mein-MMO</title>
+          <item>
+            <title>Mafia guenstig als Disc-Version</title>
+            <link>https://mein-mmo.de/deal/</link>
+            <description>Deal</description>
+            <category><![CDATA[Anzeige]]></category>
+            <category><![CDATA[Deals]]></category>
+            <category><![CDATA[Deals]]></category>
+          </item>
+          <item>
+            <title>WoW: Naechster Privat-Server schliesst</title>
+            <link>https://mein-mmo.de/news/</link>
+            <description>News</description>
+          </item>
+        </channel>
+      </rss>`;
+
+      const parsed = parseXmlFeed(rssXml);
+      // De-duplicated, in feed order.
+      expect(parsed.entries[0].categories).toEqual(["Anzeige", "Deals"]);
+      // Absent, not empty: an entry that never had the field is a different
+      // thing from one that has no categories.
+      expect(parsed.entries[1].categories).toBeUndefined();
+    });
+
+    it("reads an Atom entry's categories from term, preferring a human label", () => {
+      const atomXml = `<?xml version="1.0" encoding="utf-8"?>
+      <feed xmlns="http://www.w3.org/2005/Atom">
+        <title>Atom Test</title>
+        <entry>
+          <title>Sponsored thing</title>
+          <link rel="alternate" href="https://example.com/atom1" />
+          <category term="advertorial" label="Advertorial" />
+          <category term="tech" />
+        </entry>
+      </feed>`;
+
+      const parsed = parseXmlFeed(atomXml);
+      expect(parsed.entries[0].categories).toEqual(["Advertorial", "tech"]);
+    });
+
     it("parses Atom feed xml", () => {
       const atomXml = `<?xml version="1.0" encoding="utf-8"?>
       <feed xmlns="http://www.w3.org/2005/Atom">

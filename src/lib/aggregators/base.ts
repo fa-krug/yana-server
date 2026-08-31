@@ -1,4 +1,5 @@
 import { resolveChromeLabels, type ChromeLabels } from "./chrome-labels";
+import { promotionalLabelOf } from "./promotional";
 import type { HeaderElementData } from "./header/context";
 import { extractHeaderElement } from "./header/extractor";
 
@@ -20,6 +21,15 @@ export interface RawArticle {
   content: string;
   date: Date;
   author?: string;
+  /**
+   * The publisher's own categories for this entry, when the source has them
+   * (`RssAggregator` and everything built on it -- see `FeedEntry.categories`
+   * in ./rss-parser). Read by `filterArticles()` below and by nothing else; an
+   * aggregator whose source has no such field (YouTube, Reddit) leaves it
+   * undefined, which is not the same as an empty list only in that it never
+   * had one.
+   */
+  categories?: string[];
   icon?: string | null;
   header_data?: HeaderElementData | null;
   [key: string]: unknown;
@@ -162,18 +172,53 @@ export abstract class BaseAggregator {
 
   abstract parseToRawArticles(sourceData: unknown): Promise<RawArticle[]>;
 
+  /**
+   * Drops what this run must not store: articles older than
+   * `maxArticleAgeDays`, and articles the publisher itself labelled as
+   * advertising.
+   *
+   * **The advertising half is a real deletion, not a flag**, so it is the one
+   * stage of the pipeline whose mistakes leave nothing behind to inspect -- a
+   * dropped article is not in the list, not in the API, and not recoverable
+   * until the source changes. Two things follow, and neither is optional:
+   * `promotionalLabelOf()` reads *declared* labels only and errs towards
+   * letting an article through (see the asymmetry note in ./promotional), and
+   * every drop is logged to the triggering job's own output with the label that
+   * caused it. The age filter above is deliberately silent by comparison,
+   * because "older than the feed's own cutoff" is a date arithmetic an operator
+   * can redo; "this looked like an ad" is a judgement they cannot.
+   *
+   * `skip_ads` turns the advertising half off per feed. It reads `!== false` --
+   * absent means on -- which is both the pre-existing spelling in
+   * `sites/caschys_blog.ts` (where this check began, as a title-only test for
+   * "(Anzeige)") and the answer that keeps a feed subscribed to *for* its deals
+   * from silently losing them once the option is understood.
+   */
   async filterArticles(articles: RawArticle[]): Promise<RawArticle[]> {
-    if (this.maxArticleAgeDays === 0) {
-      return articles;
-    }
+    const options = (this.feed.options as Record<string, unknown> | null) || {};
+    const skipPromotional = options.skip_ads !== false;
+    const cutoffDate =
+      this.maxArticleAgeDays === 0
+        ? null
+        : new Date(Date.now() - this.maxArticleAgeDays * 24 * 60 * 60 * 1000);
 
-    const cutoffDate = new Date(Date.now() - this.maxArticleAgeDays * 24 * 60 * 60 * 1000);
     const filtered: RawArticle[] = [];
 
     for (const article of articles) {
-      if (article.date && article.date < cutoffDate) {
+      if (cutoffDate && article.date && article.date < cutoffDate) {
         continue;
       }
+
+      if (skipPromotional) {
+        const label = promotionalLabelOf(article);
+        if (label) {
+          this.onLog?.(
+            `skipping "${article.name}": the source labels it as advertising ("${label}")`,
+          );
+          continue;
+        }
+      }
+
       filtered.push(article);
     }
     return filtered;

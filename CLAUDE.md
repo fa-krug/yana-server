@@ -944,6 +944,67 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   Unlike `updateIntervalMinutes`/`concurrency`, there's no per-aggregator
   recommendation in `specs.ts` — every aggregator starts at the same flat
   `30`, freely editable per feed afterward.
+- **`filterArticles()` has a second half now: an article whose source labels it
+  as advertising is dropped, not stored.** The vocabulary and the matching are
+  `src/lib/aggregators/promotional.ts`, the drop is
+  `BaseAggregator.filterArticles()` beside the age filter above, and the switch
+  is the `skip_ads` option — read `!== false`, so it is on for every feed
+  including the ones created before it existed, and now declared in
+  `COMMON_OPTIONS` in `specs.ts` (i.e. for every aggregator) rather than only on
+  `caschys_blog`, whose title-only `(Anzeige)` test this generalises. Four
+  things about it, three of them measured against live feeds rather than
+  reasoned about:
+
+  - **It reads _declared_ labels only — the publisher's own categories
+    (`<category>Anzeige</category>` on a Mein-MMO deal article,
+    `<category>Advertorial</category>` on a WinFuture one) and a delimited label
+    in the title (`(Anzeige)`, `Anzeige:`, `… | Advertorial`). Reading the
+    _body_ for monetization markers was tried and rejected**, and the reason is
+    worth keeping because it looks so promising: `rel="sponsored"` links, an
+    affiliate-commission disclosure and affiliate-network hosts separate ads
+    from editorial _cleanly_ on the sample (0 markers on six editorial
+    Mein-MMO/heise/Verge articles, 6–35 on the paid ones) — but only when
+    measured inside the extracted article body. Measured on the **fetched
+    page**, an ordinary editorial article scores 10–13, because the chrome
+    around it (sidebar deal widgets, footer disclosures) carries them. And even
+    body-scoped there is a real grey zone: a Caschy's Blog news post about a TV
+    carries ten `rel="sponsored"` links because the CMS dropped an AAWP product
+    box into the body — editorial content with an affiliate widget, which this
+    filter must not delete. (That aggregator's `selectorsToRemove` already
+    strips `.aawp`, which is why _its_ stored articles come out clean.)
+  - **Whole-string matching against a vocabulary of labels, never a substring
+    scan.** WinFuture ships a real `<category>werbefrei</category>` — "ad-free"
+    — which a `/werbe/` prefix match reads as advertising, the exact inversion
+    of its meaning. That was the only false positive of the first draft across
+    419 live feed entries, and it is the reason the module takes whole strings.
+  - **A topic is not a label, and three words that look like labels are
+    deliberately out of the vocabulary.** `Deals`, `Angebote`, `Schnäppchen`,
+    `Blitzangebote` and `Top Deals` are ordinary categories on articles nobody
+    was paid for. Out for their own reasons: bare `werbung` (also the ad-industry
+    trade press's _topic_), `promotion` (a doctorate, in German) and `ad`/`ads`
+    (usually a section about ad platforms). `#werbung`/`#ad` are in, because the
+    hashtag form is only ever a disclosure. The asymmetry deciding every one of
+    those calls: a false positive **deletes** an article the reader wanted,
+    while a false negative leaves one labelled ad in the list where the reader
+    can see it — so an ambiguous word stays out.
+  - **Every drop is logged to the triggering job's output**, with the label that
+    caused it. The age filter beside it is silent on purpose: "older than the
+    feed's cutoff" is arithmetic an operator can redo, "this looked like an ad"
+    is a judgement they cannot. This is the one pipeline stage whose mistakes
+    leave nothing behind to inspect, so the log line is part of the feature, not
+    decoration.
+
+  Two consequences elsewhere. `FeedEntry.categories` in
+  `src/lib/aggregators/rss-parser.ts` exists for this and nothing else — the
+  parser dropped `<category>` entirely before, so no downstream consumer could
+  have worked — and it is **not** mapped onto this app's `tags` table: those are
+  per-feed and user-owned, where these are per-entry and the publisher's. And
+  only the RSS-derived aggregators carry categories at all (`rss.ts`,
+  `sites/podcast.ts` and everything built on `FullWebsiteAggregator`); YouTube
+  and Reddit produce none, so for those feeds the title channel is the whole
+  check — which is not nothing, since a sponsored YouTube video is labelled in
+  its title.
+
 - **An aggregated article is only rewritten when its content actually changed**,
   decided by `articles.contentHash` (`articleContentHash()` in
   `src/lib/aggregators/content-hash.ts`). Three things about that hash are
