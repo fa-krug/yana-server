@@ -10,7 +10,7 @@ import { hasBodyContent } from "@/lib/aggregators/website";
 import { applyAiToBlocks } from "@/lib/ai/run";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, feeds, userSettings, type Job } from "@/lib/db/schema";
-import { appendLogLine } from "../queue";
+import { appendLogLine, progress } from "../queue";
 
 function buildErrorBlocks(message: string): Block[] {
   return [
@@ -123,6 +123,13 @@ export async function handleReloadJob(job: Job): Promise<void> {
     return;
   }
 
+  // Fixed phase numbers, not computed fractions: a reload has no countable
+  // unit of work to divide progress over (it is one article, refetched and
+  // re-processed through a handful of sequential steps), unlike aggregate's
+  // per-article progress. These five values just mark that sequence's
+  // boundaries so a client polling mid-reload sees the job moving.
+  progress(job.id, 5);
+
   // Read once, up front, and handed to both resolveFeedCredentials() (which
   // would otherwise re-run this same query itself) and applyAiToBlocks() below.
   const settings = db.select().from(userSettings).where(eq(userSettings.userId, feed.userId)).get();
@@ -164,6 +171,14 @@ export async function handleReloadJob(job: Job): Promise<void> {
     return;
   }
 
+  // No progress call on the failed-refetch branch above: that branch returns
+  // normally (it is a handled outcome, not a thrown error -- see the doc
+  // comment above), so the job still finishes as a plain success. complete()
+  // (called by the worker once this handler returns) always forces progress
+  // to 100 regardless of the last value written here, so a reload that hits
+  // that branch still reports 100% done rather than getting stuck at 5.
+  progress(job.id, 30);
+
   // Prefer what the source calls this article right now -- see the note above.
   // `null` from an aggregator that cannot know means the stored name, which is
   // what every reload used before this.
@@ -200,6 +215,12 @@ export async function handleReloadJob(job: Job): Promise<void> {
     throw new Error(message);
   }
 
+  // Content extraction is done *and* produced a usable body: the guard above
+  // throws otherwise, so this phase is only ever reached by a reload that
+  // still has something to write. A reload that fails that guard stays at 30,
+  // which is the honest answer -- it got the page back and nothing further.
+  progress(job.id, 55);
+
   // AI runs *after* processContent() now, not before it, and both call paths
   // are the same order for the first time: extract, process, parse, then AI on
   // the block tree. The old ordering existed so the model would not see the
@@ -214,6 +235,16 @@ export async function handleReloadJob(job: Job): Promise<void> {
     settings,
     aggregator.onLog,
   );
+  // The AI stage has been applied (or has declined to run, or has failed --
+  // `applyAiToBlocks()` reports that in `ai.outcome` rather than throwing, and
+  // the failure is only turned into a thrown error at the very bottom, after
+  // the write). Either way the pipeline is past its slowest step here, which
+  // is what this phase marks. It sits *after* processContent() because that is
+  // where the AI call now lives: the branch this came from ran AI between
+  // extractContent() and processContent(), and main reordered the stage to run
+  // last, on the block tree.
+  progress(job.id, 80);
+
   const aiOutcome = ai.outcome;
 
   const plainText = plainTextOf(ai.blocks);
@@ -245,6 +276,7 @@ export async function handleReloadJob(job: Job): Promise<void> {
   });
 
   appendLogLine(job.id, "stdout", "reloaded article content");
+  progress(job.id, 100);
 
   if (aiOutcome.status === "failed") {
     // The fresh content above is already saved -- this only fails the job

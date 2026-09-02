@@ -188,6 +188,25 @@ describe("src/lib/jobs/queue", () => {
       expect(new Date(job!.runAt).getTime()).toBeGreaterThan(Date.now());
     });
 
+    it("resets progress to 0 when backing off for a retry, not just status to pending", () => {
+      // A job that had already reported real progress on this attempt (e.g.
+      // a reload that reached 100 right before an AI-processing throw) must
+      // not keep polling at that stale percentage through its backoff --
+      // the iOS client shows this number verbatim, and a retry resuming
+      // from "pending" should read as freshly queued, not as a completed
+      // job about to un-complete itself.
+      const id = queue.enqueue("noop", {}, { maxAttempts: 3 });
+      queue.claim();
+      queue.progress(id, 100);
+      expect(queue.getJob(id)?.progress).toBe(100);
+
+      queue.fail(id, "temporary error");
+
+      const job = queue.getJob(id);
+      expect(job?.status).toBe("pending");
+      expect(job?.progress).toBe(0);
+    });
+
     it("marks failed at maxAttempts and keeps the error", () => {
       const id = queue.enqueue("noop", {}, { maxAttempts: 1 });
       queue.claim();
@@ -493,7 +512,14 @@ describe("src/lib/jobs/queue", () => {
         },
         {
           type: "run",
-          payload: { runId, status: "running", totalJobs: 2, completedJobs: 1, failedJobs: 0 },
+          payload: {
+            runId,
+            status: "running",
+            progress: 50,
+            totalJobs: 2,
+            completedJobs: 1,
+            failedJobs: 0,
+          },
         },
       ]);
     });
@@ -523,7 +549,14 @@ describe("src/lib/jobs/queue", () => {
         },
         {
           type: "run",
-          payload: { runId, status: "failed", totalJobs: 2, completedJobs: 1, failedJobs: 1 },
+          payload: {
+            runId,
+            status: "failed",
+            progress: 100,
+            totalJobs: 2,
+            completedJobs: 1,
+            failedJobs: 1,
+          },
         },
       ]);
     });
@@ -594,6 +627,73 @@ describe("src/lib/jobs/queue", () => {
 
       unsubscribe();
       expect(heard).toHaveLength(0);
+    });
+
+    // Uses a run's child job (not a bare enqueue()) so resolveJobUserId() has
+    // something to resolve: an "aggregate" job only carries an owner via its
+    // run (see resolveJobUserId's doc comment) -- a standalone job of that
+    // kind is never notified, matching the "kind other than article.reload"
+    // case just above.
+    it("publishes a job event carrying the new percentage when progress changes", () => {
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(userId, "aggregate", [{ feedId: 1 }]);
+      const jobId = client.getDb().select().from(jobs).where(eq(jobs.runId, runId)).get()!.id;
+      // claim() first so the row's real status is "running" -- progress()
+      // now reports whatever status is actually stored rather than
+      // asserting "running" by convention, so this test must put the row in
+      // that state itself instead of relying on the old hardcoded value.
+      queue.claim();
+
+      const heard: unknown[] = [];
+      const unsubscribe = events.subscribeUserEvents(userId, (event) => heard.push(event));
+      queue.progress(jobId, 42);
+      unsubscribe();
+
+      expect(heard).toEqual([
+        {
+          type: "job",
+          payload: { jobId, runId, kind: "aggregate", status: "running", progress: 42 },
+        },
+      ]);
+    });
+
+    it("reports the row's actual status rather than hardcoding running (e.g. a pending, unclaimed job)", () => {
+      // progress() has the full row in hand for resolveJobUserId() already,
+      // so it must publish that row's real status -- REST (GET
+      // /api/v1/jobs/:id) and this SSE event must describe the same job
+      // identically. Calling progress() on a job that was never claimed is
+      // not a real production path (only a claimed job's handler calls
+      // progress()), but it is the cheapest way to prove the published
+      // status is read from the row rather than asserted as a constant.
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(userId, "aggregate", [{ feedId: 1 }]);
+      const jobId = client.getDb().select().from(jobs).where(eq(jobs.runId, runId)).get()!.id;
+
+      const heard: unknown[] = [];
+      const unsubscribe = events.subscribeUserEvents(userId, (event) => heard.push(event));
+      queue.progress(jobId, 42);
+      unsubscribe();
+
+      expect(heard).toEqual([
+        {
+          type: "job",
+          payload: { jobId, runId, kind: "aggregate", status: "pending", progress: 42 },
+        },
+      ]);
+    });
+
+    it("publishes nothing when progress is set to the value already stored", () => {
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(userId, "aggregate", [{ feedId: 1 }]);
+      const jobId = client.getDb().select().from(jobs).where(eq(jobs.runId, runId)).get()!.id;
+      queue.progress(jobId, 42);
+
+      const heard: unknown[] = [];
+      const unsubscribe = events.subscribeUserEvents(userId, (event) => heard.push(event));
+      queue.progress(jobId, 42);
+      unsubscribe();
+
+      expect(heard).toEqual([]);
     });
   });
 
@@ -915,5 +1015,15 @@ describe("src/lib/jobs/queue", () => {
       expect(run?.failedJobs).toBe(1);
       expect(heard).toEqual(["cancelled"]);
     });
+  });
+
+  it("runProgressPercent reports 100 for a run with no jobs", async () => {
+    const { runProgressPercent } = await import("./queue");
+    expect(runProgressPercent(0, 0, 0)).toBe(100);
+  });
+
+  it("runProgressPercent rounds to the nearest whole percent", async () => {
+    const { runProgressPercent } = await import("./queue");
+    expect(runProgressPercent(3, 1, 0)).toBe(33);
   });
 });

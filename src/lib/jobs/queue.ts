@@ -174,6 +174,15 @@ export function fail(id: number, error: string | Error): void {
         startedAt: null,
         runAt: nextRunAt,
         error: errMsg,
+        // A retrying job goes back to "pending" -- the state a job is in
+        // before it has done any work -- so its progress must go back to 0
+        // with it. Without this, a job that had already reported real
+        // progress on this attempt (a reload that reached 100 right before
+        // an AI-processing throw, say) polls as "pending" at its old
+        // percentage through the whole backoff window, and a client
+        // displaying that number verbatim watches it sit at a stale high
+        // value and then fall backwards once the retry actually starts.
+        progress: 0,
       })
       .where(eq(jobs.id, id))
       .run();
@@ -207,18 +216,44 @@ export function progress(id: number, percent: number): void {
   // but twenty of those calls were a BEGIN IMMEDIATE that wrote the number
   // already sitting in the column. A stale read here is harmless: the worst
   // case is one redundant write, which is exactly what happened before.
-  const current = getDb()
-    .select({ progress: jobs.progress })
-    .from(jobs)
-    .where(eq(jobs.id, id))
-    .get();
-  if (current?.progress === clamped) {
+  //
+  // The full row comes back (not just `progress`) because resolveJobUserId()
+  // needs its runId/kind/payload/userId below, and because this dedupe
+  // doubles as the publish throttle: one event per distinct percentage, so a
+  // 200-article job emits about twenty events rather than two hundred.
+  const current = getDb().select().from(jobs).where(eq(jobs.id, id)).get();
+  if (!current || current.progress === clamped) {
     return;
   }
 
   writeTransaction((db) => {
     db.update(jobs).set({ progress: clamped }).where(eq(jobs.id, id)).run();
   });
+
+  // Best-effort, exactly like publishJobOutcome: a broken subscriber must not
+  // turn a successful progress write into a failed job.
+  try {
+    const userId = resolveJobUserId(current);
+    if (!userId) return;
+    publishUserEvent(userId, {
+      type: "job",
+      payload: {
+        jobId: id,
+        runId: current.runId,
+        kind: current.kind,
+        // The row's actual status, not a hardcoded "running": in practice
+        // this is always "running" (only a claimed job reaches a handler
+        // that calls progress()), but the row is already in hand here, and
+        // REST (GET /api/v1/jobs/:id) and SSE must describe the same row
+        // identically rather than one of them asserting a status by
+        // convention instead of reading it.
+        status: current.status,
+        progress: clamped,
+      },
+    });
+  } catch (err) {
+    console.error(`[queue] failed to publish progress for job ${id}:`, err);
+  }
 }
 
 export type CancelOutcome = "cancelled" | "cancelling" | "unchanged";
@@ -376,6 +411,21 @@ export function getRun(id: number): Run | null {
 }
 
 /**
+ * A run's completion as a whole percent. Computed here, once, rather than in
+ * each client: `GET /api/v1/runs/:id` and the `run` SSE event must agree, and
+ * the native client drives its progress display straight off this number.
+ * A run with no jobs is 100, not 0 -- there is nothing left to wait for.
+ */
+export function runProgressPercent(
+  totalJobs: number,
+  completedJobs: number,
+  failedJobs: number,
+): number {
+  if (totalJobs <= 0) return 100;
+  return Math.round(((completedJobs + failedJobs) / totalJobs) * 100);
+}
+
+/**
  * Which user a job's completion/failure should notify, or null if none
  * applies. A job belonging to a run always notifies that run's owner; a
  * standalone `article.reload` job (phase 12's reload action, no run) notifies
@@ -470,6 +520,9 @@ function publishJobOutcome(job: Job, status: "completed" | "failed" | "cancelled
         runId: job.runId,
         kind: job.kind,
         status,
+        // A completed job is 100 by definition. A failed or cancelled one
+        // reports how far it actually got, so the client's last displayed
+        // percentage does not jump to a number that never happened.
         progress: status === "completed" ? 100 : job.progress,
       },
     });
@@ -482,6 +535,7 @@ function publishJobOutcome(job: Job, status: "completed" | "failed" | "cancelled
           payload: {
             runId: run.id,
             status: run.status,
+            progress: runProgressPercent(run.totalJobs, run.completedJobs, run.failedJobs),
             totalJobs: run.totalJobs,
             completedJobs: run.completedJobs,
             failedJobs: run.failedJobs,

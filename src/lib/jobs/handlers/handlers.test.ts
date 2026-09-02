@@ -1244,6 +1244,60 @@ describe("src/lib/jobs/handlers", () => {
         "upserted articles: 0 created, 1 updated, 0 unchanged",
       );
     });
+
+    it("keeps the write-loop's progress() calls to a small, bounded number of distinct values for a large feed", async () => {
+      // This pins the property that actually turns 200 progress() calls into
+      // roughly 20 writes/SSE events: the per-article expression in
+      // aggregate.ts is `80 + Math.floor(((i + 1) / total) * 20)`, which only
+      // takes on ~20 distinct integers no matter how large `total` is, and
+      // progress()'s own read-before-write dedupe (queue.ts) only publishes
+      // on a genuine change. Nothing here exercises that dedupe directly --
+      // this test is about the *input* to it. If someone widened the
+      // expression's resolution (say, to `Math.floor(((i + 1) / total) *
+      // 2000)`), every one of those 200 calls would produce a distinct
+      // percentage, defeating the dedupe entirely: 200 write transactions
+      // and 200 SSE frames per job instead of ~20. That regression would not
+      // fail any test that only checks final state (all of them settle on
+      // progress: 100 either way), so the assertion below is on the *number
+      // of distinct values requested*, not on the final progress.
+      const feedId = seedAggregateFeed();
+      const total = 200;
+      const rawArticles = Array.from({ length: total }, (_, i) => ({
+        name: `Article ${i}`,
+        identifier: `art-${i}`,
+        raw_content: `<p>body ${i}</p>`,
+        content: `<p>body ${i}</p>`,
+        date: new Date(),
+      }));
+
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => rawArticles,
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      const progressSpy = vi.spyOn(queue, "progress");
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+      const job = makeJob("aggregate", { feedId });
+      await aggregateHandler!(job);
+
+      const percentagesRequested = progressSpy.mock.calls
+        .filter(([id]) => id === job.id)
+        .map(([, percent]) => percent);
+
+      expect(percentagesRequested.length).toBe(total);
+
+      const distinctCount = new Set(percentagesRequested).size;
+      // The write loop's expression only spans the 80-100 range and steps by
+      // 1/20th of the way through `total` articles each time it advances --
+      // 21 possible integer values (80 through 100 inclusive), never more,
+      // regardless of `total`. A generous upper bound (25) keeps this test
+      // from being brittle about the exact boundary rounding while still
+      // catching an order-of-magnitude regression like the one described
+      // above.
+      expect(distinctCount).toBeLessThanOrEqual(25);
+      expect(distinctCount).toBeGreaterThan(1);
+    });
   });
 
   describe("logo", () => {
@@ -1739,7 +1793,20 @@ describe("src/lib/jobs/handlers", () => {
       }
     });
 
-    it("re-fetches the original page and logs after reloading article content", async () => {
+    /**
+     * Builds the fixture shared by the reload-happy-path tests: a mocked
+     * aggregator whose `fetchArticleContent` succeeds, a user/feed/article
+     * row, and a real `article.reload` job row. Factored out because both
+     * the plain content-reload assertions below and the progress-reporting
+     * test need the identical setup -- duplicating it would drift the two
+     * apart the next time either changed.
+     */
+    async function seedReloadJob(): Promise<{
+      job: ReturnType<typeof makeJob>;
+      articleId: number;
+      userId: string;
+      fetchArticleContent: ReturnType<typeof vi.fn>;
+    }> {
       vi.resetModules();
       const fetchArticleContent = vi.fn().mockResolvedValue("<p>Fresh from the source</p>");
       vi.doMock("@/lib/aggregators/factory", () => ({
@@ -1753,12 +1820,14 @@ describe("src/lib/jobs/handlers", () => {
       handlers = await import("./index");
 
       let articleId = 0;
+      let userId = "";
       client.writeTransaction((db) => {
         let user = db.select().from(schema.users).limit(1).get();
         if (!user) {
           db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
           user = db.select().from(schema.users).limit(1).get();
         }
+        userId = user!.id;
 
         const feed = db
           .insert(schema.feeds)
@@ -1781,9 +1850,14 @@ describe("src/lib/jobs/handlers", () => {
         articleId = article.id;
       });
 
-      const reloadHandler = handlers.getHandler("article.reload");
       const job = makeJob("article.reload", { articleId });
+      return { job, articleId, userId, fetchArticleContent };
+    }
 
+    it("re-fetches the original page and logs after reloading article content", async () => {
+      const { job, articleId, fetchArticleContent } = await seedReloadJob();
+
+      const reloadHandler = handlers.getHandler("article.reload");
       await reloadHandler!(job);
 
       expect(fetchArticleContent).toHaveBeenCalledWith("https://example.com/art-1");
@@ -2020,6 +2094,41 @@ describe("src/lib/jobs/handlers", () => {
         .where(eq(schema.articles.id, articleId))
         .get();
       expect(reloaded?.name).toBe("The renamed post");
+    });
+
+    it("reports progress while reloading and reaches 100 on success", async () => {
+      const { job, articleId, userId } = await seedReloadJob();
+      const { getJob } = await import("@/lib/jobs/queue");
+      const { subscribeUserEvents } = await import("@/lib/api/events");
+      const { handleReloadJob } = await import("./reload");
+
+      expect(getJob(job.id)!.progress).toBe(0);
+
+      // Asserting only the final stored value (100) would still pass if the
+      // intermediate progress(job.id, 5|30|55|80) calls were deleted and
+      // only the last one survived -- exactly the regression this test
+      // exists to catch. Subscribing to the job's own SSE event stream (the
+      // same mechanism `queue.progress()`'s dedupe-and-publish drives, see
+      // `queue.test.ts`'s "job/run events" suite) observes every individual
+      // call in order, not just where progress ends up.
+      const heard: unknown[] = [];
+      const unsubscribe = subscribeUserEvents(userId, (event) => heard.push(event));
+      await handleReloadJob(job);
+      unsubscribe();
+
+      const progressSequence = heard
+        .filter(
+          (event): event is { type: "job"; payload: { jobId: number; progress: number } } =>
+            typeof event === "object" &&
+            event !== null &&
+            (event as { type?: unknown }).type === "job" &&
+            (event as { payload?: { jobId?: unknown } }).payload?.jobId === job.id,
+        )
+        .map((event) => event.payload.progress);
+      expect(progressSequence).toEqual([5, 30, 55, 80, 100]);
+
+      expect(getJob(job.id)!.progress).toBe(100);
+      expect(articleId).toBeGreaterThan(0);
     });
 
     it("writes an error article and logs when the original page can no longer be fetched", async () => {
