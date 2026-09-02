@@ -1471,6 +1471,7 @@ describe("src/lib/jobs/handlers", () => {
     async function seedReloadJob(): Promise<{
       job: ReturnType<typeof makeJob>;
       articleId: number;
+      userId: string;
       fetchArticleContent: ReturnType<typeof vi.fn>;
     }> {
       vi.resetModules();
@@ -1486,12 +1487,14 @@ describe("src/lib/jobs/handlers", () => {
       handlers = await import("./index");
 
       let articleId = 0;
+      let userId = "";
       client.writeTransaction((db) => {
         let user = db.select().from(schema.users).limit(1).get();
         if (!user) {
           db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
           user = db.select().from(schema.users).limit(1).get();
         }
+        userId = user!.id;
 
         const feed = db
           .insert(schema.feeds)
@@ -1515,7 +1518,7 @@ describe("src/lib/jobs/handlers", () => {
       });
 
       const job = makeJob("article.reload", { articleId });
-      return { job, articleId, fetchArticleContent };
+      return { job, articleId, userId, fetchArticleContent };
     }
 
     it("re-fetches the original page and logs after reloading article content", async () => {
@@ -1541,12 +1544,35 @@ describe("src/lib/jobs/handlers", () => {
     });
 
     it("reports progress while reloading and reaches 100 on success", async () => {
-      const { job, articleId } = await seedReloadJob();
+      const { job, articleId, userId } = await seedReloadJob();
       const { getJob } = await import("@/lib/jobs/queue");
+      const { subscribeUserEvents } = await import("@/lib/api/events");
       const { handleReloadJob } = await import("./reload");
 
       expect(getJob(job.id)!.progress).toBe(0);
+
+      // Asserting only the final stored value (100) would still pass if the
+      // intermediate progress(job.id, 5|30|55|80) calls were deleted and
+      // only the last one survived -- exactly the regression this test
+      // exists to catch. Subscribing to the job's own SSE event stream (the
+      // same mechanism `queue.progress()`'s dedupe-and-publish drives, see
+      // `queue.test.ts`'s "job/run events" suite) observes every individual
+      // call in order, not just where progress ends up.
+      const heard: unknown[] = [];
+      const unsubscribe = subscribeUserEvents(userId, (event) => heard.push(event));
       await handleReloadJob(job);
+      unsubscribe();
+
+      const progressSequence = heard
+        .filter(
+          (event): event is { type: "job"; payload: { jobId: number; progress: number } } =>
+            typeof event === "object" &&
+            event !== null &&
+            (event as { type?: unknown }).type === "job" &&
+            (event as { payload?: { jobId?: unknown } }).payload?.jobId === job.id,
+        )
+        .map((event) => event.payload.progress);
+      expect(progressSequence).toEqual([5, 30, 55, 80, 100]);
 
       expect(getJob(job.id)!.progress).toBe(100);
       expect(articleId).toBeGreaterThan(0);
