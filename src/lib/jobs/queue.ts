@@ -376,6 +376,21 @@ export function getRun(id: number): Run | null {
 }
 
 /**
+ * A run's completion as a whole percent. Computed here, once, rather than in
+ * each client: `GET /api/v1/runs/:id` and the `run` SSE event must agree, and
+ * the native client drives its progress display straight off this number.
+ * A run with no jobs is 100, not 0 -- there is nothing left to wait for.
+ */
+export function runProgressPercent(
+  totalJobs: number,
+  completedJobs: number,
+  failedJobs: number,
+): number {
+  if (totalJobs <= 0) return 100;
+  return Math.round(((completedJobs + failedJobs) / totalJobs) * 100);
+}
+
+/**
  * Which user a job's completion/failure should notify, or null if none
  * applies. A job belonging to a run always notifies that run's owner; a
  * standalone `article.reload` job (phase 12's reload action, no run) notifies
@@ -482,6 +497,7 @@ function publishJobOutcome(job: Job, status: "completed" | "failed" | "cancelled
           payload: {
             runId: run.id,
             status: run.status,
+            progress: runProgressPercent(run.totalJobs, run.completedJobs, run.failedJobs),
             totalJobs: run.totalJobs,
             completedJobs: run.completedJobs,
             failedJobs: run.failedJobs,

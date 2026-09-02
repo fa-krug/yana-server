@@ -53,6 +53,7 @@ export const SyncResyncRequiredSchema = z.object({
 export const RunSchema = z.object({
   runId: z.number().int(),
   status: z.enum(["running", "completed", "failed"]),
+  progress: z.number().int(),
   totalJobs: z.number().int(),
   completedJobs: z.number().int(),
   failedJobs: z.number().int(),
@@ -166,6 +167,7 @@ export const ApiEventPayloadSchema = z.union([
   z.object({
     runId: z.number().int(),
     status: z.string(),
+    progress: z.number().int(),
     totalJobs: z.number().int(),
     completedJobs: z.number().int(),
     failedJobs: z.number().int(),

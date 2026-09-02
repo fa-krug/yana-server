@@ -493,7 +493,14 @@ describe("src/lib/jobs/queue", () => {
         },
         {
           type: "run",
-          payload: { runId, status: "running", totalJobs: 2, completedJobs: 1, failedJobs: 0 },
+          payload: {
+            runId,
+            status: "running",
+            progress: 50,
+            totalJobs: 2,
+            completedJobs: 1,
+            failedJobs: 0,
+          },
         },
       ]);
     });
@@ -523,7 +530,14 @@ describe("src/lib/jobs/queue", () => {
         },
         {
           type: "run",
-          payload: { runId, status: "failed", totalJobs: 2, completedJobs: 1, failedJobs: 1 },
+          payload: {
+            runId,
+            status: "failed",
+            progress: 100,
+            totalJobs: 2,
+            completedJobs: 1,
+            failedJobs: 1,
+          },
         },
       ]);
     });
@@ -915,5 +929,15 @@ describe("src/lib/jobs/queue", () => {
       expect(run?.failedJobs).toBe(1);
       expect(heard).toEqual(["cancelled"]);
     });
+  });
+
+  it("runProgressPercent reports 100 for a run with no jobs", async () => {
+    const { runProgressPercent } = await import("./queue");
+    expect(runProgressPercent(0, 0, 0)).toBe(100);
+  });
+
+  it("runProgressPercent rounds to the nearest whole percent", async () => {
+    const { runProgressPercent } = await import("./queue");
+    expect(runProgressPercent(3, 1, 0)).toBe(33);
   });
 });
