@@ -207,18 +207,38 @@ export function progress(id: number, percent: number): void {
   // but twenty of those calls were a BEGIN IMMEDIATE that wrote the number
   // already sitting in the column. A stale read here is harmless: the worst
   // case is one redundant write, which is exactly what happened before.
-  const current = getDb()
-    .select({ progress: jobs.progress })
-    .from(jobs)
-    .where(eq(jobs.id, id))
-    .get();
-  if (current?.progress === clamped) {
+  //
+  // The full row comes back (not just `progress`) because resolveJobUserId()
+  // needs its runId/kind/payload/userId below, and because this dedupe
+  // doubles as the publish throttle: one event per distinct percentage, so a
+  // 200-article job emits about twenty events rather than two hundred.
+  const current = getDb().select().from(jobs).where(eq(jobs.id, id)).get();
+  if (!current || current.progress === clamped) {
     return;
   }
 
   writeTransaction((db) => {
     db.update(jobs).set({ progress: clamped }).where(eq(jobs.id, id)).run();
   });
+
+  // Best-effort, exactly like publishJobOutcome: a broken subscriber must not
+  // turn a successful progress write into a failed job.
+  try {
+    const userId = resolveJobUserId(current);
+    if (!userId) return;
+    publishUserEvent(userId, {
+      type: "job",
+      payload: {
+        jobId: id,
+        runId: current.runId,
+        kind: current.kind,
+        status: "running",
+        progress: clamped,
+      },
+    });
+  } catch (err) {
+    console.error(`[queue] failed to publish progress for job ${id}:`, err);
+  }
 }
 
 export type CancelOutcome = "cancelled" | "cancelling" | "unchanged";
@@ -485,6 +505,9 @@ function publishJobOutcome(job: Job, status: "completed" | "failed" | "cancelled
         runId: job.runId,
         kind: job.kind,
         status,
+        // A completed job is 100 by definition. A failed or cancelled one
+        // reports how far it actually got, so the client's last displayed
+        // percentage does not jump to a number that never happened.
         progress: status === "completed" ? 100 : job.progress,
       },
     });

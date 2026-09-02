@@ -609,6 +609,43 @@ describe("src/lib/jobs/queue", () => {
       unsubscribe();
       expect(heard).toHaveLength(0);
     });
+
+    // Uses a run's child job (not a bare enqueue()) so resolveJobUserId() has
+    // something to resolve: an "aggregate" job only carries an owner via its
+    // run (see resolveJobUserId's doc comment) -- a standalone job of that
+    // kind is never notified, matching the "kind other than article.reload"
+    // case just above.
+    it("publishes a job event carrying the new percentage when progress changes", () => {
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(userId, "aggregate", [{ feedId: 1 }]);
+      const jobId = client.getDb().select().from(jobs).where(eq(jobs.runId, runId)).get()!.id;
+
+      const heard: unknown[] = [];
+      const unsubscribe = events.subscribeUserEvents(userId, (event) => heard.push(event));
+      queue.progress(jobId, 42);
+      unsubscribe();
+
+      expect(heard).toEqual([
+        {
+          type: "job",
+          payload: { jobId, runId, kind: "aggregate", status: "running", progress: 42 },
+        },
+      ]);
+    });
+
+    it("publishes nothing when progress is set to the value already stored", () => {
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(userId, "aggregate", [{ feedId: 1 }]);
+      const jobId = client.getDb().select().from(jobs).where(eq(jobs.runId, runId)).get()!.id;
+      queue.progress(jobId, 42);
+
+      const heard: unknown[] = [];
+      const unsubscribe = events.subscribeUserEvents(userId, (event) => heard.push(event));
+      queue.progress(jobId, 42);
+      unsubscribe();
+
+      expect(heard).toEqual([]);
+    });
   });
 
   describe("job ownership", () => {
