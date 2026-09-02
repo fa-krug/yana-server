@@ -3,7 +3,7 @@
   "info": {
     "title": "Yana Client API",
     "version": "1",
-    "description": "# Yana Client API\n\nThe versioned HTTP API a native client (or the web UI itself, for images)\nuses to read and modify a signed-in user's feeds, tags, articles and AI\nconfiguration. `v1` is the only version today.\n\n**Base URL**: this server's own origin, e.g. `https://yana.example.com`.\n\n**Errors** always take the shape `{ \"error\": { \"code\": \"...\", \"message\": \"...\" } }`.\n`code` is stable and machine-readable; `message` is written by the server\nfor a human and never echoes anything the caller submitted. See the Errors\nsection below for the full code index.\n\n**Dates** are always ISO 8601 (`Date.prototype.toISOString()`).\n\n## Errors\n\nEvery error takes the shape `{ \"error\": { \"code\": \"...\", \"message\": \"...\" } }`. `message` is server-authored prose for a human and never echoes anything the caller submitted.\n\n| Code | Emitted by |\n|---|---|\n| `daily_limit_exceeded` | `POST /api/v1/ai/prompt` |\n| `invalid_body` | `PATCH /api/v1/articles/{id}`, `PATCH /api/v1/reading-position` |\n| `invalid_prompt` | `POST /api/v1/ai/prompt` |\n| `monthly_limit_exceeded` | `POST /api/v1/ai/prompt` |\n| `no_active_provider` | `POST /api/v1/ai/prompt` |\n| `no_code_empty_body` | `GET /device/pair` |\n| `not_found` | `PATCH /api/v1/articles/{id}`, `GET /api/v1/articles/{id}/content`, `POST /api/v1/articles/{id}/reload`, `GET /api/v1/runs/{id}`, `GET /api/v1/images/{hash}`, `PATCH /api/v1/reading-position` |\n| `prompt_too_long` | `POST /api/v1/ai/prompt` |\n| `provider_error` | `POST /api/v1/ai/prompt` |\n| `provider_unauthorized` | `POST /api/v1/ai/prompt` |\n| `unauthorized` | `GET /api/v1/feeds`, `GET /api/v1/tags`, `GET /api/v1/articles/sync`, `PATCH /api/v1/articles/{id}`, `GET /api/v1/articles/{id}/content`, `POST /api/v1/articles/{id}/reload`, `POST /api/v1/aggregate`, `GET /api/v1/runs/{id}`, `GET /api/v1/jobs/events`, `GET /api/v1/images/{hash}`, `GET /api/v1/reading-position`, `PATCH /api/v1/reading-position`, `POST /api/v1/ai/prompt`, `POST /api/v1/auth/webview-session-token`, `GET /api/v1/openapi.json` |\n\n## Conventions\n\n- **Dates** are always ISO 8601 (`Date.prototype.toISOString()`).\n- **Pagination**: `GET /api/v1/articles/sync` is the only paginated endpoint. `limit`\n  caps rows *per stream* per call (default 200, clamped to `[1, 500]`), and `cursor` is\n  opaque -- pass back the previous response's `nextCursor` to continue.\n- **Not found vs. forbidden**: every ownership check answers 404, never 403, for a row\n  that exists but isn't the caller's -- this prevents an authenticated caller from\n  learning that a given id exists at all through the response code alone."
+    "description": "# Yana Client API\n\nThe versioned HTTP API a native client (or the web UI itself, for images)\nuses to read and modify a signed-in user's feeds, tags, articles and AI\nconfiguration. `v1` is the only version today.\n\n**Base URL**: this server's own origin, e.g. `https://yana.example.com`.\n\n**Errors** always take the shape `{ \"error\": { \"code\": \"...\", \"message\": \"...\" } }`.\n`code` is stable and machine-readable; `message` is written by the server\nfor a human and never echoes anything the caller submitted. See the Errors\nsection below for the full code index.\n\n**Dates** are always ISO 8601 (`Date.prototype.toISOString()`).\n\n## Errors\n\nEvery error takes the shape `{ \"error\": { \"code\": \"...\", \"message\": \"...\" } }`. `message` is server-authored prose for a human and never echoes anything the caller submitted.\n\n| Code | Emitted by |\n|---|---|\n| `daily_limit_exceeded` | `POST /api/v1/ai/prompt` |\n| `invalid_body` | `PATCH /api/v1/articles/{id}`, `PATCH /api/v1/reading-position` |\n| `invalid_prompt` | `POST /api/v1/ai/prompt` |\n| `monthly_limit_exceeded` | `POST /api/v1/ai/prompt` |\n| `no_active_provider` | `POST /api/v1/ai/prompt` |\n| `no_code_empty_body` | `GET /device/pair` |\n| `not_found` | `PATCH /api/v1/articles/{id}`, `GET /api/v1/articles/{id}/content`, `POST /api/v1/articles/{id}/reload`, `GET /api/v1/runs/{id}`, `GET /api/v1/jobs/{id}`, `GET /api/v1/images/{hash}`, `PATCH /api/v1/reading-position` |\n| `prompt_too_long` | `POST /api/v1/ai/prompt` |\n| `provider_error` | `POST /api/v1/ai/prompt` |\n| `provider_unauthorized` | `POST /api/v1/ai/prompt` |\n| `unauthorized` | `GET /api/v1/feeds`, `GET /api/v1/tags`, `GET /api/v1/articles/sync`, `PATCH /api/v1/articles/{id}`, `GET /api/v1/articles/{id}/content`, `POST /api/v1/articles/{id}/reload`, `POST /api/v1/aggregate`, `GET /api/v1/runs/{id}`, `GET /api/v1/jobs/{id}`, `GET /api/v1/jobs/events`, `GET /api/v1/images/{hash}`, `GET /api/v1/reading-position`, `PATCH /api/v1/reading-position`, `POST /api/v1/ai/prompt`, `POST /api/v1/auth/webview-session-token`, `GET /api/v1/openapi.json` |\n\n## Conventions\n\n- **Dates** are always ISO 8601 (`Date.prototype.toISOString()`).\n- **Pagination**: `GET /api/v1/articles/sync` is the only paginated endpoint. `limit`\n  caps rows *per stream* per call (default 200, clamped to `[1, 500]`), and `cursor` is\n  opaque -- pass back the previous response's `nextCursor` to continue.\n- **Not found vs. forbidden**: every ownership check answers 404, never 403, for a row\n  that exists but isn't the caller's -- this prevents an authenticated caller from\n  learning that a given id exists at all through the response code alone."
   },
   "tags": [
     {
@@ -1366,6 +1366,11 @@
                         "failed"
                       ]
                     },
+                    "progress": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
                     "totalJobs": {
                       "type": "integer",
                       "minimum": -9007199254740991,
@@ -1385,6 +1390,7 @@
                   "required": [
                     "runId",
                     "status",
+                    "progress",
                     "totalJobs",
                     "completedJobs",
                     "failedJobs"
@@ -1428,6 +1434,164 @@
           },
           "404": {
             "description": "the run doesn't exist, or isn't owned by the caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/jobs/{id}": {
+      "get": {
+        "summary": "Poll one job's progress",
+        "description": "The durable state of a single job, including the `article.reload` job `POST /api/v1/articles/{id}/reload` returns. Such a job has `runId: null` and is invisible to `GET /api/v1/runs/{id}`. `progress` is the progress signal (0-100); `status` says whether the work has ended and whether it succeeded. Unlike the SSE stream this can be asked again at any time, so a client that was offline, or was restarted, can still learn how its job ended.",
+        "tags": [
+          "Jobs"
+        ],
+        "responses": {
+          "200": {
+            "description": "The job's current state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "jobId": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "runId": {
+                      "nullable": true,
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "progress": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "running",
+                        "cancelling",
+                        "completed",
+                        "failed",
+                        "cancelled"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "startedAt": {
+                      "nullable": true,
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                    },
+                    "finishedAt": {
+                      "nullable": true,
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                    }
+                  },
+                  "required": [
+                    "jobId",
+                    "runId",
+                    "kind",
+                    "progress",
+                    "status",
+                    "error",
+                    "startedAt",
+                    "finishedAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "no valid Bearer token or session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "the job doesn't exist, or isn't owned by the caller.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1534,6 +1698,11 @@
                         "status": {
                           "type": "string"
                         },
+                        "progress": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
                         "totalJobs": {
                           "type": "integer",
                           "minimum": -9007199254740991,
@@ -1553,6 +1722,7 @@
                       "required": [
                         "runId",
                         "status",
+                        "progress",
                         "totalJobs",
                         "completedJobs",
                         "failedJobs"
