@@ -53,7 +53,7 @@ export const SyncResyncRequiredSchema = z.object({
 export const RunSchema = z.object({
   runId: z.number().int(),
   status: z.enum(["running", "completed", "failed"]),
-  progress: z.number().int(),
+  progress: z.number().int().min(0).max(100),
   totalJobs: z.number().int(),
   completedJobs: z.number().int(),
   failedJobs: z.number().int(),
@@ -63,7 +63,7 @@ export const JobSchema = z.object({
   jobId: z.number().int(),
   runId: z.number().int().nullable(),
   kind: z.string(),
-  progress: z.number().int(),
+  progress: z.number().int().min(0).max(100),
   status: z.enum(["pending", "running", "cancelling", "completed", "failed", "cancelled"]),
   error: z.string(),
   startedAt: z.iso.datetime().nullable(),
@@ -128,6 +128,18 @@ export const AiPromptResponseSchema = z.object({
   model: z.string(),
 });
 
+// Kept in sync with ApiEventPayloadSchema below by hand -- registry.ts (the
+// only thing that actually feeds the OpenAPI generator) imports the payload
+// union, never this one, so nothing catches the two drifting apart the way
+// the generated-doc test catches every schema `registry.ts` does reference.
+// This shape previously omitted `progress` from the "run" variant after it
+// was added to ApiEventPayloadSchema and RunSchema; nothing failed, because
+// nothing reads this schema at all beyond the prose comment below. Since
+// there is no current import of ApiEventSchema outside this file, it should
+// probably be deleted in favor of describing the three event shapes directly
+// from ApiEventPayloadSchema (or documented in prose only) -- left in place
+// for this pass since removing it is a separate decision, not a fix for the
+// bug reported here.
 export const ApiEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("job"),
@@ -136,7 +148,7 @@ export const ApiEventSchema = z.discriminatedUnion("type", [
       runId: z.number().int().nullable(),
       kind: z.string(),
       status: z.string(),
-      progress: z.number(),
+      progress: z.number().int().min(0).max(100),
     }),
   }),
   z.object({
@@ -144,6 +156,7 @@ export const ApiEventSchema = z.discriminatedUnion("type", [
     payload: z.object({
       runId: z.number().int(),
       status: z.string(),
+      progress: z.number().int().min(0).max(100),
       totalJobs: z.number().int(),
       completedJobs: z.number().int(),
       failedJobs: z.number().int(),
@@ -173,12 +186,12 @@ export const ApiEventPayloadSchema = z.union([
     runId: z.number().int().nullable(),
     kind: z.string(),
     status: z.string(),
-    progress: z.number(),
+    progress: z.number().int().min(0).max(100),
   }),
   z.object({
     runId: z.number().int(),
     status: z.string(),
-    progress: z.number().int(),
+    progress: z.number().int().min(0).max(100),
     totalJobs: z.number().int(),
     completedJobs: z.number().int(),
     failedJobs: z.number().int(),

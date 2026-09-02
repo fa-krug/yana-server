@@ -28,7 +28,7 @@
     },
     {
       "name": "Jobs",
-      "description": "`GET /api/v1/jobs/events` is a single long-lived Server-Sent-Events\nconnection carrying three event types for the caller:\n\n- `job` -- one background job's status/progress changed.\n- `run` -- a run's aggregate counters changed (see `POST /api/v1/aggregate`).\n- `readingPosition` -- another device moved the reading-position pointer.\n\nThis is a best-effort, low-latency notification layer, not the source of\ntruth: a dropped connection loses nothing except immediacy. A reconnecting\nclient should always re-poll `GET /api/v1/runs/{id}` (or\n`GET /api/v1/reading-position`) to recover its actual current state, since\nevents missed while disconnected are not replayed. The server sends an SSE\ncomment ping every 15 seconds to keep intermediary proxies from treating a\nquiet connection as dead; conforming SSE clients ignore comment lines.\n\n**The event type is carried in the SSE `event:` line, never in the JSON\nbody.** Each `data:` frame is the bare payload only (job/run/reading-position\nfields, with no `type` discriminant) -- read which of the three event types\nit is from `event:`, not from the parsed JSON."
+      "description": "`GET /api/v1/jobs/events` is a single long-lived Server-Sent-Events\nconnection carrying three event types for the caller:\n\n- `job` -- one background job's status/progress changed.\n- `run` -- a run's aggregate counters changed (see `POST /api/v1/aggregate`).\n- `readingPosition` -- another device moved the reading-position pointer.\n\nThis is a best-effort, low-latency notification layer, not the source of\ntruth: a dropped connection loses nothing except immediacy. A reconnecting\nclient should always re-poll to recover its actual current state, since\nevents missed while disconnected are not replayed -- which endpoint to poll\ndepends on what was being tracked: `GET /api/v1/runs/{id}` for a run started\nby `POST /api/v1/aggregate`, `GET /api/v1/jobs/{id}` for a standalone job\nthat has no run (an `article.reload` job has `runId: null` and is invisible\nto `runs/{id}`), or `GET /api/v1/reading-position` for the reading-position\npointer. The server sends an SSE\ncomment ping every 15 seconds to keep intermediary proxies from treating a\nquiet connection as dead; conforming SSE clients ignore comment lines.\n\n**The event type is carried in the SSE `event:` line, never in the JSON\nbody.** Each `data:` frame is the bare payload only (job/run/reading-position\nfields, with no `type` discriminant) -- read which of the three event types\nit is from `event:`, not from the parsed JSON."
     },
     {
       "name": "Images",
@@ -1368,8 +1368,8 @@
                     },
                     "progress": {
                       "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
+                      "minimum": 0,
+                      "maximum": 100
                     },
                     "totalJobs": {
                       "type": "integer",
@@ -1513,8 +1513,8 @@
                     },
                     "progress": {
                       "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
+                      "minimum": 0,
+                      "maximum": 100
                     },
                     "status": {
                       "type": "string",
@@ -1675,7 +1675,9 @@
                           "type": "string"
                         },
                         "progress": {
-                          "type": "number"
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100
                         }
                       },
                       "required": [
@@ -1700,8 +1702,8 @@
                         },
                         "progress": {
                           "type": "integer",
-                          "minimum": -9007199254740991,
-                          "maximum": 9007199254740991
+                          "minimum": 0,
+                          "maximum": 100
                         },
                         "totalJobs": {
                           "type": "integer",
