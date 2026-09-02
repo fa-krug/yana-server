@@ -1460,7 +1460,19 @@ describe("src/lib/jobs/handlers", () => {
       }
     });
 
-    it("re-fetches the original page and logs after reloading article content", async () => {
+    /**
+     * Builds the fixture shared by the reload-happy-path tests: a mocked
+     * aggregator whose `fetchArticleContent` succeeds, a user/feed/article
+     * row, and a real `article.reload` job row. Factored out because both
+     * the plain content-reload assertions below and the progress-reporting
+     * test need the identical setup -- duplicating it would drift the two
+     * apart the next time either changed.
+     */
+    async function seedReloadJob(): Promise<{
+      job: ReturnType<typeof makeJob>;
+      articleId: number;
+      fetchArticleContent: ReturnType<typeof vi.fn>;
+    }> {
       vi.resetModules();
       const fetchArticleContent = vi.fn().mockResolvedValue("<p>Fresh from the source</p>");
       vi.doMock("@/lib/aggregators/factory", () => ({
@@ -1502,9 +1514,14 @@ describe("src/lib/jobs/handlers", () => {
         articleId = article.id;
       });
 
-      const reloadHandler = handlers.getHandler("article.reload");
       const job = makeJob("article.reload", { articleId });
+      return { job, articleId, fetchArticleContent };
+    }
 
+    it("re-fetches the original page and logs after reloading article content", async () => {
+      const { job, articleId, fetchArticleContent } = await seedReloadJob();
+
+      const reloadHandler = handlers.getHandler("article.reload");
       await reloadHandler!(job);
 
       expect(fetchArticleContent).toHaveBeenCalledWith("https://example.com/art-1");
@@ -1521,6 +1538,18 @@ describe("src/lib/jobs/handlers", () => {
 
       const lines = logLines(job.id);
       expect(lines).toContain("reloaded article content");
+    });
+
+    it("reports progress while reloading and reaches 100 on success", async () => {
+      const { job, articleId } = await seedReloadJob();
+      const { getJob } = await import("@/lib/jobs/queue");
+      const { handleReloadJob } = await import("./reload");
+
+      expect(getJob(job.id)!.progress).toBe(0);
+      await handleReloadJob(job);
+
+      expect(getJob(job.id)!.progress).toBe(100);
+      expect(articleId).toBeGreaterThan(0);
     });
 
     it("writes an error article and logs when the original page can no longer be fetched", async () => {

@@ -9,7 +9,7 @@ import { createAggregator } from "@/lib/aggregators/factory";
 import { applyAiOptions } from "@/lib/ai/run";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, feeds, userSettings, type Job } from "@/lib/db/schema";
-import { appendLogLine } from "../queue";
+import { appendLogLine, progress } from "../queue";
 
 function buildErrorBlocks(message: string): Block[] {
   return [
@@ -97,6 +97,13 @@ export async function handleReloadJob(job: Job): Promise<void> {
     return;
   }
 
+  // Fixed phase numbers, not computed fractions: a reload has no countable
+  // unit of work to divide progress over (it is one article, refetched and
+  // re-processed through a handful of sequential steps), unlike aggregate's
+  // per-article progress. These five values just mark that sequence's
+  // boundaries so a client polling mid-reload sees the job moving.
+  progress(job.id, 5);
+
   // Read once, up front, and handed to both resolveFeedCredentials() (which
   // would otherwise re-run this same query itself) and applyAiOptions() below.
   const settings = db.select().from(userSettings).where(eq(userSettings.userId, feed.userId)).get();
@@ -138,6 +145,10 @@ export async function handleReloadJob(job: Job): Promise<void> {
     return;
   }
 
+  // No progress call on the failed-refetch branch above: that path ends the
+  // job right here, and publishJobOutcome() reports where it got to instead.
+  progress(job.id, 30);
+
   const rawArticle: RawArticle = {
     name: article.name,
     identifier: article.identifier,
@@ -154,6 +165,7 @@ export async function handleReloadJob(job: Job): Promise<void> {
   if (!rawArticle.content) {
     appendLogLine(job.id, "stdout", "extracted content is empty");
   }
+  progress(job.id, 55);
 
   const aiOutcome = await applyAiOptions(
     rawArticle,
@@ -162,6 +174,7 @@ export async function handleReloadJob(job: Job): Promise<void> {
     aggregator.onLog,
     true, // bypassUsageLimit -- see the doc comment above.
   );
+  progress(job.id, 80);
 
   const processed = await aggregator.processContent(rawArticle.content || "", rawArticle);
 
@@ -191,6 +204,7 @@ export async function handleReloadJob(job: Job): Promise<void> {
   });
 
   appendLogLine(job.id, "stdout", "reloaded article content");
+  progress(job.id, 100);
 
   if (aiOutcome.status === "failed") {
     // The fresh content above is already saved -- this only fails the job
