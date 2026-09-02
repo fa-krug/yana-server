@@ -83,6 +83,11 @@ export async function handleAggregateJob(job: Job): Promise<void> {
   let created = 0;
   let updated = 0;
   let unchanged = 0;
+  // Articles the AI stage could not complete, so nothing was written for them
+  // at all. Counted for the summary line: a run that stored fewer articles
+  // than the feed listed should say why rather than look like a quiet feed.
+  let aiFailed = 0;
+  const aiFailureReasons = new Set<string>();
 
   // Whether this feed asks for AI at all, decided once -- by `wantsAi()`, the
   // same predicate `applyAiToBlocks()` itself uses, so there is no second copy
@@ -170,6 +175,37 @@ export async function handleAggregateJob(job: Job): Promise<void> {
 
     if (ai.requested) aiRequests++;
 
+    if (ai.outcome.status === "failed") {
+      /**
+       * **Write nothing at all, so the next run can store the article whole.**
+       *
+       * The feed asked for this article to be summarized, translated or
+       * rewritten and it wasn't, so what is in hand is not the article this
+       * feed is configured to have. Storing it anyway produced the wrong thing
+       * in both directions: a *new* article appeared in its original language
+       * and stayed that way until its source happened to change, and an
+       * article already stored -- possibly the successfully processed version
+       * of this very item -- was overwritten with the un-processed one over a
+       * transient 503.
+       *
+       * Skipping costs only a cycle's delay. The fingerprint is not written
+       * either (there is no row write at all for a new article, and an
+       * existing row keeps whatever it had), so the next run treats the item
+       * as outstanding and tries again -- which is what makes "next time it
+       * adds the full article" true rather than aspirational.
+       */
+      aiFailed++;
+      aiFailureReasons.add(ai.outcome.reason);
+      appendLogLine(
+        job.id,
+        "stdout",
+        `skipped "${raw.name || raw.identifier}": AI processing did not complete ` +
+          `(${ai.outcome.reason}); it will be retried on the next run`,
+      );
+      progress(job.id, 80 + Math.floor(((i + 1) / total) * 20));
+      continue;
+    }
+
     const blocks = ai.blocks;
     const plainText = plainTextOf(blocks);
     const name = ai.title || raw.name || "Untitled";
@@ -227,22 +263,17 @@ export async function handleAggregateJob(job: Job): Promise<void> {
       await writeBlocks(articleId, blocks);
     }
 
-    if (articleId > 0 && ai.outcome.status !== "failed") {
+    if (articleId > 0) {
       // Written last, deliberately: a stored hash means "the row *and* its
       // block tree are current for this content". A crash anywhere above
       // leaves it stale or null, so the next run redoes the work rather than
       // trusting a fingerprint for a half-written article.
       //
-      // **And not written at all when the AI stage failed**, for the same
-      // reason `reload.ts` nulls it in both of its branches: a fingerprint says
-      // "this article is done", and an article whose summary or translation
-      // never happened is not. Stored anyway, a single 503 from the provider
-      // made that article permanently un-AI'd -- the next run matched the hash,
-      // skipped, and never retried, so an outage that used to heal on the next
-      // cycle became forever. The cost of the other direction is bounded and
-      // visible: a provider that is *always* failing rewrites the row once per
-      // cycle and keeps retrying, which is what a broken credential should look
-      // like rather than silence.
+      // A failed AI stage never reaches here at all any more -- that article
+      // is skipped whole, above, rather than stored un-processed and left
+      // without a fingerprint. Same conclusion, one step earlier: a
+      // fingerprint says "this article is done", and an article whose summary
+      // or translation never happened is not.
       writeTransaction((tx) => {
         tx.update(articles).set({ contentHash: hash }).where(eq(articles.id, articleId)).run();
       });
@@ -261,6 +292,9 @@ export async function handleAggregateJob(job: Job): Promise<void> {
   appendLogLine(
     job.id,
     "stdout",
-    `upserted articles: ${created} created, ${updated} updated, ${unchanged} unchanged`,
+    `upserted articles: ${created} created, ${updated} updated, ${unchanged} unchanged` +
+      (aiFailed > 0
+        ? `, ${aiFailed} skipped (AI: ${[...aiFailureReasons].sort().join(", ")})`
+        : ""),
   );
 }

@@ -1276,6 +1276,182 @@ describe("src/lib/jobs/handlers", () => {
       expect(afterEdit.plainText).toContain("corrected upstream");
     });
 
+    /**
+     * **An article whose AI stage failed is skipped whole, not stored
+     * un-processed.**
+     *
+     * The feed asked for this article to be translated and it wasn't, so what
+     * is in hand is not the article this feed is configured to have. Stored
+     * anyway it appeared in its original language and stayed that way until
+     * its source happened to change. Writing nothing costs a cycle's delay and
+     * lets the next run add it whole.
+     */
+    describe("an article whose AI stage did not complete", () => {
+      /** A feed with translation on, whose provider answers 429 every time. */
+      function seedTranslatingFeed(): number {
+        let feedId = 0;
+        client.writeTransaction((db) => {
+          db.insert(schema.users)
+            .values({ id: "ai-user", email: "ai-user@example.com" })
+            .onConflictDoNothing()
+            .run();
+          db.insert(schema.userSettings)
+            .values({
+              userId: "ai-user",
+              activeAiProvider: "gemini",
+              geminiEnabled: true,
+              geminiApiKey: "test-key",
+              aiMaxRetries: 0,
+              aiRequestDelay: 0,
+            })
+            .onConflictDoNothing()
+            .run();
+          const feed = db
+            .insert(schema.feeds)
+            .values({
+              name: "Translating Feed",
+              userId: "ai-user",
+              enabled: true,
+              options: { ai_translate: true, ai_translate_language: "German" },
+            })
+            .returning({ id: schema.feeds.id })
+            .get();
+          feedId = feed.id;
+        });
+        return feedId;
+      }
+
+      const RAW = {
+        name: "Untranslated",
+        identifier: "art-1",
+        raw_content: "",
+        content: "<p>original language</p>",
+        date: new Date("2026-01-01T00:00:00.000Z"),
+      };
+
+      function failingProvider() {
+        return vi.fn().mockResolvedValue({
+          ok: false,
+          status: 429,
+          statusText: "Too Many Requests",
+          json: async () => ({}),
+        } as Response);
+      }
+
+      it("stores nothing for a new article, and adds it whole once AI succeeds", async () => {
+        const feedId = seedTranslatingFeed();
+        const factory = await import("@/lib/aggregators/factory");
+        vi.mocked(factory.createAggregator).mockReturnValue({
+          aggregate: async () => [{ ...RAW }],
+        } as unknown as ReturnType<typeof factory.createAggregator>);
+
+        const aggregateHandler = handlers.getHandler("aggregate");
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = failingProvider() as unknown as typeof fetch;
+
+        try {
+          const failedJob = makeJob("aggregate", { feedId });
+          await aggregateHandler!(failedJob);
+
+          // Nothing at all -- not an untranslated row waiting to be noticed.
+          expect(
+            client
+              .getDb()
+              .select()
+              .from(schema.articles)
+              .where(eq(schema.articles.feedId, feedId))
+              .all(),
+          ).toHaveLength(0);
+          const lines = logLines(failedJob.id);
+          expect(lines.some((l) => l.includes("AI processing did not complete"))).toBe(true);
+          expect(
+            lines.some((l) => l.includes("0 created, 0 updated, 0 unchanged, 1 skipped")),
+          ).toBe(true);
+
+          // The provider recovers: the same feed item is now stored complete.
+          globalThis.fetch = vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              candidates: [
+                {
+                  content: {
+                    parts: [
+                      // The shape `applyAiToBlocks()` parses: a title and the
+                      // document as text in its notation (see run.test.ts).
+                      { text: JSON.stringify({ title: "Übersetzt", document: "ursprache" }) },
+                    ],
+                  },
+                },
+              ],
+            }),
+          } as Response) as unknown as typeof fetch;
+
+          const healingJob = makeJob("aggregate", { feedId });
+          await aggregateHandler!(healingJob);
+
+          const stored = client
+            .getDb()
+            .select()
+            .from(schema.articles)
+            .where(eq(schema.articles.feedId, feedId))
+            .get();
+          expect(stored).toBeDefined();
+          expect(stored!.contentHash).not.toBeNull();
+        } finally {
+          globalThis.fetch = originalFetch;
+        }
+      });
+
+      it("leaves an article it already stored untouched", async () => {
+        const feedId = seedTranslatingFeed();
+        let articleId = 0;
+        client.writeTransaction((db) => {
+          const row = db
+            .insert(schema.articles)
+            .values({
+              feedId,
+              name: "Übersetzt",
+              identifier: RAW.identifier,
+              plainText: "ursprache",
+              date: RAW.date,
+              contentHash: "an-older-fingerprint",
+            })
+            .returning({ id: schema.articles.id })
+            .get();
+          articleId = row.id;
+          db.run(sql`UPDATE articles SET updated_at = 1000000000 WHERE feed_id = ${feedId}`);
+        });
+
+        const factory = await import("@/lib/aggregators/factory");
+        vi.mocked(factory.createAggregator).mockReturnValue({
+          aggregate: async () => [{ ...RAW }],
+        } as unknown as ReturnType<typeof factory.createAggregator>);
+
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = failingProvider() as unknown as typeof fetch;
+
+        try {
+          await handlers.getHandler("aggregate")!(makeJob("aggregate", { feedId }));
+
+          const row = client
+            .getDb()
+            .select()
+            .from(schema.articles)
+            .where(eq(schema.articles.id, articleId))
+            .get()!;
+          // The stored version may well be the successfully translated one --
+          // overwriting it with the original language over a transient 429 is
+          // the downgrade this skip exists to prevent.
+          expect(row.plainText).toBe("ursprache");
+          expect(row.contentHash).toBe("an-older-fingerprint");
+          expect(row.updatedAt.getTime()).toBe(1_000_000_000_000);
+        } finally {
+          globalThis.fetch = originalFetch;
+        }
+      });
+    });
+
     it("leaves an article alone when only its comments changed", async () => {
       const feedId = seedAggregateFeed();
       const body = `<section data-sanitized-class="article-content"><p>post</p></section>`;

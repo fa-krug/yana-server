@@ -1095,6 +1095,21 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   through it, and it is still the fallback for the block source when an
   aggregator distilled no `content`.
 
+  **An article whose AI stage did not complete is skipped whole — nothing is
+  written for it at all.** The feed asked for that article to be summarized,
+  translated or rewritten and it wasn't, so what the handler has in hand is not
+  the article the feed is configured to have. Storing it anyway was wrong in
+  both directions: a _new_ article appeared in its original language and stayed
+  that way until its source happened to change, and an article already stored —
+  possibly the successfully processed version of this very item — was
+  overwritten with the un-processed one over a transient 503. Skipping costs a
+  cycle's delay and nothing else: no row write means no fingerprint either, so
+  the next run treats the item as outstanding and adds it whole. An earlier
+  version stored the row and merely withheld the fingerprint, which retried but
+  left the half-done article visible in the meantime. The count reaches the
+  job's summary line (`N skipped (AI: reason)`) so a run that stored fewer
+  articles than the feed listed says why rather than looking like a quiet feed.
+
   **A successful manual reload and `updateArticle()` both keep the fingerprint,
   so a deliberate local change stands.** Both used to null it, which made every
   manual action provisional until the next cycle discarded what an operator had
