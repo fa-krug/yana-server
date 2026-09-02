@@ -39,7 +39,7 @@ behavior ever needs to be reconstructed.
 │   │       ├── account/page.tsx   # /account — profile, password, passkeys
 │   │       ├── integrations/page.tsx # /integrations — YouTube + Reddit credentials
 │   │       ├── ai/page.tsx        # /ai — the active AI provider, its credentials,
-│   │       │                      #   and the six global tuning values
+│   │       │                      #   and the five global tuning values
 │   │       ├── settings/page.tsx
 │   │       └── users/             # admin-only. page.tsx (list), new/, [id]/ (edit +
 │   │                              #   delete). The gate lives in the users
@@ -59,7 +59,7 @@ behavior ever needs to be reconstructed.
 │   │   │                           #   binding of ../section-kit.tsx
 │   │   ├── ai/                     # provider-section.tsx (the picker + one
 │   │   │                           #   provider's credentials), advanced-section.tsx
-│   │   │                           #   (the six numbers, saved as one unit) and
+│   │   │                           #   (the five numbers, saved as one unit) and
 │   │   │                           #   section-parts.tsx — the `ai` binding of
 │   │   │                           #   ../section-kit.tsx
 │   │   ├── users/                  # the kit, wired to users: users-table.tsx,
@@ -125,7 +125,7 @@ behavior ever needs to be reconstructed.
 │   │   │                          #   actions.ts (the two declarations + the exports),
 │   │   │                          #   result.ts (attempt() binding + SaveResult)
 │   │   ├── ai/                    # providers.ts (client-safe registry — imports
-│   │   │                          #   nothing), bounds.ts (the six tuning bounds,
+│   │   │                          #   nothing), bounds.ts (the five tuning bounds,
 │   │   │                          #   read by the form and the schema — likewise),
 │   │   │                          #   columns.ts (provider -> columns, and
 │   │   │                          #   resolveModel()'s hasDynamicModels split),
@@ -134,7 +134,7 @@ behavior ever needs to be reconstructed.
 │   │   │                          #   SERVER-ONLY by lint rule), queries.ts
 │   │   │                          #   (SERVER-ONLY, masked only), actions.ts (seven
 │   │   │                          #   defineIntegration() declarations, the active
-│   │   │                          #   provider, the six tuning values,
+│   │   │                          #   provider, the five tuning values,
 │   │   │                          #   listOpenrouterModels()), result.ts,
 │   │   │                          #   run.ts (AIClient + applyAiToBlocks: the AI
 │   │   │                          #   stage, which works on the block tree),
@@ -1012,13 +1012,12 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   never the stored one, because the handler's `raw.date || new Date()` fallback
   would otherwise make an undated feed re-hash on every run and never settle
   (which is why the update branch writes `rawDate ?? existing.date` rather than
-  re-stamping `new Date()` — the column and the hash have to agree); it covers
-  **both** `content || raw_content` (what the blocks are parsed from) and
-  `raw_content || content` (what the column stores), which are two different
-  expressions over the same item; and it is written **last**, in its own
-  transaction after `writeBlocks()`, so a stored hash means the row _and_ its
-  block tree are current, and a crash anywhere above leaves it stale or null so
-  the next run redoes the work. The payoff is not only local I/O:
+  re-stamping `new Date()` — the column and the hash have to agree); **a
+  comment is not the article, so neither the rendered comment section nor the
+  raw page is an input** (next paragraph); and it is written **last**, in its
+  own transaction after `writeBlocks()`, so a stored hash means the row _and_
+  its block tree are current, and a crash anywhere above leaves it null so the
+  next run redoes the work. The payoff is not only local I/O:
   `articles.updatedAt` carries `$onUpdate`, so an unconditional rewrite put
   every unchanged article back into `/api/v1`'s sync `updated` stream on every
   aggregation cycle. A `null` hash means "changed" — every row predating the
@@ -1055,6 +1054,63 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   Hashes for YouTube and Reddit articles therefore changed once on deploy and
   settled after one pass, the same settlement a `null` hash gets.
 
+  **A comment changing is not the article changing, and two exclusions are
+  needed to mean it.** `formatArticleContent()`
+  (`src/lib/aggregators/extract/format.ts`) renders comments into the same body
+  the block tree is parsed from, so a busy thread used to rewrite the row on
+  every cycle — deleting and reinserting the block tree, spending an AI request,
+  and pushing the article back into `/api/v1`'s sync `updated` stream — for text
+  nobody edited. So the fingerprint cuts that section off, matched with
+  **`ARTICLE_COMMENTS_CLASS`, exported from `extract/format.ts` and imported by
+  `content-hash.ts`, so the wrapper has one definition rather than being written
+  in one file and restated in the other** — a test drives real
+  `formatArticleContent()` output through the fingerprint, so renaming the value
+  cannot silently end the exclusion. And it **ignores the raw page**:
+  `mactechnews`, `mein_mmo` and `heise` scrape their comments out of the very
+  page they fetched, so hashing it would let a comment rewrite the article
+  through the back door. Three details:
+  - **The cut is a string operation, not a parse.** A parser would mean
+    `cheerio` in this module's graph, which the aggregate handler imports before
+    it has decided to do any work — the same reason `3d949a9a` kept cheerio out
+    of the AI prompt endpoint's graph. It is safe because the comment section is
+    appended _last_; `lastIndexOf` handles the one hazard, which is that
+    `sanitizeClassNames()` rewrites every `class` into `data-sanitized-class`,
+    so a source page carrying `class="article-comments"` arrives looking like
+    our own wrapper.
+  - **The result is trimmed.** Sections are joined with `\n\n`, so removing the
+    last one leaves that separator dangling, and a body plus trailing whitespace
+    does not hash equal to the same body without it — precisely the case the
+    exclusion exists to make equal.
+  - **It governs what _triggers_ a rewrite, not what gets stored.** When the
+    article's own content does change, the current comment section rides along
+    into the row as before.
+
+  **Excluding the raw page is what left `articles.raw_content` with no reader,
+  and it is now gone.** It held the whole fetched page, justified as "the
+  debugging surface, and what the reload action re-runs against" — the second
+  half was never true (`article.reload` always re-fetches; that is the point of
+  a reload), and once the page stopped being a fingerprint input, nothing about
+  a row depended on it being current either. `raw_content` on the in-memory
+  `RawArticle` stays: aggregators pass the fetched page between their own stages
+  through it, and it is still the fallback for the block source when an
+  aggregator distilled no `content`.
+
+  **A successful manual reload and `updateArticle()` both keep the fingerprint,
+  so a deliberate local change stands.** Both used to null it, which made every
+  manual action provisional until the next cycle discarded what an operator had
+  just asked for. The fingerprint is taken over the article as fetched from
+  _source_ rather than over the bytes stored, so leaving it is correct in both
+  directions: while the source is unchanged the next run computes the same
+  value, matches and skips, and when the source really does change the values no
+  longer match and the fresh upstream article correctly replaces the local one.
+  A **failed** reload still nulls it — an error notice is not a complete
+  article, and the next run replacing it is the only thing that heals it — and
+  the empty-body branch already reasoned this way for the case where it writes
+  nothing. The one case a reload cannot make stick is a row whose fingerprint is
+  already null: the value has to be one the _aggregator_ would compute over the
+  feed's own article rather than the page reload fetched, so such a row is
+  reprocessed once and settles.
+
   **The invariant binds every writer, not just the aggregator: anything that
   changes an article's content must set `contentHash` to null** (or recompute
   it). A stale hash does not merely go out of date — it makes the aggregate
@@ -1082,8 +1138,9 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   and rejected: it would put every article back through the full write path
   _and_ through a fresh provider request, which is the exact cost the rest of
   this branch exists to remove. A parser fix that has to reach stored rows needs
-  a re-parse path that reads `articles.rawContent` and rewrites blocks **without**
-  calling AI; there is no such job today.
+  a re-parse path that re-fetches or re-extracts and rewrites blocks **without**
+  calling AI; there is no such job today, and `articles.raw_content` — which
+  would have been the cheap way to do it — is gone (see the fingerprint bullet).
 
 - **`convert()` must hand `inlineRuns()` an element's own inline context —
   `inlineContext()` in `src/lib/aggregators/blocks/parser.ts`.** `inlineRuns()`
@@ -2411,7 +2468,7 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   for a Bearer-token caller, the same reason
   `src/lib/jobs/handlers/retention.ts` reads a settings row directly outside a
   session context. Its failure modes are machine-readable `ApiError` codes
-  (`invalid_prompt`, `prompt_too_long`, `no_active_provider`,
+  (`invalid_prompt`, `no_active_provider`,
   `provider_unauthorized`, `provider_error` — the two `*_limit_exceeded` codes
   went with the request caps, so this route can no longer answer 429 at all) for the native client to branch on — never provider prose,
   per this API's existing no-echo convention. `provider_unauthorized` (502) is
@@ -2481,10 +2538,11 @@ event.payload)` needed no change at all to carry the new event type, since
   how.
 
 - **`syncArticles` selects a named column list, never `db.select()`.**
-  `rawContent` is a whole fetched HTML page and `plainText` is the largest
-  column on the table; neither appears in `ArticleSummaryWire`, so a bare select
-  reads both off disk for every row in **both** streams and hands them to the
-  serializer to throw away. `SUMMARY_COLUMNS` in `src/lib/api/sync.ts` is that
+  `plainText` is the largest column on the table and does not appear in
+  `ArticleSummaryWire`, so a bare select reads it off disk for every row in
+  **both** streams and hands it to the serializer to throw away. (It used to
+  read a whole fetched HTML page per row too, from `rawContent` — that column is
+  gone.) `SUMMARY_COLUMNS` in `src/lib/api/sync.ts` is that
   list, and it stays honest by construction: `serializeArticleSummary` takes
   `ArticleSummarySource` — a `Pick` of the eleven columns it reads, not a whole
   `Article` — so a wire field that needs a twelfth is a `npm run typecheck`

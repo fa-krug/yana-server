@@ -159,6 +159,20 @@ export function buildHeaderHtml(
 }
 
 /**
+ * The `data-sanitized-class` values on the two wrappers this module builds.
+ *
+ * **`ARTICLE_COMMENTS_CLASS` is imported by `../content-hash`**, which cuts
+ * that section off before fingerprinting so a new comment does not count as
+ * the article changing. The wrapper is written here and matched there, and
+ * this constant is the only thing tying the two together: renaming the value
+ * inside a template literal would silently stop the cut, and every commented
+ * article would go back to rewriting itself on every cycle -- with an AI
+ * request each time -- and nothing would fail.
+ */
+export const ARTICLE_CONTENT_CLASS = "article-content";
+export const ARTICLE_COMMENTS_CLASS = "article-comments";
+
+/**
  * Format article content with an optional header, the main content, and optional comments.
  */
 export function formatArticleContent(
@@ -182,10 +196,12 @@ export function formatArticleContent(
     parts.push(header);
   }
 
-  parts.push(`<section data-sanitized-class="article-content">${content}</section>`);
+  parts.push(`<section data-sanitized-class="${ARTICLE_CONTENT_CLASS}">${content}</section>`);
 
   if (commentsContent) {
-    parts.push(`<section data-sanitized-class="article-comments">${commentsContent}</section>`);
+    parts.push(
+      `<section data-sanitized-class="${ARTICLE_COMMENTS_CLASS}">${commentsContent}</section>`,
+    );
   }
 
   return parts.join("\n\n");

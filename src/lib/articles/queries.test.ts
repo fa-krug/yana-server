@@ -117,7 +117,6 @@ describe("articles queries", () => {
           date: new Date(),
           feedId,
           plainText: "Full plain text body content",
-          rawContent: "<p>Full plain text body content</p>",
           ...overrides,
         })
         .returning()
@@ -178,9 +177,8 @@ describe("articles queries", () => {
         feedName: "Tech Blog",
         feedId,
       });
-      // Verify plainText and rawContent are omitted from row
+      // Verify plainText is omitted from the row
       expect(result.rows[0]).not.toHaveProperty("plainText");
-      expect(result.rows[0]).not.toHaveProperty("rawContent");
     });
 
     it("searches name and plainText", async () => {

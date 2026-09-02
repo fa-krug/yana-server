@@ -23,7 +23,7 @@ import type { AiKey, AiResult, AiSaveResult } from "./result";
 
 /**
  * Everything `/ai` writes: seven provider credentials, which provider is
- * active, and the seven global tuning values.
+ * active, and the five global tuning values.
  *
  * **The seven providers are a table, not seven sequences.** Parse, load the
  * row, resolve each secret, guard the empty case, probe, log, judge, write --
@@ -605,7 +605,7 @@ export async function setActiveProvider(key: string): Promise<AiResult> {
 }
 
 /**
- * The six global tuning values, **built from `AI_ADVANCED_BOUNDS` rather than
+ * The five global tuning values, **built from `AI_ADVANCED_BOUNDS` rather than
  * typed out here.**
  *
  * Every bound has a reason rather than a round number, and those reasons are in
@@ -644,7 +644,6 @@ const advancedInput = z.object(advancedShape);
  */
 const ADVANCED_ERROR_KEYS: Record<string, AiKey> = {
   temperature: "advanced.temperatureRange",
-  maxPromptLength: "advanced.maxPromptLengthRange",
   requestTimeout: "advanced.requestTimeoutRange",
   maxRetries: "advanced.maxRetriesRange",
   retryDelay: "advanced.retryDelayRange",
@@ -659,7 +658,7 @@ function advancedErrorKey(issues: z.core.$ZodIssue[]): AiKey | undefined {
 }
 
 /**
- * Save the six global tuning values.
+ * Save the five global tuning values.
  *
  * **The `ai` prefix the columns carry is dropped on the way in and out**
  * (`aiTemperature` -> `temperature`), and the two halves of that mapping are the
@@ -681,7 +680,6 @@ export async function saveAdvanced(input: unknown): Promise<AiResult> {
           .update(userSettings)
           .set({
             aiTemperature: values.temperature,
-            aiMaxPromptLength: values.maxPromptLength,
             aiRequestTimeout: values.requestTimeout,
             aiMaxRetries: values.maxRetries,
             aiRetryDelay: values.retryDelay,

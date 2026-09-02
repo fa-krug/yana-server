@@ -36,7 +36,6 @@ const article: Article & { feed: Feed } = {
   id: 1,
   name: "Example article",
   identifier: "https://example.com/a",
-  rawContent: "",
   plainText: "",
   contentHash: null,
   date: new Date("2026-01-01T00:00:00Z"),

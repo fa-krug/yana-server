@@ -1,5 +1,5 @@
 /**
- * The seven global tuning values: what they are called, in what order they are
+ * The five global tuning values: what they are called, in what order they are
  * shown, and what each one accepts.
  *
  * **This module imports nothing, for `./providers`' reason.** It is read by the
@@ -49,7 +49,6 @@
  * nobody has seen yet -- so `./run` now sends no cap at all, except to
  * Anthropic, whose API declares the field required (see `ANTHROPIC_MAX_TOKENS`
  * there).
- * - **`maxPromptLength` 1-100000 characters.** Zero sends an empty article.
  * - **`requestTimeout` 5-600 s.** Below five seconds no provider ever answers,
  *   so every request would abort and every summary fail -- a setting that can
  *   only be wrong. Ten minutes is past any real completion.
@@ -61,7 +60,7 @@
  */
 
 /**
- * The six, in the order the form renders them.
+ * The five, in the order the form renders them.
  *
  * The names are the projection's, not the columns' -- `aiTemperature` ->
  * `temperature`. That renaming happens in `getAiStatus()` and in
@@ -69,7 +68,6 @@
  */
 export const AI_ADVANCED_FIELDS = [
   "temperature",
-  "maxPromptLength",
   "requestTimeout",
   "maxRetries",
   "retryDelay",
@@ -87,7 +85,6 @@ export type AiBound = {
 
 export const AI_ADVANCED_BOUNDS = {
   temperature: { min: 0, max: 2, integer: false },
-  maxPromptLength: { min: 1, max: 100_000, integer: true },
   requestTimeout: { min: 5, max: 600, integer: true },
   maxRetries: { min: 0, max: 10, integer: true },
   retryDelay: { min: 0, max: 60, integer: true },

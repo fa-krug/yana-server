@@ -45,7 +45,7 @@ describe("AI_ADVANCED_BOUNDS", () => {
    * not see: a bound whose field was dropped from the render order is a value the
    * schema still enforces and the form never shows.
    */
-  it("covers exactly the six fields the form renders, and nothing else", () => {
+  it("covers exactly the five fields the form renders, and nothing else", () => {
     expect(Object.keys(AI_ADVANCED_BOUNDS).sort()).toEqual([...AI_ADVANCED_FIELDS].sort());
   });
 

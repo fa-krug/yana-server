@@ -85,8 +85,8 @@ const CLASS_ATTRS = ["data-sanitized-class", "class"];
  * Nothing writes it any more: the AI stage works on the block tree and builds a
  * `summary` block directly (`applyAiToBlocks()` in `@/lib/ai/run`), where it
  * used to emit a marked-up `<section>` for this parser to recognise. It is still
- * recognised because stored `articles.rawContent` from before that change
- * encodes a summary this way, and a reload re-parses it.
+ * recognised because content stored before that change encodes a summary this
+ * way, and a reload re-parses whatever it extracts.
  */
 const SUMMARY_CLASS = "yana-ai-summary";
 const EMBED_MARKUP_ATTRS = [

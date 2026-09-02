@@ -13,8 +13,8 @@ export type ArticleSummaryWire = z.infer<typeof ArticleSummarySchema>;
 /**
  * The columns `serializeArticleSummary` actually reads. Typed as a `Pick`
  * rather than the whole `Article` so `syncArticles` can hand it a narrowed
- * `.select({...})` -- the point of that narrowing being that `rawContent`
- * (a whole fetched HTML page) and `plainText` are never read off disk for
+ * `.select({...})` -- the point of that narrowing being that `plainText`, the
+ * largest column on the table, is never read off disk for
  * rows whose wire format contains neither. A full `Article` row still
  * satisfies this, so callers that already have one need no change.
  */

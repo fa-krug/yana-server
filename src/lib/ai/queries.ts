@@ -129,7 +129,6 @@ export async function getAiStatus(): Promise<AiStatus> {
     providers,
     advanced: {
       temperature: settings.aiTemperature,
-      maxPromptLength: settings.aiMaxPromptLength,
       requestTimeout: settings.aiRequestTimeout,
       maxRetries: settings.aiMaxRetries,
       retryDelay: settings.aiRetryDelay,

@@ -44,9 +44,6 @@ export async function POST(request: Request): Promise<Response> {
     if (!prompt) {
       throw new ApiError(400, "invalid_prompt", "prompt is required.");
     }
-    if (prompt.length > settings.aiMaxPromptLength) {
-      throw new ApiError(400, "prompt_too_long", "prompt exceeds the configured length limit.");
-    }
 
     const providerKey = activeProvider(settings);
     if (!providerKey) {
@@ -60,8 +57,10 @@ export async function POST(request: Request): Promise<Response> {
       // No `daily_limit_exceeded`/`monthly_limit_exceeded` any more: the
       // per-user request caps behind them were removed (see the doc comment on
       // `AIClient.generateResponse()`), so this route can no longer answer 429
-      // at all. `prompt_too_long` above is the one bound it still enforces, and
-      // it is a request-shape check rather than a quota.
+      // at all. `prompt_too_long` is gone with them -- `aiMaxPromptLength` was
+      // the last Yana-imposed AI limit, so the only bounds a caller meets now
+      // are the provider's own. `invalid_prompt` stays: an empty prompt is a
+      // request-shape error, not a quota.
       if (result.reason === "noProvider") {
         throw new ApiError(409, "no_active_provider", "No AI provider is configured.");
       }

@@ -25,7 +25,7 @@ export type ArticleFeed = { id: number; name: string };
 
 /**
  * The columns this form renders -- not the whole `Article` row, which also
- * carries `rawContent` and `plainText` (the largest columns on the table,
+ * carries `plainText` (the largest column on the table,
  * per the FTS bullet in CLAUDE.md) and no longer carries the joined `Feed`
  * either, since nothing here ever read it (the feed *picker* is populated
  * from `listFeeds()`, a separate read; see `ArticleFeed` above). Projected

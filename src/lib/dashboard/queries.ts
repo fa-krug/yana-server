@@ -73,7 +73,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 /**
  * The newest unread articles owned by the current user.
  *
- * plainText and rawContent are deliberately absent from the selected columns:
+ * plainText is deliberately absent from the selected columns:
  * they are the largest columns on the table and nothing here renders them.
  * Likewise `feedId`: nothing here renders it either, so it is not selected --
  * see `listArticles()` for the same pattern.

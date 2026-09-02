@@ -15,8 +15,13 @@ import { users } from "./users";
 
 /**
  * `content` from the Django model is deliberately absent: it held processed HTML
- * that blocks were rebuilt from, and blocks are authoritative here. `rawContent`
- * remains as the debugging surface and as what phase 12's reload action re-runs.
+ * that blocks were rebuilt from, and blocks are authoritative here. So was
+ * `raw_content`, which held the whole fetched page: it was kept as "the
+ * debugging surface, and what the reload action re-runs against" -- but reload
+ * always re-fetches (that is the point of a reload), and once the page stopped
+ * being a fingerprint input (see `contentHash`) nothing about a row depended on
+ * it being current either. It was written on every aggregation run and read by
+ * nothing, so it is gone.
  */
 export const articles = sqliteTable(
   "articles",
@@ -25,7 +30,6 @@ export const articles = sqliteTable(
     name: text("name").notNull(),
     /** URL or external id. */
     identifier: text("identifier").notNull(),
-    rawContent: text("raw_content").notNull().default(""),
     /** Block tree flattened to visible text, for search. */
     plainText: text("plain_text").notNull().default(""),
     /**
@@ -48,7 +52,7 @@ export const articles = sqliteTable(
      * null** (or recompute it). A stale hash does not merely go out of date --
      * it makes the aggregate handler skip that row *forever*, because the
      * hash it computes from the unchanged feed item keeps matching. Content
-     * here means the fingerprinted inputs (`name`, `rawContent`, the block
+     * here means the fingerprinted inputs (`name`, the block
      * tree it is parsed into, `date`, `author`, `icon`) and `feedId`, which is
      * half the key the handler looks a row up by. Writers that only flip
      * `read`/`starred` must leave it alone: nothing about the content changed,

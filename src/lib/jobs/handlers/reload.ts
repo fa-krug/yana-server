@@ -24,10 +24,10 @@ function buildErrorBlocks(message: string): Block[] {
 /**
  * Reload re-fetches the article from source through the same
  * `fetchArticleContent()` a fresh aggregation run would call, then re-runs
- * `extractContent()`/`processContent()` on that fresh result -- not on the
- * previously stored `rawContent`, which is exactly the stale copy the user
- * is asking to be replaced. This always calls `fetchArticleContent()`,
- * regardless of whether the article already has a stored `rawContent`.
+ * `extractContent()`/`processContent()` on that fresh result. It always calls
+ * `fetchArticleContent()` -- it never read a stored copy of the page, which is
+ * why the `articles.raw_content` column that held one turned out to have no
+ * readers at all and was dropped.
  * What "source" means depends on the aggregator: a full-page aggregator
  * (`FullWebsiteAggregator` and its site-specific subclasses -- Heise,
  * Tagesschau, ...) refetches the article's own page; a plain RSS/"Feed
@@ -259,16 +259,30 @@ export async function handleReloadJob(job: Job): Promise<void> {
         // with AI off now also picks up a title the source has changed --
         // the same thing an aggregation run does with every content change.
         name: ai.title || sourceTitle || article.name,
-        rawContent: freshHtml,
         plainText,
-        // Same reason as the failed-refetch branch above: reload has just
-        // rewritten the name, the raw page and the whole block tree, so the
-        // stored fingerprint describes content that no longer exists. Null it
-        // rather than recompute it -- reload's inputs are not the aggregator's
-        // (AI post-processing may have rewritten the name and body), so the
-        // honest answer is "unknown", which makes the next aggregation run
-        // re-derive it.
-        contentHash: null,
+        // **`contentHash` is deliberately not written here.**
+        //
+        // This used to null it, on the reasoning that reload's inputs are not
+        // the aggregator's so the honest answer was "unknown". The consequence
+        // was that a reload was *provisional*: the next cycle re-derived the
+        // article from the feed and threw away what an operator had just
+        // deliberately asked for. A manual reload is the one place a human says
+        // "redo this article now" -- it has to win. The empty-body branch above
+        // already reasons this way ("`contentHash` included") for the case
+        // where it writes nothing.
+        //
+        // Leaving the stored value is what makes it win, and it stays correct
+        // in both directions, because the fingerprint is taken over the article
+        // as *fetched from source* (see `rawArticleContentHash()`) rather than
+        // over the bytes stored: while the source is unchanged the next run
+        // computes the same value, matches, and skips -- and when the source
+        // does change the values no longer match, aggregation reprocesses, and
+        // the fresh upstream article correctly replaces the reloaded one.
+        //
+        // A row whose fingerprint is already null is the exception: reload
+        // cannot fill it in, because the value has to be one the *aggregator*
+        // would compute over the feed's own article rather than the page reload
+        // fetched. Such a row is reprocessed once and settles.
         updatedAt: new Date(),
       })
       .where(eq(articles.id, article.id))

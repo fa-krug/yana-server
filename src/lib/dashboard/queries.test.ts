@@ -94,7 +94,6 @@ describe("dashboard queries", () => {
           date: new Date(),
           feedId,
           plainText: "Full plain text body content",
-          rawContent: "<p>Full plain text body content</p>",
           ...overrides,
         })
         .returning()

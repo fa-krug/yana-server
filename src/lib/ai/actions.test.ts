@@ -63,7 +63,6 @@ const GEMINI_MODEL = "gemini-3.5-flash-lite";
 /** A complete, in-range advanced payload -- the documented defaults. */
 const VALID_ADVANCED = {
   temperature: 0.3,
-  maxPromptLength: 500,
   requestTimeout: 120,
   maxRetries: 3,
   retryDelay: 2,
@@ -850,7 +849,6 @@ describe("the AI actions", () => {
       expect(await actions.saveAdvanced(VALID_ADVANCED)).toEqual({ ok: true });
       expect(row()).toMatchObject({
         ai_temperature: 0.3,
-        ai_max_prompt_length: 500,
         ai_request_timeout: 120,
         ai_max_retries: 3,
         ai_retry_delay: 2,
@@ -861,14 +859,14 @@ describe("the AI actions", () => {
     it("stores a changed value under the column whose `ai` prefix it drops", async () => {
       // The short names are the form's and the query's; the map back to columns
       // lives in exactly one place, and this is what proves it lands right.
-      // `maxPromptLength` is the case worth using: unlike `temperature` its
-      // column name is not simply the field with a prefix bolted on, so a
-      // mapping that guessed rather than looked it up would land somewhere else.
+      // `requestTimeout` and `maxRetries` are the cases worth using: neither
+      // column name is simply the field with a prefix bolted on, so a mapping
+      // that guessed rather than looked it up would land somewhere else.
       expect(
-        await actions.saveAdvanced({ ...VALID_ADVANCED, maxPromptLength: 700, requestDelay: 9 }),
+        await actions.saveAdvanced({ ...VALID_ADVANCED, requestTimeout: 7, requestDelay: 9 }),
       ).toEqual({ ok: true });
       expect(row()).toMatchObject({
-        ai_max_prompt_length: 700,
+        ai_request_timeout: 7,
         ai_request_delay: 9,
       });
     });
@@ -885,18 +883,11 @@ describe("the AI actions", () => {
     it.each([
       ["a temperature above 2", "temperature", 2.5, "advanced.temperatureRange"],
       ["a negative temperature", "temperature", -0.1, "advanced.temperatureRange"],
-      ["a prompt length of zero", "maxPromptLength", 0, "advanced.maxPromptLengthRange"],
       // The integer bound, which one field has to carry now that `maxTokens`
-      // (whose fractional case used to cover it) is gone: SQLite would store
-      // `10.5` in an `integer` column without complaining, so `.int()` is the
-      // only thing refusing it.
-      ["a fractional prompt length", "maxPromptLength", 10.5, "advanced.maxPromptLengthRange"],
-      [
-        "a prompt length past the ceiling",
-        "maxPromptLength",
-        100_001,
-        "advanced.maxPromptLengthRange",
-      ],
+      // and `maxPromptLength` (whose fractional cases used to cover it) are
+      // gone: SQLite would store `10.5` in an `integer` column without
+      // complaining, so `.int()` is the only thing refusing it.
+      ["a fractional timeout", "requestTimeout", 10.5, "advanced.requestTimeoutRange"],
       ["a two-second timeout", "requestTimeout", 2, "advanced.requestTimeoutRange"],
       ["a timeout past ten minutes", "requestTimeout", 601, "advanced.requestTimeoutRange"],
       ["an eleventh retry", "maxRetries", 11, "advanced.maxRetriesRange"],
@@ -915,7 +906,7 @@ describe("the AI actions", () => {
         expect(failureMessage(result)).toBeTypeOf("string");
       }
       // Nothing was written: the row still holds the migration's defaults.
-      expect(row()).toMatchObject({ ai_temperature: 0.3, ai_max_prompt_length: 500 });
+      expect(row()).toMatchObject({ ai_temperature: 0.3, ai_request_timeout: 120 });
     });
 
     it("has no cross-field rule left to break", async () => {
@@ -928,7 +919,7 @@ describe("the AI actions", () => {
       expect(
         await actions.saveAdvanced({ ...VALID_ADVANCED, dailyLimit: 1, monthlyLimit: 1 }),
       ).toEqual({ ok: true });
-      expect(row()).toMatchObject({ ai_temperature: 0.3, ai_max_prompt_length: 500 });
+      expect(row()).toMatchObject({ ai_temperature: 0.3, ai_request_timeout: 120 });
     });
 
     it("accepts the zero-valued ends of the three ranges that allow zero", async () => {

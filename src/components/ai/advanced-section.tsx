@@ -14,7 +14,7 @@ import type { AiAdvanced, AiStatus } from "@/lib/ai/queries";
 import { attempt } from "@/lib/ai/result";
 
 /**
- * The six global tuning values, saved as one unit.
+ * The five global tuning values, saved as one unit.
  *
  * **One Save for the whole card, not one per field.** The original reason was a
  * cross-field rule -- `monthlyLimit >= dailyLimit`, which a field saving itself

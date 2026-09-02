@@ -32,8 +32,8 @@ import { parseListParams } from "@/lib/crud/params";
  * itself and resolves to `[]` for an id that is not this user's, so it needs
  * no gating here either.
  *
- * `getArticle()`'s full row (including `rawContent`/`plainText`, the largest
- * columns on the table, and the whole joined `Feed`) is projected down to
+ * `getArticle()`'s full row (including `plainText`, the largest column on the
+ * table, and the whole joined `Feed`) is projected down to
  * `ArticleDetailRow` -- the columns `<ArticleForm>` actually renders -- in
  * this `.then()`, before the promise crosses into the Client Component tree.
  * `getArticle()` itself stays the full row, because it is a general-purpose

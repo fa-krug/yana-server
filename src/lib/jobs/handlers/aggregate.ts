@@ -55,8 +55,8 @@ export async function handleAggregateJob(job: Job): Promise<void> {
   const aggregator = createAggregator(resolveFeedCredentials(feed, settings ?? null));
   aggregator.onLog = (message) => appendLogLine(job.id, "stdout", message);
   // One narrow indexed read per identifier -- one small column, never
-  // `rawContent`/`plainText`, which is the whole point: comparing the large
-  // columns directly would cost the very I/O the skip saves. Asked exactly once
+  // `plainText`, the largest column on the table, which is the whole point:
+  // comparing the content directly would cost the very I/O the skip saves. Asked exactly once
   // per article, by the loop below, so there is nothing here to memoize; the
   // one case where the same identifier comes round twice in a single run is a
   // feed that listed it twice, and reading the hash the first copy just wrote
@@ -102,25 +102,17 @@ export async function handleAggregateJob(job: Job): Promise<void> {
     if (!raw.identifier) continue;
 
     // `content` is what extractContent()/processContent() actually distilled
-    // from the page -- that's what the initial block tree is built from.
-    // `raw_content` is the whole fetched page a full-website aggregator
-    // (Tagesschau, Heise, ...) stashes there unconditionally, nav and footer
-    // included, and is only empty for aggregators (plain RSS) that never
-    // fetch a full page at all -- for those, `content` is the only thing
-    // there is to persist as `articles.rawContent`.
+    // from the page -- that's what the block tree is built from. `raw_content`
+    // is the whole fetched page a full-website aggregator (Tagesschau, Heise,
+    // ...) stashes there unconditionally, nav and footer included, and is
+    // empty for aggregators (plain RSS) that never fetch a full page at all,
+    // so it is only a fallback for the block source here.
     //
-    // `articles.rawContent` MUST be `raw.raw_content` (the true page), never
-    // `raw.content` (the distilled one): reload.ts re-runs the same
-    // aggregator's extractContent()/processContent() against whatever is
-    // stored there, on the assumption that it's a full raw page. Storing the
-    // already-distilled `content` there instead breaks that silently -- the
-    // site-specific selectors and markers extractContent() looks for (CSS
-    // classes, `data-v-type="MediaPlayer"` divs, ...) no longer exist once
-    // sanitizeClassNames() and friends have already run once, so reload finds
-    // no body text at all and overwrites a perfectly good article with just
-    // its header image.
+    // Neither is persisted as-is any more: the `articles.raw_content` column
+    // this used to fill was written on every run and read by nothing (see the
+    // note on the `articles` table). It is still passed to the fingerprint
+    // below, which ignores it -- see `rawArticleContentHash()`.
     const htmlContent = raw.content || raw.raw_content || "";
-    const rawContentToStore = raw.raw_content || raw.content || "";
     const rawDate = raw.date ?? null;
 
     // Computed here, from the article exactly as the aggregator produced it.
@@ -134,7 +126,6 @@ export async function handleAggregateJob(job: Job): Promise<void> {
     const hash = rawArticleContentHash({
       name: raw.name,
       content: htmlContent,
-      raw_content: rawContentToStore,
       date: rawDate,
       author: raw.author,
       icon: raw.icon,
@@ -202,7 +193,6 @@ export async function handleAggregateJob(job: Job): Promise<void> {
         tx.update(articles)
           .set({
             name,
-            rawContent: rawContentToStore,
             plainText,
             // Keep the stored date when the feed supplied none. Re-stamping
             // `new Date()` here would rewrite the column on every run and,
@@ -221,7 +211,6 @@ export async function handleAggregateJob(job: Job): Promise<void> {
             feedId,
             name,
             identifier: raw.identifier,
-            rawContent: rawContentToStore,
             plainText,
             date: rawDate ?? new Date(),
             author: raw.author || "",

@@ -22,7 +22,6 @@ vi.mock("sonner", () => ({ toast: { error: toastError, success: toastSuccess } }
 
 const ADVANCED: AiAdvanced = {
   temperature: 0.7,
-  maxPromptLength: 8000,
   requestTimeout: 60,
   maxRetries: 3,
   retryDelay: 5,
@@ -87,11 +86,11 @@ describe("<AdvancedSection>", () => {
   it("submits every value as a number, including the ones untouched", async () => {
     render();
 
-    fireEvent.change(field("Maximale Prompt-Länge"), { target: { value: "2500" } });
+    fireEvent.change(field("Anfrage-Timeout (Sekunden)"), { target: { value: "2500" } });
     submit();
 
     await waitFor(() =>
-      expect(saveAdvanced).toHaveBeenCalledWith({ ...ADVANCED, maxPromptLength: 2500 }),
+      expect(saveAdvanced).toHaveBeenCalledWith({ ...ADVANCED, requestTimeout: 2500 }),
     );
     expect(toastSuccess).toHaveBeenCalledWith("KI-Einstellungen gespeichert.");
   });
@@ -115,19 +114,19 @@ describe("<AdvancedSection>", () => {
     // message, which would reach a German UI in English. This used to use
     // `advanced.monthlyBelowDaily`, the cross-field rule's key, which went with
     // the request caps; any field's range key proves the same thing.
-    saveAdvanced.mockResolvedValue({ ok: false, errorKey: "advanced.maxPromptLengthRange" });
+    saveAdvanced.mockResolvedValue({ ok: false, errorKey: "advanced.requestTimeoutRange" });
     render();
 
-    fireEvent.change(field("Maximale Prompt-Länge"), { target: { value: "0" } });
+    fireEvent.change(field("Anfrage-Timeout (Sekunden)"), { target: { value: "1" } });
     submit();
 
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith(
-        expect.stringContaining("Prompt-Länge muss zwischen"),
+        expect.stringContaining("Anfrage-Timeout muss zwischen"),
       ),
     );
     // The typed values stay: a card of numbers is not worth retyping over one.
-    expect(field("Maximale Prompt-Länge").value).toBe("0");
+    expect(field("Anfrage-Timeout (Sekunden)").value).toBe("1");
   });
 
   it("falls back to the namespace's own message when the server names no key", async () => {

@@ -341,8 +341,8 @@ export const ENDPOINT_REGISTRY: EndpointDoc[] = [
     summary: "Run a free-form prompt against the caller's configured AI provider",
     description:
       "Runs `prompt` against the caller's active AI provider using their stored credentials " +
-      "and global tuning values -- no per-request overrides. Subject to the caller's daily " +
-      "and monthly AI request limits.",
+      "and global tuning values -- no per-request overrides. Yana imposes no call budget or " +
+      "prompt-length cap of its own; the only limits are the provider's.",
     auth: "bearer-or-cookie",
     request: { body: z.object({ prompt: z.string().min(1) }) },
     response: {
@@ -352,7 +352,6 @@ export const ENDPOINT_REGISTRY: EndpointDoc[] = [
     },
     errors: [
       { status: 400, code: "invalid_prompt", when: "prompt is missing or empty." },
-      { status: 400, code: "prompt_too_long", when: "prompt exceeds the configured length limit." },
       { status: 401, code: "unauthorized", when: "no valid Bearer token or session." },
       { status: 409, code: "no_active_provider", when: "no AI provider is configured." },
       {
