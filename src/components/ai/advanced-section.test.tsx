@@ -22,10 +22,6 @@ vi.mock("sonner", () => ({ toast: { error: toastError, success: toastSuccess } }
 
 const ADVANCED: AiAdvanced = {
   temperature: 0.7,
-  maxTokens: 1000,
-  dailyLimit: 100,
-  monthlyLimit: 1000,
-  maxPromptLength: 8000,
   requestTimeout: 60,
   maxRetries: 3,
   retryDelay: 5,
@@ -56,9 +52,9 @@ describe("<AdvancedSection>", () => {
     // Asserted against de.json, where the label is nothing like the field name.
     expect(field("Temperatur").value).toBe("0.7");
     expect(field("Anfrage-Timeout (Sekunden)").value).toBe("60");
-    // Nine fields, one Save: the pair rule (`monthlyLimit >= dailyLimit`) cannot
-    // be checked by a field that saves itself.
-    expect(screen.getAllByRole("spinbutton")).toHaveLength(9);
+    // Five fields, one Save: they are a single unit rather than a field each,
+    // so a half-applied set can't disagree with itself.
+    expect(screen.getAllByRole("spinbutton")).toHaveLength(5);
     expect(screen.getAllByRole("button", { name: "Speichern" })).toHaveLength(1);
   });
 
@@ -66,7 +62,7 @@ describe("<AdvancedSection>", () => {
     // Read from `AI_ADVANCED_BOUNDS` rather than restated, because restating
     // them is the defect this pins: `@/lib/ai/actions` builds its zod schema out
     // of the same table, so a hint the browser shows and the rule the server
-    // applies cannot disagree. Asserting nine literals here would be a third
+    // applies cannot disagree. Asserting five literals here would be a third
     // copy able to drift from both.
     render();
 
@@ -79,20 +75,20 @@ describe("<AdvancedSection>", () => {
         String(AI_ADVANCED_BOUNDS[name].min),
         String(AI_ADVANCED_BOUNDS[name].max),
       ]);
-      // Only `temperature` is a float column; the other eight are `.int()`
+      // Only `temperature` is a float column; the other four are `.int()`
       // server-side and must not offer a fractional step.
       expect([name, input.step]).toEqual([name, AI_ADVANCED_BOUNDS[name].integer ? "1" : "0.1"]);
     }
   });
 
-  it("submits all nine values as numbers, including the ones untouched", async () => {
+  it("submits all five values as numbers, including the ones untouched", async () => {
     render();
 
-    fireEvent.change(field("Monatslimit für Anfragen"), { target: { value: "2500" } });
+    fireEvent.change(field("Anfrage-Timeout (Sekunden)"), { target: { value: "2500" } });
     submit();
 
     await waitFor(() =>
-      expect(saveAdvanced).toHaveBeenCalledWith({ ...ADVANCED, monthlyLimit: 2500 }),
+      expect(saveAdvanced).toHaveBeenCalledWith({ ...ADVANCED, requestTimeout: 2500 }),
     );
     expect(toastSuccess).toHaveBeenCalledWith("KI-Einstellungen gespeichert.");
   });
@@ -112,22 +108,21 @@ describe("<AdvancedSection>", () => {
   });
 
   it("shows the refusal the server named, not a generic one", async () => {
-    // The cross-field rule and an ordinary range failure both land on
-    // `monthlyLimit` and want different advice; the server picks, and only its
-    // catalog key crosses the wire.
-    saveAdvanced.mockResolvedValue({ ok: false, errorKey: "advanced.monthlyBelowDaily" });
+    // Only the server's own catalog key crosses the wire -- the component
+    // never decides which field was wrong or how to word it.
+    saveAdvanced.mockResolvedValue({ ok: false, errorKey: "advanced.requestTimeoutRange" });
     render();
 
-    fireEvent.change(field("Monatslimit für Anfragen"), { target: { value: "10" } });
+    fireEvent.change(field("Anfrage-Timeout (Sekunden)"), { target: { value: "1" } });
     submit();
 
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith(
-        expect.stringContaining("mindestens so groß sein wie das Tageslimit"),
+        expect.stringContaining("zwischen 5 und 600 Sekunden"),
       ),
     );
-    // The typed values stay: nine numbers are not worth retyping over one.
-    expect(field("Monatslimit für Anfragen").value).toBe("10");
+    // The typed values stay: five numbers are not worth retyping over one.
+    expect(field("Anfrage-Timeout (Sekunden)").value).toBe("1");
   });
 
   it("falls back to the namespace's own message when the server names no key", async () => {
@@ -145,7 +140,7 @@ describe("<AdvancedSection>", () => {
 
   it("survives a save that rejects instead of returning", async () => {
     // Unhandled, this rejection escalates to the (app) error boundary and
-    // replaces the page along with the nine half-edited fields. `attempt()` is
+    // replaces the page along with the five half-edited fields. `attempt()` is
     // what turns it into a toast.
     saveAdvanced.mockRejectedValue(new Error("the container restarted"));
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});

@@ -54,12 +54,12 @@ export type AiProviderStatus = {
 };
 
 /**
- * The nine global tuning values, **without the `ai` prefix the columns carry**
+ * The five global tuning values, **without the `ai` prefix the columns carry**
  * (`aiTemperature` -> `temperature`). That renaming happens here and nowhere
  * else: the form, the action's zod schema and this projection all speak the
  * short names, and `./actions` owns the one map back to columns.
  *
- * Derived from `AI_ADVANCED_FIELDS` rather than listing the nine again, so the
+ * Derived from `AI_ADVANCED_FIELDS` rather than listing them again, so the
  * projection, the schema `./actions` builds and the form's `min`/`max` cannot
  * end up describing different sets of fields. The names and their bounds are in
  * `./bounds`, which imports nothing and is the one place both halves read.
@@ -129,10 +129,6 @@ export async function getAiStatus(): Promise<AiStatus> {
     providers,
     advanced: {
       temperature: settings.aiTemperature,
-      maxTokens: settings.aiMaxTokens,
-      dailyLimit: settings.aiDefaultDailyLimit,
-      monthlyLimit: settings.aiDefaultMonthlyLimit,
-      maxPromptLength: settings.aiMaxPromptLength,
       requestTimeout: settings.aiRequestTimeout,
       maxRetries: settings.aiMaxRetries,
       retryDelay: settings.aiRetryDelay,

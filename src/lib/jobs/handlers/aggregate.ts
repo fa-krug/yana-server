@@ -2,7 +2,7 @@ import { and, count, eq, gte } from "drizzle-orm";
 
 import { parseBlocks, plainTextOf } from "@/lib/aggregators/blocks/parser";
 import { writeBlocks } from "@/lib/aggregators/blocks/storage";
-import { articleContentHash } from "@/lib/aggregators/content-hash";
+import { sourceFingerprint } from "@/lib/aggregators/source-fingerprint";
 import { resolveFeedCredentials } from "@/lib/aggregators/credential-resolution";
 import { createAggregator } from "@/lib/aggregators/factory";
 import { getDb, writeTransaction } from "@/lib/db/client";
@@ -69,6 +69,12 @@ export async function handleAggregateJob(job: Job): Promise<void> {
   let created = 0;
   let updated = 0;
   let unchanged = 0;
+  // Articles whose configured AI post-processing did not run (see
+  // `RawArticle.ai_failed_reason` in `@/lib/aggregators/base`). Counted so the
+  // job can fail at the end rather than reporting a green run over content the
+  // feed asked to have translated, summarized or rewritten and didn't.
+  let aiFailed = 0;
+  const aiFailureReasons = new Set<string>();
 
   for (let i = 0; i < total; i++) {
     if (isCancelRequested(job.id)) {
@@ -79,50 +85,68 @@ export async function handleAggregateJob(job: Job): Promise<void> {
     if (!raw.identifier) continue;
 
     // `content` is what extractContent()/processContent() actually distilled
-    // from the page -- that's what the initial block tree is built from.
-    // `raw_content` is the whole fetched page a full-website aggregator
-    // (Tagesschau, Heise, ...) stashes there unconditionally, nav and footer
-    // included, and is only empty for aggregators (plain RSS) that never
-    // fetch a full page at all -- for those, `content` is the only thing
-    // there is to persist as `articles.rawContent`.
+    // from the page -- that's what the block tree is built from. `raw_content`
+    // is the whole fetched page a full-website aggregator (Tagesschau, Heise,
+    // ...) stashes there unconditionally, nav and footer included, and is
+    // empty for aggregators (plain RSS) that never fetch a full page at all --
+    // so it is only a fallback for the block source here.
     //
-    // `articles.rawContent` MUST be `raw.raw_content` (the true page), never
-    // `raw.content` (the distilled one): reload.ts re-runs the same
-    // aggregator's extractContent()/processContent() against whatever is
-    // stored there, on the assumption that it's a full raw page. Storing the
-    // already-distilled `content` there instead breaks that silently -- the
-    // site-specific selectors and markers extractContent() looks for (CSS
-    // classes, `data-v-type="MediaPlayer"` divs, ...) no longer exist once
-    // sanitizeClassNames() and friends have already run once, so reload finds
-    // no body text at all and overwrites a perfectly good article with just
-    // its header image.
+    // Neither is persisted as-is any more. The `articles.raw_content` column
+    // this used to fill is gone: it was written on every run and read by
+    // nothing (see the note on the `articles` table). The distilled `content`
+    // lives on as the block tree below.
     const htmlContent = raw.content || raw.raw_content || "";
-    const rawContentToStore = raw.raw_content || raw.content || "";
     const rawDate = raw.date ?? null;
 
-    const hash = articleContentHash({
-      name: raw.name || "Untitled",
-      html: htmlContent,
-      rawContent: rawContentToStore,
-      date: rawDate,
-      author: raw.author || "",
-      icon: raw.icon || null,
-    });
+    if (raw.source_unchanged) {
+      // `applyAiProcessing()` recognised this article's stored source
+      // fingerprint and called no provider for it, so `raw.content` is the
+      // *un*-processed text and the stored row is the processed one. Nothing
+      // to compare and nothing to write -- writing would replace a translated
+      // article with its original. See `articles.sourceHash`.
+      unchanged++;
+      progress(job.id, 80 + Math.floor(((i + 1) / total) * 20));
+      continue;
+    }
+
+    // `content` here is the *un*-processed original, because the AI pass this
+    // feed configured failed for this article.
+    const aiIncomplete = typeof raw.ai_failed_reason === "string";
+    if (aiIncomplete) {
+      aiFailed++;
+      aiFailureReasons.add(raw.ai_failed_reason as string);
+    }
+
+    /**
+     * This article's source fingerprint -- the one thing the skip is decided
+     * on, here and in `applyAiProcessing()`.
+     *
+     * **`raw.source_hash` when the aggregator handed one over**, which it does
+     * for a feed with AI options: by this point AI has rewritten `name` and
+     * `content` in place, so recomputing here would fingerprint the *output*
+     * and never match the source again. For a feed with no AI options nothing
+     * rewrote the article, so the same function over it now is the source
+     * fingerprint, and the aggregator skips the work of taking it.
+     */
+    const fingerprint = raw.source_hash ?? sourceFingerprint(raw);
 
     // Read outside the write transaction, and narrow: one small column, never
-    // `rawContent`/`plainText`. This is the whole point -- comparing the large
-    // columns directly would cost the very I/O the skip saves.
+    // `plainText`, the largest column on the table. This is the whole point --
+    // comparing the content directly would cost the very I/O the skip saves.
     const known = db
-      .select({ contentHash: articles.contentHash })
+      .select({ sourceHash: articles.sourceHash })
       .from(articles)
       .where(and(eq(articles.feedId, feedId), eq(articles.identifier, raw.identifier)))
       .get();
 
-    if (known && known.contentHash === hash) {
-      // Nothing about this article changed since the last run. Skipping is
-      // not just cheaper: `articles.updatedAt` carries `$onUpdate`, so an
+    if (known && known.sourceHash === fingerprint) {
+      // The source has not moved since this row was written. Skipping is not
+      // just cheaper: `articles.updatedAt` carries `$onUpdate`, so an
       // unconditional rewrite would put every unchanged article back into
-      // /api/v1's sync `updated` stream on every aggregation cycle.
+      // /api/v1's sync `updated` stream on every aggregation cycle. For an AI
+      // feed the identical decision was already made (and the provider call
+      // already saved) in `applyAiProcessing()`; this is the sole gate for
+      // every other feed.
       unchanged++;
       progress(job.id, 80 + Math.floor(((i + 1) / total) * 20));
       continue;
@@ -133,6 +157,19 @@ export async function handleAggregateJob(job: Job): Promise<void> {
     const plainText = plainTextOf(blocks);
 
     let articleId = 0;
+    /**
+     * Set when the transaction below declines to touch an existing row.
+     *
+     * An article the feed already has may well be the *AI-processed* version
+     * of this same item -- the one whose translated body no longer matches the
+     * feed's own text, which is exactly why the hash comparison above did not
+     * skip it. Rewriting it with `raw`'s untranslated content because this
+     * run's AI call happened to fail would replace a good article with a worse
+     * one over a transient provider error. Leaving it alone costs nothing: the
+     * stored hash still does not match what a successful run will compute, so
+     * the next run rewrites it properly.
+     */
+    let leftAlone = false;
 
     writeTransaction((tx) => {
       // Re-read inside the transaction rather than trusting `known` above:
@@ -145,13 +182,18 @@ export async function handleAggregateJob(job: Job): Promise<void> {
         .where(and(eq(articles.feedId, feedId), eq(articles.identifier, raw.identifier)))
         .get();
 
+      if (existing && aiIncomplete) {
+        // See `leftAlone` above. Deliberately not counted as `updated`.
+        leftAlone = true;
+        return;
+      }
+
       if (existing) {
         articleId = existing.id;
         updated++;
         tx.update(articles)
           .set({
             name: raw.name || "Untitled",
-            rawContent: rawContentToStore,
             plainText,
             // Keep the stored date when the feed supplied none. Re-stamping
             // `new Date()` here would rewrite the column on every run and,
@@ -170,7 +212,6 @@ export async function handleAggregateJob(job: Job): Promise<void> {
             feedId,
             name: raw.name || "Untitled",
             identifier: raw.identifier,
-            rawContent: rawContentToStore,
             plainText,
             date: rawDate ?? new Date(),
             author: raw.author || "",
@@ -187,14 +228,33 @@ export async function handleAggregateJob(job: Job): Promise<void> {
       await writeBlocks(articleId, blocks);
     }
 
-    if (articleId > 0) {
-      // Written last, deliberately: a stored hash means "the row *and* its
-      // block tree are current for this content". A crash anywhere above
-      // leaves it stale or null, so the next run redoes the work rather than
-      // trusting a fingerprint for a half-written article.
+    if (articleId > 0 && !aiIncomplete) {
+      // Written last, deliberately: a stored fingerprint means "the row *and*
+      // its block tree are a complete rendering of that source". A crash
+      // anywhere above leaves it null, so the next run redoes the work rather
+      // than trusting a fingerprint for a half-written article.
+      //
+      // `!aiIncomplete` is the same rule, one step further out: the feed asked
+      // for this article to be translated/summarized/rewritten and it wasn't,
+      // so the row is not a complete rendering either. A fingerprint here
+      // would be permanent -- the next run computes the identical value from
+      // the identical unchanged feed item, matches, and skips the article
+      // forever. See `articles.sourceHash`, which binds every writer.
       writeTransaction((tx) => {
-        tx.update(articles).set({ contentHash: hash }).where(eq(articles.id, articleId)).run();
+        tx.update(articles)
+          .set({ sourceHash: fingerprint })
+          .where(eq(articles.id, articleId))
+          .run();
       });
+    }
+
+    if (leftAlone) {
+      appendLogLine(
+        job.id,
+        "stdout",
+        `kept the stored version of "${raw.name || raw.identifier}": ` +
+          `AI post-processing did not complete (${raw.ai_failed_reason})`,
+      );
     }
 
     // aggregator.aggregate() above already reported up to 80% for the slow
@@ -212,4 +272,18 @@ export async function handleAggregateJob(job: Job): Promise<void> {
     "stdout",
     `upserted articles: ${created} created, ${updated} updated, ${unchanged} unchanged`,
   );
+
+  if (aiFailed > 0) {
+    // Everything above is already committed -- the articles are saved, just
+    // without the processing the feed asked for, and without a fingerprint so
+    // the next run redoes it. This only fails the job *report*, for
+    // `reload.ts`'s stated reason: a feed configured to translate every
+    // article that quietly keeps serving the original language, while every
+    // job still shows green, is a failure an operator has no way to notice.
+    // It is also what puts the run in `notifyJobFailure()`'s path.
+    throw new Error(
+      `AI processing did not complete for ${aiFailed} of ${total} articles ` +
+        `(${[...aiFailureReasons].sort().join(", ")})`,
+    );
+  }
 }

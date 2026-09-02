@@ -1,10 +1,14 @@
 import * as cheerio from "cheerio";
 
-import { writeTransaction } from "@/lib/db/client";
 import type { UserSettings } from "@/lib/db/schema";
 
-import { DEEPSEEK_API_URL, MISTRAL_API_URL, OPENROUTER_API_URL, QWEN_API_URL } from "./providers";
-import { checkAndRecordAiUsage } from "./usage";
+import {
+  anthropicMaxOutputTokens,
+  DEEPSEEK_API_URL,
+  MISTRAL_API_URL,
+  OPENROUTER_API_URL,
+  QWEN_API_URL,
+} from "./providers";
 
 export interface ArticleInput {
   name?: string;
@@ -36,7 +40,6 @@ export type AiRuntimeSettings = Partial<UserSettings> & {
   ai_retry_delay?: number;
   ai_max_retry_time?: number;
   ai_temperature?: number;
-  ai_max_tokens?: number;
   ai_request_timeout?: number;
   openai_enabled?: boolean;
   openai_api_key?: string;
@@ -79,12 +82,7 @@ export type AiGenerationResult =
   | { ok: true; text: string }
   | {
       ok: false;
-      reason:
-        | "noProvider"
-        | "dailyLimitExceeded"
-        | "monthlyLimitExceeded"
-        | "providerUnauthorized"
-        | "providerError";
+      reason: "noProvider" | "providerUnauthorized" | "providerError";
     };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -229,49 +227,24 @@ export class AIClient {
   }
 
   /**
-   * `bypassUsageLimit` skips both the check and the recording of this call
-   * against the daily/monthly caps -- used for a user-triggered single-article
-   * reload (see `applyAiOptions()`'s own `bypassUsageLimit` parameter), which
-   * is a deliberate, one-off action the operator asked for right now, not the
-   * unattended bulk processing those caps exist to bound. It must not merely
-   * skip *enforcement* while still recording the call: doing so would spend
-   * part of the same budget background aggregation relies on, silently
-   * tightening the effective cap for every other AI call that day.
+   * **There is no per-user call budget.** Yana counted every outbound call
+   * against `aiDefaultDailyLimit`/`aiDefaultMonthlyLimit` and refused past
+   * them; both settings, the `ai_requests` table behind them and the
+   * `bypassUsageLimit` escape hatch a reload needed are all gone. See the
+   * `/ai` bullet in `CLAUDE.md` for why. What still bounds a call is
+   * `aiRequestTimeout` and `aiMaxRetries`; what bounds the *rate* is
+   * `aiRequestDelay` between articles, and the provider's own quota, which
+   * surfaces as `providerError` (or `providerUnauthorized`) like any other
+   * refusal.
    */
   public async generateResponse(
     prompt: string,
     jsonMode = false,
     jsonSchema?: Record<string, unknown>,
-    bypassUsageLimit = false,
   ): Promise<AiGenerationResult> {
     if (!this.provider) {
       this.warn("No AI provider selected.");
       return { ok: false, reason: "noProvider" };
-    }
-
-    const userId = this.settings.userId;
-    if (userId && !bypassUsageLimit) {
-      const dailyLimit = this.settings.aiDefaultDailyLimit ?? 200;
-      const monthlyLimit = this.settings.aiDefaultMonthlyLimit ?? 2000;
-      let usage: ReturnType<typeof checkAndRecordAiUsage>;
-      try {
-        usage = writeTransaction((tx) =>
-          checkAndRecordAiUsage(tx, userId, dailyLimit, monthlyLimit),
-        );
-      } catch (error) {
-        this.warn(`AI usage check failed: ${describeError(error)}`);
-        return { ok: false, reason: "providerError" };
-      }
-      if (usage === "dailyLimitExceeded" || usage === "monthlyLimitExceeded") {
-        return { ok: false, reason: usage };
-      }
-    } else if (!userId) {
-      // No settings row carried a userId (nothing in production hits this
-      // today -- both real call sites read a full `user_settings` row --
-      // but a caller that omits one gets the call through unmetered rather
-      // than a thrown error, matching this class's warn-and-continue style
-      // for misconfiguration elsewhere).
-      this.warn("No user id on AI settings; usage limit not enforced for this call.");
     }
 
     try {
@@ -327,13 +300,19 @@ export class AIClient {
     };
 
     const temperature = this.settings.aiTemperature ?? this.settings.ai_temperature ?? 0.7;
-    const maxTokens = this.settings.aiMaxTokens ?? this.settings.ai_max_tokens ?? 1000;
 
+    // No `max_tokens`: an article translation or rewrite has to reproduce the
+    // whole input, so any fixed output cap silently truncates the long half of
+    // a feed -- the provider answers 200 with a cut-off JSON string, the parse
+    // in `applyAiOptions()` fails, and the original untranslated content is
+    // kept. Deterministic per article, so the same article failed on every
+    // run. Omitting the field lets each provider apply its own model default,
+    // which is the model's real output ceiling rather than a number an
+    // operator had to guess. `aiRequestTimeout` is what bounds a runaway call.
     const data: AiRequestBody = {
       model,
       messages: [{ role: "user", content: prompt }],
       temperature,
-      max_tokens: maxTokens,
     };
     if (jsonMode) {
       data.response_format = { type: "json_object" };
@@ -379,13 +358,17 @@ export class AIClient {
     const model =
       this.settings.anthropicModel ?? this.settings.anthropic_model ?? "claude-sonnet-4-20250514";
     const temperature = this.settings.aiTemperature ?? this.settings.ai_temperature ?? 0.7;
-    const maxTokens = this.settings.aiMaxTokens ?? this.settings.ai_max_tokens ?? 1000;
     const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
 
+    // Anthropic is the one provider that *requires* `max_tokens`, so unlike
+    // every other branch here it cannot simply omit the field. It gets the
+    // model's own documented output ceiling instead -- the same "no operator
+    // cap" outcome the omission buys elsewhere, spelled out because the API
+    // insists on a number. See `anthropicMaxOutputTokens()` in `./providers`.
     const data = {
       model,
       messages: [{ role: "user", content: prompt }],
-      max_tokens: maxTokens,
+      max_tokens: anthropicMaxOutputTokens(model),
       temperature,
     };
 
@@ -415,12 +398,14 @@ export class AIClient {
     };
 
     const temperature = this.settings.aiTemperature ?? this.settings.ai_temperature ?? 0.7;
-    const maxTokens = this.settings.aiMaxTokens ?? this.settings.ai_max_tokens ?? 1000;
     const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
 
+    // No `maxOutputTokens`, for `callOpenaiCompatible()`'s reason -- and with
+    // an extra sting here: a thinking model spends its thinking tokens from
+    // the same budget, so a cap that merely truncated elsewhere could make
+    // Gemini answer `finishReason: "MAX_TOKENS"` with no parts at all.
     const generationConfig: Record<string, unknown> = {
       temperature,
-      maxOutputTokens: maxTokens,
     };
 
     if (jsonMode) {
@@ -499,6 +484,38 @@ export class AIClient {
 }
 
 /**
+ * The feed's own extra instruction (`ai_custom_prompt` +
+ * `ai_custom_prompt_text` in `src/lib/aggregators/specs.ts`).
+ *
+ * Both halves are required: a checked box with empty text is a no-op rather
+ * than a failure, the same as an unchecked one, because there is nothing to
+ * ask the provider.
+ */
+function feedCustomPrompt(options: Record<string, unknown>): string {
+  return options.ai_custom_prompt && typeof options.ai_custom_prompt_text === "string"
+    ? options.ai_custom_prompt_text.trim()
+    : "";
+}
+
+/**
+ * Whether a feed's `options` ask for any AI post-processing at all.
+ *
+ * **Exported because two callers must agree on the answer.**
+ * `applyAiOptions()` uses it to decide whether to do anything, and
+ * `applyAiProcessing()` (`src/lib/aggregators/base.ts`) uses it to decide
+ * whether the `sourceHash` skip applies to this feed at all -- there is no
+ * provider call to save on a feed that asks for no AI, so it is left on the
+ * pre-`sourceHash` path entirely. Answering that question in two places is
+ * how the two would drift.
+ */
+export function aiOptionsEnabled(options?: Record<string, unknown> | null): boolean {
+  const opts = options || {};
+  return Boolean(
+    opts.ai_summarize || opts.ai_improve_writing || opts.ai_translate || feedCustomPrompt(opts),
+  );
+}
+
+/**
  * What `applyAiOptions()` actually did, distinct from the `ArticleInput` it
  * mutates in place -- a caller that asked for AI processing (a feed's
  * summarize/improve-writing/translate options) and didn't get it needs to be
@@ -513,30 +530,11 @@ export async function applyAiOptions(
   options?: Record<string, unknown> | null,
   userSettings?: AiRuntimeSettings,
   onLog?: (message: string) => void,
-  /**
-   * Set by `reload.ts` for a user-triggered single-article reload -- see the
-   * doc comment on `AIClient.generateResponse()`'s own parameter of the same
-   * name for why a reload doesn't count against the daily/monthly caps the
-   * way unattended aggregation does.
-   */
-  bypassUsageLimit = false,
 ): Promise<ApplyAiOutcome> {
   const opts = options || {};
-  /**
-   * The feed's own extra instruction (`ai_custom_prompt` +
-   * `ai_custom_prompt_text` in `src/lib/aggregators/specs.ts`). Both halves are
-   * required: a checked box with empty text is a no-op rather than a failure,
-   * the same as an unchecked one, because there is nothing to ask the provider.
-   */
-  const customPrompt =
-    opts.ai_custom_prompt && typeof opts.ai_custom_prompt_text === "string"
-      ? opts.ai_custom_prompt_text.trim()
-      : "";
-  const aiEnabled = Boolean(
-    opts.ai_summarize || opts.ai_improve_writing || opts.ai_translate || customPrompt,
-  );
+  const customPrompt = feedCustomPrompt(opts);
 
-  if (!aiEnabled) {
+  if (!aiOptionsEnabled(opts)) {
     return { status: "skipped" };
   }
 
@@ -627,7 +625,7 @@ export async function applyAiOptions(
     required: ["title", "content"],
   };
 
-  const generation = await client.generateResponse(fullPrompt, true, jsonSchema, bypassUsageLimit);
+  const generation = await client.generateResponse(fullPrompt, true, jsonSchema);
 
   if (generation.ok) {
     const result = generation.text;

@@ -14,7 +14,7 @@ import type { AiAdvanced } from "@/lib/ai/queries";
 import { attempt } from "@/lib/ai/result";
 
 /**
- * The nine global tuning values, saved as one unit.
+ * The five global tuning values, saved as one unit.
  *
  * **One Save for the whole card, not one per field, because the values are
  * interdependent.** `monthlyLimit >= dailyLimit` is a rule about a *pair*, so a
@@ -85,7 +85,7 @@ export function AdvancedSection({ advanced }: { advanced: AiAdvanced }) {
       ) as AiAdvanced;
       // Through `attempt()`, never a bare await: an action can fail without
       // returning, and the rejection would escalate to the (app) error boundary
-      // and replace the page along with the nine half-edited fields.
+      // and replace the page along with the five half-edited fields.
       const result = await attempt(() => saveAdvanced(values));
       if (result.ok) {
         toast.success(t("advanced.saved"));
@@ -129,7 +129,7 @@ export function AdvancedSection({ advanced }: { advanced: AiAdvanced }) {
  * The card's chrome alone: the heading, every field's label and help text, and
  * the grid they sit in -- with no dependency on `advanced`, so
  * `src/app/(app)/ai/page.tsx` can render this directly as its own `<Suspense>`
- * fallback (with a skeleton bar standing in for each of the nine inputs and the
+ * fallback (with a skeleton bar standing in for each of the five inputs and the
  * Save button) instead of an anonymous skeleton block. See the doc comment on
  * `GeneralSectionShell` in `../settings/general-section.tsx` for why this split
  * exists.
@@ -163,7 +163,7 @@ export function AdvancedSectionShell({
       </CardHeader>
       <CardContent>
         <form onSubmit={onSubmit} className="space-y-4">
-          {/* One column on a phone, two from `sm:` -- nine labelled numbers in
+          {/* One column on a phone, two from `sm:` -- five labelled numbers in
               one column is a long scroll, and two columns of a 100000-wide
               number do not fit a narrow viewport. */}
           <div className="grid gap-4 sm:grid-cols-2">

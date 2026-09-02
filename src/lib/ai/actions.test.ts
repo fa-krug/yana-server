@@ -26,7 +26,7 @@ import type { AiResult, AiSaveResult } from "./result";
  * called `saveAdvanced({ temperature: 2.5 })` with no request scope, which
  * reaches `currentUserId()` -> `requireUser()` and *throws* rather than
  * returning `{ ok: false }`; and each bound was probed with a partial object,
- * which fails on the eight missing fields and would stay green whatever the
+ * which fails on the four missing fields and would stay green whatever the
  * bound did. Every bound below submits a **complete, valid payload with exactly
  * one field out of range**, so the assertion is about the bound it names.
  *
@@ -63,10 +63,6 @@ const GEMINI_MODEL = "gemini-3.5-flash-lite";
 /** A complete, in-range advanced payload -- the documented defaults. */
 const VALID_ADVANCED = {
   temperature: 0.3,
-  maxTokens: 2000,
-  dailyLimit: 200,
-  monthlyLimit: 2000,
-  maxPromptLength: 500,
   requestTimeout: 120,
   maxRetries: 3,
   retryDelay: 2,
@@ -842,7 +838,7 @@ describe("the AI actions", () => {
     /**
      * Every case here submits {@link VALID_ADVANCED} with **one** field
      * replaced, so a failure is attributable to the bound it names. The plan's
-     * own partial payloads (`{ temperature: 2.5 }`) failed on the eight missing
+     * own partial payloads (`{ temperature: 2.5 }`) failed on the four missing
      * fields instead, and would have stayed green whatever the bound did.
      */
     async function withField(field: string, value: unknown): Promise<AiResult> {
@@ -853,10 +849,6 @@ describe("the AI actions", () => {
       expect(await actions.saveAdvanced(VALID_ADVANCED)).toEqual({ ok: true });
       expect(row()).toMatchObject({
         ai_temperature: 0.3,
-        ai_max_tokens: 2000,
-        ai_default_daily_limit: 200,
-        ai_default_monthly_limit: 2000,
-        ai_max_prompt_length: 500,
         ai_request_timeout: 120,
         ai_max_retries: 3,
         ai_retry_delay: 2,
@@ -868,44 +860,29 @@ describe("the AI actions", () => {
       // The short names are the form's and the query's; the map back to columns
       // lives in exactly one place, and this is what proves it lands right.
       expect(
-        await actions.saveAdvanced({ ...VALID_ADVANCED, dailyLimit: 7, monthlyLimit: 70 }),
+        await actions.saveAdvanced({ ...VALID_ADVANCED, requestTimeout: 7, maxRetries: 1 }),
       ).toEqual({ ok: true });
       expect(row()).toMatchObject({
-        ai_default_daily_limit: 7,
-        ai_default_monthly_limit: 70,
+        ai_request_timeout: 7,
+        ai_max_retries: 1,
       });
     });
 
     /**
      * **Both ends of every bound, not just the memorable one.**
      *
-     * The first version tested four lower ends and no upper ends at all, which
-     * left half the ceilings unexercised and `advanced.monthlyLimitRange` a
-     * shipped catalog key that no test ever reached -- reachable in code, so a
-     * key that had been deleted or misspelled would have gone out with a raw
+     * The first version tested four lower ends and no upper ends at all,
+     * which left half the ceilings unexercised and one range key a shipped
+     * catalog key that no test ever reached -- reachable in code, so a key
+     * that had been deleted or misspelled would have gone out with a raw
      * dotted path in the toast.
      */
     it.each([
       ["a temperature above 2", "temperature", 2.5, "advanced.temperatureRange"],
       ["a negative temperature", "temperature", -0.1, "advanced.temperatureRange"],
-      ["maxTokens of zero", "maxTokens", 0, "advanced.maxTokensRange"],
-      ["maxTokens past the ceiling", "maxTokens", 200_001, "advanced.maxTokensRange"],
-      ["a fractional maxTokens", "maxTokens", 10.5, "advanced.maxTokensRange"],
-      ["a daily limit of zero", "dailyLimit", 0, "advanced.dailyLimitRange"],
-      ["a daily limit past the ceiling", "dailyLimit", 100_001, "advanced.dailyLimitRange"],
-      // The monthly limit had neither end covered, so its own range key was
-      // unreachable from any test. The cross-field rule cannot pre-empt these:
-      // `.superRefine()` only runs once the object itself parses, so a
-      // `too_small` on this field is reported before the comparison happens.
-      ["a monthly limit of zero", "monthlyLimit", 0, "advanced.monthlyLimitRange"],
-      ["a monthly limit past the ceiling", "monthlyLimit", 100_001, "advanced.monthlyLimitRange"],
-      ["a prompt length of zero", "maxPromptLength", 0, "advanced.maxPromptLengthRange"],
-      [
-        "a prompt length past the ceiling",
-        "maxPromptLength",
-        100_001,
-        "advanced.maxPromptLengthRange",
-      ],
+      // A non-integer on an `integer: true` bound: the columns are SQLite
+      // `integer`, which would store 10.5 without complaint.
+      ["a fractional timeout", "requestTimeout", 10.5, "advanced.requestTimeoutRange"],
       ["a two-second timeout", "requestTimeout", 2, "advanced.requestTimeoutRange"],
       ["a timeout past ten minutes", "requestTimeout", 601, "advanced.requestTimeoutRange"],
       ["an eleventh retry", "maxRetries", 11, "advanced.maxRetriesRange"],
@@ -924,30 +901,7 @@ describe("the AI actions", () => {
         expect(failureMessage(result)).toBeTypeOf("string");
       }
       // Nothing was written: the row still holds the migration's defaults.
-      expect(row()).toMatchObject({ ai_temperature: 0.3, ai_max_tokens: 2000 });
-    });
-
-    it("rejects a monthly limit below the daily one, with its own message", async () => {
-      // Otherwise the monthly cap is unreachable through the daily one and the
-      // daily limit never applies -- one of the two numbers is decoration, and
-      // which one depends on an ordering nobody wrote down.
-      const result = await actions.saveAdvanced({
-        ...VALID_ADVANCED,
-        dailyLimit: 500,
-        monthlyLimit: 100,
-      });
-
-      expect(result).toEqual({ ok: false, errorKey: "advanced.monthlyBelowDaily" });
-      // Distinct from the plain range message: "at least as large as the daily
-      // one" is different advice from "between 1 and 100000".
-      expect(failureMessage(result)).not.toBe(aiMessage("advanced.monthlyLimitRange"));
-      expect(failureMessage(result)).toBeTypeOf("string");
-    });
-
-    it("accepts a monthly limit exactly equal to the daily one", async () => {
-      expect(
-        await actions.saveAdvanced({ ...VALID_ADVANCED, dailyLimit: 200, monthlyLimit: 200 }),
-      ).toEqual({ ok: true });
+      expect(row()).toMatchObject({ ai_temperature: 0.3, ai_request_timeout: 120 });
     });
 
     it("accepts the zero-valued ends of the three ranges that allow zero", async () => {
@@ -970,10 +924,10 @@ describe("the AI actions", () => {
         password: "correct horse battery staple",
       });
       client.writeTransaction((tx) =>
-        tx.insert(schema.userSettings).values({ userId: other.id, aiMaxTokens: 111 }).run(),
+        tx.insert(schema.userSettings).values({ userId: other.id, aiMaxRetries: 7 }).run(),
       );
 
-      expect(await actions.saveAdvanced({ ...VALID_ADVANCED, maxTokens: 999 })).toEqual({
+      expect(await actions.saveAdvanced({ ...VALID_ADVANCED, maxRetries: 9 })).toEqual({
         ok: true,
       });
 
@@ -981,9 +935,9 @@ describe("the AI actions", () => {
       try {
         expect(
           connection
-            .prepare("SELECT ai_max_tokens FROM user_settings WHERE user_id = ?")
+            .prepare("SELECT ai_max_retries FROM user_settings WHERE user_id = ?")
             .get(other.id),
-        ).toEqual({ ai_max_tokens: 111 });
+        ).toEqual({ ai_max_retries: 7 });
       } finally {
         connection.close();
       }

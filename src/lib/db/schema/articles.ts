@@ -14,9 +14,18 @@ import { feeds } from "./feeds";
 import { users } from "./users";
 
 /**
- * `content` from the Django model is deliberately absent: it held processed HTML
- * that blocks were rebuilt from, and blocks are authoritative here. `rawContent`
- * remains as the debugging surface and as what phase 12's reload action re-runs.
+ * Django's `content` and this table's own former `raw_content` are both
+ * deliberately absent: the block tree is authoritative, and every column that
+ * held a copy of the source HTML alongside it was written and never read.
+ *
+ * `raw_content` held the whole fetched page. It was kept as "the debugging
+ * surface, and what the reload action re-runs against" -- the second half was
+ * never true (`article.reload` re-fetches the page itself), and the first was
+ * paid for on every article view, because `getArticle()` selects the whole row
+ * and hands it to a client component, which put a full HTML page into the RSC
+ * payload of `/articles/[id]`. It was also excluded from the source
+ * fingerprint (see `sourceHash`), so nothing about the row depended on it
+ * being current either.
  */
 export const articles = sqliteTable(
   "articles",
@@ -25,44 +34,51 @@ export const articles = sqliteTable(
     name: text("name").notNull(),
     /** URL or external id. */
     identifier: text("identifier").notNull(),
-    rawContent: text("raw_content").notNull().default(""),
     /** Block tree flattened to visible text, for search. */
     plainText: text("plain_text").notNull().default(""),
     /**
-     * Fingerprint of the aggregator inputs that produced this row and its
-     * block tree (see `articleContentHash` in
-     * `@/lib/aggregators/content-hash`). The aggregate handler compares it
-     * before writing: an unchanged article is skipped entirely, which avoids
-     * rewriting the row, avoids deleting and reinserting the whole block
-     * tree, and -- because `updatedAt` carries `$onUpdate` -- keeps the
-     * article out of `/api/v1`'s sync `updated` stream.
+     * **The fingerprint of the source this row was derived from** --
+     * `sourceFingerprint()` in `@/lib/aggregators/source-fingerprint`, taken
+     * over the article *as the source gave it* and before any AI
+     * post-processing rewrote it.
      *
-     * Nullable, and written *last* on purpose: a stored hash means "row and
-     * blocks are both up to date for this content", so a crash mid-write
-     * leaves it null or stale and the next run redoes the work. Every row
-     * that predates this column is null, is therefore treated as changed,
-     * and settles after one aggregation pass -- no backfill needed.
+     * One column carrying one rule: **an article needs work unless its stored
+     * fingerprint equals the one the source produces now.** Two readers apply
+     * that rule at different costs. `applyAiProcessing()`
+     * (`@/lib/aggregators/base`) applies it first, to decide whether to call
+     * an AI provider at all; the aggregate handler applies it again, to decide
+     * whether to rewrite the row, delete and reinsert the whole block tree,
+     * and -- because `updatedAt` carries `$onUpdate` -- put the article back
+     * into `/api/v1`'s sync `updated` stream.
      *
-     * THE INVARIANT, and it binds every writer, not just the aggregator:
-     * **anything that changes an article's content must set `contentHash` to
-     * null** (or recompute it). A stale hash does not merely go out of date --
-     * it makes the aggregate handler skip that row *forever*, because the
-     * hash it computes from the unchanged feed item keeps matching. Content
-     * here means the fingerprinted inputs (`name`, `rawContent`, the block
-     * tree it is parsed into, `date`, `author`, `icon`) and `feedId`, which is
-     * half the key the handler looks a row up by. Writers that only flip
-     * `read`/`starred` must leave it alone: nothing about the content changed,
-     * and nulling it would force a pointless full rewrite on the next cycle.
+     * **Nullable, and null means "needs work".** That is how the column
+     * carries completeness as well as identity, and why it is written *last*,
+     * after `writeBlocks()`: a crash anywhere above leaves it null and the
+     * next run redoes everything. Rows predating the column are null, are
+     * therefore treated as changed, and settle after one pass -- no backfill.
+     * The same state is written deliberately by the aggregate handler when a
+     * feed's configured AI pass did not complete, and by a *failed* reload,
+     * which replaces the body with an error notice: without it that notice
+     * would stand forever, because the source it came from has not moved.
      *
-     * Two writers learned this the hard way and now null it explicitly:
-     * `src/lib/jobs/handlers/reload.ts` (both branches -- a *failed* reload
-     * writes an error notice, which without this would have been permanent)
-     * and `updateArticle()` in `src/lib/articles/actions.ts`. The same trap
-     * waits for any future change to `parseBlocks`/`plainTextOf`: existing
-     * articles would never be re-parsed, where they used to be re-derived
-     * every cycle.
+     * **It fingerprints the source, not the bytes stored, and that is what
+     * lets a deliberate local change stick.** A successful `article.reload`
+     * and `updateArticle()` (a manual edit) both rewrite the row and both
+     * leave this column alone: the source has not changed, so the next run
+     * matches, skips, and the human's version stands -- while a genuine
+     * upstream edit still moves the fingerprint and correctly replaces it.
+     * Nulling it would make every manual action provisional until the next
+     * cycle discarded it, which is exactly what both writers used to do.
+     *
+     * THE INVARIANT, for anything that writes here: **null it when the row
+     * stops being a complete rendering of that source, and leave it alone
+     * when the source itself has not changed.** Writers that only flip
+     * `read`/`starred` touch neither. The trap that remains is a change to
+     * `parseBlocks`/`plainTextOf`: existing articles would never be
+     * re-parsed, because their sources have not moved -- that needs a
+     * deliberate one-off `UPDATE articles SET source_hash = NULL`.
      */
-    contentHash: text("content_hash"),
+    sourceHash: text("source_hash"),
     /**
      * The feed's real publish time. Aggregation never rewrites it, and it is for
      * display only -- never for retention or sync cursors. See createdAt.

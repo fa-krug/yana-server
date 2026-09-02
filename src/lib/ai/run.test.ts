@@ -1,9 +1,4 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-import { applyMigrationsAt } from "@/lib/db/test-support";
 
 import { AI_COLUMNS } from "./columns";
 import {
@@ -20,11 +15,6 @@ function makeSettings(overrides: Partial<AiRuntimeSettings> = {}): AiRuntimeSett
   const provider = overrides.activeAiProvider ?? overrides.active_ai_provider ?? "gemini";
   return {
     userId: "test-user",
-    // High enough that the daily/monthly usage check added in Task 9 never
-    // interferes with what these tests actually assert -- usage-limit
-    // behavior itself is covered by `src/lib/ai/usage.test.ts`.
-    aiDefaultDailyLimit: 1000,
-    aiDefaultMonthlyLimit: 1000,
 
     activeAiProvider: provider,
     aiMaxRetries: 3,
@@ -32,7 +22,6 @@ function makeSettings(overrides: Partial<AiRuntimeSettings> = {}): AiRuntimeSett
     aiMaxRetryTime: 60,
     aiRequestTimeout: 30,
     aiTemperature: 0.7,
-    aiMaxTokens: 1000,
 
     geminiEnabled: provider === "gemini",
     geminiApiKey: "test-key",
@@ -54,45 +43,24 @@ function makeSettings(overrides: Partial<AiRuntimeSettings> = {}): AiRuntimeSett
 describe("applyAiOptions & AIClient processing", () => {
   const originalFetch = globalThis.fetch;
 
-  let dbPath: string;
   let AIClient: typeof import("./run").AIClient;
   let applyAiOptions: typeof import("./run").applyAiOptions;
 
   beforeEach(async () => {
     vi.restoreAllMocks();
 
-    // `generateResponse()` now calls `checkAndRecordAiUsage()` inside
-    // `writeTransaction()`, which reads the process-wide `getDb()` singleton
-    // pointed at `DATABASE_PATH`. `DATABASE_PATH` is captured into a
-    // module-level constant the moment `@/lib/db/client` is first imported,
-    // so a fresh module registry plus a dynamic import of "./run" (after
-    // setting the env var) is required per test -- the same shape as
-    // `src/app/api/v1/aggregate/route.test.ts`'s `beforeEach`. `applyMigrationsAt`
-    // is imported statically above (not dynamically here) because it never
-    // reads `DATABASE_PATH` itself -- it operates on an explicit connection --
-    // so it is safe to call before the env var below is set; a *dynamic*
-    // import of it here would transitively load "@/lib/db/client" too early
-    // (before `DATABASE_PATH` is set) and lock in the wrong `DB_PATH` for the
-    // rest of this test, since the later `import("@/lib/db/client")` below
-    // would just return that same cached module instance.
+    // No database fixture: `./run` reaches nothing but `fetch` now. It used to
+    // call `checkAndRecordAiUsage()` inside `writeTransaction()` -- which
+    // needed a migrated file at `DATABASE_PATH`, a seeded user row and a fresh
+    // module registry per test, because `@/lib/db/client` captures the env var
+    // into a module-level constant on first import. Enforcing a per-user call
+    // budget was that machinery's only purpose, and the budget is gone.
     vi.resetModules();
-    const stamp = `${process.pid}-${Math.random().toString(36).slice(2)}`;
-    dbPath = path.join(os.tmpdir(), `yana-ai-run-test-${stamp}.db`);
-    applyMigrationsAt(dbPath);
-    process.env.DATABASE_PATH = dbPath;
-
-    const { writeTransaction } = await import("@/lib/db/client");
-    const { users } = await import("@/lib/db/schema");
-    writeTransaction((tx) => {
-      tx.insert(users).values({ id: "test-user", email: "test-user@example.com" }).run();
-    });
-
     ({ AIClient, applyAiOptions } = await import("./run"));
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
-    fs.rmSync(dbPath, { force: true });
   });
 
   describe("test_ai_processing assertions", () => {
@@ -619,117 +587,49 @@ describe("applyAiOptions & AIClient processing", () => {
     });
   });
 
-  describe("test_ai_usage_limits assertions", () => {
-    it("blocks a call once the daily limit is reached, without reaching the network", async () => {
-      const settings = makeSettings({
-        activeAiProvider: "gemini",
-        aiDefaultDailyLimit: 1,
-        aiDefaultMonthlyLimit: 1000,
-      });
-
-      // Pre-seed one request already recorded today directly via
-      // `writeTransaction`, so "test-user" is already at the daily limit of 1
-      // before `generateResponse()` is ever called -- this proves the
-      // short-circuit fires on a call that would otherwise be the *first* of
-      // the test, not just after this test's own prior calls.
-      const { writeTransaction } = await import("@/lib/db/client");
-      const { aiRequests } = await import("@/lib/db/schema");
-      writeTransaction((tx) => {
-        tx.insert(aiRequests).values({ userId: "test-user", createdAt: new Date() }).run();
-      });
-
-      const fetchMock = vi.fn();
-      globalThis.fetch = fetchMock;
-
-      const client = new AIClient(settings);
-      const result = await client.generateResponse("test prompt");
-
-      expect(result).toMatchObject({ ok: false, reason: "dailyLimitExceeded" });
-      // The actual guarantee this task exists to provide: a blocked call
-      // never reaches the provider over the network.
-      expect(fetchMock).not.toHaveBeenCalled();
-    });
-
-    it("blocks a call once the monthly limit is reached, without reaching the network", async () => {
-      const settings = makeSettings({
-        activeAiProvider: "gemini",
-        aiDefaultDailyLimit: 1000,
-        aiDefaultMonthlyLimit: 1,
-      });
-
-      const { writeTransaction } = await import("@/lib/db/client");
-      const { aiRequests } = await import("@/lib/db/schema");
-      writeTransaction((tx) => {
-        tx.insert(aiRequests).values({ userId: "test-user", createdAt: new Date() }).run();
-      });
-
-      const fetchMock = vi.fn();
-      globalThis.fetch = fetchMock;
-
-      const client = new AIClient(settings);
-      const result = await client.generateResponse("test prompt");
-
-      expect(result).toMatchObject({ ok: false, reason: "monthlyLimitExceeded" });
-      expect(fetchMock).not.toHaveBeenCalled();
-    });
-
-    it("bypassUsageLimit skips both the check and the recording, even at the limit", async () => {
-      const settings = makeSettings({
-        activeAiProvider: "gemini",
-        aiDefaultDailyLimit: 1,
-        aiDefaultMonthlyLimit: 1000,
-      });
-
-      const { writeTransaction } = await import("@/lib/db/client");
-      const { aiRequests } = await import("@/lib/db/schema");
-      writeTransaction((tx) => {
-        tx.insert(aiRequests).values({ userId: "test-user", createdAt: new Date() }).run();
-      });
-
+  /**
+   * **There is no per-user call budget any more.**
+   *
+   * `aiDefaultDailyLimit`/`aiDefaultMonthlyLimit` used to stop a call before
+   * it reached the provider, counting rows in an `ai_requests` table. Both
+   * settings, that table and the `bypassUsageLimit` escape hatch a reload
+   * needed are gone: the only thing that refuses a call now is the provider
+   * itself.
+   */
+  describe("no per-user call budget", () => {
+    it("makes every call the caller asks for, however many", async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: async () => ({
-          candidates: [{ content: { parts: [{ text: "ok" }] } }],
-        }),
+        json: async () => ({ candidates: [{ content: { parts: [{ text: "ok" }] } }] }),
       } as Response);
       globalThis.fetch = fetchMock;
 
-      const client = new AIClient(settings);
-      const result = await client.generateResponse("test prompt", false, undefined, true);
+      const client = new AIClient(makeSettings({ activeAiProvider: "gemini" }));
+      // Comfortably past the 200/day and 2000/month caps' old ratio to a
+      // single aggregation run, and past any number a test would have been
+      // able to reach while they existed.
+      for (let i = 0; i < 25; i++) {
+        expect(await client.generateResponse("prompt")).toEqual({ ok: true, text: "ok" });
+      }
 
-      expect(result).toEqual({ ok: true, text: "ok" });
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-
-      // Bypassing must not record the call either -- otherwise a reload
-      // would quietly eat into the same budget aggregation relies on.
-      const { getDb } = await import("@/lib/db/client");
-      const count = getDb()
-        .select()
-        .from(aiRequests)
-        .all()
-        .filter((r) => r.userId === "test-user").length;
-      expect(count).toBe(1); // only the pre-seeded row, nothing added
+      expect(fetchMock).toHaveBeenCalledTimes(25);
     });
 
-    it("proceeds unmetered and warns when settings carry no userId", async () => {
+    it("needs no userId on the settings row, and says nothing about limits", async () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const settings = makeSettings({ activeAiProvider: "gemini", userId: undefined });
-
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: async () => ({
-          candidates: [{ content: { parts: [{ text: "hello" }] } }],
-        }),
+        json: async () => ({ candidates: [{ content: { parts: [{ text: "hello" }] } }] }),
       } as Response);
 
-      const client = new AIClient(settings);
-      const result = await client.generateResponse("test prompt");
+      const client = new AIClient(makeSettings({ activeAiProvider: "gemini", userId: undefined }));
 
-      // Missing userId does not block the call -- it proceeds unmetered.
-      expect(result).toMatchObject({ ok: true, text: "hello" });
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("usage limit not enforced"));
+      expect(await client.generateResponse("prompt")).toMatchObject({ ok: true, text: "hello" });
+      // It used to warn "usage limit not enforced for this call" here, which
+      // described a budget that no longer exists.
+      expect(warnSpy).not.toHaveBeenCalled();
     });
   });
 
@@ -817,6 +717,94 @@ describe("applyAiOptions & AIClient processing", () => {
         expect(calledUrl).toBe(expectedUrlFor(key, provider, apiKey));
       },
     );
+  });
+
+  /**
+   * **No provider is sent an output cap, and that is the fix for permanently
+   * untranslated articles.**
+   *
+   * `applyAiOptions()` asks a provider to return the *whole* article back,
+   * translated or rewritten, as a JSON string. Under the `ai_max_tokens`
+   * setting that used to feed these requests (default 2000) any article past a
+   * few thousand characters came back truncated: a 200 carrying a cut-off JSON
+   * string, which the parse in `applyAiOptions()` rejected, after which the
+   * original untranslated content was kept and stored. Deterministic per
+   * article -- the same long article failed on every run, forever.
+   *
+   * These assert on the request body rather than on an outcome because that is
+   * where the defect lived: nothing about a truncated response is
+   * distinguishable from any other unparseable one after the fact.
+   */
+  describe("output caps: none is sent, so each model's own default applies", () => {
+    function captureBody(): { body: Record<string, unknown> } {
+      const box: { body: Record<string, unknown> } = { body: {} };
+      globalThis.fetch = vi.fn().mockImplementation(async (_url, init) => {
+        box.body = JSON.parse(init.body);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            choices: [{ message: { content: "ok" } }],
+            content: [{ type: "text", text: "ok" }],
+            candidates: [{ content: { parts: [{ text: "ok" }] } }],
+          }),
+        } as Response;
+      });
+      return box;
+    }
+
+    it.each(["openai", "mistral", "qwen", "deepseek", "openrouter"] as const)(
+      "omits max_tokens entirely for %s",
+      async (key) => {
+        const columns = AI_COLUMNS[key];
+        const box = captureBody();
+
+        await new AIClient(
+          makeSettings({
+            activeAiProvider: key,
+            [columns.enabled]: true,
+            [columns.apiKey]: "test-key",
+          } as Partial<AiRuntimeSettings>),
+        ).generateResponse("prompt");
+
+        expect(box.body).not.toHaveProperty("max_tokens");
+      },
+    );
+
+    it("omits maxOutputTokens for gemini, whose thinking tokens share the budget", async () => {
+      const box = captureBody();
+
+      await new AIClient(makeSettings({ activeAiProvider: "gemini" })).generateResponse("prompt");
+
+      expect(box.body.generationConfig).not.toHaveProperty("maxOutputTokens");
+      // The rest of generationConfig is untouched -- this is a removal, not a
+      // rewrite of the request.
+      expect(box.body.generationConfig).toMatchObject({ temperature: 0.7 });
+    });
+
+    /**
+     * Anthropic's Messages API rejects a request without `max_tokens`, so this
+     * one branch cannot simply drop the field. It asks for the model's own
+     * documented ceiling instead, which is the same "no operator cap" outcome
+     * spelled out as a number.
+     */
+    it.each([
+      ["claude-haiku-4-5", 64_000],
+      ["claude-sonnet-5", 128_000],
+      ["claude-opus-5", 128_000],
+      // An id the registry no longer lists -- a row written before a model was
+      // renamed. Overshooting is a 400, so an unknown id gets the smallest
+      // ceiling rather than the largest.
+      ["claude-sonnet-4-20250514", 64_000],
+    ])("sends %s its own output ceiling", async (model, expected) => {
+      const box = captureBody();
+
+      await new AIClient(
+        makeSettings({ activeAiProvider: "anthropic", anthropicModel: model }),
+      ).generateResponse("prompt");
+
+      expect(box.body.max_tokens).toBe(expected);
+    });
   });
 
   describe("ai_custom_prompt: the feed's own extra instruction", () => {

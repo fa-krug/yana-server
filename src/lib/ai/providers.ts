@@ -67,6 +67,39 @@ export const DEEPSEEK_API_URL = "https://api.deepseek.com/v1";
  */
 export const OPENROUTER_API_URL = "https://openrouter.ai/api/v1";
 
+/**
+ * The documented output ceiling of each Anthropic model, and a deliberately
+ * conservative fallback for anything else.
+ *
+ * **Anthropic is the only provider whose API *requires* `max_tokens`.** Every
+ * other call path in `./run` now omits its output cap entirely, so the model's
+ * own default applies (see the comment on `callOpenaiCompatible()` for why a
+ * fixed cap silently truncated long articles). This function is how the
+ * Anthropic branch reaches the same outcome despite the parameter being
+ * mandatory: it asks for the model's real ceiling rather than a number.
+ *
+ * **Overshooting is a 400, so the fallback is the smallest ceiling here, not
+ * the largest.** `resolveModel()` in `./columns` keeps the stored id inside
+ * `AI_PROVIDERS`' anthropic list for anything the form saved, but `run.ts`
+ * reads the column directly, and a row written before a model id changed can
+ * still carry an unknown one. `64_000` is safe for every Anthropic model this
+ * repository has ever offered; a bigger guess would turn an unknown id into a
+ * failed request instead of a shorter answer.
+ *
+ * Looked up 2026-09-01 against
+ * https://platform.claude.com/docs/en/about-claude/models/overview -- keep it
+ * in step with the `models` list on the anthropic entry below.
+ */
+const ANTHROPIC_MAX_OUTPUT_TOKENS: Record<string, number> = {
+  "claude-haiku-4-5": 64_000,
+  "claude-sonnet-5": 128_000,
+  "claude-opus-5": 128_000,
+};
+
+export function anthropicMaxOutputTokens(model: string): number {
+  return ANTHROPIC_MAX_OUTPUT_TOKENS[model] ?? 64_000;
+}
+
 /** One entry in a provider's model select. `label` is a brand name, never translated. */
 export type AiModel = { value: string; label: string };
 

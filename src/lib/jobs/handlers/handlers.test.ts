@@ -6,6 +6,9 @@ import Database from "better-sqlite3";
 import { eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { RawArticle } from "@/lib/aggregators/base";
+import { sourceFingerprint } from "@/lib/aggregators/source-fingerprint";
+
 import { applyMigrationsAt } from "../../db/test-support";
 
 vi.mock("@/lib/aggregators/factory", () => ({
@@ -701,7 +704,6 @@ describe("src/lib/jobs/handlers", () => {
             name: "Stale Title",
             identifier: "art-1",
             feedId,
-            rawContent: "<p>stale</p>",
             date: new Date("2024-01-01"),
           })
           .run();
@@ -876,24 +878,35 @@ describe("src/lib/jobs/handlers", () => {
       );
     });
 
-    it("rewrites an article when new comments are appended to its body", async () => {
+    /**
+     * **A comment is not the article.** `formatArticleContent()` renders the
+     * comment section into the same body the block tree is parsed from, so
+     * this used to rewrite the row -- and, on a feed with AI options, re-run
+     * the provider -- every time a thread got busier. It also pushed the
+     * article back into `/api/v1`'s sync `updated` stream for text nobody
+     * edited. The fingerprint now looks past the section (and past the raw
+     * page, which is where the scraping aggregators get their comments from).
+     */
+    it("leaves an article alone when only its comments changed", async () => {
       const feedId = seedAggregateFeed();
 
+      const body = `<section data-sanitized-class="article-content"><p>post</p></section>`;
       const withoutComment = {
         name: "Reddit Post",
         identifier: "art-1",
-        raw_content: "<p>post</p>",
-        content: "<p>post</p>",
+        raw_content: "<html>page v1</html>",
+        content: body,
         date: new Date("2026-01-01T00:00:00.000Z"),
       };
-      // What the Reddit aggregator actually produces on a later run: the
-      // comment section is rendered into the article body, so a new comment
-      // changes the content the block tree is built from.
+      // What the aggregators actually produce on a later run: one more
+      // comment in the rendered section, and -- for the scrapers -- a
+      // different page to have scraped it out of.
       const withComment = {
         ...withoutComment,
-        raw_content:
-          "<p>post</p><blockquote><p><strong>ada</strong></p><div>nice</div></blockquote>",
-        content: "<p>post</p><blockquote><p><strong>ada</strong></p><div>nice</div></blockquote>",
+        raw_content: "<html>page v2</html>",
+        content:
+          `${body}\n\n<section data-sanitized-class="article-comments">` +
+          `<blockquote><p><strong>ada</strong></p><div>nice</div></blockquote></section>`,
       };
 
       const factory = await import("@/lib/aggregators/factory");
@@ -903,6 +916,12 @@ describe("src/lib/jobs/handlers", () => {
         aggregate: async () => [withoutComment],
       } as unknown as ReturnType<typeof factory.createAggregator>);
       await aggregateHandler!(makeJob("aggregate", { feedId }));
+
+      // Age the row: `updatedAt` is second granularity, so both runs land in
+      // the same second and an unchanged value would prove nothing.
+      client.writeTransaction((db) => {
+        db.run(sql`UPDATE articles SET updated_at = 1000000000 WHERE feed_id = ${feedId}`);
+      });
 
       vi.mocked(factory.createAggregator).mockReturnValue({
         aggregate: async () => [withComment],
@@ -916,6 +935,55 @@ describe("src/lib/jobs/handlers", () => {
         .from(schema.articles)
         .where(eq(schema.articles.feedId, feedId))
         .get();
+      expect(row!.plainText).not.toContain("nice");
+      expect(row!.updatedAt.getTime()).toBe(1_000_000_000_000);
+      expect(logLines(secondJob.id)).toContain(
+        "upserted articles: 0 created, 0 updated, 1 unchanged",
+      );
+    });
+
+    it("rewrites an article when its own content changes, comments and all", async () => {
+      const feedId = seedAggregateFeed();
+
+      const comments =
+        `<section data-sanitized-class="article-comments">` +
+        `<blockquote><p><strong>ada</strong></p><div>nice</div></blockquote></section>`;
+      const first = {
+        name: "Reddit Post",
+        identifier: "art-1",
+        raw_content: "",
+        content: `<section data-sanitized-class="article-content"><p>post</p></section>\n\n${comments}`,
+        date: new Date("2026-01-01T00:00:00.000Z"),
+      };
+      // The body itself was edited upstream. The comment section rides along
+      // -- the exclusion is about what *triggers* a rewrite, not about what
+      // gets stored once one happens.
+      const edited = {
+        ...first,
+        content: `<section data-sanitized-class="article-content"><p>post, corrected</p></section>\n\n${comments}`,
+      };
+
+      const factory = await import("@/lib/aggregators/factory");
+      const aggregateHandler = handlers.getHandler("aggregate");
+
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => [first],
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+      await aggregateHandler!(makeJob("aggregate", { feedId }));
+
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => [edited],
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+      const secondJob = makeJob("aggregate", { feedId });
+      await aggregateHandler!(secondJob);
+
+      const row = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.feedId, feedId))
+        .get();
+      expect(row!.plainText).toContain("corrected");
       expect(row!.plainText).toContain("nice");
       expect(logLines(secondJob.id)).toContain(
         "upserted articles: 0 created, 1 updated, 0 unchanged",
@@ -947,7 +1015,7 @@ describe("src/lib/jobs/handlers", () => {
       );
     });
 
-    it("rewrites an article whose stored contentHash is null", async () => {
+    it("rewrites an article whose stored fingerprint is null", async () => {
       const feedId = seedAggregateFeed();
 
       // Every row that predates the column is in this state. It must be
@@ -958,9 +1026,8 @@ describe("src/lib/jobs/handlers", () => {
             name: "Legacy",
             identifier: "art-1",
             feedId,
-            rawContent: "<p>x</p>",
             date: new Date("2026-01-01T00:00:00.000Z"),
-            contentHash: null,
+            sourceHash: null,
           })
           .run();
       });
@@ -1056,6 +1123,434 @@ describe("src/lib/jobs/handlers", () => {
       expect(logLines(healingJob.id)).toContain(
         "upserted articles: 0 created, 1 updated, 0 unchanged",
       );
+    });
+
+    /**
+     * **A manual reload wins over the next aggregation run.**
+     *
+     * Reload used to null `contentHash`, which made every reload provisional:
+     * the next cycle re-derived the article from the feed and discarded what
+     * an operator had just asked for. Keeping the stored fingerprints -- which
+     * describe the *source* the row came from, not the bytes stored -- is what
+     * makes the reload stand while the source is unchanged, and still lets a
+     * genuine upstream edit replace it.
+     */
+    it("keeps a reloaded article until the source itself changes", async () => {
+      const feedId = seedAggregateFeed();
+
+      const source = {
+        name: "Article One",
+        identifier: "https://example.com/art-1",
+        raw_content: "",
+        content: "<p>as the feed listed it</p>",
+        date: new Date("2026-01-01T00:00:00.000Z"),
+      };
+
+      const factory = await import("@/lib/aggregators/factory");
+      // One aggregator serving both handlers, as the error-notice test does:
+      // `aggregate` for the runs, the reload surface for the reload between
+      // them -- whose fetch returns something the feed listing does not have.
+      const fetchArticleContent = vi.fn().mockResolvedValue("<p>the operator's refetch</p>");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => [source],
+        fetchArticleContent,
+        extractHeaderElement: async () => null,
+        extractContent: (html: string) => html,
+        processContent: (html: string) => html,
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+      const reloadHandler = handlers.getHandler("article.reload");
+
+      await aggregateHandler!(makeJob("aggregate", { feedId }));
+      const article = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.feedId, feedId))
+        .get()!;
+      const aggregatedHash = article.sourceHash;
+      expect(article.plainText).toContain("as the feed listed it");
+
+      await reloadHandler!(makeJob("article.reload", { articleId: article.id }));
+      const reloaded = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, article.id))
+        .get()!;
+      expect(reloaded.plainText).toContain("the operator's refetch");
+      // The fingerprint is preserved rather than nulled -- it still describes
+      // the source this row came from, which the reload did not change.
+      expect(reloaded.sourceHash).toBe(aggregatedHash);
+
+      // Age the row so a rewrite is detectable at second granularity.
+      client.writeTransaction((db) => {
+        db.run(sql`UPDATE articles SET updated_at = 1000000000 WHERE feed_id = ${feedId}`);
+      });
+
+      const nextJob = makeJob("aggregate", { feedId });
+      await aggregateHandler!(nextJob);
+
+      const afterAggregation = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, article.id))
+        .get()!;
+      expect(afterAggregation.plainText).toContain("the operator's refetch");
+      expect(afterAggregation.plainText).not.toContain("as the feed listed it");
+      expect(afterAggregation.updatedAt.getTime()).toBe(1_000_000_000_000);
+      expect(logLines(nextJob.id)).toContain(
+        "upserted articles: 0 created, 0 updated, 1 unchanged",
+      );
+
+      // But an upstream edit still wins: the fingerprints describe the source,
+      // so once it moves they no longer match.
+      source.content = "<p>as the feed listed it, corrected upstream</p>";
+      const editJob = makeJob("aggregate", { feedId });
+      await aggregateHandler!(editJob);
+
+      const afterEdit = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, article.id))
+        .get()!;
+      expect(afterEdit.plainText).toContain("corrected upstream");
+      expect(logLines(editJob.id)).toContain(
+        "upserted articles: 0 created, 1 updated, 0 unchanged",
+      );
+    });
+
+    /**
+     * **The one case a reload cannot make stick**, stated here so it is a
+     * known limit rather than a surprise.
+     *
+     * A null fingerprint means the row was never completed. Reload cannot
+     * fill it in: the value has to be one the *aggregator* would compute, over
+     * the feed's own article rather than the page reload fetched, and reload
+     * has no way to know it. So the row keeps reload's content but stays
+     * "needs work", and the next aggregation run reprocesses it -- once,
+     * after which it settles.
+     */
+    it("leaves a never-aggregated row without a fingerprint, so it is reprocessed once", async () => {
+      const feedId = seedAggregateFeed();
+      let articleId = 0;
+      client.writeTransaction((db) => {
+        const row = db
+          .insert(schema.articles)
+          .values({
+            name: "Broken",
+            identifier: "https://example.com/art-1",
+            feedId,
+            plainText: "could not be reloaded",
+            date: new Date("2026-01-01T00:00:00.000Z"),
+            sourceHash: null,
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        articleId = row.id;
+      });
+
+      const source = {
+        name: "Broken",
+        identifier: "https://example.com/art-1",
+        raw_content: "",
+        content: "<p>as the feed lists it</p>",
+        date: new Date("2026-01-01T00:00:00.000Z"),
+      };
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => [source],
+        fetchArticleContent: vi.fn().mockResolvedValue("<p>fixed by the operator</p>"),
+        extractHeaderElement: async () => null,
+        extractContent: (html: string) => html,
+        processContent: (html: string) => html,
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      await handlers.getHandler("article.reload")!(makeJob("article.reload", { articleId }));
+
+      const reloaded = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, articleId))
+        .get()!;
+      expect(reloaded.plainText).toContain("fixed by the operator");
+      expect(reloaded.sourceHash).toBeNull();
+
+      // Reprocessed on the next run, and settled afterwards.
+      await handlers.getHandler("aggregate")!(makeJob("aggregate", { feedId }));
+      const afterAggregation = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, articleId))
+        .get()!;
+      expect(afterAggregation.plainText).toContain("as the feed lists it");
+      expect(afterAggregation.sourceHash).not.toBeNull();
+    });
+
+    /**
+     * **An article whose configured AI pass did not run must not be stamped
+     * with a `contentHash`, and the job must not report success.**
+     *
+     * `ai_failed_reason` is what `applyAiProcessing()` in
+     * `@/lib/aggregators/base` sets on the article; these tests set it
+     * directly because the factory is mocked at `aggregate()`, which is above
+     * where that happens. Before this, the outcome was discarded entirely: the
+     * untranslated article was saved, fingerprinted as current, and skipped by
+     * every later run -- so a feed set to translate served some articles in
+     * the original language permanently, while every job showed green.
+     */
+    describe("an article whose AI post-processing did not complete", () => {
+      const failed = {
+        name: "Untranslated",
+        identifier: "art-1",
+        raw_content: "<p>original language</p>",
+        content: "<p>original language</p>",
+        date: new Date("2026-01-01T00:00:00.000Z"),
+        ai_failed_reason: "providerError",
+      };
+
+      it("is stored without a contentHash, so the next run retries it", async () => {
+        const feedId = seedAggregateFeed();
+        const factory = await import("@/lib/aggregators/factory");
+        vi.mocked(factory.createAggregator).mockReturnValue({
+          aggregate: async () => [failed],
+        } as unknown as ReturnType<typeof factory.createAggregator>);
+
+        const aggregateHandler = handlers.getHandler("aggregate");
+        const job = makeJob("aggregate", { feedId });
+
+        await expect(aggregateHandler!(job)).rejects.toThrow(/AI processing did not complete/);
+
+        // Saved anyway: an untranslated article beats no article. What it must
+        // not carry is the fingerprint that means "current".
+        const stored = client
+          .getDb()
+          .select()
+          .from(schema.articles)
+          .where(eq(schema.articles.feedId, feedId))
+          .get();
+        expect(stored!.plainText).toContain("original language");
+        expect(stored!.sourceHash).toBeNull();
+        expect(logLines(job.id)).toContain("upserted articles: 1 created, 0 updated, 0 unchanged");
+
+        // The next run's AI call succeeds, so the same feed item is now a
+        // *different* article -- rewritten and, this time, fingerprinted.
+        vi.mocked(factory.createAggregator).mockReturnValue({
+          aggregate: async () => [
+            { ...failed, ai_failed_reason: undefined, content: "<p>ursprache</p>" },
+          ],
+        } as unknown as ReturnType<typeof factory.createAggregator>);
+        const healingJob = makeJob("aggregate", { feedId });
+        await aggregateHandler!(healingJob);
+
+        const healed = client
+          .getDb()
+          .select()
+          .from(schema.articles)
+          .where(eq(schema.articles.feedId, feedId))
+          .get();
+        expect(healed!.plainText).toContain("ursprache");
+        expect(healed!.sourceHash).not.toBeNull();
+      });
+
+      it("does not overwrite the stored version of an article it already has", async () => {
+        const feedId = seedAggregateFeed();
+        const factory = await import("@/lib/aggregators/factory");
+        const aggregateHandler = handlers.getHandler("aggregate");
+
+        // First run: AI succeeded, so what is stored is the translated body.
+        vi.mocked(factory.createAggregator).mockReturnValue({
+          aggregate: async () => [
+            { ...failed, ai_failed_reason: undefined, content: "<p>ursprache</p>" },
+          ],
+        } as unknown as ReturnType<typeof factory.createAggregator>);
+        await aggregateHandler!(makeJob("aggregate", { feedId }));
+
+        // Second run: the provider is down. The article's *feed* text is
+        // unchanged, so the hash does not match the stored translated body and
+        // the skip above does not fire -- without the guard this run would
+        // replace a good German article with the original-language one over a
+        // transient error.
+        vi.mocked(factory.createAggregator).mockReturnValue({
+          aggregate: async () => [failed],
+        } as unknown as ReturnType<typeof factory.createAggregator>);
+        const job = makeJob("aggregate", { feedId });
+        await expect(aggregateHandler!(job)).rejects.toThrow(/AI processing did not complete/);
+
+        const stored = client
+          .getDb()
+          .select()
+          .from(schema.articles)
+          .where(eq(schema.articles.feedId, feedId))
+          .get();
+        expect(stored!.plainText).toContain("ursprache");
+        expect(stored!.plainText).not.toContain("original language");
+        expect(logLines(job.id)).toContain("upserted articles: 0 created, 0 updated, 0 unchanged");
+        expect(logLines(job.id).some((l) => l.includes("kept the stored version"))).toBe(true);
+      });
+    });
+
+    /**
+     * **The whole point of `articles.sourceHash`, end to end.**
+     *
+     * Unlike every other test in this block, this one drives a *real*
+     * `BaseAggregator` subclass rather than a stub with an `aggregate()`
+     * method, because the behaviour under test spans both halves: the
+     * aggregator decides whether to call a provider, and the handler decides
+     * whether to touch the row. A stub bypasses the first half entirely.
+     *
+     * Before this, AI ran on every fetched article on every cycle -- the
+     * handler's unchanged-skip saved the write, never the provider call.
+     */
+    it("makes no AI call, and no write, for an article whose source has not changed", async () => {
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        db.insert(schema.users)
+          .values({ id: "ai-user", email: "ai-user@example.com" })
+          .onConflictDoNothing()
+          .run();
+        db.insert(schema.userSettings)
+          .values({
+            userId: "ai-user",
+            activeAiProvider: "gemini",
+            geminiEnabled: true,
+            geminiApiKey: "test-key",
+            aiRequestDelay: 0,
+          })
+          .run();
+        const feed = db
+          .insert(schema.feeds)
+          .values({
+            name: "Translating Feed",
+            userId: "ai-user",
+            identifier: "https://example.com/rss",
+            enabled: true,
+            // The article below carries a fixed date so its fingerprint is
+            // stable across the three runs; without this the default 30-day
+            // ingestion filter would drop it before AI ever ran.
+            maxArticleAgeDays: 0,
+            options: { ai_translate: true, ai_translate_language: "German" },
+          })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedId = feed.id;
+      });
+
+      const raw = {
+        name: "Original",
+        identifier: "https://example.com/art-1",
+        raw_content: "",
+        content: "<p>original language</p>",
+        date: new Date("2026-01-01T00:00:00.000Z"),
+      };
+
+      const { BaseAggregator } = await import("@/lib/aggregators/base");
+      class RealAggregator extends BaseAggregator {
+        async fetchSourceData(): Promise<unknown> {
+          return [{ ...raw }];
+        }
+        async parseToRawArticles(sourceData: unknown): Promise<RawArticle[]> {
+          return sourceData as RawArticle[];
+        }
+      }
+
+      const feedRow = client
+        .getDb()
+        .select()
+        .from(schema.feeds)
+        .where(eq(schema.feeds.id, feedId))
+        .get()!;
+      const feedLike = { ...feedRow };
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockImplementation(
+        () =>
+          new RealAggregator(feedLike) as unknown as ReturnType<typeof factory.createAggregator>,
+      );
+
+      // One provider call per article that is actually processed.
+      const aiCalls = vi.fn().mockImplementation(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      title: "Übersetzt",
+                      content: "<p>ursprache</p>",
+                    }),
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      }));
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = aiCalls as unknown as typeof fetch;
+
+      try {
+        const aggregateHandler = handlers.getHandler("aggregate");
+
+        const first = makeJob("aggregate", { feedId });
+        await aggregateHandler!(first);
+
+        expect(aiCalls).toHaveBeenCalledTimes(1);
+        const stored = client
+          .getDb()
+          .select()
+          .from(schema.articles)
+          .where(eq(schema.articles.feedId, feedId))
+          .get();
+        expect(stored!.plainText).toContain("ursprache");
+        // The stored fingerprint is the *pre*-AI one: it matches the source
+        // article, not the translated body that got written. Taken after the
+        // AI call it would never match the feed again and the skip could
+        // never fire.
+        expect(stored!.sourceHash).toBe(sourceFingerprint(raw));
+
+        // Age the row so a rewrite is detectable: `updatedAt` is second
+        // granularity and both runs land in the same second otherwise.
+        client.writeTransaction((db) => {
+          db.run(sql`UPDATE articles SET updated_at = 1000000000 WHERE feed_id = ${feedId}`);
+        });
+
+        const second = makeJob("aggregate", { feedId });
+        await aggregateHandler!(second);
+
+        // The source is byte-identical, so no second provider call.
+        expect(aiCalls).toHaveBeenCalledTimes(1);
+        const after = client
+          .getDb()
+          .select()
+          .from(schema.articles)
+          .where(eq(schema.articles.feedId, feedId))
+          .get();
+        // And the translated article is still there, untouched -- not
+        // overwritten with the original-language text the skip left on the
+        // raw article.
+        expect(after!.plainText).toContain("ursprache");
+        expect(after!.updatedAt.getTime()).toBe(1_000_000_000_000);
+        expect(logLines(second.id)).toContain(
+          "upserted articles: 0 created, 0 updated, 1 unchanged",
+        );
+
+        // A changed source text is processed again, so the skip is a skip and
+        // not a permanent stop.
+        raw.content = "<p>original language, revised</p>";
+        const third = makeJob("aggregate", { feedId });
+        await aggregateHandler!(third);
+        expect(aiCalls).toHaveBeenCalledTimes(2);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     });
   });
 
@@ -1313,7 +1808,7 @@ describe("src/lib/jobs/handlers", () => {
       expect(lines).toEqual(["article not found, skipping"]);
     });
 
-    it("still fetches from source when the article has no previously stored rawContent", async () => {
+    it("always fetches from source rather than trusting anything already stored", async () => {
       vi.resetModules();
       const fetchArticleContent = vi.fn().mockResolvedValue("<p>Fresh from the source</p>");
       vi.doMock("@/lib/aggregators/factory", () => ({
@@ -1346,7 +1841,6 @@ describe("src/lib/jobs/handlers", () => {
             name: "No Content",
             identifier: "https://example.com/art-1",
             feedId: feed.id,
-            rawContent: "",
             date: new Date(),
           })
           .returning({ id: schema.articles.id })
@@ -1368,7 +1862,6 @@ describe("src/lib/jobs/handlers", () => {
         .where(eq(schema.articles.id, articleId))
         .get();
       expect(reloaded?.plainText).toContain("Fresh from the source");
-      expect(reloaded?.rawContent).toBe("<p>Fresh from the source</p>");
     });
 
     it("fails the job when the feed's AI options are configured but AI processing did not complete -- while still keeping the freshly fetched content", async () => {
@@ -1427,7 +1920,6 @@ describe("src/lib/jobs/handlers", () => {
             name: "Has Content",
             identifier: "https://example.com/art-1",
             feedId: feed.id,
-            rawContent: "<p>Stale, previously stored</p>",
             plainText: "stale",
             date: new Date(),
           })
@@ -1449,7 +1941,6 @@ describe("src/lib/jobs/handlers", () => {
           .from(schema.articles)
           .where(eq(schema.articles.id, articleId))
           .get();
-        expect(reloaded?.rawContent).toBe("<p>Fresh from the source</p>");
         expect(reloaded?.plainText).toContain("Fresh from the source");
 
         const lines = logLines(job.id);
@@ -1493,7 +1984,6 @@ describe("src/lib/jobs/handlers", () => {
             name: "Has Content",
             identifier: "https://example.com/art-1",
             feedId: feed.id,
-            rawContent: "<p>Stale, previously stored</p>",
             plainText: "",
             date: new Date(),
           })
@@ -1517,7 +2007,6 @@ describe("src/lib/jobs/handlers", () => {
         .get();
       expect(reloaded?.plainText).toContain("Fresh from the source");
       expect(reloaded?.plainText).not.toContain("Stale, previously stored");
-      expect(reloaded?.rawContent).toBe("<p>Fresh from the source</p>");
 
       const lines = logLines(job.id);
       expect(lines).toContain("reloaded article content");
@@ -1555,7 +2044,6 @@ describe("src/lib/jobs/handlers", () => {
             name: "Has Content",
             identifier: "https://example.com/gone",
             feedId: feed.id,
-            rawContent: "<p>Stale, previously stored</p>",
             plainText: "stale",
             date: new Date(),
           })
@@ -1577,8 +2065,6 @@ describe("src/lib/jobs/handlers", () => {
         .get();
       expect(reloaded?.plainText).toContain("could not be reloaded");
       expect(reloaded?.plainText).toContain("HTTP 404 Not Found");
-      // The stale raw page is left alone -- there is no fresh page to replace it with.
-      expect(reloaded?.rawContent).toBe("<p>Stale, previously stored</p>");
 
       const lines = logLines(job.id);
       expect(lines).toContain("failed to refetch original page: HTTP 404 Not Found");
@@ -1660,16 +2146,6 @@ describe("src/lib/jobs/handlers", () => {
       expect(article!.plainText).toContain("Real article body");
       expect(article!.plainText).not.toContain("Hauptnavigation");
       expect(article!.plainText).not.toContain("Untermenü");
-
-      // articles.rawContent must be the true raw page (nav included), never
-      // the already-distilled `content` -- reload.ts re-runs extractContent()
-      // against whatever is stored here on the assumption that it's a full
-      // page. Storing `content` there instead silently breaks reload: the
-      // site-specific markers extractContent() looks for are already gone,
-      // so it finds no body text and overwrites the article with just its
-      // header image.
-      expect(article!.rawContent).toContain("Hauptnavigation");
-      expect(article!.rawContent).toContain("Real article body");
     });
 
     it("passes the feed owner's real user_settings row into aggregate(), not undefined", async () => {
@@ -1819,7 +2295,6 @@ describe("src/lib/jobs/handlers", () => {
             date: new Date("2024-01-01"),
             // Stale on purpose: reload must not re-parse this, only a freshly
             // re-fetched page.
-            rawContent: "<html><body><article><p>Stale body.</p></article></body></html>",
           })
           .returning({ id: schema.articles.id })
           .get();
@@ -1857,7 +2332,6 @@ describe("src/lib/jobs/handlers", () => {
       expect(article!.plainText).not.toContain("Stale body");
       expect(article!.plainText).not.toContain("Hauptnavigation");
       expect(article!.plainText).not.toContain("Untermenü");
-      expect(article!.rawContent).toBe(freshPage);
     });
   });
 
@@ -1896,7 +2370,6 @@ describe("src/lib/jobs/handlers", () => {
             name: "Video",
             identifier: "https://www.youtube.com/watch?v=abc123",
             feedId,
-            rawContent: "<p>stale</p>",
             date: new Date(),
           })
           .returning({ id: schema.articles.id })
@@ -1972,7 +2445,6 @@ describe("src/lib/jobs/handlers", () => {
             name: "Original Title",
             identifier: "https://example.com/art-1",
             feedId,
-            rawContent: "<p>stale</p>",
             date: new Date(),
           })
           .returning({ id: schema.articles.id })

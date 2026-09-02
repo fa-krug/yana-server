@@ -155,6 +155,37 @@ describe("articles actions", () => {
       expect(updated?.createdAt.getTime()).toBe(originalCreatedAt.getTime());
     });
 
+    /**
+     * **A manual edit stands; it is not reverted by the next aggregation
+     * run.**
+     *
+     * This used to null the row's fingerprint, on the reasoning that `name`
+     * and `date` are fingerprint inputs so the stored hash no longer described
+     * the row -- true when the hash described the stored bytes. It now
+     * fingerprints **the source the row came from**, which a local edit does
+     * not change, so leaving it alone is both correct and what makes the edit
+     * survive. Nulling it made every edit provisional until the next cycle
+     * silently reverted it. Same ruling as a successful `article.reload`.
+     */
+    it("leaves the source fingerprint alone, so aggregation does not revert the edit", async () => {
+      await currentUserId();
+      const feedId = seedFeed();
+      const art = seedArticle(feedId, { sourceHash: "the-source-fingerprint" });
+
+      expect((await actions.updateArticle(art.id, { name: "Edited by hand" })).ok).toBe(true);
+
+      const row = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, art.id))
+        .get()!;
+      expect(row.name).toBe("Edited by hand");
+      // Unchanged: the next aggregation run recomputes this same value from
+      // the unchanged source, matches, and skips the row.
+      expect(row.sourceHash).toBe("the-source-fingerprint");
+    });
+
     it("rejects updating an article owned by another user", async () => {
       await currentUserId();
       const feedId = seedFeed();

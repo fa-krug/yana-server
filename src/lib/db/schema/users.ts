@@ -172,10 +172,6 @@ export const userSettings = sqliteTable(
 
     // --- Global AI tuning (phase 7's advanced section) ---
     aiTemperature: real("ai_temperature").notNull().default(0.3),
-    aiMaxTokens: integer("ai_max_tokens").notNull().default(2000),
-    aiDefaultDailyLimit: integer("ai_default_daily_limit").notNull().default(200),
-    aiDefaultMonthlyLimit: integer("ai_default_monthly_limit").notNull().default(2000),
-    aiMaxPromptLength: integer("ai_max_prompt_length").notNull().default(500),
     aiRequestTimeout: integer("ai_request_timeout").notNull().default(120),
     aiMaxRetries: integer("ai_max_retries").notNull().default(3),
     aiRetryDelay: integer("ai_retry_delay").notNull().default(2),

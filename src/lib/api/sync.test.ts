@@ -269,9 +269,9 @@ describe("sync", () => {
   });
 
   it("selects only the columns the wire format uses", () => {
-    // A bare `db.select()` would pull `rawContent` and `plainText` -- the
-    // largest columns on the table -- off disk for every row in both the
-    // `new` and `updated` streams, only for the serializer to discard them.
+    // A bare `db.select()` would pull `plainText` -- the largest column on
+    // the table -- off disk for every row in both the `new` and `updated`
+    // streams, only for the serializer to discard it.
     // Spy on what the database is actually asked for, rather than asserting
     // on the serializer's output, which would pass even with a bare select.
     client.writeTransaction((tx) =>

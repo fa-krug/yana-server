@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { applyMigrationsAt } from "../db/test-support";
+import { sourceFingerprint } from "./source-fingerprint";
 import { BaseAggregator, FeedLike, RawArticle } from "./base";
 
 class TestAggregator extends BaseAggregator {
@@ -153,6 +154,41 @@ describe("BaseAggregator", () => {
     expect(passedSettings).toBe(mockSettings);
   });
 
+  /**
+   * The outcome of each AI call used to be thrown away here, which left an
+   * article whose translation failed indistinguishable from one that never
+   * asked for a translation -- see `RawArticle.ai_failed_reason` and what
+   * `src/lib/jobs/handlers/aggregate.ts` does with it.
+   */
+  it("marks each article whose configured AI post-processing did not complete", async () => {
+    const feed: FeedLike = {
+      identifier: "https://example.com/rss",
+      dailyLimit: 20,
+      options: { ai_translate: true, ai_translate_language: "German" },
+    };
+
+    // No settings at all, so `applyAiOptions()` fails on `noProvider` before
+    // reaching a network call -- a real failure mode (nobody picked a
+    // provider) and the one that needs no stubbing.
+    const articles = await new TestAggregator(feed).aggregate(undefined, 0, undefined);
+
+    expect(articles).not.toHaveLength(0);
+    for (const article of articles) {
+      expect(article.ai_failed_reason).toBe("noProvider");
+    }
+  });
+
+  it("leaves the mark off when the feed configured no AI options at all", async () => {
+    const feed: FeedLike = { identifier: "https://example.com/rss", dailyLimit: 20, options: {} };
+
+    const articles = await new TestAggregator(feed).aggregate(undefined, 0, undefined);
+
+    expect(articles).not.toHaveLength(0);
+    for (const article of articles) {
+      expect(article.ai_failed_reason).toBeUndefined();
+    }
+  });
+
   it("reports coarse progress after each pipeline stage, in increasing order", async () => {
     const feed: FeedLike = { identifier: "https://example.com/rss", dailyLimit: 20 };
     const agg = new TestAggregator(feed);
@@ -263,6 +299,140 @@ describe("BaseAggregator", () => {
 
       const labels = await agg.chromeLabelsForTest();
       expect(labels.comments).toBe("Comments");
+    });
+
+    /**
+     * **The AI call is skipped when the source has not moved.**
+     *
+     * AI post-processing runs before the handler compares anything, so the
+     * handler's unchanged-skip never saved the provider call: a feed with
+     * translation on re-translated its whole window every cycle -- 480-960
+     * calls a day for one feed at the default interval. `articles.sourceHash`
+     * is the pre-AI fingerprint that makes the question answerable here.
+     */
+    describe("applyAiProcessing's source-fingerprint skip", () => {
+      const ARTICLE = {
+        name: "Original",
+        identifier: "https://example.com/1",
+        raw_content: "",
+        content: "<p>original language</p>",
+        date: new Date("2026-01-01T00:00:00.000Z"),
+      };
+
+      /** A feed with AI options, and the article already stored against it. */
+      function seed(sourceHash: string | null): FeedLike {
+        let feedId = 0;
+        client.writeTransaction((db) => {
+          // Tolerant of a second call in the same test: `users.email` is
+          // unique, and one case seeds twice to compare a skipped article
+          // with a processed one.
+          db.insert(schema.users)
+            .values({ id: "u1", email: "u1@example.com" })
+            .onConflictDoNothing()
+            .run();
+          const feed = db
+            .insert(schema.feeds)
+            .values({ name: "Feed", userId: "u1" })
+            .returning({ id: schema.feeds.id })
+            .get();
+          feedId = feed.id;
+          db.insert(schema.articles)
+            .values({
+              feedId,
+              name: "Übersetzt",
+              identifier: ARTICLE.identifier,
+              plainText: "ursprache",
+              date: ARTICLE.date,
+              sourceHash,
+            })
+            .run();
+        });
+        return {
+          id: feedId,
+          identifier: "https://example.com/rss",
+          dailyLimit: 20,
+          userId: "u1",
+          options: { ai_translate: true, ai_translate_language: "German" },
+        };
+      }
+
+      /**
+       * Runs the pipeline with no provider reachable, so a call that *is* made
+       * shows up as `ai_failed_reason` -- there is no active provider in these
+       * settings. Skipped articles come back with neither that nor a rewrite.
+       */
+      async function run(feed: FeedLike) {
+        const agg = makeAggregator(feed);
+        return agg.finalizeArticles([{ ...ARTICLE }], undefined);
+      }
+
+      it("skips an article whose stored sourceHash still matches", async () => {
+        const fingerprint = sourceFingerprint(ARTICLE);
+        const [article] = await run(seed(fingerprint));
+
+        expect(article.source_unchanged).toBe(true);
+        // No provider was reached, so nothing failed and nothing was rewritten.
+        expect(article.ai_failed_reason).toBeUndefined();
+        expect(article.content).toBe(ARTICLE.content);
+      });
+
+      it("processes an article whose source text changed", async () => {
+        const [article] = await run(seed(sourceFingerprint({ ...ARTICLE, name: "Older" })));
+
+        expect(article.source_unchanged).toBeUndefined();
+        expect(article.ai_failed_reason).toBe("noProvider");
+      });
+
+      /**
+       * A null fingerprint means "needs work" -- the row was never completed
+       * (a failed reload's error notice, an AI pass that didn't finish, a row
+       * predating the column). It must be reprocessed even though the source
+       * it came from has not moved, which is the bug the reload-error-notice
+       * case in `handlers.test.ts` exists to catch.
+       */
+      it("processes an article whose stored fingerprint is null", async () => {
+        const [article] = await run(seed(null));
+
+        expect(article.source_unchanged).toBeUndefined();
+        expect(article.ai_failed_reason).toBe("noProvider");
+      });
+
+      it("processes everything for a feed it has never stored an article for", async () => {
+        const feed = seed(sourceFingerprint(ARTICLE));
+        const [article] = await run({ ...feed, id: (feed.id as number) + 1 });
+
+        expect(article.source_unchanged).toBeUndefined();
+      });
+
+      /**
+       * A feed can carry options that ask for no AI at all -- a header image
+       * toggled off, comments turned on. Such a feed must keep the
+       * pre-`sourceHash` behaviour exactly: there is no provider call to save,
+       * and the handler applies the identical comparison anyway. Fingerprinting
+       * it here would trade nothing for a second skip path.
+       */
+      it("does not fingerprint or skip a feed whose options ask for no AI", async () => {
+        const feed = seed(sourceFingerprint(ARTICLE));
+        const [article] = await run({ ...feed, options: { include_header_image: false } });
+
+        expect(article.source_unchanged).toBeUndefined();
+        expect(article.source_hash).toBeUndefined();
+      });
+
+      it("hands the handler the pre-AI fingerprint on every article, skipped or not", async () => {
+        const fingerprint = sourceFingerprint(ARTICLE);
+
+        const [skipped] = await run(seed(fingerprint));
+        expect(skipped.source_hash).toBe(fingerprint);
+
+        client.writeTransaction((db) => {
+          db.delete(schema.articles).run();
+        });
+        const [processed] = await run(seed(null));
+        // Taken *before* the AI call, so it is the source's fingerprint even
+        // on an article a provider would have rewritten.
+        expect(processed.source_hash).toBe(fingerprint);
+      });
     });
   });
 });

@@ -117,7 +117,6 @@ describe("articles queries", () => {
           date: new Date(),
           feedId,
           plainText: "Full plain text body content",
-          rawContent: "<p>Full plain text body content</p>",
           ...overrides,
         })
         .returning()
@@ -178,9 +177,8 @@ describe("articles queries", () => {
         feedName: "Tech Blog",
         feedId,
       });
-      // Verify plainText and rawContent are omitted from row
+      // Verify plainText is omitted from the row
       expect(result.rows[0]).not.toHaveProperty("plainText");
-      expect(result.rows[0]).not.toHaveProperty("rawContent");
     });
 
     it("searches name and plainText", async () => {
@@ -283,7 +281,7 @@ describe("articles queries", () => {
       const before = ftsIndexFingerprint(connection);
 
       // `read`/`starred` flips (bulk "mark all read" writes thousands at a
-      // time) and the aggregate handler's separate `contentHash` write are the
+      // time) and the aggregate handler's separate `sourceHash` write are the
       // two paths that would otherwise re-tokenize a whole body for nothing.
       // Without the AFTER UPDATE trigger's WHEN guard each of these writes a
       // 'delete' plus a reinsert into the index; with it, the index is not
@@ -298,7 +296,7 @@ describe("articles queries", () => {
 
       client.writeTransaction((tx) => {
         tx.update(schema.articles)
-          .set({ contentHash: null })
+          .set({ sourceHash: null })
           .where(eq(schema.articles.id, article.id))
           .run();
       });

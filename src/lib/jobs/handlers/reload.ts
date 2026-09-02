@@ -23,10 +23,10 @@ function buildErrorBlocks(message: string): Block[] {
 /**
  * Reload re-fetches the article from source through the same
  * `fetchArticleContent()` a fresh aggregation run would call, then re-runs
- * `extractContent()`/`processContent()` on that fresh result -- not on the
- * previously stored `rawContent`, which is exactly the stale copy the user
- * is asking to be replaced. This always calls `fetchArticleContent()`,
- * regardless of whether the article already has a stored `rawContent`.
+ * `extractContent()`/`processContent()` on that fresh result. It always calls
+ * `fetchArticleContent()` -- it never read a stored copy of the page, which
+ * is why the `articles.raw_content` column that held one turned out to have
+ * no readers at all and was dropped.
  * What "source" means depends on the aggregator: a full-page aggregator
  * (`FullWebsiteAggregator` and its site-specific subclasses -- Heise,
  * Tagesschau, ...) refetches the article's own page; a plain RSS/"Feed
@@ -38,12 +38,20 @@ function buildErrorBlocks(message: string): Block[] {
  * gone, or the entry aged out of the feed) and lands in the error-notice
  * branch below.
  *
+ * **A successful reload is authoritative**: the row keeps the fingerprints the
+ * aggregator wrote, so the next aggregation run recognises the source as
+ * unchanged and leaves the reloaded article alone. See the long comment on the
+ * `sourceHash` line below -- it used to be nulled here, which made every
+ * reload provisional until the next cycle overwrote it.
+ *
  * When the source page can no longer be fetched (removed, gone offline,
  * ...), the article's content is replaced with a short error notice instead:
  * leaving the old content in place would look like the reload succeeded, and
  * retrying the job would not help with a deterministic failure
  * (fetchArticleContent already exhausts its own retry budget for transient
- * ones).
+ * ones). **That** branch does null `sourceHash`, and must: an error notice is
+ * not a completed article, and the next aggregation run replacing it with the
+ * real one is the only thing that heals it.
  *
  * The feed is run through `resolveFeedCredentials()` before
  * `createAggregator()`, the same as `aggregate.ts` and `logo.ts` -- without it
@@ -60,15 +68,10 @@ function buildErrorBlocks(message: string): Block[] {
  * to see. A translated title is written back too, since that is a field
  * `applyAiOptions()` can change.
  *
- * Two things distinguish this call from `aggregate.ts`'s equivalent one:
- *
- * `bypassUsageLimit: true` -- a reload is a single, deliberate action an
- * operator just asked for, not the unattended bulk processing the daily/
- * monthly AI request caps exist to bound; see the doc comment on
- * `AIClient.generateResponse()`. It is deliberately *not* threaded into
- * `enrichArticles()`/`finalizeArticles()` on the aggregation path, which can
- * process many articles in one run and is exactly the case those caps are
- * for.
+ * It is the same call `aggregate.ts` makes, with no per-user budget to opt
+ * out of any more: the `bypassUsageLimit: true` this used to pass existed only
+ * so a deliberate one-off reload would not spend the daily/monthly AI request
+ * caps that unattended aggregation relied on, and both caps are gone.
  *
  * The fresh content is still written to the article even when AI processing
  * fails (translating/summarizing it is a bonus on top of a real refetch, not
@@ -122,14 +125,14 @@ export async function handleReloadJob(job: Job): Promise<void> {
     await writeBlocks(article.id, blocks);
     writeTransaction((tx) => {
       tx.update(articles)
-        // `contentHash: null` is mandatory, not tidiness: this row's content is
-        // now an error notice, which the stored fingerprint no longer
-        // describes. Left in place, the next aggregation run would compare the
-        // feed's unchanged article against a hash that still matches, skip it,
-        // and leave this notice standing *permanently* -- where it used to be
-        // replaced by the real article on the very next cycle. See the
-        // `contentHash` comment in `@/lib/db/schema/articles`.
-        .set({ plainText, contentHash: null, updatedAt: new Date() })
+        // `sourceHash: null` is mandatory, not tidiness: this row is now an
+        // error notice, which is not a complete rendering of anything. Left in
+        // place, the next aggregation run would compare the feed's unchanged
+        // article against a fingerprint that still matches, skip it, and leave
+        // this notice standing *permanently*. Nulling it is the only thing
+        // that heals the article on the next cycle. See
+        // `articles.sourceHash`.
+        .set({ plainText, sourceHash: null, updatedAt: new Date() })
         .where(eq(articles.id, article.id))
         .run();
     });
@@ -155,13 +158,7 @@ export async function handleReloadJob(job: Job): Promise<void> {
     appendLogLine(job.id, "stdout", "extracted content is empty");
   }
 
-  const aiOutcome = await applyAiOptions(
-    rawArticle,
-    feed.options,
-    settings,
-    aggregator.onLog,
-    true, // bypassUsageLimit -- see the doc comment above.
-  );
+  const aiOutcome = await applyAiOptions(rawArticle, feed.options, settings, aggregator.onLog);
 
   const processed = await aggregator.processContent(rawArticle.content || "", rawArticle);
 
@@ -174,16 +171,32 @@ export async function handleReloadJob(job: Job): Promise<void> {
     tx.update(articles)
       .set({
         name: rawArticle.name || article.name,
-        rawContent: freshHtml,
         plainText,
-        // Same reason as the failed-refetch branch above: reload has just
-        // rewritten the name, the raw page and the whole block tree, so the
-        // stored fingerprint describes content that no longer exists. Null it
-        // rather than recompute it -- reload's inputs are not the aggregator's
-        // (AI post-processing may have rewritten the name and body), so the
-        // honest answer is "unknown", which makes the next aggregation run
-        // re-derive it.
-        contentHash: null,
+        /**
+         * **`sourceHash` is deliberately not written here.**
+         *
+         * This used to null it (as `contentHash`) on the reasoning that
+         * reload's inputs are not the aggregator's, so the honest answer was
+         * "unknown". The consequence was that a reload was *provisional*: the
+         * next cycle re-derived the article from the feed and threw away what
+         * an operator had just deliberately asked for. A manual reload is the
+         * one place a human says "redo this article now" -- it has to win.
+         *
+         * Leaving the stored value is what makes it win, and it stays correct
+         * in both directions, because the fingerprint describes **the source
+         * this row came from** rather than the bytes now stored: while the
+         * source is unchanged the next run computes the same value, matches,
+         * and skips -- and when the source *does* change the values no longer
+         * match, aggregation reprocesses, and the fresh upstream article
+         * correctly replaces the reloaded one.
+         *
+         * The one case a reload cannot make stick is a row whose fingerprint
+         * is already null -- never aggregated, or left null by a previous
+         * failure. Reload cannot fill it in: the value has to be one the
+         * *aggregator* would compute, over the feed's own article rather than
+         * the page reload fetched, and it has no way to know it. Such a row is
+         * reprocessed once and settles after that.
+         */
         updatedAt: new Date(),
       })
       .where(eq(articles.id, article.id))

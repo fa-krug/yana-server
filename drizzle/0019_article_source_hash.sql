@@ -1,0 +1,1 @@
+ALTER TABLE `articles` ADD `source_hash` text;

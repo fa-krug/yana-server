@@ -38,7 +38,7 @@ behavior ever needs to be reconstructed.
 │   │       ├── account/page.tsx   # /account — profile, password, passkeys
 │   │       ├── integrations/page.tsx # /integrations — YouTube + Reddit credentials
 │   │       ├── ai/page.tsx        # /ai — the active AI provider, its credentials,
-│   │       │                      #   and the nine global tuning values
+│   │       │                      #   and the five global tuning values
 │   │       ├── settings/page.tsx
 │   │       └── users/             # admin-only. page.tsx (list), new/, [id]/ (edit +
 │   │                              #   delete); each awaits requireAdmin() first
@@ -56,7 +56,7 @@ behavior ever needs to be reconstructed.
 │   │   │                           #   binding of ../section-kit.tsx
 │   │   ├── ai/                     # provider-section.tsx (the picker + one
 │   │   │                           #   provider's credentials), advanced-section.tsx
-│   │   │                           #   (the nine numbers, saved as one unit) and
+│   │   │                           #   (the five numbers, saved as one unit) and
 │   │   │                           #   section-parts.tsx — the `ai` binding of
 │   │   │                           #   ../section-kit.tsx
 │   │   ├── users/                  # the kit, wired to users: users-table.tsx,
@@ -116,7 +116,7 @@ behavior ever needs to be reconstructed.
 │   │   │                          #   actions.ts (the two declarations + the exports),
 │   │   │                          #   result.ts (attempt() binding + SaveResult)
 │   │   ├── ai/                    # providers.ts (client-safe registry — imports
-│   │   │                          #   nothing), bounds.ts (the nine tuning bounds,
+│   │   │                          #   nothing), bounds.ts (the five tuning bounds,
 │   │   │                          #   read by the form and the schema — likewise),
 │   │   │                          #   columns.ts (provider -> columns, and
 │   │   │                          #   resolveModel()'s hasDynamicModels split),
@@ -125,7 +125,7 @@ behavior ever needs to be reconstructed.
 │   │   │                          #   SERVER-ONLY by lint rule), queries.ts
 │   │   │                          #   (SERVER-ONLY, masked only), actions.ts (seven
 │   │   │                          #   defineIntegration() declarations, the active
-│   │   │                          #   provider, the nine tuning values,
+│   │   │                          #   provider, the five tuning values,
 │   │   │                          #   listOpenrouterModels()), result.ts
 │   │   ├── users/                 # fields.ts (client-safe constants — imports only
 │   │   │                          #   auth/roles), queries.ts (SERVER-ONLY reads),
@@ -636,42 +636,120 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   Unlike `updateIntervalMinutes`/`concurrency`, there's no per-aggregator
   recommendation in `specs.ts` — every aggregator starts at the same flat
   `30`, freely editable per feed afterward.
-- **An aggregated article is only rewritten when its content actually changed**,
-  decided by `articles.contentHash` (`articleContentHash()` in
-  `src/lib/aggregators/content-hash.ts`). Three things about that hash are
+- **An aggregated article is only rewritten when the source it came from
+  actually changed**, decided by the one fingerprint on the row —
+  `articles.sourceHash`, from `sourceFingerprint()` in
+  `src/lib/aggregators/source-fingerprint.ts`. Three things about that hash are
   load-bearing and each was a real trap: it covers the feed's **own** `date`,
   never the stored one, because the handler's `raw.date || new Date()` fallback
   would otherwise make an undated feed re-hash on every run and never settle
   (which is why the update branch writes `rawDate ?? existing.date` rather than
-  re-stamping `new Date()` — the column and the hash have to agree); it covers
-  **both** `content || raw_content` (what the blocks are parsed from) and
-  `raw_content || content` (what the column stores), which are two different
-  expressions over the same item; and it is written **last**, in its own
+  re-stamping `new Date()` — the column and the hash have to agree); **a
+  comment is not the article, so neither the rendered comment section nor the
+  raw page is an input** (next paragraph); and it is written **last**, in its own
   transaction after `writeBlocks()`, so a stored hash means the row _and_ its
-  block tree are current, and a crash anywhere above leaves it stale or null so
-  the next run redoes the work. The payoff is not only local I/O:
+  block tree are a complete rendering of that source, and a crash anywhere
+  above leaves it null so the next run redoes the work. The payoff is not only local I/O:
   `articles.updatedAt` carries `$onUpdate`, so an unconditional rewrite put
   every unchanged article back into `/api/v1`'s sync `updated` stream on every
   aggregation cycle. A `null` hash means "changed" — every row predating the
   column settles after one pass, and no backfill exists.
 
-  **The invariant binds every writer, not just the aggregator: anything that
-  changes an article's content must set `contentHash` to null** (or recompute
-  it). A stale hash does not merely go out of date — it makes the aggregate
-  handler skip that row _forever_, because the hash it computes from the
-  unchanged feed item keeps matching. Two writers learned this in review and now
-  null it explicitly: `src/lib/jobs/handlers/reload.ts` in **both** branches — a
-  _failed_ reload writes an error notice, which without this would have been
-  permanent, where it used to be replaced by the real article on the very next
-  cycle — and `updateArticle()` in `src/lib/articles/actions.ts`, which writes
-  `name` and `date` (both fingerprint inputs) and `feedId` (half the key the
-  handler looks a row up by). Writers that only flip `read`/`starred` must leave
-  it alone: nothing about the content changed, and nulling it would force a
-  pointless full rewrite on the next cycle. The same trap waits for **any future
-  change to `parseBlocks`/`plainTextOf`** — existing articles would never be
-  re-parsed, where they used to be re-derived every cycle. The full statement is
-  the `contentHash` comment in `src/lib/db/schema/articles.ts`; this is its
-  summary, not a second version of it.
+  **A comment changing is not the article changing, and two exclusions are
+  needed to mean it.** `formatArticleContent()`
+  (`src/lib/aggregators/extract/format.ts`) renders comments into the same body
+  the block tree is parsed from, so a busy thread used to rewrite the row on
+  every cycle — re-running whatever AI the feed configured, and pushing the
+  article back into `/api/v1`'s sync `updated` stream — for text nobody edited.
+  So the fingerprint strips that section — matched with
+  **`ARTICLE_COMMENTS_CLASS`, exported from
+  `src/lib/aggregators/extract/format.ts` and imported by the fingerprint, so
+  the wrapper is defined once rather than written in one file and restated in
+  the other** — **and ignores the raw page entirely**: `mactechnews`,
+  `mein_mmo` and `heise` scrape their comments out of the very page they
+  fetched, so hashing it would let a comment rewrite the article through the
+  back door. That exclusion is also what exposed the old
+  `articles.raw_content` column as dead weight and got it dropped (see the note
+  on the `articles` table): nothing read it, and once it was not a fingerprint
+  input, nothing about a row depended on it being current either. Three
+  details:
+  - **The wrapper has one definition, and a test drives real
+    `formatArticleContent()` output through the fingerprint.** Renaming the
+    value would otherwise silently stop the stripping and restart the
+    rewrite-per-comment loop with nothing failing.
+  - **The strip is parsed, not string-cut.** `sanitizeClassNames()` rewrites
+    every `class` into `data-sanitized-class`, so a source page carrying
+    `class="article-comments"` reaches the fingerprint looking like our own
+    wrapper; matching element _and_ attribute through cheerio is narrow enough
+    to be safe, where cutting at the marker would truncate real content. Only a
+    `<section>` is stripped — a same-named `<div>` in the body is still the
+    article.
+  - **Both paths `.trim()`.** `formatArticleContent()` joins sections with
+    `\n\n`, so removing the last one leaves that separator dangling, and a body
+    plus trailing whitespace does not hash to the same value as the same body
+    without it — which is exactly the case the exclusion exists to make equal.
+  - **It governs what _triggers_ a rewrite, not what gets stored.** When the
+    article's own content does change, the current comment section rides along
+    into the row as before.
+
+  **One column, one rule: an article needs work unless its stored fingerprint
+  equals the one the source produces now** — and null means "needs work", which
+  is how the column carries completeness as well as identity. It replaced a
+  pair. `contentHash` was the post-AI fingerprint and `sourceHash` the pre-AI
+  one; between them they held one fact (the fingerprint of the source a row was
+  derived from) and one bit (whether the row was finished), which one nullable
+  column expresses without the `contentHash` name quietly lying — it had not
+  described the stored content since the comment and raw-page exclusions above.
+  Two readers apply the rule at different costs: `applyAiProcessing()` first, to
+  decide whether to call an AI provider at all, and the aggregate handler again,
+  to decide whether to rewrite the row. For a feed with no AI options the
+  handler's is the only one that runs, and it takes the fingerprint itself
+  (`raw.source_hash ?? sourceFingerprint(raw)`) because nothing rewrote the
+  article; for a feed with AI options it **must** use the value the aggregator
+  handed over, since by then AI has rewritten `name` and `content` in place and
+  recomputing would fingerprint the output.
+
+  **It is written _last_, after `writeBlocks()`**, so a crash anywhere above
+  leaves it null and the next run redoes the work rather than trusting a
+  fingerprint for a half-written row. The handler withholds it deliberately for
+  the same reason when a feed's configured AI pass did not complete (see the
+  `ai_failed_reason` bullet under `/ai`), and a **failed** reload nulls it,
+  because an error notice is not a complete rendering of anything and the next
+  cycle replacing it is the only thing that heals it.
+
+  **Because it fingerprints the source rather than the stored bytes, a
+  deliberate local change sticks.** A successful `article.reload` and
+  `updateArticle()` (a manual edit) both rewrite the row and both leave the
+  column alone: the source has not moved, so the next run matches, skips, and
+  the human's version stands — while a genuine upstream edit still moves the
+  fingerprint and correctly replaces it. Both writers used to null it, which
+  made every manual action provisional until the next cycle discarded it. The
+  one case a reload cannot make stick is a row whose fingerprint is already
+  null: the value has to be one the _aggregator_ would compute, over the feed's
+  own article rather than the page reload fetched, and reload cannot know it —
+  so such a row is reprocessed once and settles.
+
+  **`articles.raw_content` is gone, and finding that out was a consequence of
+  the exclusion above.** It held the whole fetched page, justified as "the
+  debugging surface, and what the reload action re-runs against" — the second
+  half was never true (`article.reload` always re-fetches the page itself; that
+  is the whole point of a reload), and once the page stopped being a
+  fingerprint input, nothing about a row depended on it being current either.
+  It was written on every aggregation run and read by **nothing**. Worse than
+  free to keep: `getArticle()` selects the whole row and hands it to
+  `<ArticleForm>`, a Client Component, so a full HTML page was serialized into
+  the RSC payload of every `/articles/[id]` view. `raw_content` on the
+  in-memory `RawArticle` stays — aggregators pass the fetched page between
+  their own stages through it, and it is still the fallback for the block
+  source when an aggregator distilled no `content`.
+
+  Writers that only flip `read`/`starred` touch it at all. The trap that
+  remains is **any future change to `parseBlocks`/`plainTextOf`**: existing
+  articles would never be re-parsed, because their sources have not moved —
+  that needs a deliberate one-off `UPDATE articles SET source_hash = NULL`. The
+  full statement is the `sourceHash` comment in
+  `src/lib/db/schema/articles.ts`; this is its summary, not a second version of
+  it.
 
 - **Article search goes through the `articles_fts` FTS5 external-content table,
   via `toFtsQuery()`** (`src/lib/articles/search-query.ts`). It replaced a
@@ -1542,60 +1620,185 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   stored value is still not trusted and still falls back to the default, the
   same as every other provider's unconfigured case.
 
-- **`aiDefaultDailyLimit`/`aiDefaultMonthlyLimit` went from decorative to
-  enforced, at one chokepoint.** Both settings have existed among the nine
-  tuning values (with bounds in `src/lib/ai/bounds.ts`) since phase 7, but
-  nothing read them until the same 2026-08-04 plan added a new table,
-  **`ai_requests`** (`src/lib/db/schema/ai.ts` — one row per attempted call,
-  `(userId, createdAt)` indexed), and **`checkAndRecordAiUsage()`**
-  (`src/lib/ai/usage.ts`). Neither `old/core/ai_client.py` nor yana-ios ever
-  enforced these limits — confirmed by reading both — so there was no oracle
-  to port from; this is new behaviour, not a port. It is called once, inside
-  **`AIClient.generateResponse()`** (`src/lib/ai/run.ts`), before any outbound
-  provider call — the same chokepoint `applyAiOptions()` (the background
-  AI-post-processing path that has no live caller yet) already runs through,
-  so wiring that path up later inherits enforcement for free rather than
-  needing its own check. Three facts a caller cannot get right by guessing:
-  **usage is recorded for every attempted call, not only successful ones** —
-  the setting is documented as the most AI requests Yana makes, which is about
-  outbound calls, and counting only successes would let a provider outage or a
-  string of 500s bypass the limit entirely; **reset windows are calendar UTC
-  day/month**, not a rolling window, matching this repo's existing
-  `timeZone: "UTC"` convention, and `checkAndRecordAiUsage()` opportunistically
-  deletes a user's rows older than the start of the current UTC month on every
-  call (the daily window is a subset of the monthly one, so nothing needs a row
-  older than that, and no separate cleanup job exists); and the read-then-write
-  is **atomic under the caller's own `writeTransaction()`** (`BEGIN IMMEDIATE`),
-  the same ordering guarantee `setActiveProvider()` already relies on, so two
-  concurrent calls from the same user cannot both read "one under the limit"
-  and both proceed. `generateResponse()`'s return type changed from
-  `string | null` to `AiGenerationResult` —
+- **No provider is sent an output cap, and the `ai_max_tokens` setting that
+  used to supply one is gone — column, bound, form field and catalog keys.**
+  It is the reason there were permanently untranslated articles.
+  `applyAiOptions()` (`src/lib/ai/run.ts`) asks a provider to return the
+  _whole_ article back, translated or rewritten, as a JSON string, so the
+  output is as long as the input — but the request carried the global
+  `ai_max_tokens` (default `2000`, a number sized for summaries). Any article
+  past a few thousand characters came back truncated: a 200 with a cut-off
+  JSON string, which the parse rejected, after which the original untranslated
+  content was kept and stored. Deterministic per article — the same long
+  article failed on _every_ run — and roughly half the articles in this
+  repository's own development database are over 4 000 characters of plain
+  text before HTML and JSON escaping. With Gemini it was worse than
+  truncation: a thinking model spends thinking tokens from the same budget, so
+  the cap could produce `finishReason: "MAX_TOKENS"` with no parts at all.
+  The tuning values are **eight**, not nine, everywhere they are counted
+  (`AI_ADVANCED_FIELDS` in `src/lib/ai/bounds.ts` is the single source both the
+  form and the zod schema derive from, so removing the entry was most of the
+  work). **`anthropicMaxOutputTokens()` in `src/lib/ai/providers.ts` is the one
+  exception and it is not a reinstatement**: Anthropic's Messages API _requires_
+  `max_tokens`, so that branch alone cannot omit the field and asks for the
+  model's own documented ceiling instead — the same "no operator cap" outcome
+  spelled out as a number. Its fallback for an id the registry no longer lists
+  is the **smallest** ceiling, not the largest, because overshooting is a 400
+  while undershooting is merely a shorter answer. What bounds a runaway call is
+  `aiRequestTimeout`, which stays.
+
+- **An article whose configured AI post-processing did not run must not be
+  stamped with a fingerprint, and the job must not report success.** The
+  second half of the same defect. `applyAiProcessing()`
+  (`src/lib/aggregators/base.ts`) discarded the `ApplyAiOutcome` it already
+  had, so an article whose translation failed was indistinguishable to
+  `aggregate.ts` from one that never asked for a translation: it was saved
+  untranslated, fingerprinted as current, and skipped by every later run —
+  because the next run computes the identical hash from the identical
+  unchanged feed item. Permanent, and behind a green job. Three parts now, and
+  they belong together:
+  - **`RawArticle.ai_failed_reason`** carries the failure from
+    `applyAiProcessing()` to the handler. It is the whole reason the outcome is
+    read rather than dropped.
+  - **`aggregate.ts` withholds the hash** for those rows (the `!aiIncomplete`
+    guard on the final `sourceHash` write — the same rule as the
+    "written last" one it sits beside, one step further out) and **leaves an
+    article it already has alone entirely** rather than updating it. That
+    second half is not tidiness: the stored version may be the _AI-processed_
+    one, which is exactly why its hash did not match and why the row reached
+    the write at all — rewriting it with this run's untranslated content would
+    downgrade a good article over a transient provider error. The next run
+    fixes it, because the withheld/stale hash still does not match.
+  - **The job then throws**, after everything is committed, for `reload.ts`'s
+    stated reason — a feed configured to translate every article that quietly
+    keeps serving the original language, while every job shows green, is a
+    failure an operator has no way to notice. It is also what puts the run in
+    `notifyJobFailure()`'s path.
+
+- **Yana enforces no AI limits of its own — no call budget, no prompt-length
+  cap.** The 2026-08-04 plan added `aiDefaultDailyLimit` (200/day) and
+  `aiDefaultMonthlyLimit` (2000/month), enforced by `checkAndRecordAiUsage()`
+  against an `ai_requests` table (one row per attempted call), plus
+  `aiMaxPromptLength` (500 characters) on `POST /api/v1/ai/prompt`. **All of
+  it is gone**: the three columns, the table, `src/lib/ai/usage.ts`, the two
+  `AiGenerationResult` reasons, the two API error codes, and the
+  `bypassUsageLimit` escape hatch a user-triggered reload needed in order not
+  to spend the same budget unattended aggregation relied on.
+
+  **The reason is arithmetic, not taste.** AI post-processing runs inside
+  `aggregate()` (`src/lib/aggregators/base.ts`), which finishes _before_
+  `aggregate.ts` compares any hash — so the unchanged-skip saves the database
+  write but not the AI call, and a feed re-translates its whole window on
+  every cycle. At the defaults (a 30-minute interval, ~10–20 articles per run
+  from `getCurrentRunLimit()`) that is 480–960 calls per day **for a single
+  feed**, against an account-wide cap of 200. The cap was therefore exhausted
+  within the first half-hour of each UTC day and everything after it stored
+  untranslated — a bigger cause of the untranslated articles this branch set
+  out to fix than the output cap was. A limit that a correct configuration
+  cannot stay under is not a safety net.
+
+  What still bounds a call: `aiRequestTimeout` (per request),
+  `aiMaxRetries`/`aiRetryDelay`/`aiMaxRetryTime` (per failure), and
+  `aiRequestDelay` between articles. What bounds spend is the provider's own
+  quota, which arrives as a 429 and surfaces as `providerError` —
+  `applyAiOptions()` reports it, the aggregate job fails on it, and the
+  article keeps no fingerprint, so it is retried rather than lost. **The
+  re-processing that made the budget unreachable is fixed separately** — see
+  the `articles.sourceHash` bullet below.
+
+  `generateResponse()` still returns `AiGenerationResult` —
   `{ ok: true; text } | { ok: false; reason }`, `reason` one of `noProvider` /
-  `dailyLimitExceeded` / `monthlyLimitExceeded` / `providerUnauthorized` /
-  `providerError` — so a caller can tell a rate limit from a provider failure
-  instead of both collapsing to `null`. **`providerUnauthorized` is a fourth
-  reason, added with OpenRouter rather than by the 2026-08-04 plan**: it is
-  thrown as `ProviderUnauthorizedError` (`src/lib/ai/run.ts`) from
-  `requestWithRetry()` on a 401 or 403 from the provider — the credential
-  itself was rejected, not a transient failure — and caught in
-  `generateResponse()`'s own catch, distinctly from every other failure, which
-  still collapses to the generic `providerError`. The distinction exists for
-  the same reason `/ai`'s own probes separate `rejected` from `unreachable`/
-  `unexpected`: "your key is wrong" and "something went wrong" want different
-  advice, and a native client polling this reason can tell someone to fix
-  their OpenRouter key rather than just retry.
+  `providerUnauthorized` / `providerError` — because the distinction it was
+  built for outlives the limits. **`providerUnauthorized`** is thrown as
+  `ProviderUnauthorizedError` (`src/lib/ai/run.ts`) from `requestWithRetry()`
+  on a 401 or 403 — the credential itself was rejected, not a transient
+  failure — and caught distinctly from every other failure, which still
+  collapses to `providerError`. Same reason `/ai`'s probes separate `rejected`
+  from `unreachable`/`unexpected`: "your key is wrong" and "something went
+  wrong" want different advice, and a native client can tell someone to fix
+  their key rather than just retry.
+
+- **`articles.sourceHash` being the _pre_-AI fingerprint is what stops a feed
+  re-translating its whole window every cycle.** AI post-processing runs inside
+  `aggregate()` (`src/lib/aggregators/base.ts`), which finishes _before_
+  `aggregate.ts` compares anything — so the handler's unchanged-skip saved the
+  database write but never the provider call. A post-AI fingerprint (which is
+  what the retired `contentHash` was) cannot answer the question either: a
+  translated article never matches the feed's own text, which is exactly why
+  the row reached the write at all. The result was 480–960 provider calls a day
+  for a single feed at the default 30-minute interval, nearly all of them
+  reproducing a translation already in the database.
+
+  `applyAiProcessing()` now fingerprints each article **before** any AI call
+  (`sourceFingerprint()` in `src/lib/aggregators/source-fingerprint.ts`) and
+  skips the provider when the stored fingerprint still matches. Four things
+  hold it together, and none is optional:
+  - **A null fingerprint is never a match.** It means the row was never
+    completed — a failed reload's error notice, an AI pass that didn't finish,
+    a row predating the column — and such a row must be reprocessed even
+    though the source it came from has not moved. Treating null as "unchanged"
+    would make every one of those states permanent, which is precisely the bug
+    the reload-error-notice case exists to catch.
+  - **A skip is also a no-write.** `RawArticle.source_unchanged` makes the
+    handler `continue` before it hashes or reads anything: `raw.content` at
+    that point is the _un_-processed text, so writing the row would replace the
+    translated article with its original. Same hazard as the
+    `ai_failed_reason` leave-alone branch, same answer.
+  - **One fingerprint function, two call sites.** Both the aggregator and the
+    handler go through `sourceFingerprint()`. Two hand-built objects would
+    be two chances to express `content || raw_content` differently, and that
+    mismatch is invisible — the values simply stop agreeing and every article
+    looks changed forever.
+  - **The handler cannot recompute the pre-AI value**, which is why the
+    aggregator hands it over on `RawArticle.source_hash`. By the time the
+    handler sees the article, AI has rewritten `name` and `content` in place.
+    For a feed with no AI options `applyAiProcessing()` returns before
+    fingerprinting, so the handler takes it itself — correct, because with
+    nothing rewriting the article the pre- and post-processing values are the
+    same.
+
+  It needs `feed.id`, which is why `FeedLike` now declares one. A `FeedLike`
+  built ad hoc (a test fixture, the feed form's preview) has none, and then
+  nothing is skipped and every article is processed — the old behaviour, which
+  is correct, just not free.
+
+  **The skip applies only to a feed whose options actually ask for AI**, which
+  is why `aiOptionsEnabled()` is exported from `src/lib/ai/run.ts` and read by
+  both `applyAiOptions()` and `applyAiProcessing()` rather than being asked
+  twice. A feed carrying options that request no AI (a header image toggled
+  off, comments turned on) is left on the pre-`sourceHash` path — no
+  fingerprint taken in the aggregator, no skip there — because there is no
+  provider call to save on it and the handler applies the identical comparison
+  anyway. The early return also stops `aiRequestDelay` from pacing a loop that
+  makes no calls.
+
+  **A feed's AI settings apply to new articles only, and that is the ruling,
+  not an oversight.** `sourceHash` covers the article as the source gave it —
+  not the options that shape what is asked of the provider — so switching a
+  feed from German to French leaves every article already stored matching its
+  own fingerprint, and it keeps its German text. An **`article.reload` job is
+  the one path that re-applies AI to an article that already exists**
+  (`src/lib/jobs/handlers/reload.ts` calls `applyAiOptions()` directly), and
+  that is the intended way to bring an old article onto a new setting — and
+  its result now stands rather than being overwritten by the next aggregation
+  run; see the `sourceHash` bullet above. A `sourceHash`-invalidating hook on
+  `updateFeed()` was built and then reverted on that ruling: it would have re-run the provider
+  over a feed's whole window on an option edit, which is the opposite of what
+  the setting change is understood to mean.
+
 - **`POST /api/v1/ai/prompt`** (`src/app/api/v1/ai/prompt/route.ts`) is the
   native client's server-mediated "ask AI" call, added by the same plan: a
   free-form prompt run against the caller's active provider, using their
-  stored global tuning values with **no per-request overrides**. It reads
+  stored global tuning values with **no per-request overrides**, and — since
+  the limits above were removed — no call budget or prompt-length cap either,
+  so the only limits a caller meets are the provider's own. It reads
   `user_settings` directly by `user.id` off `requireApiUser()`'s
   Bearer-authenticated caller, never through `getSettings()` — that helper is
   bound to the cookie-session-derived `currentUserId()` and would not resolve
   for a Bearer-token caller, the same reason
   `src/lib/jobs/handlers/retention.ts` reads a settings row directly outside a
   session context. Its failure modes are machine-readable `ApiError` codes
-  (`invalid_prompt`, `prompt_too_long`, `no_active_provider`,
-  `daily_limit_exceeded`, `monthly_limit_exceeded`, `provider_unauthorized`,
+  (`invalid_prompt`, `no_active_provider`, `provider_unauthorized`,
   `provider_error`) for the native client to branch on — never provider prose,
   per this API's existing no-echo convention. `provider_unauthorized` (502) is
   the `providerUnauthorized` reason above, given its own code rather than
@@ -1640,10 +1843,11 @@ event.payload)` needed no change at all to carry the new event type, since
   route ever sees is already the rate worth broadcasting.
 
 - **`syncArticles` selects a named column list, never `db.select()`.**
-  `rawContent` is a whole fetched HTML page and `plainText` is the largest
-  column on the table; neither appears in `ArticleSummaryWire`, so a bare select
-  reads both off disk for every row in **both** streams and hands them to the
-  serializer to throw away. `SUMMARY_COLUMNS` in `src/lib/api/sync.ts` is that
+  `plainText` is the largest column on the table and does not appear in
+  `ArticleSummaryWire`, so a bare select reads it off disk for every row in
+  **both** streams and hands it to the serializer to throw away. (It used to
+  read a whole fetched HTML page per row too, from `rawContent` — that column
+  is gone.) `SUMMARY_COLUMNS` in `src/lib/api/sync.ts` is that
   list, and it stays honest by construction: `serializeArticleSummary` takes
   `ArticleSummarySource` — a `Pick` of the eleven columns it reads, not a whole
   `Article` — so a wire field that needs a twelfth is a `npm run typecheck`
@@ -1870,7 +2074,7 @@ credential store, `src/lib/secrets.ts`, and the live YouTube and Reddit probes
 whose verdict derives the `*Enabled` flags), phase 7 (the AI tab at `/ai` —
 `src/lib/ai/` and `src/components/ai/`: a client-safe provider registry, three
 live probes reusing phase 6's `defineIntegration()` descriptor, the
-`active_ai_provider` preference and the nine global tuning values), phases 8–10
+`active_ai_provider` preference and the global tuning values), phases 8–10
 (the tags, feeds and articles CRUD tabs, built on phase 5's kit), phase 11
 (a–c: extraction core, embeds/media, and the per-site aggregators), phase 12
 (scheduling and the `jobs` table's in-process worker), phase 13 (the
@@ -1921,7 +2125,9 @@ design at
 shipped the provider expansion to six (openai/anthropic/gemini/mistral/qwen/deepseek),
 the first real enforcement of the daily/monthly AI request limits, and the new
 `POST /api/v1/ai/prompt` mobile endpoint — see the `/ai` bullets above for what
-changed and why. **OpenRouter was added on a later, separate branch**, taking
+changed and why. **Those limits have since been removed outright** (with
+`aiMaxPromptLength` and the `ai_requests` table), so that half of the plan
+describes behaviour this repository no longer has; the bullet above says why. **OpenRouter was added on a later, separate branch**, taking
 the total to seven: a seventh `defineIntegration()` declaration, the
 `hasDynamicModels`/live-catalog machinery, and `ProviderUnauthorizedError` /
 `providerUnauthorized` / `provider_unauthorized` threaded from `run.ts` through

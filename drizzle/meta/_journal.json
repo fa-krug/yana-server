@@ -134,6 +134,20 @@
       "when": 1786892881931,
       "tag": "0018_articles_fts",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1788374093267,
+      "tag": "0019_article_source_hash",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1788374101400,
+      "tag": "0020_drop_dead_columns",
+      "breakpoints": true
     }
   ]
 }
