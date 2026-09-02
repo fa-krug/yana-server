@@ -7,6 +7,7 @@ import {
   ArticlePatchBodySchema,
   ArticleSummarySchema,
   FeedSchema,
+  JobSchema,
   ReadingPositionPatchBodySchema,
   ReadingPositionSchema,
   RunSchema,
@@ -208,6 +209,30 @@ export const ENDPOINT_REGISTRY: EndpointDoc[] = [
         status: 404,
         code: "not_found",
         when: "the run doesn't exist, or isn't owned by the caller.",
+      },
+    ],
+  }),
+
+  defineEndpoint({
+    method: "GET",
+    path: "/api/v1/jobs/{id}",
+    tag: "Jobs",
+    summary: "Poll one job's progress",
+    description:
+      "The durable state of a single job, including the `article.reload` job " +
+      "`POST /api/v1/articles/{id}/reload` returns. Such a job has `runId: null` and is " +
+      "invisible to `GET /api/v1/runs/{id}`. `progress` is the progress signal (0-100); " +
+      "`status` says whether the work has ended and whether it succeeded. Unlike the SSE " +
+      "stream this can be asked again at any time, so a client that was offline, or was " +
+      "restarted, can still learn how its job ended.",
+    auth: "bearer-or-cookie",
+    response: { status: 200, schema: JobSchema, description: "The job's current state." },
+    errors: [
+      { status: 401, code: "unauthorized", when: "no valid Bearer token or session." },
+      {
+        status: 404,
+        code: "not_found",
+        when: "the job doesn't exist, or isn't owned by the caller.",
       },
     ],
   }),

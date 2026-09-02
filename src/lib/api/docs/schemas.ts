@@ -59,6 +59,17 @@ export const RunSchema = z.object({
   failedJobs: z.number().int(),
 });
 
+export const JobSchema = z.object({
+  jobId: z.number().int(),
+  runId: z.number().int().nullable(),
+  kind: z.string(),
+  progress: z.number().int(),
+  status: z.enum(["pending", "running", "cancelling", "completed", "failed", "cancelled"]),
+  error: z.string(),
+  startedAt: z.iso.datetime().nullable(),
+  finishedAt: z.iso.datetime().nullable(),
+});
+
 export const ApiErrorSchema = z.object({
   error: z.object({
     code: z.string(),
