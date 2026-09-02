@@ -71,6 +71,98 @@ describe("BaseAggregator", () => {
     expect(articles[0].name).toBe("Recent Article");
   });
 
+  /**
+   * The advertising half of `filterArticles()`. It deletes rather than flags,
+   * so what these cases pin is as much the *log line* as the drop: a dropped
+   * article leaves nothing else behind for an operator to look at.
+   */
+  describe("advertising filter", () => {
+    function articlesWith(overrides: Array<Partial<RawArticle>>): RawArticle[] {
+      return overrides.map((extra, index) => ({
+        name: `Article ${index}`,
+        identifier: `https://example.com/${index}`,
+        raw_content: "",
+        content: "",
+        date: new Date(),
+        ...extra,
+      }));
+    }
+
+    it("drops an article the source labelled, and says so with the label", async () => {
+      const agg = new TestAggregator({ identifier: "test", dailyLimit: 20 });
+      const logged: string[] = [];
+      agg.onLog = (message) => logged.push(message);
+
+      const filtered = await agg.filterArticles(
+        articlesWith([
+          { name: "Mafia guenstig", categories: ["Anzeige", "Deals"] },
+          { name: "WoW-Server schliesst", categories: ["MMORPG", "News"] },
+          { name: "Netzteil im Test (Anzeige)" },
+        ]),
+      );
+
+      expect(filtered.map((article) => article.name)).toEqual(["WoW-Server schliesst"]);
+      expect(logged).toEqual([
+        'skipping "Mafia guenstig": the source labels it as advertising ("Anzeige")',
+        'skipping "Netzteil im Test (Anzeige)": the source labels it as advertising ("Anzeige")',
+      ]);
+    });
+
+    it("keeps a deal round-up nobody was paid for", async () => {
+      const agg = new TestAggregator({ identifier: "test", dailyLimit: 20 });
+
+      const filtered = await agg.filterArticles(
+        articlesWith([
+          { name: "Die besten Angebote der Woche", categories: ["Schnaeppchen", "Deals"] },
+          { name: "Apple TV wird teurer", categories: ["werbefrei", "Streaming"] },
+        ]),
+      );
+
+      expect(filtered).toHaveLength(2);
+    });
+
+    // `!== false`, so every feed created before the option existed is covered.
+    it("is on for a feed with no options at all, and off only when set to false", async () => {
+      const labelled = () => articlesWith([{ name: "Etwas", categories: ["Advertorial"] }]);
+
+      const noOptions = new TestAggregator({ identifier: "test", dailyLimit: 20 });
+      expect(await noOptions.filterArticles(labelled())).toHaveLength(0);
+
+      const otherOptions = new TestAggregator({
+        identifier: "test",
+        dailyLimit: 20,
+        options: { include_comments: true },
+      });
+      expect(await otherOptions.filterArticles(labelled())).toHaveLength(0);
+
+      const optedOut = new TestAggregator({
+        identifier: "test",
+        dailyLimit: 20,
+        options: { skip_ads: false },
+      });
+      expect(await optedOut.filterArticles(labelled())).toHaveLength(1);
+    });
+
+    // The two halves are independent: turning the age filter off with a 0
+    // must not take the advertising filter with it.
+    it("still runs when maxArticleAgeDays is 0", async () => {
+      const agg = new TestAggregator({
+        identifier: "test",
+        dailyLimit: 20,
+        maxArticleAgeDays: 0,
+      });
+
+      const filtered = await agg.filterArticles(
+        articlesWith([
+          { name: "Alt aber gut", date: new Date("2020-01-01T00:00:00Z") },
+          { name: "Etwas", categories: ["Anzeige"] },
+        ]),
+      );
+
+      expect(filtered.map((article) => article.name)).toEqual(["Alt aber gut"]);
+    });
+  });
+
   it("applies morning aggression before 10 AM", () => {
     const feed: FeedLike = { identifier: "https://example.com/rss", dailyLimit: 20 };
     const agg = new TestAggregator(feed);
@@ -136,21 +228,30 @@ describe("BaseAggregator", () => {
     expect(agg.concurrency).toBe(2);
   });
 
-  it("passes userSettings through aggregate to finalizeArticles and applyAiProcessing", async () => {
+  it("hands finalizeArticles the pipeline's articles, and nothing else", async () => {
+    // `aggregate()` used to thread the owner's `userSettings` down to
+    // `finalizeArticles()`, for one consumer: the AI stage. That stage works on
+    // the block tree now and runs in the job handler, so the parameter went
+    // with it -- an aggregator has no business reading a user's AI credentials.
     const feed: FeedLike = {
       identifier: "https://example.com/rss",
       dailyLimit: 20,
       options: { ai_summarize: true },
     };
     const agg = new TestAggregator(feed);
-    let passedSettings: unknown = null;
-    agg.finalizeArticles = async (articles, userSettings) => {
-      passedSettings = userSettings;
-      return articles;
+    let receivedArgs: unknown[] = [];
+    agg.finalizeArticles = async (...args) => {
+      receivedArgs = args;
+      return args[0];
     };
-    const mockSettings = { activeAiProvider: "gemini" };
-    await agg.aggregate(undefined, 0, mockSettings);
-    expect(passedSettings).toBe(mockSettings);
+
+    const out = await agg.aggregate(undefined, 0);
+
+    // Both halves matter, and the arity is the half that has to be read off the
+    // *base class* rather than off this stub: a `length` taken from the arrow
+    // above would only ever report what this test itself declared.
+    expect(receivedArgs).toEqual([out]);
+    expect(BaseAggregator.prototype.finalizeArticles.length).toBe(1);
   });
 
   it("reports coarse progress after each pipeline stage, in increasing order", async () => {
@@ -158,7 +259,7 @@ describe("BaseAggregator", () => {
     const agg = new TestAggregator(feed);
     const reported: number[] = [];
 
-    await agg.aggregate(undefined, 0, undefined, (percent) => reported.push(percent));
+    await agg.aggregate(undefined, 0, (percent) => reported.push(percent));
 
     expect(reported).toEqual([10, 20, 60, 80]);
   });
@@ -171,7 +272,6 @@ describe("BaseAggregator", () => {
     await agg.aggregate(
       () => new Date(),
       5,
-      undefined,
       (percent) => reported.push(percent),
     );
 
@@ -263,6 +363,58 @@ describe("BaseAggregator", () => {
 
       const labels = await agg.chromeLabelsForTest();
       expect(labels.comments).toBe("Comments");
+    });
+  });
+  describe("the pipeline no longer runs AI", () => {
+    class FixedAggregator extends BaseAggregator {
+      async fetchSourceData(): Promise<unknown> {
+        return null;
+      }
+      async parseToRawArticles(): Promise<RawArticle[]> {
+        return [
+          {
+            name: "First",
+            identifier: "https://example.com/1",
+            raw_content: "",
+            content: "<p>One.</p>",
+            date: new Date("2026-01-01T00:00:00.000Z"),
+          },
+        ];
+      }
+    }
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("makes no provider request, even with AI options set and a provider configured", async () => {
+      const calls = vi.fn();
+      globalThis.fetch = calls;
+
+      const agg = new FixedAggregator({
+        identifier: "https://example.com/rss",
+        dailyLimit: 20,
+        maxArticleAgeDays: 0,
+        options: { ai_summarize: true, ai_improve_writing: true },
+      });
+
+      const articles = await agg.aggregate(undefined, 0);
+
+      // AI moved to the job handlers, which is where `parseBlocks()` runs and
+      // therefore the only place a block tree exists to work on. There is no
+      // longer even a way to hand an aggregator the credentials it would need:
+      // `aggregate()` takes no `userSettings`. It would also be doing it for
+      // articles the
+      // handler is about to skip as unchanged.
+      expect(calls).not.toHaveBeenCalled();
+      expect(articles[0].content).toBe("<p>One.</p>");
+    });
+
+    it("leaves finalizeArticles an identity the site aggregators extend", async () => {
+      const agg = new FixedAggregator({ identifier: "x", dailyLimit: 20, maxArticleAgeDays: 0 });
+      const input = await agg.parseToRawArticles();
+
+      expect(await agg.finalizeArticles(input)).toBe(input);
     });
   });
 });

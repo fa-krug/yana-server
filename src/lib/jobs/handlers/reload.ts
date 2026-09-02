@@ -7,7 +7,7 @@ import type { Block } from "@/lib/aggregators/blocks/types";
 import { resolveFeedCredentials } from "@/lib/aggregators/credential-resolution";
 import { createAggregator } from "@/lib/aggregators/factory";
 import { hasBodyContent } from "@/lib/aggregators/website";
-import { applyAiOptions } from "@/lib/ai/run";
+import { applyAiToBlocks } from "@/lib/ai/run";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, feeds, userSettings, type Job } from "@/lib/db/schema";
 import { appendLogLine } from "../queue";
@@ -66,23 +66,35 @@ function buildErrorBlocks(message: string): Block[] {
  * to call `videos.list`) fails every time, landing in the error-notice branch
  * above instead of ever reaching the source.
  *
- * AI post-processing (`applyAiOptions()`, the feed's summarize/improve/translate
- * options) runs between `extractContent()` and `processContent()`, mirroring
- * `enrichArticles()` -> `finalizeArticles()`'s order on a fresh aggregation run:
- * it needs the *distilled* content extractContent() produced, before
- * processContent() splices in embeds/header markup the AI call has no reason
- * to see. A translated title is written back too, since that is a field
- * `applyAiOptions()` can change.
+ * AI post-processing (`applyAiToBlocks()`, the feed's summarize/improve/translate
+ * options) runs **last**, below `parseBlocks()`, because the stage works on the
+ * block tree rather than on HTML -- `parseBlocks()` is one-way and has no
+ * inverse, so there is nowhere above it for a blocks-shaped stage to sit. That
+ * also makes this path's order identical to `aggregate.ts`'s (extract, process,
+ * parse, then AI), where the two used to differ: AI ran before
+ * `processContent()` here and after it there, so the same article came out with
+ * its summary nested one way on a reload and another on an aggregation run. A
+ * translated title is written back too, since that is a field
+ * `applyAiToBlocks()` can change.
  *
- * Two things distinguish this call from `aggregate.ts`'s equivalent one:
+ * **The title the AI stage is given comes from source, not from
+ * `articles.name`** -- `aggregator.sourceTitle`, when the aggregator saw one
+ * while refetching (see `noteSourceTitle()` in
+ * `@/lib/aggregators/base`). `articles.name` is not source text on a feed with
+ * an AI option on: it is the model's own previous answer. Handing that back as
+ * "the article's title" made a reload ask for a rewrite of a rewrite (a title
+ * drifting a little further on every reload) and, worse, made a *translate*
+ * request self-contradictory -- `{"title": "<already German>", "document":
+ * "<English>"}` under "translate this to German", which a model can reasonably
+ * read as "already translated" and answer with the document unchanged. An
+ * unchanged document still parses, so the article was then stored with a
+ * translated title and an untranslated body, silently, on a job that reported
+ * success: exactly the "reload only translates the title" a user reported for a
+ * Reddit post. An aggregator that cannot know the source's title (the
+ * `FullWebsiteAggregator` family) reports `null` and the stored name is used, as
+ * before.
  *
- * `bypassUsageLimit: true` -- a reload is a single, deliberate action an
- * operator just asked for, not the unattended bulk processing the daily/
- * monthly AI request caps exist to bound; see the doc comment on
- * `AIClient.generateResponse()`. It is deliberately *not* threaded into
- * `enrichArticles()`/`finalizeArticles()` on the aggregation path, which can
- * process many articles in one run and is exactly the case those caps are
- * for.
+ * One thing distinguishes this call from `aggregate.ts`'s equivalent one:
  *
  * The fresh content is still written to the article even when AI processing
  * fails (translating/summarizing it is a bonus on top of a real refetch, not
@@ -112,7 +124,7 @@ export async function handleReloadJob(job: Job): Promise<void> {
   }
 
   // Read once, up front, and handed to both resolveFeedCredentials() (which
-  // would otherwise re-run this same query itself) and applyAiOptions() below.
+  // would otherwise re-run this same query itself) and applyAiToBlocks() below.
   const settings = db.select().from(userSettings).where(eq(userSettings.userId, feed.userId)).get();
 
   const aggregator = createAggregator(resolveFeedCredentials(feed, settings ?? null));
@@ -152,8 +164,13 @@ export async function handleReloadJob(job: Job): Promise<void> {
     return;
   }
 
+  // Prefer what the source calls this article right now -- see the note above.
+  // `null` from an aggregator that cannot know means the stored name, which is
+  // what every reload used before this.
+  const sourceTitle = aggregator.sourceTitle;
+
   const rawArticle: RawArticle = {
-    name: article.name,
+    name: sourceTitle ?? article.name,
     identifier: article.identifier,
     raw_content: freshHtml,
     content: "",
@@ -173,8 +190,9 @@ export async function handleReloadJob(job: Job): Promise<void> {
   // leave the header image standing over an empty body. The stored row is
   // therefore left exactly as it was, `contentHash` included, and the job is
   // failed so the reason reaches the operator instead of a green
-  // "completed" that changed nothing. Checked before `applyAiOptions()`: there
-  // is no point spending an AI request on a body that is not there.
+  // "completed" that changed nothing. Checked here rather than after
+  // `processContent()`, so the AI stage below is never reached: there is no
+  // point spending a provider request on a body that is not there.
   if (!hasBodyContent(rawArticle.content)) {
     const message =
       "The reloaded page contained no article body, so the stored article was left unchanged.";
@@ -182,25 +200,34 @@ export async function handleReloadJob(job: Job): Promise<void> {
     throw new Error(message);
   }
 
-  const aiOutcome = await applyAiOptions(
-    rawArticle,
+  // AI runs *after* processContent() now, not before it, and both call paths
+  // are the same order for the first time: extract, process, parse, then AI on
+  // the block tree. The old ordering existed so the model would not see the
+  // embed and header markup processContent() splices in -- with blocks it
+  // cannot, because every image, embed and code block crosses as an opaque
+  // index (see `@/lib/ai/block-text`), so the reason for the asymmetry is gone.
+  const processed = await aggregator.processContent(rawArticle.content || "", rawArticle);
+
+  const ai = await applyAiToBlocks(
+    { title: rawArticle.name || article.name, blocks: parseBlocks(processed, article.identifier) },
     feed.options,
     settings,
     aggregator.onLog,
-    true, // bypassUsageLimit -- see the doc comment above.
   );
+  const aiOutcome = ai.outcome;
 
-  const processed = await aggregator.processContent(rawArticle.content || "", rawArticle);
+  const plainText = plainTextOf(ai.blocks);
 
-  const blocks = parseBlocks(processed, article.identifier);
-  const plainText = plainTextOf(blocks);
-
-  await writeBlocks(article.id, blocks);
+  await writeBlocks(article.id, ai.blocks);
 
   writeTransaction((tx) => {
     tx.update(articles)
       .set({
-        name: rawArticle.name || article.name,
+        // `ai.title` is the AI stage's answer when it ran and the source's own
+        // title when it did not (it echoes its input), so a reload of a feed
+        // with AI off now also picks up a title the source has changed --
+        // the same thing an aggregation run does with every content change.
+        name: ai.title || sourceTitle || article.name,
         rawContent: freshHtml,
         plainText,
         // Same reason as the failed-refetch branch above: reload has just

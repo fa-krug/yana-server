@@ -12,30 +12,82 @@ import { convertRedditMarkdown, escapeHtml, safeImgHtml, safeLinkHtml } from "./
 import { RedditComment, RedditGalleryItem, RedditPostData } from "./types";
 import { decodeHtmlEntitiesInUrl, fixRedditMediaUrl } from "./urls";
 
+/**
+ * What a crosspost is, spelled out for the reader. A crosspost's article body
+ * is built from the *original* post -- its title, selftext, media, comments
+ * and permalink all belong to the subreddit it was first submitted to -- so
+ * without this nothing in the finished article says the post reached the feed
+ * by way of a crosspost, nor which subreddit it actually came from. That was
+ * true of the retired Django implementation too: `is_cross_post` only ever
+ * suppressed the bare link `addLinkMedia()` would otherwise append (the
+ * crosspost's `url` is the original post, so the link would point the reader
+ * back at the article they are already reading).
+ *
+ * The subreddit the crosspost itself appeared in is deliberately *not* part of
+ * this: it is the feed's own subreddit, which the reader already knows -- the
+ * one thing the article does not carry is where the post came *from*.
+ * `originalSubreddit` is `""` when Reddit's `crosspost_parent_list` entry
+ * carries no `subreddit` (rare), which is distinct from a null attribution
+ * meaning "not a crosspost at all".
+ */
+export interface CrosspostAttribution {
+  originalSubreddit: string;
+}
+
+/**
+ * The one-line "Crosspost: r/from" notice that opens a crosspost's body, the
+ * subreddit name linking to that subreddit. Exported because
+ * `extractContent()`'s JSON branch in `./aggregator.ts` builds its content
+ * without going through `buildPostContent()` and has to emit the same notice
+ * rather than a second version of it.
+ *
+ * With no origin known the notice degrades to the bare word, which still
+ * answers the question the whole notice exists for -- is this a crosspost.
+ */
+export function buildCrosspostNoticeHtml(
+  crosspost: CrosspostAttribution,
+  labels: ChromeLabels,
+): string {
+  const origin = crosspost.originalSubreddit
+    ? `: ${safeLinkHtml(
+        `https://reddit.com/r/${crosspost.originalSubreddit}`,
+        `r/${crosspost.originalSubreddit}`,
+      )}`
+    : "";
+
+  return `<p><em>${escapeHtml(labels.crosspost)}${origin}</em></p>`;
+}
+
 export async function buildPostContent(
   post: RedditPostData,
   commentLimit: number,
   subreddit: string,
   labels: ChromeLabels,
   userId?: number | string | null,
-  isCrossPost = false,
+  crosspost: CrosspostAttribution | null = null,
   commentsList?: RedditComment[],
 ): Promise<string> {
   const contentParts: string[] = [];
 
-  // 1. Selftext
+  // 1. Crosspost notice -- first, so the reader knows what they are looking at
+  // before the original post's own body starts.
+  if (crosspost) {
+    contentParts.push(buildCrosspostNoticeHtml(crosspost, labels));
+  }
+
+  // 2. Selftext
   if (post.selftext) {
     const selftextHtml = convertRedditMarkdown(post.selftext);
     contentParts.push(`<div>${selftextHtml}</div>`);
   }
 
-  // 2. Gallery media
+  // 3. Gallery media
   addGalleryMedia(post, contentParts);
 
-  // 3. Link media
-  addLinkMedia(post, contentParts, isCrossPost, labels);
+  // 4. Link media
+  addLinkMedia(post, contentParts, Boolean(crosspost), labels);
 
-  // 4. Comments section
+  // 5. Comments section
   await addCommentsSection(
     post,
     commentLimit,

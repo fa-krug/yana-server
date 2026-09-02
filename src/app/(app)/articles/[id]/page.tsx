@@ -1,66 +1,86 @@
-import { Suspense } from "react";
-import { getTranslations } from "next-intl/server";
-import { notFound } from "next/navigation";
+import { connection } from "next/server";
 
-import { ArticleForm } from "@/components/articles/article-form";
-import { SetBreadcrumbTitle } from "@/components/breadcrumb-title";
-import { BlockTree } from "@/components/articles/block-tree";
-import { TableSkeleton } from "@/components/data-skeleton";
+import { ArticleDetailSection } from "@/components/articles/article-detail-section";
 import { getArticle, getBlockTree } from "@/lib/articles/queries";
-import { requireUser } from "@/lib/auth/session";
-import { parseListParams } from "@/lib/crud/params";
 import { listFeeds } from "@/lib/feeds/actions";
+import { parseListParams } from "@/lib/crud/params";
 
-async function GeneralSection({ id }: { id: number }) {
-  const [article, feedsRes] = await Promise.all([
-    getArticle(id),
-    listFeeds(parseListParams({ pageSize: "100" })),
-  ]);
+/**
+ * The instant-render-no-fallback migration (see
+ * `src/app/(app)/settings/page.tsx`): this page body awaits nothing, so it
+ * cannot suspend and `loading.tsx` -- deleted along with this rewrite -- is
+ * unreachable.
+ *
+ * Three things this page used to await, and where each went:
+ * - `await requireUser()` is gone entirely. `getArticle()` already scopes its
+ *   join to `currentUserId()`, so this page's own call was redundant with it.
+ * - `await getArticle(id)`, which used to decide a real `notFound()`, is now
+ *   a promise handed to `<ArticleDetailSection>` and consumed with `use()`
+ *   there. **This route therefore no longer answers 404** -- a missing id, a
+ *   non-numeric id, and an article owned by someone else all render the same
+ *   not-found state once the promise resolves to `null`, rather than
+ *   truncating a 200 the way calling `notFound()` after the shell has
+ *   flushed would (see CLAUDE.md's `connection()`/detail-route rules, and
+ *   `ArticleDetailResolved`'s own doc comment). This was a deliberate,
+ *   explicitly-approved trade-off, not an oversight.
+ * - `await getTranslations("articles")` is gone; `<ArticleDetailSection>`
+ *   reads `useTranslations("articles")` client-side once the article is
+ *   known.
+ *
+ * `feedsPromise`/`blockTreePromise` were already unawaited promises before
+ * this rewrite and stay that way -- `getBlockTree()` verifies ownership
+ * itself and resolves to `[]` for an id that is not this user's, so it needs
+ * no gating here either.
+ *
+ * `getArticle()`'s full row (including `rawContent`/`plainText`, the largest
+ * columns on the table, and the whole joined `Feed`) is projected down to
+ * `ArticleDetailRow` -- the columns `<ArticleForm>` actually renders -- in
+ * this `.then()`, before the promise crosses into the Client Component tree.
+ * `getArticle()` itself stays the full row, because it is a general-purpose
+ * read other code (and its own tests) rely on; only this page narrows what
+ * it hands across the RSC boundary, the same pattern
+ * `/users/[id]/page.tsx` uses for `UserRecord`.
+ */
+export default function ArticleDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  /**
+   * Opt this route out of prerendering -- **called, not awaited**, exactly as
+   * `SettingsPage`/`AccountPage` do: `getArticle()` below is never awaited by
+   * this page body, so there is no other awaited Dynamic API left here to do
+   * this job.
+   */
+  connection();
 
-  if (!article) {
-    notFound();
-  }
-
-  return (
-    <>
-      <SetBreadcrumbTitle title={article.name} />
-      <ArticleForm article={article} feeds={feedsRes.rows} />
-    </>
-  );
-}
-
-async function ContentSection({ id }: { id: number }) {
-  const nodes = await getBlockTree(id);
-  return <BlockTree nodes={nodes} />;
-}
-
-export default async function ArticleDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireUser();
-
-  const id = Number.parseInt((await params).id, 10);
-  if (Number.isNaN(id)) {
-    notFound();
-  }
-
-  const t = await getTranslations("articles");
+  // Not awaited: chained onto the `params` promise instead, so this page
+  // body still awaits nothing. `getArticle()` decides the not-found state
+  // now, not a real 404, so it no longer needs to sit ahead of everything
+  // else.
+  const articlePromise = params.then(async ({ id }) => {
+    const parsed = Number.parseInt(id, 10);
+    if (Number.isNaN(parsed)) return null;
+    const article = await getArticle(parsed);
+    if (!article) return null;
+    return {
+      id: article.id,
+      name: article.name,
+      identifier: article.identifier,
+      feedId: article.feedId,
+      date: article.date,
+      createdAt: article.createdAt,
+    };
+  });
+  const feedsPromise = listFeeds(parseListParams({ pageSize: "100" })).then((res) => res.rows);
+  const blockTreePromise = params.then(({ id }) => {
+    const parsed = Number.parseInt(id, 10);
+    return Number.isNaN(parsed) ? [] : getBlockTree(parsed);
+  });
 
   return (
     <div className="space-y-8">
-      <h1 className="text-2xl font-semibold">{t("editTitle")}</h1>
-
-      <section className="space-y-4">
-        <h2 className="text-xl font-semibold">{t("general")}</h2>
-        <Suspense fallback={<TableSkeleton rows={4} columns={1} />}>
-          <GeneralSection id={id} />
-        </Suspense>
-      </section>
-
-      <section className="space-y-4">
-        <h2 className="text-xl font-semibold">{t("content")}</h2>
-        <Suspense fallback={<TableSkeleton rows={8} columns={1} />}>
-          <ContentSection id={id} />
-        </Suspense>
-      </section>
+      <ArticleDetailSection
+        articlePromise={articlePromise}
+        feedsPromise={feedsPromise}
+        blockTreePromise={blockTreePromise}
+      />
     </div>
   );
 }

@@ -37,6 +37,7 @@ export type WireBlock =
   | { type: "heading"; level: number; runs: WireInlineRun[] }
   | { type: "list"; ordered: boolean; items: WireBlock[][] }
   | { type: "blockquote"; blocks: WireBlock[] }
+  | { type: "summary"; blocks: WireBlock[] }
   | { type: "image"; ref: string; caption: WireInlineRun[] }
   | {
       type: "embed";
@@ -93,6 +94,11 @@ export function encodeBlock(block: Block): WireBlock {
     case "blockquote":
       return {
         type: "blockquote",
+        blocks: block.blocks.map(encodeBlock),
+      };
+    case "summary":
+      return {
+        type: "summary",
         blocks: block.blocks.map(encodeBlock),
       };
     case "image":
@@ -194,6 +200,11 @@ export function decodeBlock(obj: unknown): Block | null {
     case "blockquote":
       return {
         kind: "blockquote",
+        blocks: decodeBlocks(raw.blocks),
+      };
+    case "summary":
+      return {
+        kind: "summary",
         blocks: decodeBlocks(raw.blocks),
       };
     case "image":

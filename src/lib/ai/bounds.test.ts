@@ -21,7 +21,7 @@ const ROOT = path.resolve(import.meta.dirname, "../../..");
  * the zod schema that actually refuses a save out of the same object. So one
  * import of a `queries` module here would drag `better-sqlite3` into the browser
  * bundle as an opaque error naming nothing -- and the reason the module exists
- * at all is that these nine bounds were previously written twice, with nothing
+ * at all is that these bounds were previously written twice, with nothing
  * keeping the browser's hint and the server's validation equal.
  */
 describe("the bounds module's dependency contract", () => {
@@ -45,7 +45,7 @@ describe("AI_ADVANCED_BOUNDS", () => {
    * not see: a bound whose field was dropped from the render order is a value the
    * schema still enforces and the form never shows.
    */
-  it("covers exactly the nine fields the form renders, and nothing else", () => {
+  it("covers exactly the six fields the form renders, and nothing else", () => {
     expect(Object.keys(AI_ADVANCED_BOUNDS).sort()).toEqual([...AI_ADVANCED_FIELDS].sort());
   });
 
@@ -58,7 +58,7 @@ describe("AI_ADVANCED_BOUNDS", () => {
 
   /**
    * Only `temperature` is fractional, and that is a fact both halves read: the
-   * schema adds `.int()` for the other eight because the columns are `integer`
+   * schema adds `.int()` for the other five because the columns are `integer`
    * and SQLite would store `2.5` in one without complaining, and the input gets
    * `step={1}` from the same flag.
    */

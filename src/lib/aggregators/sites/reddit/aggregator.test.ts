@@ -9,6 +9,7 @@ import type { FeedLike, RawArticle } from "../../base";
 import { ArticleSkipError } from "../../errors";
 import { RedditAggregator } from "./aggregator";
 import { fetchPostComments } from "./comments";
+import { RedditPostData } from "./types";
 import type { RedditPostDataDict } from "./types";
 
 vi.mock("./comments", async (importOriginal) => ({
@@ -136,7 +137,7 @@ describe("RedditAggregator.enrichArticles concurrency", () => {
       identifier: id,
       _reddit_post_data: postData(id),
       _reddit_subreddit: "test",
-      _reddit_is_cross_post: false,
+      _reddit_crosspost: null,
     });
   }
 
@@ -299,6 +300,70 @@ describe("RedditAggregator.finalizeArticles YouTube-link header thumbnail", () =
   });
 });
 
+describe("RedditAggregator.fetchArticleContent source title", () => {
+  /**
+   * The reload path's only way to reach the post's *current* title:
+   * `reload.ts` reads `aggregator.sourceTitle` and hands that to the AI stage
+   * instead of `articles.name`, which on a feed with an AI option on is the
+   * model's own previous answer rather than source text. Left as the stored
+   * name, a translate request arrived as "translate this to German" over a
+   * title already in German beside an English document -- and an answer that
+   * echoed the document back unchanged stored a translated title over an
+   * untranslated body, silently.
+   */
+  function listing(post: RedditPostDataDict) {
+    return [{ data: { children: [{ kind: "t3", data: post }] } }, { data: { children: [] } }];
+  }
+
+  beforeEach(() => {
+    vi.mocked(fetchPostComments).mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("reports the post's own title", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => listing({ ...postData("abc123"), title: "The source's own title" }),
+      }),
+    );
+
+    const agg = aggregatorFor({});
+    expect(agg.sourceTitle).toBeNull();
+
+    await agg.fetchArticleContent("https://reddit.com/r/test/comments/abc123/a_post/");
+
+    expect(agg.sourceTitle).toBe("The source's own title");
+  });
+
+  it("reports the original post's title for a crosspost, as parseToRawArticles does", async () => {
+    const original = { ...postData("orig1"), title: "The original post's title" };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () =>
+          listing({
+            ...postData("abc123"),
+            title: "The crosspost's title",
+            crosspost_parent_list: [original],
+          }),
+      }),
+    );
+
+    const agg = aggregatorFor({});
+    await agg.fetchArticleContent("https://reddit.com/r/test/comments/abc123/a_post/");
+
+    expect(agg.sourceTitle).toBe("The original post's title");
+  });
+});
+
 describe("RedditAggregator reload facade parity", () => {
   it("rebuilds the real YouTube-thumbnail facade, not the generic header, on reload's fetch/extractHeaderElement/extractContent/processContent sequence", async () => {
     vi.mocked(fetchPostComments).mockResolvedValue([]);
@@ -412,5 +477,81 @@ describe("RedditAggregator.extractContent legacy JSON locale", () => {
 
     expect(html).toContain("Kommentare");
     expect(html).not.toContain(">Comments<");
+  });
+});
+
+describe("RedditAggregator crosspost recognition", () => {
+  function crosspostListing() {
+    return {
+      subreddit: "de",
+      posts: [
+        {
+          data: new RedditPostData({
+            id: "abc123",
+            title: "the crosspost's own title",
+            permalink: "/r/de/comments/abc123/title/",
+            created_utc: 1,
+            author: "crossposter",
+            crosspost_parent_list: [
+              {
+                id: "xyz789",
+                title: "the original title",
+                permalink: "/r/ich_iel/comments/xyz789/title/",
+                subreddit: "ich_iel",
+                created_utc: 2,
+                author: "original_author",
+                num_comments: 12,
+              },
+            ],
+          }),
+        },
+      ],
+    };
+  }
+
+  it("captures the origin subreddit, which _getOriginalPostData() drops", async () => {
+    const agg = aggregatorFor({});
+
+    const [raw] = await agg.parseToRawArticles(crosspostListing());
+
+    // Unchanged: the article itself is still the original post.
+    expect(raw!.name).toBe("the original title");
+    expect(raw!.identifier).toBe("https://reddit.com/r/ich_iel/comments/xyz789/title/");
+    // New: what makes that recognizable as a crosspost downstream. The feed's
+    // own subreddit is not part of it -- the reader already knows that one.
+    expect(raw!._reddit_crosspost).toEqual({ originalSubreddit: "ich_iel" });
+  });
+
+  it("leaves the attribution null for an ordinary post", async () => {
+    const agg = aggregatorFor({});
+
+    const [raw] = await agg.parseToRawArticles({
+      subreddit: "de",
+      posts: [
+        {
+          data: new RedditPostData({
+            id: "abc123",
+            title: "an ordinary post",
+            permalink: "/r/de/comments/abc123/title/",
+            created_utc: 1,
+            author: "someone",
+          }),
+        },
+      ],
+    });
+
+    expect(raw!._reddit_crosspost).toBeNull();
+  });
+
+  it("carries the notice into the finished body, naming the origin subreddit", async () => {
+    vi.mocked(fetchPostComments).mockResolvedValue([]);
+    const agg = aggregatorFor({ comment_limit: 5 });
+
+    const [enriched] = await agg.enrichArticles(await agg.parseToRawArticles(crosspostListing()));
+
+    expect(enriched!.content).toContain("Crosspost: ");
+    expect(enriched!.content).toContain(">r/ich_iel<");
+    expect(enriched!.content).toContain('href="https://reddit.com/r/ich_iel"');
+    expect(enriched!.content).not.toContain("r/de");
   });
 });

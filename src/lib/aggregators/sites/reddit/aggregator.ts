@@ -5,7 +5,7 @@
  */
 
 import * as cheerio from "cheerio";
-import { AggregatorUserSettings, BaseAggregator, FeedLike, RawArticle } from "../../base";
+import { BaseAggregator, FeedLike, RawArticle } from "../../base";
 import { mapWithConcurrency } from "../../concurrency";
 import { AggregatorError, ArticleSkipError } from "../../errors";
 import { getHeaderImageRef, HeaderElementData } from "../../header/context";
@@ -20,7 +20,7 @@ import { storeImageRefFromUrl } from "../../images/store";
 
 import { getRedditAccessToken, getRedditUserSettings } from "./auth";
 import { fetchPostComments, formatCommentHtml, isValidComment } from "./comments";
-import { buildPostContent } from "./content";
+import { buildCrosspostNoticeHtml, buildPostContent, CrosspostAttribution } from "./content";
 import { extractAnimatedGifUrl, extractHeaderImageUrl, extractThumbnailUrl } from "./images";
 import { convertRedditMarkdown, escapeHtml, safeImgHtml, safeLinkHtml } from "./markdown";
 import { fetchRedditPost } from "./posts";
@@ -267,6 +267,18 @@ export class RedditAggregator extends BaseAggregator {
       const decodedPermalink = originalPostData.permalink.replace(/&amp;/g, "&");
       const permalink = `https://reddit.com${decodedPermalink}`;
 
+      // Everything above resolves to the *original* post -- title, date,
+      // author, permalink, media and (in `enrichArticles()`) comments all come
+      // from the subreddit the post was first submitted to, so the finished
+      // article would otherwise carry nothing that says it arrived here as a
+      // crosspost. This reads the parent entry directly rather than reusing
+      // `originalSubreddit` above, whose fallback to the feed's own subreddit
+      // is right for the comments fetch and wrong for the notice: naming the
+      // subreddit the reader is already looking at says nothing.
+      const crosspost: CrosspostAttribution | null = isCrossPost
+        ? { originalSubreddit: postWrapper.data.crosspost_parent_list?.[0]?.subreddit || "" }
+        : null;
+
       const headerImageUrl = await extractHeaderImageUrl(originalPostData);
       const thumbnailUrl = extractThumbnailUrl(originalPostData);
       const articleThumbnailUrl = headerImageUrl || thumbnailUrl;
@@ -296,7 +308,7 @@ export class RedditAggregator extends BaseAggregator {
         icon: articleThumbnailUrl,
         _reddit_post_data: originalPostData.toDict(),
         _reddit_subreddit: originalSubreddit,
-        _reddit_is_cross_post: isCrossPost,
+        _reddit_crosspost: crosspost,
         _reddit_num_comments: originalPostData.num_comments,
         _reddit_header_image_url: headerImageUrl,
         _reddit_video_url: videoUrl,
@@ -371,7 +383,7 @@ export class RedditAggregator extends BaseAggregator {
           const postDataDict = (article._reddit_post_data as RedditPostDataDict) || {};
           const postData = new RedditPostData(postDataDict);
           const subreddit = (article._reddit_subreddit as string) || "";
-          const isCrossPost = (article._reddit_is_cross_post as boolean) || false;
+          const crosspost = (article._reddit_crosspost as CrosspostAttribution | null) ?? null;
 
           const comments = await fetchPostComments(
             subreddit,
@@ -388,7 +400,7 @@ export class RedditAggregator extends BaseAggregator {
             subreddit,
             labels,
             this.feed.userId,
-            isCrossPost,
+            crosspost,
             comments,
           );
 
@@ -409,56 +421,50 @@ export class RedditAggregator extends BaseAggregator {
     return results.filter((a): a is RawArticle => a !== null);
   }
 
-  override async finalizeArticles(
-    articles: RawArticle[],
-    userSettings?: AggregatorUserSettings,
-  ): Promise<RawArticle[]> {
-    const processedArticles = await this.applyAiProcessing(articles, userSettings);
+  override async finalizeArticles(articles: RawArticle[]): Promise<RawArticle[]> {
+    // AI post-processing used to run here first. It works on the block tree
+    // now, which only exists downstream in the job handler -- see
+    // `BaseAggregator.finalizeArticles()`.
+    return mapWithConcurrency(articles, this.concurrency, async (article): Promise<RawArticle> => {
+      const includeHeaderImage = (this.feed.options?.include_header_image as boolean) ?? true;
+      // `include_header_image: false` suppresses the video header too, not just
+      // the image one: both are headers, and a user who turned headers off got a
+      // `<video>` anyway. Nothing is lost -- `addLinkMedia()` in `./content.ts`
+      // still renders the post's own `v.redd.it` link in the body.
+      const headerSourceUrl = includeHeaderImage
+        ? (article._reddit_header_image_url as string | null)
+        : null;
+      const redditVideo = includeHeaderImage
+        ? ((article._reddit_video_info as
+            { hlsUrl?: string; fallbackUrl?: string } | null | undefined) ?? null)
+        : null;
+      const videoUrl = (article._reddit_video_url as string | null | undefined) ?? null;
 
-    return mapWithConcurrency(
-      processedArticles,
-      this.concurrency,
-      async (article): Promise<RawArticle> => {
-        const includeHeaderImage = (this.feed.options?.include_header_image as boolean) ?? true;
-        // `include_header_image: false` suppresses the video header too, not just
-        // the image one: both are headers, and a user who turned headers off got a
-        // `<video>` anyway. Nothing is lost -- `addLinkMedia()` in `./content.ts`
-        // still renders the post's own `v.redd.it` link in the body.
-        const headerSourceUrl = includeHeaderImage
-          ? (article._reddit_header_image_url as string | null)
-          : null;
-        const redditVideo = includeHeaderImage
-          ? ((article._reddit_video_info as
-              { hlsUrl?: string; fallbackUrl?: string } | null | undefined) ?? null)
-          : null;
-        const videoUrl = (article._reddit_video_url as string | null | undefined) ?? null;
+      const built = await this._buildHeaderForArticle(
+        article.content || "",
+        article.name,
+        headerSourceUrl,
+        videoUrl,
+        redditVideo,
+      );
+      article.content = built.content;
+      article.header_html = built.headerHtml;
 
-        const built = await this._buildHeaderForArticle(
-          article.content || "",
-          article.name,
-          headerSourceUrl,
-          videoUrl,
-          redditVideo,
-        );
-        article.content = built.content;
-        article.header_html = built.headerHtml;
+      if (article.content || built.headerHtml) {
+        article.content = await this.processContent(article.content, article);
+      }
 
-        if (article.content || built.headerHtml) {
-          article.content = await this.processContent(article.content, article);
-        }
+      delete article._reddit_post_data;
+      delete article._reddit_subreddit;
+      delete article._reddit_crosspost;
+      delete article._reddit_num_comments;
+      delete article._reddit_header_image_url;
+      delete article._reddit_video_url;
+      delete article._reddit_video_info;
+      delete article.header_html;
 
-        delete article._reddit_post_data;
-        delete article._reddit_subreddit;
-        delete article._reddit_is_cross_post;
-        delete article._reddit_num_comments;
-        delete article._reddit_header_image_url;
-        delete article._reddit_video_url;
-        delete article._reddit_video_info;
-        delete article.header_html;
-
-        return article;
-      },
-    );
+      return article;
+    });
   }
 
   /**
@@ -638,15 +644,27 @@ export class RedditAggregator extends BaseAggregator {
     }
 
     let effectiveSubreddit = subreddit;
-    let isCrossPost = false;
+    let crosspost: CrosspostAttribution | null = null;
     let effectivePostData = postData;
 
     if (postData.crosspost_parent_list && postData.crosspost_parent_list.length > 0) {
       const originalPost = postData.crosspost_parent_list[0];
-      isCrossPost = true;
       effectiveSubreddit = originalPost.subreddit || subreddit;
       effectivePostData = new RedditPostData(originalPost);
+      // Same notice as the aggregation path. A normal aggregation run stores
+      // the *original* post's permalink as the article identifier, so
+      // reloading one of those articles re-fetches the original and lands in
+      // neither this branch nor the notice: it is rebuilt only when the
+      // identifier really is a crosspost's permalink.
+      crosspost = { originalSubreddit: originalPost.subreddit || "" };
     }
+
+    // The post's own title, for the same reason as the three stashes below:
+    // reload has no other way to reach it, and `articles.name` may be a
+    // previous AI run's output rather than source text (see `noteSourceTitle()`
+    // in ../../base.ts). Read off `effectivePostData`, so a crosspost reports
+    // the original post's title -- exactly what parseToRawArticles() stores.
+    this.noteSourceTitle(effectivePostData.title);
 
     // Same derivation as parseToRawArticles() -- reload never calls
     // finalizeArticles(), so processContent() reads these back off the
@@ -682,7 +700,7 @@ export class RedditAggregator extends BaseAggregator {
       effectiveSubreddit,
       labels,
       this.feed.userId,
-      isCrossPost,
+      crosspost,
       comments,
     );
   }
@@ -727,12 +745,20 @@ export class RedditAggregator extends BaseAggregator {
             ? ((this.feed.options?.comment_limit as number) ?? 10)
             : 0;
           const subreddit = postDict.subreddit || normalizeSubreddit(this.identifier);
-          const isCrossPost = Boolean(
-            postData.crosspost_parent_list && postData.crosspost_parent_list.length > 0,
-          );
+          const parentPost = postData.crosspost_parent_list?.[0];
+          const isCrossPost = Boolean(parentPost);
           const labels = await this.chromeLabels();
 
           const contentParts: string[] = [];
+
+          // Unlike the two paths above, this branch builds the body from the
+          // crosspost itself rather than the original -- the notice's origin
+          // comes off the parent entry either way.
+          if (parentPost) {
+            contentParts.push(
+              buildCrosspostNoticeHtml({ originalSubreddit: parentPost.subreddit || "" }, labels),
+            );
+          }
 
           if (postData.selftext) {
             const selftextHtml = convertRedditMarkdown(postData.selftext);

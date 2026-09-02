@@ -2,7 +2,8 @@ import { and, count, eq, gte } from "drizzle-orm";
 
 import { parseBlocks, plainTextOf } from "@/lib/aggregators/blocks/parser";
 import { writeBlocks } from "@/lib/aggregators/blocks/storage";
-import { articleContentHash } from "@/lib/aggregators/content-hash";
+import { rawArticleContentHash } from "@/lib/aggregators/content-hash";
+import { applyAiToBlocks, wantsAi } from "@/lib/ai/run";
 import { resolveFeedCredentials } from "@/lib/aggregators/credential-resolution";
 import { createAggregator } from "@/lib/aggregators/factory";
 import { getDb, writeTransaction } from "@/lib/db/client";
@@ -24,13 +25,13 @@ export async function handleAggregateJob(job: Job): Promise<void> {
     return;
   }
 
-  // Without this, `aggregate()` -> `finalizeArticles()` -> `applyAiProcessing()`
-  // calls `applyAiOptions()` with `userSettings` undefined, which is an early
-  // return (see its own "No userSettings provided" guard) -- so a feed's
-  // summarize/improve-writing/translate options never ran on a freshly
-  // aggregated article at all, not just on reload. Read once and handed to
-  // resolveFeedCredentials() too, which would otherwise re-run the identical
-  // query for the same row.
+  // The feed owner's row, read once and used twice: `resolveFeedCredentials()`
+  // below needs it, and so does `applyAiToBlocks()` further down -- handed
+  // `undefined`, that returns early on its own "no userSettings" guard, so a
+  // feed's summarize/improve-writing/translate options would silently never
+  // run. (It used to reach the AI stage by being threaded through
+  // `aggregate()` into `finalizeArticles()`; the stage moved here, and that
+  // parameter went away with it.)
   const settings = db.select().from(userSettings).where(eq(userSettings.userId, feed.userId)).get();
 
   // getCurrentRunLimit()'s pacing formula (see base.ts) is meant to spread a
@@ -53,7 +54,20 @@ export async function handleAggregateJob(job: Job): Promise<void> {
   appendLogLine(job.id, "stdout", `aggregating feed "${feed.name}" (${feed.aggregator})`);
   const aggregator = createAggregator(resolveFeedCredentials(feed, settings ?? null));
   aggregator.onLog = (message) => appendLogLine(job.id, "stdout", message);
-  const rawArticles = await aggregator.aggregate(undefined, collectedToday, settings, (percent) =>
+  // One narrow indexed read per identifier -- one small column, never
+  // `rawContent`/`plainText`, which is the whole point: comparing the large
+  // columns directly would cost the very I/O the skip saves. Asked exactly once
+  // per article, by the loop below, so there is nothing here to memoize; the
+  // one case where the same identifier comes round twice in a single run is a
+  // feed that listed it twice, and reading the hash the first copy just wrote
+  // is what makes the second one skip.
+  const storedContentHash = (identifier: string): string | null =>
+    db
+      .select({ contentHash: articles.contentHash })
+      .from(articles)
+      .where(and(eq(articles.feedId, feedId), eq(articles.identifier, identifier)))
+      .get()?.contentHash ?? null;
+  const rawArticles = await aggregator.aggregate(undefined, collectedToday, (percent) =>
     progress(job.id, percent),
   );
   appendLogLine(job.id, "stdout", `fetched ${rawArticles.length} articles`);
@@ -69,6 +83,15 @@ export async function handleAggregateJob(job: Job): Promise<void> {
   let created = 0;
   let updated = 0;
   let unchanged = 0;
+
+  // Whether this feed asks for AI at all, decided once -- by `wantsAi()`, the
+  // same predicate `applyAiToBlocks()` itself uses, so there is no second copy
+  // of the "is AI on" rule here to drift from the one in that function. It only
+  // governs the inter-request spacing below; the stage answers `skipped` on its
+  // own for a feed with no AI options.
+  const aiOn = wantsAi(feed.options);
+  const aiRequestDelayMs = (settings?.aiRequestDelay ?? 2) * 1000;
+  let aiRequests = 0;
 
   for (let i = 0; i < total; i++) {
     if (isCancelRequested(job.id)) {
@@ -100,37 +123,65 @@ export async function handleAggregateJob(job: Job): Promise<void> {
     const rawContentToStore = raw.raw_content || raw.content || "";
     const rawDate = raw.date ?? null;
 
-    const hash = articleContentHash({
-      name: raw.name || "Untitled",
-      html: htmlContent,
-      rawContent: rawContentToStore,
+    // Computed here, from the article exactly as the aggregator produced it.
+    // That is a fingerprint of the *source*, which is what makes it stable:
+    // AI post-processing now runs below this check rather than upstream of it,
+    // so nothing in this value can depend on model output. (It could, once:
+    // the AI stage (then `applyAiOptions()`) rewrote `raw.name`/`raw.content`
+    // in place before this
+    // ran, so for any feed with an AI option enabled the hash was a hash of a
+    // non-deterministic answer and this skip could never fire.)
+    const hash = rawArticleContentHash({
+      name: raw.name,
+      content: htmlContent,
+      raw_content: rawContentToStore,
       date: rawDate,
-      author: raw.author || "",
-      icon: raw.icon || null,
+      author: raw.author,
+      icon: raw.icon,
     });
 
-    // Read outside the write transaction, and narrow: one small column, never
-    // `rawContent`/`plainText`. This is the whole point -- comparing the large
-    // columns directly would cost the very I/O the skip saves.
-    const known = db
-      .select({ contentHash: articles.contentHash })
-      .from(articles)
-      .where(and(eq(articles.feedId, feedId), eq(articles.identifier, raw.identifier)))
-      .get();
-
-    if (known && known.contentHash === hash) {
+    if (storedContentHash(raw.identifier) === hash) {
       // Nothing about this article changed since the last run. Skipping is
       // not just cheaper: `articles.updatedAt` carries `$onUpdate`, so an
       // unconditional rewrite would put every unchanged article back into
-      // /api/v1's sync `updated` stream on every aggregation cycle.
+      // /api/v1's sync `updated` stream on every aggregation cycle. It is also
+      // where the far larger saving now comes from: `applyAiToBlocks()` below
+      // is never reached for an unchanged article, so a feed whose source keeps
+      // returning the same top entries costs nothing per cycle instead of one
+      // paid request per article per run.
       unchanged++;
       progress(job.id, 80 + Math.floor(((i + 1) / total) * 20));
       continue;
     }
 
-    // Only now is the expensive parse worth doing.
-    const blocks = parseBlocks(htmlContent, raw.identifier);
+    // Only now is the expensive parse worth doing -- and only now is an AI
+    // request worth making. `applyAiToBlocks()` works on the block tree rather
+    // than HTML: the tree is what gets stored, and rendering it as text means
+    // every URL, image, embed and code block crosses as an opaque index the
+    // model cannot alter (see `@/lib/ai/block-text`).
+    const parsed = parseBlocks(htmlContent, raw.identifier);
+
+    // Spacing is counted between *requests*, not loop iterations: a run whose
+    // first entries are all already stored must not sleep before a request it
+    // never made -- and neither must one whose AI stage declined to call the
+    // provider at all, which is why the counter below is incremented from the
+    // stage's own `requested` rather than from this gate.
+    if (aiOn && aiRequests > 0 && aiRequestDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, aiRequestDelayMs));
+    }
+
+    const ai = await applyAiToBlocks(
+      { title: raw.name || "Untitled", blocks: parsed },
+      feed.options,
+      settings ?? undefined,
+      (message) => appendLogLine(job.id, "stdout", message),
+    );
+
+    if (ai.requested) aiRequests++;
+
+    const blocks = ai.blocks;
     const plainText = plainTextOf(blocks);
+    const name = ai.title || raw.name || "Untitled";
 
     let articleId = 0;
 
@@ -150,7 +201,7 @@ export async function handleAggregateJob(job: Job): Promise<void> {
         updated++;
         tx.update(articles)
           .set({
-            name: raw.name || "Untitled",
+            name,
             rawContent: rawContentToStore,
             plainText,
             // Keep the stored date when the feed supplied none. Re-stamping
@@ -168,7 +219,7 @@ export async function handleAggregateJob(job: Job): Promise<void> {
           .insert(articles)
           .values({
             feedId,
-            name: raw.name || "Untitled",
+            name,
             identifier: raw.identifier,
             rawContent: rawContentToStore,
             plainText,
@@ -187,19 +238,30 @@ export async function handleAggregateJob(job: Job): Promise<void> {
       await writeBlocks(articleId, blocks);
     }
 
-    if (articleId > 0) {
+    if (articleId > 0 && ai.outcome.status !== "failed") {
       // Written last, deliberately: a stored hash means "the row *and* its
       // block tree are current for this content". A crash anywhere above
       // leaves it stale or null, so the next run redoes the work rather than
       // trusting a fingerprint for a half-written article.
+      //
+      // **And not written at all when the AI stage failed**, for the same
+      // reason `reload.ts` nulls it in both of its branches: a fingerprint says
+      // "this article is done", and an article whose summary or translation
+      // never happened is not. Stored anyway, a single 503 from the provider
+      // made that article permanently un-AI'd -- the next run matched the hash,
+      // skipped, and never retried, so an outage that used to heal on the next
+      // cycle became forever. The cost of the other direction is bounded and
+      // visible: a provider that is *always* failing rewrites the row once per
+      // cycle and keeps retrying, which is what a broken credential should look
+      // like rather than silence.
       writeTransaction((tx) => {
         tx.update(articles).set({ contentHash: hash }).where(eq(articles.id, articleId)).run();
       });
     }
 
-    // aggregator.aggregate() above already reported up to 80% for the slow
-    // network/AI work; this loop is the fast local DB-write remainder, so it
-    // only claims the last 20%.
+    // The 80-100% band is this loop, and it is no longer the cheap part: AI
+    // moved in here, so a feed with AI options on sits in this band for the
+    // whole provider run while `aggregate()` above covered the fetch.
     progress(job.id, 80 + Math.floor(((i + 1) / total) * 20));
   }
 

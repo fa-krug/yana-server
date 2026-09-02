@@ -44,6 +44,15 @@ const ARTICLE: RawArticle = {
   author: "",
 };
 
+const CMS_VIDEO_HTML =
+  '<html><body><div class="entry-content"><p>Article body.</p>' +
+  '<div class="wp-block-mmo-video" data-id="857744"><figure>' +
+  '<div class="thumbnail" style="background-image: url(https://images.mein-mmo.de/w.jpg);">' +
+  "</div>" +
+  '<figcaption class="title">Some trailer</figcaption>' +
+  "<script>window.Mmo.functions.renderDmPlayer( { dmVideoId: 'x8co8a0' } );</script>" +
+  "</figure></div></div></body></html>";
+
 describe("MeinMmoAggregator.extractContent", () => {
   it("returns a Promise<string> that resolves to the extracted content", async () => {
     const agg = new MeinMmoAggregator(FEED);
@@ -54,6 +63,88 @@ describe("MeinMmoAggregator.extractContent", () => {
 
     const resolved = await result;
     expect(resolved).toContain("Article body.");
+  });
+
+  // The option reads `=== true`, so an absent value -- every feed created
+  // before it existed, FEED above included -- means off. A `!== false` typo
+  // here would silently keep the CMS's videos in every one of them, which is
+  // the behaviour this option exists to end.
+  it("drops the CMS's auto-inserted video when the feed sets no include_videos", async () => {
+    const resolved = await new MeinMmoAggregator(FEED).extractContent(CMS_VIDEO_HTML, ARTICLE);
+
+    expect(resolved).toContain("Article body.");
+    expect(resolved).not.toContain("dailymotion");
+    expect(resolved).not.toContain("Some trailer");
+  });
+
+  it("keeps it when the feed opts in", async () => {
+    const feed: FeedLike = { ...FEED, options: { ...FEED.options, include_videos: true } };
+
+    const resolved = await new MeinMmoAggregator(feed).extractContent(CMS_VIDEO_HTML, ARTICLE);
+
+    expect(resolved).toContain("https://www.dailymotion.com/video/x8co8a0");
+    expect(resolved).toContain("Some trailer");
+  });
+});
+
+/**
+ * The "Inhalt" widget the Fixed TOC (`ftwp`) WordPress plugin injects into a
+ * Mein-MMO article body, trimmed to two entries but with nothing renamed.
+ * Captured from https://mein-mmo.de/pokemon-schlimme-schicksale-liste/ on
+ * 2026-08-23.
+ *
+ * Two shapes matter and both are reproduced here: the widget is emitted
+ * *inside* a `<p class="wp-block-paragraph">` (an HTML parser hoists the div
+ * out and leaves that paragraph empty, which is why the empty-element pass has
+ * to clean up after the removal), and the plugin's other wrapper,
+ * `div#ftwp-postcontent`, holds the entire article body -- so a selector
+ * broader than the container's own id would delete the article.
+ */
+const TOC_ARTICLE_HTML =
+  '<html><body><div class="entry-content"><div id="ftwp-postcontent">' +
+  '<p class="wp-block-paragraph">Leider kommt es im Anime zu F&auml;llen.</p>' +
+  '<p class="wp-block-paragraph">' +
+  '<div id="ftwp-container-outer" class="ftwp-in-post ftwp-float-none">' +
+  '<div id="ftwp-container" class="ftwp-wrap ftwp-hidden-state ftwp-minimize">' +
+  '<button type="button" id="ftwp-trigger" title="click To Maximize The Table Of Contents">' +
+  '<span class="ftwp-trigger-icon ftwp-icon-number"></span></button>' +
+  '<nav id="ftwp-contents" data-colexp="collapse">' +
+  '<header id="ftwp-header" class="ftwp-header-clickable">' +
+  '<h3 id="ftwp-header-title">Inhalt</h3></header>' +
+  '<ol id="ftwp-list" class="ftwp-liststyle-decimal ftwp-list-nest">' +
+  '<li class="ftwp-item ftwp-has-sub ftwp-expand">' +
+  '<a class="ftwp-anchor" href="#ftoc-heading-1">' +
+  '<span class="ftwp-text">8 Pok&eacute;mon mit schlimmen Schicksalen</span></a>' +
+  '<ol class="ftwp-sub"><li class="ftwp-item">' +
+  '<a class="ftwp-anchor" href="#ftoc-heading-2">' +
+  '<span class="ftwp-text">Zwei wilde Magmars einfach zermalmt</span></a>' +
+  "</li></ol></li>" +
+  '<li class="ftwp-item"><a class="ftwp-anchor ftwp-otherpage-anchor" ' +
+  'href="https://mein-mmo.de/pokemon-schlimme-schicksale-liste/2/#ftoc-heading-4">' +
+  '<span class="ftwp-text">Das Pok&eacute;mon Knogga will sein Kind sch&uuml;tzen</span></a></li>' +
+  "</ol></nav></div></div></p>" +
+  '<h2 id="ftoc-heading-2" class="wp-block-heading">Zwei wilde Magmars einfach zermalmt</h2>' +
+  '<p class="wp-block-paragraph">Der Rest des Artikels.</p>' +
+  "</div></div></body></html>";
+
+// The table of contents is navigation for Mein-MMO's own page, not article
+// text -- and on a multi-page article most of its entries point at /2/, /3/
+// and so on, which do not exist in the aggregated article at all.
+describe("MeinMmoAggregator.extractContent - the ftwp table of contents", () => {
+  it("drops the whole widget while keeping the article body around it", async () => {
+    const resolved = await new MeinMmoAggregator(FEED).extractContent(TOC_ARTICLE_HTML, ARTICLE);
+
+    expect(resolved).not.toContain("ftwp-container-outer");
+    expect(resolved).not.toContain("Inhalt");
+    expect(resolved).not.toContain("ftoc-heading-1");
+    expect(resolved).not.toContain("pokemon-schlimme-schicksale-liste/2/");
+
+    // The article itself -- including the headings the removed entries linked
+    // to -- survives. `div#ftwp-postcontent` wraps all of it, so this is what
+    // fails if the selector is ever widened to match the plugin's id prefix.
+    expect(resolved).toContain("Leider kommt es im Anime");
+    expect(resolved).toContain("Zwei wilde Magmars einfach zermalmt");
+    expect(resolved).toContain("Der Rest des Artikels.");
   });
 });
 

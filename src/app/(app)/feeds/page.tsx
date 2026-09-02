@@ -1,97 +1,79 @@
-import Link from "next/link";
-import { cache, Suspense } from "react";
-import { getTranslations } from "next-intl/server";
+import { cache } from "react";
 
 import { Pagination } from "@/components/crud/pagination";
-import { SearchFilterBar } from "@/components/crud/search-filter-bar";
-import { TableRowsSkeleton } from "@/components/data-skeleton";
-import { buttonVariants } from "@/components/ui/button";
-import { FeedsTableBody, FeedsTableShell } from "@/components/feeds/feeds-table";
-import { ImportOpmlButton } from "@/components/feeds/import-opml-button";
-import { requireUser } from "@/lib/auth/session";
+import { FeedsChrome } from "@/components/feeds/feeds-chrome";
+import { FeedsListRegion } from "@/components/feeds/feeds-list-region";
+import { FeedsTableBody } from "@/components/feeds/feeds-table";
 import { parseListParams, type ListParams } from "@/lib/crud/params";
 import { listFeeds } from "@/lib/feeds/actions";
-import { AGGREGATOR_SPECS } from "@/lib/aggregators/specs";
+
+type SearchParamsPromise = Promise<Record<string, string | string[] | undefined>>;
 
 // Body and Pagination below both read `{ rows, total }` for the same `params`
 // object -- `cache()` (per request, like `getSettings()` elsewhere) turns that
 // into one query rather than two.
 const cachedListFeeds = cache(listFeeds);
 
-async function FeedsBody({ params }: { params: ListParams }) {
+// `FeedsBody` and `FeedsPagination` each receive the *same* `searchParams`
+// promise reference from `FeedsPage` and parse it independently -- without
+// this, they would each call `parseListParams()` and get a *different*
+// `params` object, and `cachedListFeeds(params)` above would no longer
+// dedupe (React's `cache()` keys on argument identity, not deep equality).
+// `cache()`ing the parse itself, keyed on that shared promise reference,
+// restores the single shared `params` object the dedupe above depends on.
+const resolveParams = cache(async (searchParams: SearchParamsPromise): Promise<ListParams> =>
+  parseListParams(await searchParams),
+);
+
+async function FeedsBody({ searchParams }: { searchParams: SearchParamsPromise }) {
+  const params = await resolveParams(searchParams);
   const { rows } = await cachedListFeeds(params);
   return <FeedsTableBody rows={rows} />;
 }
 
-async function FeedsPagination({ params }: { params: ListParams }) {
+async function FeedsPagination({ searchParams }: { searchParams: SearchParamsPromise }) {
+  const params = await resolveParams(searchParams);
   const { total } = await cachedListFeeds(params);
   return <Pagination page={params.page} pageSize={params.pageSize} total={total} />;
 }
 
-export default async function FeedsPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  await requireUser();
-
-  const params = parseListParams(await searchParams);
-  const t = await getTranslations("feeds");
-
-  // Create filters for the search bar
-  const aggregators = Object.values(AGGREGATOR_SPECS).map((s) => ({
-    value: s.key,
-    label: s.label,
-  }));
-
-  const filters = [
-    {
-      key: "aggregator",
-      label: t("columns.aggregator"),
-      // `""`, not "all": an empty value clears the filter, so "All
-      // aggregators" produces a URL with no `aggregator` at all rather than
-      // `?aggregator=all`.
-      options: [{ value: "", label: t("allAggregators") }, ...aggregators],
-    },
-    {
-      key: "enabled",
-      label: t("columns.enabled"),
-      options: [
-        { value: "", label: t("allEnabled") },
-        { value: "true", label: t("enabledTrue") },
-        { value: "false", label: t("enabledFalse") },
-      ],
-    },
-  ];
-
+/**
+ * The instant-render-no-fallback migration (see `src/app/(app)/settings/page.tsx`):
+ * this page body awaits nothing, so it cannot suspend and `loading.tsx` --
+ * deleted along with this rewrite -- is unreachable.
+ *
+ * Three things this page used to await, and where each went:
+ * - `await requireUser()` is gone from here entirely. `src/app/(app)/layout.tsx`
+ *   already awaits `requireUser()` for the whole route group, and
+ *   `listFeeds()` (called by `FeedsBody`/`FeedsPagination` below) already
+ *   scopes every row to `currentUserId()` itself -- this page's own call was
+ *   redundant with both, never the only thing standing between another
+ *   user's feeds and this page.
+ * - `await searchParams` is never awaited **here**. It is a promise in
+ *   Next 16, and awaiting it in the page body is exactly the kind of await
+ *   this migration removes. Instead, the raw promise is handed down to
+ *   `FeedsBody`/`FeedsPagination` -- both already-async Server Components
+ *   sitting inside a `<Suspense>` boundary, where awaiting is the whole
+ *   point. `<FeedsChrome>`'s search box and filter selects need the *current*
+ *   params too, but read them independently, client-side, via
+ *   `useListParams()` (`src/components/crud/use-list-params.ts`) -- the
+ *   existing hook the search bar, filter selects and pagination links
+ *   already call directly rather than taking params as a prop. `<FeedsListRegion>`
+ *   uses the same hook to compute the two `<Suspense>` keys that used to be
+ *   computed here from the awaited `params` -- see its own doc comment.
+ * - `await getTranslations("feeds")` is gone, replaced by `<FeedsChrome>`
+ *   itself becoming a Client Component reading `useTranslations("feeds")` --
+ *   see its own doc comment.
+ */
+export default function FeedsPage({ searchParams }: { searchParams: SearchParamsPromise }) {
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-semibold">{t("title")}</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <a href="/api/feeds/export" className={buttonVariants({ variant: "outline" })}>
-            {t("exportOpml")}
-          </a>
-          <ImportOpmlButton />
-          <Link href="/feeds/new" className={buttonVariants()}>
-            {t("new")}
-          </Link>
-        </div>
-      </div>
+      <FeedsChrome />
 
-      <SearchFilterBar placeholder={t("searchPlaceholder")} filters={filters} />
-
-      {/* See src/app/(app)/tags/page.tsx for why the shell takes `resetKey`
-          rather than a `key`, and why only the inner Suspense is keyed. */}
-      <FeedsTableShell resetKey={JSON.stringify(params)}>
-        <Suspense key={JSON.stringify(params)} fallback={<TableRowsSkeleton columns={6} />}>
-          <FeedsBody params={params} />
-        </Suspense>
-      </FeedsTableShell>
-
-      <Suspense key={JSON.stringify(params)} fallback={null}>
-        <FeedsPagination params={params} />
-      </Suspense>
+      <FeedsListRegion
+        tableBody={<FeedsBody searchParams={searchParams} />}
+        pagination={<FeedsPagination searchParams={searchParams} />}
+      />
     </div>
   );
 }

@@ -330,12 +330,6 @@ export const ENDPOINT_REGISTRY: EndpointDoc[] = [
       { status: 400, code: "prompt_too_long", when: "prompt exceeds the configured length limit." },
       { status: 401, code: "unauthorized", when: "no valid Bearer token or session." },
       { status: 409, code: "no_active_provider", when: "no AI provider is configured." },
-      { status: 429, code: "daily_limit_exceeded", when: "the daily AI request limit is reached." },
-      {
-        status: 429,
-        code: "monthly_limit_exceeded",
-        when: "the monthly AI request limit is reached.",
-      },
       {
         status: 502,
         code: "provider_unauthorized",

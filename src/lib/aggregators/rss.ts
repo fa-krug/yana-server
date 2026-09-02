@@ -52,6 +52,11 @@ export class RssAggregator extends BaseAggregator {
     try {
       const feed = await this.fetchSourceData();
       const entry = feed.entries.find((e) => e.link === url);
+      // Unescaped exactly as parseToRawArticles() below does it, so reload and
+      // a fresh aggregation run report the same title for the same entry. It is
+      // what keeps reload from feeding a previous AI run's title back into the
+      // AI stage -- see `noteSourceTitle()` in ./base.
+      this.noteSourceTitle(entry ? unescapeEntities(entry.title || "") : null);
       return entry?.summary || "";
     } catch {
       return "";
@@ -73,6 +78,12 @@ export class RssAggregator extends BaseAggregator {
         date: this.parseDate(entry.published),
         author: unescapeEntities(entry.author || ""),
         icon: null,
+        // Carried for `filterArticles()`'s advertising check and nothing else
+        // -- see `FeedEntry.categories` in ./rss-parser. Not unescaped: a
+        // label is compared against a fixed vocabulary rather than displayed,
+        // and `unescapeEntities` handles a fixed entity list, so running it
+        // here would only add a way for the two spellings to disagree.
+        categories: entry.categories,
       });
     }
 

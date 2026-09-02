@@ -224,6 +224,33 @@ describe("YouTubeAggregator.logoImageUrl", () => {
   });
 });
 
+describe("YouTubeAggregator.fetchArticleContent source title", () => {
+  it("reports the video's current title", async () => {
+    // What `reload.ts` sends to the AI stage instead of `articles.name`, which
+    // on a feed with an AI option on is the model's own previous answer -- see
+    // `noteSourceTitle()` in ../../base.
+    const feed: FeedLike = { identifier: "UCtest", dailyLimit: 20, options: {} };
+
+    class FakeClientAggregator extends YouTubeAggregator {
+      protected getClient(): YouTubeClient {
+        return {
+          fetchVideoDetails: async () => [
+            { id: "abc123", snippet: { title: "The video's current title", description: "desc" } },
+          ],
+          fetchVideoComments: async () => [] as YouTubeCommentThread[],
+        } as unknown as YouTubeClient;
+      }
+    }
+
+    const agg = new FakeClientAggregator(feed);
+    expect(agg.sourceTitle).toBeNull();
+
+    await agg.fetchArticleContent("https://www.youtube.com/watch?v=abc123");
+
+    expect(agg.sourceTitle).toBe("The video's current title");
+  });
+});
+
 describe("YouTubeAggregator.enrichArticles concurrency", () => {
   function aggregatorWithFakeClient(
     fetchVideoComments: YouTubeClient["fetchVideoComments"],

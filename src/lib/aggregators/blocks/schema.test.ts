@@ -45,6 +45,25 @@ describe("block schema encoding / decoding", () => {
     ]);
   });
 
+  it("round-trips a summary block through the wire format", () => {
+    const wire = {
+      version: 1,
+      blocks: [
+        {
+          type: "summary",
+          blocks: [{ type: "paragraph", runs: [{ text: "The gist.", styles: [], link: null }] }],
+        },
+      ],
+    };
+
+    const decoded = decodeDocument(wire);
+    expect(decoded[0]).toMatchObject({ kind: "summary", blocks: [{ kind: "paragraph" }] });
+    // Version stays 1: a new type is additive under this format's own
+    // extensibility rule (an unknown type is skipped, never fatal), and
+    // bumping it would make every existing client reject the whole document.
+    expect(encodeDocument(decoded)).toEqual(wire);
+  });
+
   it("ignores unknown style names while preserving known styles", () => {
     const runsInput = [
       {

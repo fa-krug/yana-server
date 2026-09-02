@@ -63,9 +63,6 @@ const GEMINI_MODEL = "gemini-3.5-flash-lite";
 /** A complete, in-range advanced payload -- the documented defaults. */
 const VALID_ADVANCED = {
   temperature: 0.3,
-  maxTokens: 2000,
-  dailyLimit: 200,
-  monthlyLimit: 2000,
   maxPromptLength: 500,
   requestTimeout: 120,
   maxRetries: 3,
@@ -853,9 +850,6 @@ describe("the AI actions", () => {
       expect(await actions.saveAdvanced(VALID_ADVANCED)).toEqual({ ok: true });
       expect(row()).toMatchObject({
         ai_temperature: 0.3,
-        ai_max_tokens: 2000,
-        ai_default_daily_limit: 200,
-        ai_default_monthly_limit: 2000,
         ai_max_prompt_length: 500,
         ai_request_timeout: 120,
         ai_max_retries: 3,
@@ -867,12 +861,15 @@ describe("the AI actions", () => {
     it("stores a changed value under the column whose `ai` prefix it drops", async () => {
       // The short names are the form's and the query's; the map back to columns
       // lives in exactly one place, and this is what proves it lands right.
+      // `maxPromptLength` is the case worth using: unlike `temperature` its
+      // column name is not simply the field with a prefix bolted on, so a
+      // mapping that guessed rather than looked it up would land somewhere else.
       expect(
-        await actions.saveAdvanced({ ...VALID_ADVANCED, dailyLimit: 7, monthlyLimit: 70 }),
+        await actions.saveAdvanced({ ...VALID_ADVANCED, maxPromptLength: 700, requestDelay: 9 }),
       ).toEqual({ ok: true });
       expect(row()).toMatchObject({
-        ai_default_daily_limit: 7,
-        ai_default_monthly_limit: 70,
+        ai_max_prompt_length: 700,
+        ai_request_delay: 9,
       });
     });
 
@@ -888,18 +885,12 @@ describe("the AI actions", () => {
     it.each([
       ["a temperature above 2", "temperature", 2.5, "advanced.temperatureRange"],
       ["a negative temperature", "temperature", -0.1, "advanced.temperatureRange"],
-      ["maxTokens of zero", "maxTokens", 0, "advanced.maxTokensRange"],
-      ["maxTokens past the ceiling", "maxTokens", 200_001, "advanced.maxTokensRange"],
-      ["a fractional maxTokens", "maxTokens", 10.5, "advanced.maxTokensRange"],
-      ["a daily limit of zero", "dailyLimit", 0, "advanced.dailyLimitRange"],
-      ["a daily limit past the ceiling", "dailyLimit", 100_001, "advanced.dailyLimitRange"],
-      // The monthly limit had neither end covered, so its own range key was
-      // unreachable from any test. The cross-field rule cannot pre-empt these:
-      // `.superRefine()` only runs once the object itself parses, so a
-      // `too_small` on this field is reported before the comparison happens.
-      ["a monthly limit of zero", "monthlyLimit", 0, "advanced.monthlyLimitRange"],
-      ["a monthly limit past the ceiling", "monthlyLimit", 100_001, "advanced.monthlyLimitRange"],
       ["a prompt length of zero", "maxPromptLength", 0, "advanced.maxPromptLengthRange"],
+      // The integer bound, which one field has to carry now that `maxTokens`
+      // (whose fractional case used to cover it) is gone: SQLite would store
+      // `10.5` in an `integer` column without complaining, so `.int()` is the
+      // only thing refusing it.
+      ["a fractional prompt length", "maxPromptLength", 10.5, "advanced.maxPromptLengthRange"],
       [
         "a prompt length past the ceiling",
         "maxPromptLength",
@@ -924,30 +915,20 @@ describe("the AI actions", () => {
         expect(failureMessage(result)).toBeTypeOf("string");
       }
       // Nothing was written: the row still holds the migration's defaults.
-      expect(row()).toMatchObject({ ai_temperature: 0.3, ai_max_tokens: 2000 });
+      expect(row()).toMatchObject({ ai_temperature: 0.3, ai_max_prompt_length: 500 });
     });
 
-    it("rejects a monthly limit below the daily one, with its own message", async () => {
-      // Otherwise the monthly cap is unreachable through the daily one and the
-      // daily limit never applies -- one of the two numbers is decoration, and
-      // which one depends on an ordering nobody wrote down.
-      const result = await actions.saveAdvanced({
-        ...VALID_ADVANCED,
-        dailyLimit: 500,
-        monthlyLimit: 100,
-      });
-
-      expect(result).toEqual({ ok: false, errorKey: "advanced.monthlyBelowDaily" });
-      // Distinct from the plain range message: "at least as large as the daily
-      // one" is different advice from "between 1 and 100000".
-      expect(failureMessage(result)).not.toBe(aiMessage("advanced.monthlyLimitRange"));
-      expect(failureMessage(result)).toBeTypeOf("string");
-    });
-
-    it("accepts a monthly limit exactly equal to the daily one", async () => {
+    it("has no cross-field rule left to break", async () => {
+      // `monthlyLimit >= dailyLimit` was the only rule about a pair here, and
+      // it went with the request caps themselves. What used to be refused --
+      // a monthly cap below the daily one -- is not a value this action takes
+      // any more, so the two cases that covered it are gone rather than
+      // rewritten. This is what is left to assert: unknown keys are ignored
+      // rather than turning into a refusal or, worse, a column write.
       expect(
-        await actions.saveAdvanced({ ...VALID_ADVANCED, dailyLimit: 200, monthlyLimit: 200 }),
+        await actions.saveAdvanced({ ...VALID_ADVANCED, dailyLimit: 1, monthlyLimit: 1 }),
       ).toEqual({ ok: true });
+      expect(row()).toMatchObject({ ai_temperature: 0.3, ai_max_prompt_length: 500 });
     });
 
     it("accepts the zero-valued ends of the three ranges that allow zero", async () => {
@@ -970,10 +951,10 @@ describe("the AI actions", () => {
         password: "correct horse battery staple",
       });
       client.writeTransaction((tx) =>
-        tx.insert(schema.userSettings).values({ userId: other.id, aiMaxTokens: 111 }).run(),
+        tx.insert(schema.userSettings).values({ userId: other.id, aiMaxRetries: 7 }).run(),
       );
 
-      expect(await actions.saveAdvanced({ ...VALID_ADVANCED, maxTokens: 999 })).toEqual({
+      expect(await actions.saveAdvanced({ ...VALID_ADVANCED, maxRetries: 9 })).toEqual({
         ok: true,
       });
 
@@ -981,9 +962,9 @@ describe("the AI actions", () => {
       try {
         expect(
           connection
-            .prepare("SELECT ai_max_tokens FROM user_settings WHERE user_id = ?")
+            .prepare("SELECT ai_max_retries FROM user_settings WHERE user_id = ?")
             .get(other.id),
-        ).toEqual({ ai_max_tokens: 111 });
+        ).toEqual({ ai_max_retries: 7 });
       } finally {
         connection.close();
       }

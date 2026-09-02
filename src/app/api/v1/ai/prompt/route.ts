@@ -57,16 +57,11 @@ export async function POST(request: Request): Promise<Response> {
     const result = await client.generateResponse(prompt);
 
     if (!result.ok) {
-      if (result.reason === "dailyLimitExceeded") {
-        throw new ApiError(429, "daily_limit_exceeded", "The daily AI request limit is reached.");
-      }
-      if (result.reason === "monthlyLimitExceeded") {
-        throw new ApiError(
-          429,
-          "monthly_limit_exceeded",
-          "The monthly AI request limit is reached.",
-        );
-      }
+      // No `daily_limit_exceeded`/`monthly_limit_exceeded` any more: the
+      // per-user request caps behind them were removed (see the doc comment on
+      // `AIClient.generateResponse()`), so this route can no longer answer 429
+      // at all. `prompt_too_long` above is the one bound it still enforces, and
+      // it is a request-shape check rather than a quota.
       if (result.reason === "noProvider") {
         throw new ApiError(409, "no_active_provider", "No AI provider is configured.");
       }

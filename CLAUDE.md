@@ -32,16 +32,19 @@ behavior ever needs to be reconstructed.
 │   │   ├── login/page.tsx         # /login — outside (app): no sidebar, no requireUser()
 │   │   └── (app)/                 # sidebar + breadcrumb chrome for every real page
 │   │       ├── layout.tsx         # sidebar, content frame; awaits requireUser()
-│   │       ├── loading.tsx        # route-level Suspense fallback
+│   │       │                      #   (no loading.tsx anywhere: no page body
+│   │       │                      #   awaits, so none can suspend)
 │   │       ├── page.tsx           # dashboard
 │   │       ├── error.tsx          # error boundary for every route in the group
 │   │       ├── account/page.tsx   # /account — profile, password, passkeys
 │   │       ├── integrations/page.tsx # /integrations — YouTube + Reddit credentials
 │   │       ├── ai/page.tsx        # /ai — the active AI provider, its credentials,
-│   │       │                      #   and the nine global tuning values
+│   │       │                      #   and the six global tuning values
 │   │       ├── settings/page.tsx
 │   │       └── users/             # admin-only. page.tsx (list), new/, [id]/ (edit +
-│   │                              #   delete); each awaits requireAdmin() first
+│   │                              #   delete). The gate lives in the users
+│   │                              #   queries/actions now; only new/ still
+│   │                              #   awaits requireAdmin() in its page body
 │   ├── components/
 │   │   ├── ui/                    # shadcn components (Base UI + Tailwind v4)
 │   │   ├── auth/                   # login-form.tsx (passkey first), sign-out-button.tsx
@@ -56,7 +59,7 @@ behavior ever needs to be reconstructed.
 │   │   │                           #   binding of ../section-kit.tsx
 │   │   ├── ai/                     # provider-section.tsx (the picker + one
 │   │   │                           #   provider's credentials), advanced-section.tsx
-│   │   │                           #   (the nine numbers, saved as one unit) and
+│   │   │                           #   (the six numbers, saved as one unit) and
 │   │   │                           #   section-parts.tsx — the `ai` binding of
 │   │   │                           #   ../section-kit.tsx
 │   │   ├── users/                  # the kit, wired to users: users-table.tsx,
@@ -66,6 +69,9 @@ behavior ever needs to be reconstructed.
 │   │   │                           #   the keep-existing sentinel, the mask
 │   │   │                           #   placeholder, statusBadgeIn(),
 │   │   │                           #   reportOutcomeIn() — phase 7's second consumer
+│   │   ├── record-not-found.tsx    # what all five [id] routes render when the
+│   │   │                           #   record promise resolves to null — one
+│   │   │                           #   message for every reason it can be
 │   │   ├── user-avatar.tsx         # image, else initials on a colour from the id
 │   │   ├── app-sidebar.tsx         # navigation, from src/lib/nav.ts
 │   │   ├── route-breadcrumbs.tsx   # segment-derived breadcrumbs, overridable
@@ -74,7 +80,10 @@ behavior ever needs to be reconstructed.
 │   │   │                           #   lets a detail page register its record's
 │   │   │                           #   title for the breadcrumb, replacing the
 │   │   │                           #   raw id
-│   │   ├── data-skeleton.tsx       # TableSkeleton, CardSkeleton
+│   │   ├── data-skeleton.tsx       # TableRowsSkeleton (a list's <tbody>) and
+│   │   │                           #   TableSkeleton (/articles/[id]'s block
+│   │   │                           #   tree). NOT a page fallback — see the
+│   │   │                           #   streaming-pattern bullet
 │   │   └── theme-provider.tsx      # next-themes wrapper
 │   ├── hooks/                     # use-mobile.ts (hand-modified — see below)
 │   ├── i18n/
@@ -116,7 +125,7 @@ behavior ever needs to be reconstructed.
 │   │   │                          #   actions.ts (the two declarations + the exports),
 │   │   │                          #   result.ts (attempt() binding + SaveResult)
 │   │   ├── ai/                    # providers.ts (client-safe registry — imports
-│   │   │                          #   nothing), bounds.ts (the nine tuning bounds,
+│   │   │                          #   nothing), bounds.ts (the six tuning bounds,
 │   │   │                          #   read by the form and the schema — likewise),
 │   │   │                          #   columns.ts (provider -> columns, and
 │   │   │                          #   resolveModel()'s hasDynamicModels split),
@@ -125,8 +134,13 @@ behavior ever needs to be reconstructed.
 │   │   │                          #   SERVER-ONLY by lint rule), queries.ts
 │   │   │                          #   (SERVER-ONLY, masked only), actions.ts (seven
 │   │   │                          #   defineIntegration() declarations, the active
-│   │   │                          #   provider, the nine tuning values,
-│   │   │                          #   listOpenrouterModels()), result.ts
+│   │   │                          #   provider, the six tuning values,
+│   │   │                          #   listOpenrouterModels()), result.ts,
+│   │   │                          #   run.ts (AIClient + applyAiToBlocks: the AI
+│   │   │                          #   stage, which works on the block tree),
+│   │   │                          #   block-text.ts (the blocks <-> prose codec
+│   │   │                          #   that stage sends; URLs and non-prose
+│   │   │                          #   blocks cross as opaque indices)
 │   │   ├── users/                 # fields.ts (client-safe constants — imports only
 │   │   │                          #   auth/roles), queries.ts (SERVER-ONLY reads),
 │   │   │                          #   actions.ts (writes), result.ts (attempt() binding)
@@ -381,15 +395,46 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   inferred, Next walks up looking for a lockfile and can nest the whole absolute
   path under `.next/standalone`, which breaks the Dockerfile's assumption that
   `server.js` lands at the tree root.
-- **Opt a route or layout out of prerendering with `await connection()` from
-  `next/server`, never `export const dynamic = "force-dynamic"`.**
+- **Opt a route out of prerendering with `connection()` from `next/server` —
+  **called, not awaited** — never `export const dynamic = "force-dynamic"`.**
   `better-sqlite3` is synchronous, so its queries complete during prerendering,
   and without this a production build would bake a page against `data/` — which
-  is gitignored and does not exist until the server's startup hook migrates it. Next 16 removes `dynamic` once Cache Components is enabled,
-  so `connection()` is the form that keeps working; the local doc is
+  is gitignored and does not exist until the server's startup hook migrates it.
+  Next 16 removes `dynamic` once Cache Components is enabled, so `connection()`
+  is the form that keeps working; the local doc is
   `node_modules/next/dist/docs/01-app/03-api-reference/04-functions/connection.md`,
   section "Synchronous database drivers", which names `better-sqlite3`
   explicitly.
+
+  **The missing `await` is deliberate, and it rests on a precondition that is
+  config-dependent — so it is written down here rather than left to be
+  rediscovered.** Page bodies await nothing now (see the streaming-pattern
+  bullet), so awaiting this one call would reintroduce the single await that
+  whole migration exists to remove: one `await` in the body makes the page
+  function async again, and an async page can suspend. Calling it is enough
+  today because `connection()` is a **non-async function** that inspects the
+  work store and returns or throws immediately
+  (`next/dist/server/request/connection.js`, Next 16.2.12). With no
+  `cacheComponents` and no PPR configured — `next.config.ts` carries only
+  `experimental.serverActions` — a `next build` prerender lands in that
+  function's `prerender-legacy` branch, which calls
+  `throwToInterruptStaticGeneration()`: a **synchronous throw**, which
+  propagates out of the (now synchronous) page function exactly as it would if
+  awaited. At real request time the same call takes the `request` branch,
+  resolves to `undefined`, and is never observed. **Under `cacheComponents` the
+  branch taken instead is `prerender`/`prerender-client`/`prerender-runtime`,
+  which `return makeHangingPromise(...)` and never throw** — an unawaited call
+  there would interrupt nothing, and a route could be statically prerendered
+  against a `data/` that does not exist. Enabling Cache Components therefore
+  means revisiting every one of these call sites, not just this bullet.
+
+  **The thing to re-run is the check, not the mechanism.**
+  `rm -rf data/ && npm run build && ls data/` must end in
+  `ls: data: No such file or directory`, and the build's route table must show
+  `ƒ` (Dynamic) beside every route — measured on this branch, all routes
+  dynamic, `data/` not recreated. A mechanism argument that survives a Next
+  upgrade is worth less than that command, which does not.
+
   **It is per route, and a layout does not cover its pages.** The root layout's
   call does _not_ keep a page off the database: layout and page are sibling
   render scopes, React starts the page before the layout's interrupt lands, and
@@ -397,45 +442,65 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   `getSettings()` → `getDb()`. That is measured, not theoretical — until phase
   4's task 2 it left an empty, unmigrated `data/yana.db` behind on every
   `npm run build`. So **every route that can reach the database calls it
-  itself, as its first statement**, before any translation or data call. **This
-  is a rule to apply, not a list to consult** — a fixed inventory here has
-  already drifted twice (once when phase 13's `/api/v1` routes shipped without
-  an entry, again when the dashboard's own route joined them), because nothing
-  enforces that a new call site gets a new line.
-  `grep -rl "await connection()" src/app` is how you find every route that
-  currently makes the call — read its output rather than counting it, because
-  not every hit is a call site: it also matches the `.test.ts` files that
-  assert the call is first, and it matches
-  `src/app/api/auth/[...all]/route.ts`, whose comment names the call in order
-  to _explain why that route deliberately has none_ (its only segment is
-  dynamic, so Next already treats it as dynamic — and the comment says to add
-  the call if that ever changes). A new route that reads anything needs its own
-  call, in the same commit that adds the read — unless it already awaits a
-  Dynamic API, which opts the route out just as well; the routes below are
-  exactly that second case, and are listed for the _reason_, not as inventory
-  to keep in sync.
-  `src/app/(app)/layout.tsx` is exempt because `requireUser()` awaits
-  `headers()` before anything touches SQLite; so are
-  `src/app/media/avatars/[userId]/route.ts` and
-  `src/app/api/feeds/export/route.ts`, for the same reason;
-  `src/app/(app)/jobs/[id]/page.tsx` and
-  `src/app/api/jobs/[id]/log-stream/route.ts`, likewise (the job live-log
-  feature's detail page and its SSE route, both gated by
-  `requireUserFreshRole()` before anything else); and so are phase 5's three
-  `/users` routes —
-  `src/app/(app)/users/page.tsx`, `src/app/(app)/users/new/page.tsx`,
-  `src/app/(app)/users/[id]/page.tsx` — where `requireAdmin()` does it. That
-  exemption is only worth as much as the
-  gate's **position**: it is the first statement of each of those three, ahead
-  of `getTranslations()`, `parseListParams()` and every query, which is where
-  it has to be anyway — inside a `<Suspense>` boundary its `notFound()` would
-  arrive after the first byte and truncate a 200 instead of answering 404. A
-  page that authorizes late has already opened the database, and then it needs
-  its own `connection()` line like everything else.
-  The health route calls it _outside_ its `try`, because inside it
-  the prerender bail-out (itself a thrown error) would be caught and turned into
-  a 503, silently reinstating a static `{"status":"ok"}`. To check the invariant:
-  delete `data/`, run `npm run build`, and confirm it was not recreated.
+  itself, as its first statement**, before any query. **This is a rule to apply,
+  not a list to consult** — a fixed inventory here has already drifted twice
+  (once when phase 13's `/api/v1` routes shipped without an entry, again when
+  the dashboard's own route joined them), because nothing enforces that a new
+  call site gets a new line. `grep -rn "connection()" src/app` is how you find
+  every route that currently makes the call — read its output rather than
+  counting it, because not every hit is a call site: it also matches the test
+  files that assert the call is there, and it matches
+  `src/app/api/auth/[...all]/route.ts`, whose comment names the call in order to
+  _explain why that route deliberately has none_ (its only segment is dynamic,
+  so Next already treats it as dynamic — and the comment says to add the call if
+  that ever changes). **Do not assume `await connection()` is rare** — after
+  the instant-render-no-fallback migration it survives in fourteen non-test
+  files, not two: every `(app)` page body still calls the bare, unawaited
+  `connection();` form (an `await` there would make the page function async
+  again, which is exactly what that migration removes), but `await
+connection()` is correct wherever the function is already async for its own
+  reasons and an extra `await` costs nothing — `src/app/layout.tsx`,
+  `src/app/health/route.ts`, `src/app/login/page.tsx` (outside the
+  instant-render page set), `src/app/(app)/api-docs/route.ts`, and ten
+  `/api/v1` route handlers that reach the database with no earlier awaited
+  Dynamic API to opt them out already (`articles/[id]/content`,
+  `articles/sync`, `auth/webview-session-token`, `feeds`, `images/[hash]`,
+  `jobs/events`, `openapi.json`, `reading-position`, `runs/[id]`, `tags` —
+  ten routes, not twelve). `grep -rl "await connection()" src --include="*.ts"
+--include="*.tsx" | grep -v test` is how to re-count; it also matches two
+  comment-only mentions that name the call without making it
+  (`src/app/api/auth/[...all]/route.ts`, `src/components/crud/use-list-params.ts`),
+  so subtract those two from its file count.
+
+  A route that already **awaits a Dynamic API** is opted out just as well and
+  needs no call. The instant-render migration shrank that category sharply,
+  because the awaits it removed from page bodies were mostly the ones doing this
+  job — so the routes listed here are listed for the _reason_, never as
+  inventory to keep in sync. `src/app/(app)/layout.tsx` is exempt because
+  `requireUser()` awaits `headers()` before anything touches SQLite; so are the
+  route handlers, which are async by construction and await their own gate —
+  `src/app/media/avatars/[userId]/route.ts`,
+  `src/app/media/images/[hash]/route.ts`, `src/app/api/feeds/export/route.ts`
+  and `src/app/api/jobs/[id]/log-stream/route.ts`. **`/users/new`
+  (`src/app/(app)/users/new/page.tsx`) is the one _page_ still in this
+  category**, and for a reason worth keeping straight: it is also the one page
+  that still awaits an authorization gate in its body, because it calls no data
+  function and so had nothing to carry the gate into (see the streaming-pattern
+  bullet's authorization section). Its `await requireAdmin()` reads `headers()`,
+  which opts the route out. Everything that gate used to cover on
+  `/users`, `/users/[id]` and `/jobs/*` moved into the data layer, so those
+  routes call `connection()` like everyone else. The three list routes
+  `/articles`, `/feeds` and `/tags` are the remaining exception and the least
+  obvious one: their page bodies call nothing at all synchronously — every read
+  is inside an async data region within a `<Suspense>` boundary, and each of
+  those awaits `currentUserId()` → `headers()` before it can reach `getDb()`,
+  which is what marks the route dynamic. Verified by the build check above, not
+  by reading this paragraph.
+
+  The health route calls it _outside_ its `try`, because inside it the prerender
+  bail-out (itself a thrown error) would be caught and turned into a 503,
+  silently reinstating a static `{"status":"ok"}`.
+
 - **shadcn components here are built on Base UI (`@base-ui/react`), not Radix:
   compose with the `render` prop, never Radix's `asChild`.** A Radix-flavored
   snippet — `asChild` on a trigger, wrapping a `<Link>` — will not typecheck
@@ -503,13 +568,251 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   shows up in a production server: webpack's context module inlines the
   dynamically-imported JSON into the server chunk at build time. `npm run dev`
   is unaffected. This cost an agent an hour already.
-- **The streaming pattern:** chrome renders synchronously; data regions are
-  async components inside `<Suspense>` with fallbacks from
-  `src/components/data-skeleton.tsx`, **plus an error boundary** — once the
-  shell has flushed its first byte the response status is already 200 and
-  cannot become a 5xx, so a throw inside a Suspense boundary with no error
-  boundary above it just truncates the stream. There are **three** documented
-  exceptions to "chrome never waits on data", in two files:
+- **The streaming pattern: a page body awaits nothing, renders its real
+  controls immediately, and there is no `loading.tsx` anywhere in the tree.**
+  `find src/app -name "loading.tsx"` returns nothing, and that emptiness _is_
+  the invariant — not a leftover of the migration that produced it. A page
+  function that awaits nothing cannot suspend; a page that cannot suspend has no
+  route-level fallback to show; and a route fallback that does exist is a
+  `<Suspense>` boundary **above** the page, which is far more destructive than
+  it looks (Finding 1, below).
+
+  Two migrations got here, and the second only makes sense on top of the first.
+  The 2026-08-16 streaming-controls migration moved the boundary from "the
+  section" to "the value inside the control". The rule before it was "chrome
+  renders synchronously; data regions are async components inside `<Suspense>`
+  with fallbacks from `src/components/data-skeleton.tsx`", and it drew the line
+  in the wrong place: "chrome" turned out to mean the heading and the card
+  border, so every _control_ counted as data — `/settings` awaited its settings
+  row above its JSX, the whole page suspended, and `loading.tsx` replaced the
+  theme `<Select>`, the retention `<Input>` and Save with three `<Skeleton>`
+  bars. Nothing about a `<Select>`'s existence, its label, its help text or its
+  option list depends on the stored value; only which option is chosen does. The
+  2026-08-17 instant-render-no-fallback migration then took the last awaits out
+  of the page bodies themselves, at which point every `loading.tsx` was both
+  unreachable and — as it turned out — the cause of three defects nobody had
+  attributed to it.
+
+  **This is server-side fetching, streamed. It is not client-side fetching and
+  it adds no request waterfall.** The page calls its query **without `await`**
+  and hands the promise to a Client Component that consumes it with React 19's
+  `use()`. The query still runs on the server, in the same render pass, against
+  the same `getDb()` singleton; only the _await_ crossed the RSC boundary. A
+  `useEffect` + `fetch` rewrite would be a different architecture and is not
+  what any of this describes — reading it that way is the one misunderstanding
+  that would undo the whole thing.
+
+  **Section-level `<Suspense>` stays; the route-level one is what went away, and
+  its fallback is the real form in a `pending` state — never a `<Skeleton>`.**
+  The shape is a triple: the client module exports `…Form` (presentational, its
+  value props optional, plus an optional `pending` defaulting to `false`), keeps
+  a private `…Resolved` that calls `use(promise)` and renders `…Form` with the
+  real values, and exports `…Section({ promise })` whose
+  `<Suspense fallback={<…Form pending />}>` wraps it. Because the fallback and
+  the resolved render are the _same component_, a control cannot appear or
+  disappear across the transition — only its value fills in. That property is
+  what the arrangement buys, and it is lost the moment the fallback is anything
+  else. `src/components/settings/library-section.tsx` is the smallest
+  reference; `src/components/integrations/youtube-section.tsx` and
+  `src/components/ai/provider-section.tsx` carry every hard case.
+
+  **A pending control passes `disabled` and omits `value` — never
+  `defaultValue`.** `defaultValue` seeds an uncontrolled input once and is
+  ignored on every later render, so the field would sit empty _forever_ after
+  the real value arrived, looking exactly like a loaded-and-empty field; the
+  operator then saves the blank over a stored setting. And on a Base UI
+  `<Select>`, **do not reach for `value=""` either**: `""` is a legal,
+  meaningful value here — it is `/ai`'s "None (disabled)" entry, the one
+  `active_ai_provider` stores to switch the AI features off (see the Base UI
+  bullet above) — so a pending picker showing `""` is not "nothing known yet",
+  it is an assertion that AI is switched off, made before anything was read.
+  Omit the prop and let the trigger render its placeholder state. The pending
+  branch in `provider-section.tsx` is commented at exactly that line.
+
+  **A `<Skeleton>` survives only where the _shape_ is unknowable, not merely the
+  value, and the list is six places — each kept for its own reason, because the
+  reason is what makes the rule reusable:**
+  - **A table body's rows** — `TableRowsSkeleton` in
+    `src/components/data-skeleton.tsx`, the fallback under a real chrome row and
+    a real `<thead>` on all five list routes (`src/components/*/…-list-region.tsx`
+    for articles, feeds, tags, users and jobs). How many rows come back is
+    unknown until the query returns, so there is no row count to render
+    disabled.
+  - **`/account`'s passkey list** (`src/components/account/passkey-section.tsx`)
+    — the same: a credential list's length is unknown, and it can legitimately
+    be empty.
+  - **`/account`'s device list** (`src/components/account/device-section.tsx`) —
+    likewise.
+  - **The dashboard's stat _numbers_** —
+    `src/components/dashboard/stat-cards.tsx`. A bare number has no meaningful
+    empty rendering: `0` is a lie, and blank collapses the card and jumps the
+    layout when the real figure lands. The card's frame, icon and title all
+    render for real; only the number is a bar.
+  - **The dashboard's "latest unread" list body** —
+    `src/components/dashboard/recent-articles.tsx`, the sixth and the newest.
+    The card frame and heading render always; the list's _length_ is a shape,
+    not a value, so the same reasoning as the two `/account` lists applies. It
+    joined this list on the instant-render branch, when that card stopped being
+    an awaited async region.
+  - **`/articles/[id]`'s "Content" section** — the block tree. The _number and
+    kind_ of blocks are unknown until the article is read, so there is no form
+    shape to mirror the way every other card on that page has one. It is also
+    the only remaining `TableSkeleton` call site in the repository;
+    `CardSkeleton` is gone entirely.
+
+  Each of the six is commented where it lives.
+
+  **The three awaits that had to leave every page body, and where each went.**
+  - **`await getTranslations(...)` for the heading → deleted along with the
+    heading itself.** No page in `(app)` renders its own `<h1>` any more: the
+    breadcrumb already names every page (and, on the `[id]` detail routes,
+    the record itself via `SetBreadcrumbTitle`), so the per-page heading was
+    a duplicate and was removed everywhere — the page tests assert
+    `container.querySelector("h1")` is `null`. The intermediate step this
+    replaced was a per-page title Client Component with a _literal_ namespace
+    (`settings-title.tsx` and friends, all deleted); the two survivors of
+    that technique are `src/components/ai/ai-description.tsx` and
+    `src/components/integrations/integrations-description.tsx`, which render
+    those pages' description line the same way: `useTranslations()` off the
+    `NextIntlClientProvider` the root layout already renders, so nothing
+    crosses the RSC boundary and nothing suspends. **A generic component with
+    a namespace prop was attempted twice and rejected twice — do not attempt
+    it a third time.** Making the namespace a type parameter while keeping
+    catalog keys compiler-checked hits the exact wall documented on
+    `src/components/section-kit.tsx`: TypeScript cannot prove a literal is a
+    member of `NamespaceKey<Namespace>` while `Namespace` is still a parameter,
+    and the only way through is a cast at a `t()` call site — precisely what the
+    `AppConfig` augmentation exists to prevent, and invisible until a renamed
+    key ships as a raw string in the UI. A literal namespace needs no generics
+    and no cast.
+  - **Authorization → into the data layer. `requireAdmin()` inside the `users`
+    queries and actions, `requireUserFreshRole()` inside
+    `src/lib/jobs/queries.ts`.** State it plainly, because it is the one thing
+    in this migration that could have leaked every account on an instance: **a
+    page rendering instantly is not permission to render data the caller may not
+    see.** A gate that lived in a page body and was simply deleted with the rest
+    of the awaits would take the authorization with it, silently, with every
+    test still green — so the gate moves to where the rows are _read_, and stays
+    there. Every exported function in `src/lib/users/queries.ts` and
+    `src/lib/users/actions.ts` that a page or action calls directly calls
+    `requireAdmin()` first -- with two internal-helper exceptions,
+    `countUsableAdmins()` and `countUserImpact()`, gated by their `./actions`
+    callers rather than themselves (each says so on its own doc comment, and a
+    new caller of either has to gate itself); `listJobsForCurrentUser()` and
+    `getJobForCurrentUser()` call `requireUserFreshRole()` and decide the owner
+    filter themselves, which is also why nothing in that module may be `cache()`d
+    across requests. **`/users/new` is the one route that keeps a page-body
+    gate**, and the reason is mechanical rather than principled: it calls no data
+    function at all — an empty create form — so there was nothing to carry the
+    gate into. Its `await requireAdmin()` is therefore also the thing that opts
+    that route out of prerendering (see the `connection()` bullet).
+  - **The deciding record read on a detail route → into a promise, and those
+    routes now render a not-found _state_ instead of answering 404.** All five
+    (`/articles/[id]`, `/feeds/[id]`, `/tags/[id]`, `/users/[id]`, `/jobs/[id]`)
+    hand an unawaited record promise to a section that consumes it with `use()`
+    and renders `<RecordNotFound>` (`src/components/record-not-found.tsx`) when
+    it resolves to `null`. **This was an explicit user decision**, taken with
+    the trade-off on the table — instant rendering everywhere, against a real
+    404 on five routes — and Finding 1 below is why it cost less than it
+    appears: four of those five had not been answering 404 for some time
+    already. The copy is deliberately identical for every reason a record can be
+    missing (gone, never existed, someone else's, an ownerless job a non-admin
+    may not see), the same "every refusal is indistinguishable" principle the
+    avatar route states; `getJobForCurrentUser()` collapses all of its cases to
+    one `null` and `RecordNotFound` must not reintroduce a distinction on top of
+    it. `/users/[id]` additionally catches the `notFound()` its own
+    `getUser()` gate throws for a non-admin and folds it into the same `null`
+    (`isNotFoundError()` in `src/lib/auth/session.ts`) — left uncaught, that
+    rejection surfaces through `use()` after the shell has flushed and stacks
+    the group's `error.tsx` on top of the not-found page, measured live as
+    "Something went wrong" above "This page could not be found".
+
+  **Finding 1: a `loading.tsx` creates a `<Suspense>` boundary _above_ the
+  page, and therefore flushes a 200 before any page-body gate resolves.** This
+  file already warned that an inline `<Suspense>` swallows a `notFound()`; it
+  never said that a route-level fallback does exactly the same thing, one level
+  higher, to the page's own body. It does. Two measured consequences, both
+  reproduced against real production builds:
+  - **`/users/new` was answering 200 instead of 404 to a non-admin.** Its
+    `await requireAdmin()` is the first statement of the page body and throws
+    the not-found sentinel correctly — but the fallback above it had already
+    flushed the shell, so the status was fixed at 200 and the throw only
+    truncated the stream. Deleting that one `loading.tsx` restored the 404
+    (200 → 404, curled before and after). The file had been **added by an
+    earlier migration in this repository**, to a route whose entire
+    authorization answer depended on not having one. Nothing failed; nobody
+    looked.
+  - **All four `[id]` detail routes were already returning 200, not 404**, for
+    the same reason — verified by building the commit _before_ this branch and
+    curling nonexistent ids: the response was a 200 whose `<h1>` read
+    `Edit article`, a pending chassis that then never resolved. The 404
+    guarantee those routes documented had never actually worked in a running
+    app. That is the context in which "detail routes render a not-found state
+    now" is a smaller change than it sounds.
+
+  **Finding 2, and it is the one to carry into every future test: a
+  `notFound()` test that renders the page function proves only that the sentinel
+  was thrown — never that the response was a 404.** Four `page.test.ts` files
+  (articles, feeds, tags, users `[id]`; since rewritten as `.test.tsx`) asserted
+  `rejects.toThrow(/NEXT_HTTP_ERROR_FALLBACK;404/)`. They passed. They were even
+  mutation-tested and judged real guards — and they _were_ real guards, **of the
+  throw**. Meanwhile the running application returned 200 on every one of those
+  routes, because a boundary above the page had already flushed the shell. **A
+  green suite asserted a guarantee the application had never provided, for the
+  entire life of those routes.** The lesson generalises past this migration:
+  `notFound()`, `redirect()` and `forbidden()` are _requests_ for a status, and
+  whether the request is honoured depends on what is rendering above the caller
+  — which no unit test that invokes the page function can see. **Only an
+  end-to-end status check proves a status** (`npm run build && npm start`, then
+  `curl -o /dev/null -w "%{http_code}"` against a bad id), and any boundary
+  above the page invalidates it again. If a future phase wants a real 404 back
+  on a route, that curl is the acceptance criterion, and a passing
+  `rejects.toThrow` is not evidence of anything but a throw.
+
+  **Finding 3: a promise handed to a Client Component is serialized whole — pass
+  a projection, never a row.** React serializes a promise's **resolved value**,
+  not the type its prop is annotated with, so
+  `promise: Promise<{ theme: string; language: string }>` is structurally
+  satisfied by a promise that resolves to the entire database row, and the whole
+  row crosses into the page's RSC payload — plain text in a browser's network
+  tab. Narrowing inside the consumer's own `use(promise)` happens _after_
+  serialization and buys nothing. This is the same "a component gets the columns
+  it renders, never the row" rule stated elsewhere in this file for an
+  already-awaited prop: **it does not stop applying because the value arrives
+  late.** This branch shipped the defect, not merely risked it — `/settings`
+  passed `getSettings()` (the whole `UserSettings` row) straight to
+  `GeneralSection`/`LibrarySection`, putting `openaiApiKey`,
+  `redditClientSecret`, `youtubeApiKey` and six more stored credentials into
+  `/settings`'s flight payload in plaintext. It typechecked, passed the full
+  suite, and passed **seven task reviews** before a whole-branch review caught it
+  by planting canary values and grepping the payload. Three things came out of
+  the fix and all three are the convention now:
+  - **Narrow on the server, in a named exported function.**
+    `getSettingsSummary()` in `src/lib/settings/queries.ts` is the corrected
+    shape — `getSettings()` reduced to the three fields the two cards render,
+    still backed by the same `cache()`d read. An inline `.then()` in the page was
+    tried and rejected: it leaves no shared symbol for a test to import.
+  - **Reduce as far as the consumer's actual need.** The dashboard's admin gate
+    crosses as a `Promise<boolean>` — `requireUserFreshRole().then((user) =>
+isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
+    whose `.role` is read on the other side, which would serialize the email,
+    the ban columns and the timestamps.
+  - **Pin it to the real call site.** `src/lib/settings/settings.test.ts` reads
+    `src/app/(app)/settings/page.tsx` and asserts it contains
+    `const settings = getSettingsSummary()` and _not_
+    `const settings = getSettings()` — a specifier tripwire bound to the page's
+    own source, because a test that re-typed the narrowing locally kept passing
+    against a page that had reverted. That is not a hypothetical: it is what the
+    first version of this test did.
+
+  All of the above still sits **inside an error boundary** — once the shell has
+  flushed its first byte the response status is already 200 and cannot become a
+  5xx, so a throw inside a Suspense boundary with no error boundary above it
+  just truncates the stream. `(app)/error.tsx` is that boundary for every route
+  in the group; a page adds a second one only if it wants a narrower blast
+  radius. There are **three** documented exceptions to "nothing above the page
+  waits on data", all in two layout files, and a page body is no longer among
+  them at all:
   - **`src/app/layout.tsx`** resolves the locale (and the theme) through
     `getSettings()`. A cookie read that usually needs no query at all.
   - **`src/app/(app)/layout.tsx`** awaits `requireUser()` — cookie-cached, and
@@ -524,39 +827,29 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     cookie read **and** one indexed query, unconditionally. A fourth exception
     needs the same argument made explicitly, not an appeal to this list.
 
-  **Whatever decides the response _status_ is awaited in the page body, never
-  inside a `<Suspense>`.** `notFound()`, `redirect()` and `forbidden()` can only
-  produce their status while the response is still open; inside a boundary,
-  after the shell has flushed, they truncate a 200 instead. So a detail route
-  awaits its row at the top and has no data region at all —
-  `src/app/(app)/users/[id]/page.tsx` is the precedent, and phases 9–11 each add
-  one. Two things fall out of it. The `<Suspense>` a list page keeps is for rows
-  whose _absence_ is an empty table rather than a 404
-  (`src/app/(app)/users/page.tsx`), and its gate still sits above the boundary.
-  And that same top-of-page `await` is what opts the route out of prerendering,
-  so it needs no `connection()` call — see the `connection()` bullet, which
-  lists it.
-
   **A fallback is a Server Component, so it may not hand a Client Component a
   function — and getting this wrong fails only on a cold start.** Every
-  `<Suspense fallback>` and every `loading.tsx` here renders the real section's
-  `…Shell`, and those shells are `"use client"`. React has to serialize each
-  prop across the RSC boundary and a closure is not serializable (only a Server
-  Action is), so
+  `<Suspense fallback>` here renders a `"use client"` component — the section's
+  own `…Form` with `pending`. React has to serialize each prop across the RSC
+  boundary and a closure is not serializable (only a Server Action is), so
   `onSubmit={(event) => event.preventDefault()}` throws
   `Event handlers cannot be passed to Client Component props` — replacing the
   whole page with `(app)/error.tsx`. It is invisible in normal use because a
   fallback is only committed when the read is slow enough to suspend: the first
   visit after a restart broke, every reload after it looked perfect. `/ai`,
   `/account` and `/integrations` all shipped it. **The fix is always the same:
-  the shell declares `onSubmit` optional and defaults it to the no-op inside
-  its own `"use client"` module, and the fallback omits the prop entirely**
-  (`YoutubeSectionShell` in `src/components/integrations/youtube-section.tsx`
-  is the reference). `tsc` cannot see the hazard and no jsdom test can either —
-  testing-library never runs the flight serializer — so the guard is
-  `src/app/server-component-props.test.ts`, a specifier-style tripwire that
-  fails on any `on[A-Z]…={` prop in a file under `src/app/` that is not itself
-  a Client Component.
+  the client component declares `onSubmit` optional and defaults it to the
+  no-op inside its own `"use client"` module, and the fallback omits the prop
+  entirely** (`AdvancedSectionShell` in
+  `src/components/ai/advanced-section.tsx` is the surviving reference — its
+  `onSubmit = (event) => event.preventDefault()` default parameter, and
+  `<AdvancedSectionForm>`'s `pending` branch passing `undefined`). `tsc` cannot
+  see the hazard and no jsdom test can either — testing-library never runs the
+  flight serializer — so the guard is `src/app/server-component-props.test.ts`,
+  a specifier-style tripwire that fails on any `on[A-Z]…={` prop in a file under
+  `src/app/` that is not itself a Client Component. The `loading.tsx` half of
+  that hazard is gone with the files, but the rule is unchanged for every
+  section fallback, which is where all of them live now.
 
 - **Identity comes from the session: `currentUser()`, `requireUser()`,
   `requireAdmin()`, `requireUserFreshRole()` and `currentUserId()` in
@@ -574,8 +867,23 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     demoted a minute ago is still an admin to any check that trusts it. Identity
     reads may keep the cache (a stale id is not a privilege bug, and that is the
     read on every render); authorization may not.
-  - **`requireAdmin()` answers 404, not 403.** A 403 confirms the route exists,
-    which a non-admin has no reason to learn.
+  - **`requireAdmin()` throws a 404, not a 403 — and "throws" is the honest
+    verb, because the HTTP status depends on what is rendering above it.** A 403
+    would confirm the route exists, which a non-admin has no reason to learn, so
+    `notFound()` is what the gate calls. Whether the caller _receives_ a 404 is a
+    separate question with a separate answer: `notFound()` can only set a status
+    while the response is still open, so any `<Suspense>` boundary above the
+    caller — an inline one, or a route-level `loading.tsx`, or the section
+    boundary a page hands its promise into — has already flushed a 200 and the
+    throw merely truncates the stream. That is not theoretical: `/users/new`
+    answered 200 to a non-admin for as long as it had a `loading.tsx` (see
+    Finding 1 in the streaming-pattern bullet). Today the gate lives inside the
+    `users` queries and actions, which run inside section boundaries, so
+    `/users` and `/users/[id]` answer 200 and render nothing — the rows never
+    arrive, which is the guarantee that actually matters — while `/users/new`,
+    whose gate is still in the page body with no boundary above it, answers a
+    real 404. Never assert a status from a test that renders the page function;
+    only an end-to-end check can see it (Finding 2, same bullet).
 
   **`requireUserFreshRole()` is a third category the rule above doesn't name on
   its own: fresh role, no admin-only gate.** `requireAdmin()` answers "is this
@@ -636,6 +944,67 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   Unlike `updateIntervalMinutes`/`concurrency`, there's no per-aggregator
   recommendation in `specs.ts` — every aggregator starts at the same flat
   `30`, freely editable per feed afterward.
+- **`filterArticles()` has a second half now: an article whose source labels it
+  as advertising is dropped, not stored.** The vocabulary and the matching are
+  `src/lib/aggregators/promotional.ts`, the drop is
+  `BaseAggregator.filterArticles()` beside the age filter above, and the switch
+  is the `skip_ads` option — read `!== false`, so it is on for every feed
+  including the ones created before it existed, and now declared in
+  `COMMON_OPTIONS` in `specs.ts` (i.e. for every aggregator) rather than only on
+  `caschys_blog`, whose title-only `(Anzeige)` test this generalises. Four
+  things about it, three of them measured against live feeds rather than
+  reasoned about:
+
+  - **It reads _declared_ labels only — the publisher's own categories
+    (`<category>Anzeige</category>` on a Mein-MMO deal article,
+    `<category>Advertorial</category>` on a WinFuture one) and a delimited label
+    in the title (`(Anzeige)`, `Anzeige:`, `… | Advertorial`). Reading the
+    _body_ for monetization markers was tried and rejected**, and the reason is
+    worth keeping because it looks so promising: `rel="sponsored"` links, an
+    affiliate-commission disclosure and affiliate-network hosts separate ads
+    from editorial _cleanly_ on the sample (0 markers on six editorial
+    Mein-MMO/heise/Verge articles, 6–35 on the paid ones) — but only when
+    measured inside the extracted article body. Measured on the **fetched
+    page**, an ordinary editorial article scores 10–13, because the chrome
+    around it (sidebar deal widgets, footer disclosures) carries them. And even
+    body-scoped there is a real grey zone: a Caschy's Blog news post about a TV
+    carries ten `rel="sponsored"` links because the CMS dropped an AAWP product
+    box into the body — editorial content with an affiliate widget, which this
+    filter must not delete. (That aggregator's `selectorsToRemove` already
+    strips `.aawp`, which is why _its_ stored articles come out clean.)
+  - **Whole-string matching against a vocabulary of labels, never a substring
+    scan.** WinFuture ships a real `<category>werbefrei</category>` — "ad-free"
+    — which a `/werbe/` prefix match reads as advertising, the exact inversion
+    of its meaning. That was the only false positive of the first draft across
+    419 live feed entries, and it is the reason the module takes whole strings.
+  - **A topic is not a label, and three words that look like labels are
+    deliberately out of the vocabulary.** `Deals`, `Angebote`, `Schnäppchen`,
+    `Blitzangebote` and `Top Deals` are ordinary categories on articles nobody
+    was paid for. Out for their own reasons: bare `werbung` (also the ad-industry
+    trade press's _topic_), `promotion` (a doctorate, in German) and `ad`/`ads`
+    (usually a section about ad platforms). `#werbung`/`#ad` are in, because the
+    hashtag form is only ever a disclosure. The asymmetry deciding every one of
+    those calls: a false positive **deletes** an article the reader wanted,
+    while a false negative leaves one labelled ad in the list where the reader
+    can see it — so an ambiguous word stays out.
+  - **Every drop is logged to the triggering job's output**, with the label that
+    caused it. The age filter beside it is silent on purpose: "older than the
+    feed's cutoff" is arithmetic an operator can redo, "this looked like an ad"
+    is a judgement they cannot. This is the one pipeline stage whose mistakes
+    leave nothing behind to inspect, so the log line is part of the feature, not
+    decoration.
+
+  Two consequences elsewhere. `FeedEntry.categories` in
+  `src/lib/aggregators/rss-parser.ts` exists for this and nothing else — the
+  parser dropped `<category>` entirely before, so no downstream consumer could
+  have worked — and it is **not** mapped onto this app's `tags` table: those are
+  per-feed and user-owned, where these are per-entry and the publisher's. And
+  only the RSS-derived aggregators carry categories at all (`rss.ts`,
+  `sites/podcast.ts` and everything built on `FullWebsiteAggregator`); YouTube
+  and Reddit produce none, so for those feeds the title channel is the whole
+  check — which is not nothing, since a sponsored YouTube video is labelled in
+  its title.
+
 - **An aggregated article is only rewritten when its content actually changed**,
   decided by `articles.contentHash` (`articleContentHash()` in
   `src/lib/aggregators/content-hash.ts`). Three things about that hash are
@@ -655,6 +1024,37 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   aggregation cycle. A `null` hash means "changed" — every row predating the
   column settles after one pass, and no backfill exists.
 
+  **The fingerprint is computed from the article _as fetched_, and the ordering
+  that makes that true is load-bearing.** `rawArticleContentHash()` (same
+  module) is the one derivation, called by `handleAggregateJob()` before it
+  touches the row — and **AI post-processing runs below that check**, so nothing
+  in the value can depend on model output. It did once: the AI stage rewrote
+  `raw.name`/`raw.content` **in place** inside the aggregator pipeline, upstream
+  of the handler, so for any feed with an AI option enabled the fingerprint was
+  a hash of a non-deterministic answer — a different string on every run at the
+  default `ai_temperature` of 0.3. Everything this hash exists to prevent was
+  therefore happening every cycle for exactly those feeds: full rewrite, block
+  tree deleted and reinserted, `updatedAt` bumped, article back in `/api/v1`'s
+  sync `updated` stream. And the far larger cost, because the skip sat
+  downstream of the provider request it should have prevented: every article
+  sent to the provider again on every run, for a result discarded moments later.
+
+  **A change that moves AI back above this call re-breaks both at once.** That
+  is one of the two reasons the AI stage lives in the job handlers rather than
+  in `finalizeArticles()`; the other is independent and structural — blocks only
+  exist once `parseBlocks()` has run, and AI works on blocks now (see the
+  `applyAiToBlocks()` bullet below). `handlers.test.ts`'s "calls AI for a new
+  article and never again while it stays unchanged" and "calls AI again once the
+  source article really changes" are the pair that fails if either half slips.
+
+  **The hash still does not cover `finalizeArticles()`'s own stages** — the
+  `processContent()` step the YouTube and Reddit aggregators run. Same trap
+  already stated below for `parseBlocks`/`plainTextOf`, widened: a change there
+  will not re-derive existing articles. Those stages are deterministic functions
+  of the fetched article, which is what makes fingerprinting the input sound.
+  Hashes for YouTube and Reddit articles therefore changed once on deploy and
+  settled after one pass, the same settlement a `null` hash gets.
+
   **The invariant binds every writer, not just the aggregator: anything that
   changes an article's content must set `contentHash` to null** (or recompute
   it). A stale hash does not merely go out of date — it makes the aggregate
@@ -672,6 +1072,41 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   re-parsed, where they used to be re-derived every cycle. The full statement is
   the `contentHash` comment in `src/lib/db/schema/articles.ts`; this is its
   summary, not a second version of it.
+
+  **That trap has already been paid once, and knowing how is the point.** The
+  `inlineContext()` fix in `parseBlocks()` (see the bullet below) corrected
+  styling and hrefs that were being dropped, but it does **not** re-derive an
+  article already stored: its fingerprint still matches, so the skip fires and
+  the old, lossy block tree stays. Articles fixed themselves only as their
+  source changed. Nulling every `contentHash` to force a re-parse was considered
+  and rejected: it would put every article back through the full write path
+  _and_ through a fresh provider request, which is the exact cost the rest of
+  this branch exists to remove. A parser fix that has to reach stored rows needs
+  a re-parse path that reads `articles.rawContent` and rewrites blocks **without**
+  calling AI; there is no such job today.
+
+- **`convert()` must hand `inlineRuns()` an element's own inline context —
+  `inlineContext()` in `src/lib/aggregators/blocks/parser.ts`.** `inlineRuns()`
+  reads a tag only while descending _into_ it, so an inline element that is a
+  **direct child** of a converted container needs its own tag applied before the
+  descent. `convert()` did not do that: its `INLINE_TAGS` branch called
+  `inlineRuns($, node, baseUrl)` with no styles and no link, and the element's
+  own `<b>`/`<i>`/`<a href>` contributed nothing.
+
+  It looked fine because the case everyone tests worked: `<p>a <b>x</b></p>`
+  keeps its styling, since the `p` branch hands the _paragraph_ to
+  `inlineRuns()` and the `b` is therefore a child. Every other container lost
+  it — `<li>`, a bare `<blockquote>`, any `<div>` whose text is not wrapped in a
+  `<p>`. And the styling was the mild half: **a link in that position lost its
+  href entirely**, so every bulleted list of links in every article stored plain
+  text with no URL. Measured, not theorised — the same markup in a `<p>` and in
+  an `<li>` gave one link and none.
+
+  So **a new container branch in `convert()` has to pass `inlineContext()`'s
+  result**, not call `inlineRuns()` bare. `parser.test.ts`'s "inline styling and
+  links survive as a direct child of any container" block covers a list item, an
+  ordered list item, a bare blockquote, a bare div and a paragraph together,
+  precisely because passing for one container proved nothing about the others.
 
 - **An article with no body is skipped, never stored — `hasBodyContent()` in
   `src/lib/aggregators/website.ts` is the one predicate, and "no body" means no
@@ -727,9 +1162,8 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
     (`src/components/jobs/jobs-table.tsx`), so the thrown message is
     user-facing English prose rather than a catalog key, the same convention the
     AI-failure throw at the bottom of that handler already follows. The check
-    sits **before `applyAiOptions()`**: reload runs AI with
-    `bypassUsageLimit: true`, and there is no point spending a provider request
-    on a body that is not there.
+    sits ahead of `processContent()`, so the AI stage below it is never reached:
+    there is no point spending a provider request on a body that is not there.
 
 - **Article search goes through the `articles_fts` FTS5 external-content table,
   via `toFtsQuery()`** (`src/lib/articles/search-query.ts`). It replaced a
@@ -1167,8 +1601,9 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
     minted, so a `generateId` change fails a test instead of 404ing every avatar.
   - **Every refusal is the same empty 404.** "Not yours", "no such user" and
     "nothing uploaded" must be indistinguishable, or the 200-vs-404 difference
-    is a user-id enumeration oracle. (`requireAdmin()` answers 404 for the same
-    reason.)
+    is a user-id enumeration oracle. (`requireAdmin()` throws a 404 for the same
+    reason — this route handler has no boundary above it, so unlike a page it
+    really does answer one; see the `requireAdmin()` bullet.)
   - **`Cache-Control: private, no-store`, deliberately**, plus `nosniff` and a
     constant `Content-Type`. The URL carries no version token, so any freshness
     lifetime would survive a re-upload; give the URL a content hash first if a
@@ -1600,48 +2035,372 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   stored value is still not trusted and still falls back to the default, the
   same as every other provider's unconfigured case.
 
-- **`aiDefaultDailyLimit`/`aiDefaultMonthlyLimit` went from decorative to
-  enforced, at one chokepoint.** Both settings have existed among the nine
-  tuning values (with bounds in `src/lib/ai/bounds.ts`) since phase 7, but
-  nothing read them until the same 2026-08-04 plan added a new table,
-  **`ai_requests`** (`src/lib/db/schema/ai.ts` — one row per attempted call,
-  `(userId, createdAt)` indexed), and **`checkAndRecordAiUsage()`**
-  (`src/lib/ai/usage.ts`). Neither `old/core/ai_client.py` nor yana-ios ever
-  enforced these limits — confirmed by reading both — so there was no oracle
-  to port from; this is new behaviour, not a port. It is called once, inside
-  **`AIClient.generateResponse()`** (`src/lib/ai/run.ts`), before any outbound
-  provider call — the same chokepoint `applyAiOptions()` (the background
-  AI-post-processing path that has no live caller yet) already runs through,
-  so wiring that path up later inherits enforcement for free rather than
-  needing its own check. Three facts a caller cannot get right by guessing:
-  **usage is recorded for every attempted call, not only successful ones** —
-  the setting is documented as the most AI requests Yana makes, which is about
-  outbound calls, and counting only successes would let a provider outage or a
-  string of 500s bypass the limit entirely; **reset windows are calendar UTC
-  day/month**, not a rolling window, matching this repo's existing
-  `timeZone: "UTC"` convention, and `checkAndRecordAiUsage()` opportunistically
-  deletes a user's rows older than the start of the current UTC month on every
-  call (the daily window is a subset of the monthly one, so nothing needs a row
-  older than that, and no separate cleanup job exists); and the read-then-write
-  is **atomic under the caller's own `writeTransaction()`** (`BEGIN IMMEDIATE`),
-  the same ordering guarantee `setActiveProvider()` already relies on, so two
-  concurrent calls from the same user cannot both read "one under the limit"
-  and both proceed. `generateResponse()`'s return type changed from
-  `string | null` to `AiGenerationResult` —
-  `{ ok: true; text } | { ok: false; reason }`, `reason` one of `noProvider` /
-  `dailyLimitExceeded` / `monthlyLimitExceeded` / `providerUnauthorized` /
-  `providerError` — so a caller can tell a rate limit from a provider failure
-  instead of both collapsing to `null`. **`providerUnauthorized` is a fourth
-  reason, added with OpenRouter rather than by the 2026-08-04 plan**: it is
-  thrown as `ProviderUnauthorizedError` (`src/lib/ai/run.ts`) from
-  `requestWithRetry()` on a 401 or 403 from the provider — the credential
-  itself was rejected, not a transient failure — and caught in
+- **There is no per-user AI request cap and no output-token cap, and the
+  absence of both is a decision.** The
+  2026-08-04 plan added one — `aiDefaultDailyLimit`/`aiDefaultMonthlyLimit`
+  among the tuning values, an `ai_requests` table
+  (`src/lib/db/schema/ai.ts`), and `checkAndRecordAiUsage()`
+  (`src/lib/ai/usage.ts`) gating `AIClient.generateResponse()`. All of it was
+  **removed on the owner's explicit instruction**: with AI switched on it is
+  expected to run without a quota refusing it. Gone with it are both settings
+  and their two `bounds.ts` entries, the
+  `monthlyLimit >= dailyLimit` `.superRefine()` in `src/lib/ai/actions.ts`
+  (the only cross-field rule that schema ever had, and the reason
+  `advanced-section.tsx` submits the card as one unit — it still does, but now
+  only because the knobs are one group, not because the server needs the pair),
+  the `dailyLimitExceeded`/`monthlyLimitExceeded` arms of
+  `AiGenerationResult`, the `bypassUsageLimit` parameter that `reload.ts`
+  passed to opt a hand-triggered reload out of the caps, the
+  `daily_limit_exceeded`/`monthly_limit_exceeded` codes on
+  `POST /api/v1/ai/prompt` (which can no longer answer 429 at all), and seven
+  catalog keys per locale. Migration `0019_drop_ai_request_limits` drops the
+  table and the two columns — drops only, so `drizzle-kit generate` produced it
+  non-interactively, exactly as the split-migration rule above predicts.
+
+  **`aiMaxTokens` went the same way, on the same instruction, and it was the
+  more damaging of the two.** `0020_drop_ai_max_tokens` drops the column; the
+  `maxTokens` bound, the `advanced.maxTokens*` catalog keys and the field's
+  place in `AI_ADVANCED_FIELDS` went with it, taking the tuning values from
+  seven to **six**. A request cap only ever refused work; this one _corrupted_
+  it. Its default of 2000 was below what a rewritten article needs, so a longer
+  one came back truncated mid-JSON, failed to parse, and spent the whole paid
+  request on an `invalidJson` failure — and no correct value exists to set it
+  to, because it is the length of an answer nobody has seen yet. So
+  `src/lib/ai/run.ts` now sends **no output cap at all**: no `max_tokens` on any
+  OpenAI-compatible provider, no `maxOutputTokens` on Gemini. The one exception
+  is Anthropic, whose Messages API declares `max_tokens` **required** — that
+  branch sends the `ANTHROPIC_MAX_TOKENS` constant (16000, chosen well above any
+  article this stage sends and below what a non-streaming request can return
+  before the API's own timeout), which is a safety limit rather than a
+  truncation point. `run.test.ts`'s per-provider sweep asserts the absence on
+  every other provider, so a reintroduced cap fails a test rather than only
+  failing on a long article. **The probes are unaffected and must stay that
+  way**: every `max_tokens: 1` in `src/lib/ai/*.ts` and
+  `src/lib/integrations/probe.ts` is a deliberate one-token credential check,
+  not a user-facing ceiling.
+
+  **What replaced it is structural, not a ceiling, and that is the whole
+  point.** A cap only ever refused work already decided to be worth doing,
+  while the two real sources of waste were requests nobody wanted in the first
+  place: an article the feed already had (now skipped by the handler's
+  `contentHash` check, which AI runs below — see the `contentHash` bullet) and
+  fields nothing
+  reads (now not asked for — see `wantsRewrite` below). Neither costs anything
+  when the work _is_ wanted, which a quota cannot say. **Do not reintroduce a
+  cap without that decision being revisited**; `run.test.ts`'s "no request cap
+  in front of a call" block is what fails if one appears, including a check
+  that `aiRequests` is absent from the schema barrel so nothing can quietly
+  start counting again. That block is also why that file needs no database
+  fixture: with the counter gone `run.ts` reaches no database at all, so the
+  temp-database-plus-`vi.resetModules()` shape it used to carry — fifteen cold
+  dynamic imports for a dependency the module no longer has — was removed and
+  the import is static.
+
+  `generateResponse()` still returns `AiGenerationResult` —
+  `{ ok: true; text } | { ok: false; reason }` — rather than the
+  `string | null` it began as, with `reason` now one of `noProvider` /
+  `providerUnauthorized` / `providerError`. **`providerUnauthorized` is the one
+  worth keeping straight**: thrown as `ProviderUnauthorizedError`
+  (`src/lib/ai/run.ts`) from `requestWithRetry()` on a 401 or 403 — the
+  credential itself was rejected, not a transient failure — and caught in
   `generateResponse()`'s own catch, distinctly from every other failure, which
   still collapses to the generic `providerError`. The distinction exists for
   the same reason `/ai`'s own probes separate `rejected` from `unreachable`/
   `unexpected`: "your key is wrong" and "something went wrong" want different
   advice, and a native client polling this reason can tell someone to fix
   their OpenRouter key rather than just retry.
+
+- **`plainTextOf()` lives in `src/lib/aggregators/blocks/plain-text.ts`, not in
+  `parser.ts`** — and `parser.ts` re-exports it, so the callers that already have
+  cheerio in their graph keep one import. It is a pure walk over the block tree
+  and touches no HTML, but from inside `parser.ts` its module-level
+  `import * as cheerio` reached every importer: `src/lib/ai/run.ts` is one (for
+  the plain-text prompt a summarize-only request sends), so
+  `POST /api/v1/ai/prompt` was pulling the whole HTML parser into its graph for a
+  function that never uses it. Nothing reachable from `run.ts` imports cheerio
+  now. A future block-tree helper that needs no HTML belongs beside it rather
+  than in `parser.ts`, for the same reason.
+- **The AI stage works on the block tree, not HTML: `applyAiToBlocks()` in
+  `src/lib/ai/run.ts`, with the codec in `src/lib/ai/block-text.ts`.** The block
+  tree is what gets stored — there is no `articles.content` column — so HTML was
+  only ever transport, and expensive transport: every tag, every
+  `data-sanitized-*` attribute and every URL was billed on the way in and, since
+  the prompt demanded the document back verbatim, again on the way out. Measured
+  on real pages the block notation is **12–19% the size of the HTML it
+  replaces**, in and out.
+
+  **Where it runs is not a free choice.** `parseBlocks()` is a one-way
+  HTML → blocks conversion with **no inverse**, so the stage has to sit
+  downstream of it — which means the job handlers (`aggregate.ts`,
+  `reload.ts`), not `BaseAggregator.finalizeArticles()`. Putting it back in the
+  pipeline would mean inventing a blocks → HTML serializer for the handler to
+  re-parse, _and_ would move AI above the `contentHash` check again (see that
+  bullet for what that broke). Two consequences already banked: the aggregator
+  no longer receives the owner's `userSettings` at all — `aggregate()` dropped
+  the parameter, since AI was its only consumer, and an aggregator has no
+  business holding a user's AI credentials — and both call paths finally run the
+  same order (extract, process, parse, then AI).
+
+  **What the model can do:** merge, split and reorder blocks freely. The answer
+  is read on its own terms rather than checked against the shape that went out,
+  which is what makes "improve clarity and flow" an honest instruction; the HTML
+  form forbade restructuring in the prompt ("the exact same structure as the
+  input") and had no way to enforce it.
+
+  **What it cannot even see, and therefore cannot break:**
+  - **Every URL.** A link is `[label](L3)`, an index into a side table. It cannot
+    corrupt an href, add a tracking parameter or translate one — and URLs are a
+    large share of the bytes on a link-dense page.
+  - **Every non-prose block.** Images, embeds, code blocks and dividers are
+    `[[M7]]` placeholders. Movable, never editable, so a `yana-img://` ref, an
+    embed provider or a line of code cannot come back altered. Code is not sent
+    at all, which is both cheaper and the only correct answer for a translation.
+  - An image's **caption** does ride along after its placeholder, because that
+    is prose a rewrite should reach. An embed's `title` does not: it is the
+    provider's own title for someone else's video.
+
+  **The lead media stays the lead media.** Restructuring is prose freedom, not
+  licence to move the article's thumbnail: clients hoist block 0 when it is an
+  image (`ArticleBlockView.leadImageRef`), so a relocated or dropped lead image
+  silently changes what a timeline shows. If the input led with one, the output
+  does too — which also replaced the old `takeLeadHeaderHtml()` detach-and-restore
+  dance, needed only because the model used to be able to rewrite media markup.
+
+  **Three properties of the codec are what let the stage trust an answer it did
+  not build**, all pinned in `block-text.test.ts`:
+  - **`textToBlocks(blocksToText(b))` is `canonicalBlocks(b)`.** That exported
+    normal form _is_ the specification, not a tidy-up: the notation is
+    line-oriented and cannot carry a newline **inside** a paragraph, and
+    `parseBlocks()` does emit those (HTML source line breaks, and its own table
+    flattening). Serialized raw, such a run came back as two paragraphs — found
+    by running the round trip over live pages, where a 7-block article read back
+    as 9. `canonicalBlocks()` collapses whitespace (except inside a `code` run,
+    where it is content), merges adjacent identically-styled runs and trims
+    paragraph edges, and is idempotent.
+  - **The parser is total.** An unrecognised sequence stays literal text rather
+    than throwing, so a mangled answer degrades to plain prose instead of
+    failing the article — and a truncated one cannot produce "unparseable
+    markup" at all, which was a real failure arm of the HTML form.
+  - **Inline styles are tags (`<b>`, `<i>`, `<s>`, `<code>`), not Markdown
+    emphasis.** Two adjacent styled runs serialize to `**bold***italic*` — five
+    asterisks no reader can split the same way twice — and prose is full of
+    asterisks and tildes that would each need escaping. Tags cannot run together
+    ambiguously, carry no attributes, and a model handles them more reliably
+    than any notation invented here. Only `\`, `<`, `[` and `]` are escaped.
+
+  **How much is asked for still depends on which options are on
+  (`wantsRewrite`).** Only `ai_improve_writing`, `ai_translate` and a custom
+  instruction (free-form, so assumed to) rewrite the body. `ai_summarize` alone
+  sends **plain text** and asks for `summary` alone — no notation spec, no
+  document coming back. The echo it replaced was the single most expensive thing
+  this stage did: the model was told to reproduce the whole document, so a
+  summarize-only article was billed for roughly as many **output** tokens as
+  input ones to hand back a string this process already held. It was also what
+  made `aiMaxTokens` (default 2000) a live hazard rather than a cap — a longer
+  article came back truncated, the JSON failed to parse, and the whole request
+  was spent on an `invalidJson` failure. That setting is gone entirely now (see
+  the no-cap bullet above); this is the failure that made removing it the fix
+  rather than raising it. A volunteered `title` or `document` is
+  ignored on that path, so the missing-summary arm leaves a summarize-only
+  article completely untouched while a summarize-plus-rewrite one keeps the
+  rewrite.
+
+  **A dropped placeholder is reported, not swallowed.** `textToBlocks()` returns
+  `droppedOpaque`, and the stage logs it to the triggering job's own output:
+  silently losing an article's image looks exactly like an article that never
+  had one.
+
+  **Superseded by this, and gone:** `stripUnparsedAttributes()`/`PARSED_ATTRS`
+  (the attribute strip that made the HTML prompt cheaper — moot once no HTML is
+  sent), `takeLeadHeaderHtml()`, `summarySectionHtml()` and the
+  `yana-ai-summary` marker class on the _write_ side. `parseBlocks()` still
+  recognises that class, because it is how the aggregation path's stored HTML
+  used to encode a summary; the stage now builds a `summary` block directly.
+
+- **An AI-processed article's document has a fixed order: the lead media first,
+  the summary second, the article after them — both optional, neither allowed
+  anywhere else.** `applyAiToBlocks()` (`src/lib/ai/run.ts`) holds it, and each
+  half was a real defect before something held it:
+  - **The lead media survives.** It used to be an HTML `<header>` that the
+    prompt-building code had to _detach and restore_, because the model's answer
+    replaced the whole document and a header merely stripped was a header gone —
+    which it was: any feed with an AI option on lost its lead image from the
+    stored block tree, taking the client's lead image and timeline thumbnail
+    with it (`ArticleBlockView.leadImageRef` hoists the first block only when it
+    is an image). None of that machinery is needed now: media are opaque
+    `[[M<n>]]` placeholders the model cannot edit, so the only remaining rule is
+    positional — if the input led with an image or embed, `applyAiToBlocks()`
+    puts that same block back at index 0, whether the model moved it or dropped
+    it. That also retired the reload-path asymmetry the old mechanism had
+    (`reload.ts` ran AI _before_ `processContent()`, which rebuilt the header
+    afterwards, so a reloaded article kept its header while an aggregated one
+    did not — same content, two orders, two outcomes). Both paths now run
+    extract → process → parse → AI.
+  - **The summary is its own field and its own block; it does not replace the
+    article.** `ai_summarize` once asked for the summary _in_ `content`, which
+    both destroyed the body and contradicted the prompt's own closing paragraph
+    ("the exact same structure as the input") — the model was told to summarize
+    and to preserve, in one request. It is a separate `summary` key now, present
+    in the prompt and in Gemini's `responseSchema` **only** when summarization
+    was asked for, and the stage builds a `summary` **block** directly rather
+    than emitting a `<section data-sanitized-class="yana-ai-summary">` marker for
+    `parseBlocks()` to recognise. (The parser still recognises that class — it is
+    how stored HTML from before this encoded a summary — so removing it from the
+    parser would strand those articles.) A requested summary that does not come
+    back is `{ status: "failed", reason: "missingSummary" }`, with a rewrite that
+    _did_ come back still applied, because a silent no-summary is
+    indistinguishable from AI never having run.
+  - **A requested rewrite whose document comes back _unchanged_ is caught
+    too, and for a translation that is a failure**
+    (`{ status: "failed", reason: "documentUnchanged" }`). The check is
+    `blocksToText(answer) === document.text` — byte-identical exactly when the
+    answer is the input echoed back, which the notation's round-trip normal form
+    is what makes exact. Serialized forms are compared rather than trees on
+    purpose: a deep compare would have to know that `canonicalBlocks()` and
+    `textToBlocks()` build their objects with different key order, and would
+    miss an echo whose whitespace differed. An echo parses perfectly, so nothing
+    downstream could tell — it was stored over the article with the title
+    stored translated and the job green, which is the second half of the
+    "reload only translates the title" report. For `ai_improve_writing` or a
+    custom instruction it is a **log note, not a failure**: "this reads fine as
+    it is" is a legitimate answer to those. For `ai_translate` it cannot be —
+    a document identical to the one sent is by definition not translated — and
+    the one false positive (a feed whose source is _already_ in the target
+    language) is named in the message, because the fix there is to turn
+    translation off for that feed rather than to make this quieter.
+  - **A requested rewrite whose `document` did not come back is
+    `{ status: "failed", reason: "missingDocument" }`, and the answer's `title`
+    is _not_ applied on its own.** This arm used to fall through: the title was
+    taken, the source blocks were stored beside it, and the outcome said
+    `applied` — a translated title over an untranslated body, written silently
+    on a green job with nothing in its log. It is what a user saw as "reloading
+    a Reddit post only translates the title", and the reload path's own
+    contribution to that is the bullet below; this half is why it could not be
+    noticed. A title and a body are one answer to one rewrite request, so half
+    of it is not partial success: the article stays wholly as the source has it,
+    the job reports the failure, and `handleAggregateJob()` stores no
+    `contentHash`, so the next cycle tries again. **Deliberately not symmetrical
+    with `missingSummary`**, which keeps the rewrite it got: a summary is an
+    addition an article reads fine without, where a rewritten title over an
+    untouched body is a visibly broken article. Four cases collapse into this
+    one arm — absent, not a string, empty, and notation that reads as no blocks
+    at all — because none of them is a document.
+
+  **The applied path logs one line per article, and its absence is what made
+  this bug a guessing game.** Every failure arm in `applyAiToBlocks()` logs;
+  success logged nothing at all — so a reload whose job log read
+  `reloaded article content` and nothing else was indistinguishable between
+  "this feed never asked for AI", "the provider was never called" and "the model
+  answered and its answer changed nothing". The line names what was asked for
+  and what changed
+  (`AI (translate) applied to 'X': document 12 -> 11 blocks, title rewritten`),
+  which is the one question a job log has to be able to answer about this stage.
+  It goes to `onLog` only, not `console` — a success is not a warning, and the
+  operator reads it on `/jobs/<id>`.
+
+  **The translate instruction is spelled out to the point of redundancy, and
+  every clause of it is load-bearing.** The short version — "Translate the
+  title and document to X" — produced answers that translated the title and
+  handed the document back untouched, on articles whose title and body were both
+  in the source language, which is the defect a user reported for Reddit
+  reloads. Two things make that answer easy for a model to reach: the notation
+  spec above it is seven lines of "reproduce this exactly" (and read "Return the
+  same notation, nothing else" until this branch reworded it to "Answer in the
+  same notation"), and a Reddit article's document is long and mostly quoted
+  comments — the shape a model shortcuts on. So the instruction now names the
+  parts that get skipped (headings, list items, **quoted lines**, image
+  captions — a quoted line reads as a citation to leave alone), says the whole
+  document must come back in the target language, and says outright that
+  returning it in the original language is not an acceptable answer.
+  `run.test.ts` asserts those phrases against the real request body, because a
+  prompt is only a prompt: the `documentUnchanged` arm above is what happens
+  when a model ignores it anyway.
+
+  **The AI stage is never handed its own previous output as input, and the
+  reload path is where that had to be enforced.** `articles.name` is not source
+  text on a feed with an AI option on — it is the model's answer — so
+  `reload.ts`, which re-derives everything else from source, used to hand it
+  back as "the article's title". Two consequences, the second reported from a
+  running instance: a repeated reload asked for a rewrite of a rewrite (a title
+  drifting further on every reload), and a **translate** request arrived
+  self-contradictory — `{"title": "<already German>", "document": "<English>"}`
+  under "translate this to German" — which a model can read as "already
+  translated" and answer with the document echoed back unchanged. An unchanged
+  document still parses, so before the `missingDocument` arm above existed the
+  article was stored with a translated title over an untranslated body, on a job
+  that reported success. The seam is **`noteSourceTitle()`/`sourceTitle` on
+  `BaseAggregator`** (`src/lib/aggregators/base.ts`): an aggregator that sees
+  the source's own title while refetching says so, and `reload.ts` prefers it
+  over the stored name — for the AI request _and_ for the `name` it writes, so a
+  reload with AI off now also picks up a title the source has changed, the same
+  thing an aggregation run does with every content change. Three report one:
+  Reddit (the post's title, off `effectivePostData`, so a crosspost reports the
+  original's — exactly what `parseToRawArticles()` stores), YouTube (the video's
+  title) and plain RSS (the entry's, `unescapeEntities()`'d the same way
+  `parseToRawArticles()` does it). **The `FullWebsiteAggregator` family
+  deliberately reports none**, and both halves of that reason matter: its
+  `fetchArticleContent()` also runs _concurrently, per article_ inside
+  `enrichArticles()`, where one instance-level value could only be the last
+  writer's — and a scraped page's `<title>` is the site's headline plus its own
+  branding, not the feed's title for the article. Those feeds keep the stored
+  name on reload, as before. The same "only meaningful after a single
+  `fetchArticleContent()` call" restriction Reddit's `_lastReloaded*` stash
+  already carried applies here, and reload is exactly that shape: one article,
+  one aggregator instance.
+
+  **`aiMaxPromptLength` bounds none of this, and its name invites the assumption
+  that it does.** It is read in exactly one place — `POST /api/v1/ai/prompt`, to
+  refuse an over-long prompt from the native client — while the article path
+  sends whole articles with no length bound, and deliberately keeps none: the
+  request caps were removed on the owner's instruction (see the no-request-cap
+  bullet above), and a length cap is the same kind of ceiling, refusing work
+  already decided to be worth doing. Its default is `500`, a sane ceiling for a
+  hand-typed mobile prompt and one that would truncate essentially every article
+  to a fragment, so it must not simply be pointed at this path. `bounds.ts`'s own
+  doc line ("Zero sends an empty article") describes an intent that was never
+  wired up.
+
+  **The summary has a block kind of its own; the header does not, and that
+  asymmetry is deliberate.** `summary` is the tenth entry in `BLOCK_KINDS` —
+  declared in **both** copies of that list (`src/lib/db/schema/enums.ts` and
+  `src/lib/aggregators/blocks/types.ts`, pinned equal by `enums.test.ts`,
+  because a kind missing from either side is a row the other half cannot read)
+  — and it wraps blocks the way `blockquote` does rather than carrying runs the
+  way `paragraph` does: a model answering in two paragraphs then produces two,
+  _inside_ the one summary block, instead of silently pushing the article down
+  the document. The parser keys on the class (`classNames()` reads
+  `data-sanitized-class` and `class`, which is what makes it work on both call
+  paths) and `convert()` discards the wrapper's attributes as usual, so the kind
+  is the only thing that survives into the tree — which is the point: a client
+  can style, collapse or skip the summary without counting blocks. The **header**
+  is still positional, because it has no kind: it reaches a client as an ordinary
+  `image` or `embed` block that happens to be first, exactly as a lead image
+  always has. So block 0 is the lead media, block 1 the summary — each shifting
+  up when the one before it is absent — and `run.test.ts`'s "the summary" and
+  "the lead media" blocks pin the finished document position by position. There
+  is no second pass through `parseBlocks()` to pin any more: the stage is handed
+  a tree and returns a tree, so the parser is upstream of it rather than on
+  both sides.
+
+  **Adding the kind was additive on the wire and `FORMAT_VERSION` stays 1.**
+  The format's own extensibility rule is that an unknown block type is skipped,
+  never fatal, so a client that predates this renders one block less; bumping
+  the version instead would make every existing client reject the whole document
+  (`UnsupportedFormatVersion`). Worth knowing what "skipped" costs in practice:
+  yana-ios's `BlockWireDecoding` maps an unknown type to an **empty paragraph**,
+  so until that client learns the kind, an AI summary is invisible there rather
+  than shown as prose — the price of the dedicated element, paid once.
+
+  **The two call paths used to nest differently; they no longer do.** When AI
+  worked on HTML, aggregation produced three siblings (the header already existed
+  when AI ran) while reload's `processContent()` ran _afterwards_ and wrapped the
+  AI's output — summary included — inside `article-content` with the header
+  outside it. Same block tree, two nestings, which is why a consumer had to read
+  position and never nesting. Both paths now run extract → process → parse → AI,
+  so the AI stage is handed one already-parsed tree in both, and the positional
+  rule holds because `applyAiToBlocks()` enforces it rather than because the two
+  shapes happened to agree.
+
 - **`POST /api/v1/ai/prompt`** (`src/app/api/v1/ai/prompt/route.ts`) is the
   native client's server-mediated "ask AI" call, added by the same plan: a
   free-form prompt run against the caller's active provider, using their
@@ -1653,8 +2412,8 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   `src/lib/jobs/handlers/retention.ts` reads a settings row directly outside a
   session context. Its failure modes are machine-readable `ApiError` codes
   (`invalid_prompt`, `prompt_too_long`, `no_active_provider`,
-  `daily_limit_exceeded`, `monthly_limit_exceeded`, `provider_unauthorized`,
-  `provider_error`) for the native client to branch on — never provider prose,
+  `provider_unauthorized`, `provider_error` — the two `*_limit_exceeded` codes
+  went with the request caps, so this route can no longer answer 429 at all) for the native client to branch on — never provider prose,
   per this API's existing no-echo convention. `provider_unauthorized` (502) is
   the `providerUnauthorized` reason above, given its own code rather than
   falling into the generic `provider_error` (502) — both answer 502 because
@@ -1888,12 +2647,21 @@ mock` the moment anything in the tree reaches an export it did not think to
   were broken.
 
   **`async` server components cannot be rendered by testing-library** — that
-  covers `settings/page.tsx` and the `Sections`/`LibrarySummary` data regions,
-  which stay untested. Don't reshape production code to make them testable. The
-  one case that works is an async component whose _output_ is synchronous:
-  `src/app/(app)/layout.tsx` is awaited as a plain function and its result
-  handed to `renderWithProviders()` (see `layout.test.tsx`). That is not a
-  licence to split a data component in two so it fits.
+  covers the async data regions that live inside a page's `<Suspense>`
+  boundaries (`UsersBody`/`UsersPagination` in `src/app/(app)/users/page.tsx`
+  and their equivalents on the other list routes), which stay untested here;
+  what they return is covered against a real database in the matching
+  `src/lib/**/*.test.ts`, and what the table does with it in the component's own
+  `.test.tsx`. Don't reshape production code to make them testable. **Page
+  bodies are no longer in this category**: since the instant-render migration
+  they are ordinary synchronous functions, so `page.test.tsx` renders one
+  directly — and the first assertion in several of them is that the return value
+  is _not_ a promise, which is the invariant that keeps a route fallback from
+  becoming reachable again. The older exception still stands for an async
+  component whose _output_ is synchronous: `src/app/(app)/layout.tsx` is awaited
+  as a plain function and its result handed to `renderWithProviders()` (see
+  `layout.test.tsx`). None of this is a licence to split a data component in two
+  so it fits.
 
   What is covered so far is exactly what phase 3's escaped defects needed: one
   `<main>` landmark, no `li` inside `li`, breadcrumbs translating nav segments
@@ -1928,7 +2696,8 @@ credential store, `src/lib/secrets.ts`, and the live YouTube and Reddit probes
 whose verdict derives the `*Enabled` flags), phase 7 (the AI tab at `/ai` —
 `src/lib/ai/` and `src/components/ai/`: a client-safe provider registry, three
 live probes reusing phase 6's `defineIntegration()` descriptor, the
-`active_ai_provider` preference and the nine global tuning values), phases 8–10
+`active_ai_provider` preference and the then-nine global tuning values, now
+six — see the no-request-cap bullet above), phases 8–10
 (the tags, feeds and articles CRUD tabs, built on phase 5's kit), phase 11
 (a–c: extraction core, embeds/media, and the per-site aggregators), phase 12
 (scheduling and the `jobs` table's in-process worker), phase 13 (the
@@ -1977,9 +2746,12 @@ forward from phase 5's review", where the CRUD kit's contracts are.
 design at
 `docs/superpowers/specs/2026-08-04-ai-provider-expansion-and-prompt-endpoint-design.md`)
 shipped the provider expansion to six (openai/anthropic/gemini/mistral/qwen/deepseek),
-the first real enforcement of the daily/monthly AI request limits, and the new
-`POST /api/v1/ai/prompt` mobile endpoint — see the `/ai` bullets above for what
-changed and why. **OpenRouter was added on a later, separate branch**, taking
+the first real enforcement of the daily/monthly AI request limits (**since
+removed in full** — that plan's `ai_requests` table, its
+`checkAndRecordAiUsage()` gate and both settings are gone; see the
+no-request-cap bullet above, and read that plan's limit sections as history),
+and the new `POST /api/v1/ai/prompt` mobile endpoint — see the `/ai` bullets
+above for what changed and why. **OpenRouter was added on a later, separate branch**, taking
 the total to seven: a seventh `defineIntegration()` declaration, the
 `hasDynamicModels`/live-catalog machinery, and `ProviderUnauthorizedError` /
 `providerUnauthorized` / `provider_unauthorized` threaded from `run.ts` through

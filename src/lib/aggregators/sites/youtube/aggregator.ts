@@ -324,14 +324,13 @@ export class YouTubeAggregator extends BaseAggregator {
     return htmlContent;
   }
 
-  override async finalizeArticles(
-    articles: RawArticle[],
-    userSettings?: Record<string, unknown>,
-  ): Promise<RawArticle[]> {
-    const processedArticles = await this.applyAiProcessing(articles, userSettings);
+  override async finalizeArticles(articles: RawArticle[]): Promise<RawArticle[]> {
+    // AI post-processing used to run here, ahead of this loop. It works on the
+    // block tree now, which only exists downstream in the job handler -- see
+    // `BaseAggregator.finalizeArticles()`.
     const finalized: RawArticle[] = [];
 
-    for (const article of processedArticles) {
+    for (const article of articles) {
       // processContent() (below) already derives the video id from
       // article.identifier and prepends its own createYoutubeEmbedHtml()
       // facade, so building a second one here duplicated the embed in every
@@ -368,6 +367,10 @@ export class YouTubeAggregator extends BaseAggregator {
       const comments = await client.fetchVideoComments(videoId, 10);
       this._last_reloaded_video = videos[0];
       this._last_reloaded_comments = comments;
+      // The video's current title, so reload runs AI over the source's own
+      // title rather than over the title a previous AI run wrote -- see
+      // `noteSourceTitle()` in ../../base.ts.
+      this.noteSourceTitle(videos[0].snippet?.title);
 
       return videos[0].snippet?.description || "";
     } catch {

@@ -23,7 +23,7 @@ import type { AiKey, AiResult, AiSaveResult } from "./result";
 
 /**
  * Everything `/ai` writes: seven provider credentials, which provider is
- * active, and the nine global tuning values.
+ * active, and the seven global tuning values.
  *
  * **The seven providers are a table, not seven sequences.** Parse, load the
  * row, resolve each secret, guard the empty case, probe, log, judge, write --
@@ -605,12 +605,12 @@ export async function setActiveProvider(key: string): Promise<AiResult> {
 }
 
 /**
- * The nine global tuning values, **built from `AI_ADVANCED_BOUNDS` rather than
+ * The six global tuning values, **built from `AI_ADVANCED_BOUNDS` rather than
  * typed out here.**
  *
  * Every bound has a reason rather than a round number, and those reasons are in
  * `./bounds` beside the numbers themselves. They live there because the `/ai`
- * form puts the same nine on its inputs as `min`/`max`: written twice, an edit
+ * form puts the same bounds on its inputs as `min`/`max`: written twice, an edit
  * to one shipped a browser hint that disagreed with the server and no test could
  * see it. `integer` drives `.int()` here and `step` there -- the columns are
  * `integer`, and SQLite would store `2.5` in one without complaint.
@@ -629,36 +629,21 @@ const advancedShape = Object.fromEntries(
   // `Record<AiAdvancedField, …>` is what makes it true.
 ) as Record<AiAdvancedField, z.ZodNumber>;
 
-const advancedInput = z.object(advancedShape).superRefine((values, ctx) => {
-  if (values.monthlyLimit < values.dailyLimit) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["monthlyLimit"],
-      // Never rendered: the catalog key below is what the caller is told. It
-      // is here because zod requires a message, and an English one leaking to
-      // a German UI is what `errorKey` exists to prevent.
-      message: "monthlyLimit is below dailyLimit",
-    });
-  }
-});
+const advancedInput = z.object(advancedShape);
 
 /**
  * Which field failed, as a catalog key.
  *
- * Two lookups rather than one: the cross-field rule above and an ordinary range
- * failure both land on `monthlyLimit`, and they want different advice -- "at
- * least as large as the daily one" against "between 1 and 100000". So
- * `field:code` is tried first (a `.superRefine()` issue is zod's `custom`) and
- * the bare field name is the fallback, which covers `too_small`, `too_big` and
- * a non-integer alike: all three mean "that number is not one this field
- * accepts", and the message states the range.
+ * Still two lookups rather than one, though only the fallback has a user
+ * today: `field:code` is tried first so a future rule that lands two different
+ * failures on one field can tell them apart, and the bare field name covers
+ * `too_small`, `too_big` and a non-integer alike -- all three mean "that number
+ * is not one this field accepts", and the message states the range. The one
+ * `field:code` entry there used to be (`monthlyLimit:custom`) went with the
+ * request caps.
  */
 const ADVANCED_ERROR_KEYS: Record<string, AiKey> = {
-  "monthlyLimit:custom": "advanced.monthlyBelowDaily",
   temperature: "advanced.temperatureRange",
-  maxTokens: "advanced.maxTokensRange",
-  dailyLimit: "advanced.dailyLimitRange",
-  monthlyLimit: "advanced.monthlyLimitRange",
   maxPromptLength: "advanced.maxPromptLengthRange",
   requestTimeout: "advanced.requestTimeoutRange",
   maxRetries: "advanced.maxRetriesRange",
@@ -674,7 +659,7 @@ function advancedErrorKey(issues: z.core.$ZodIssue[]): AiKey | undefined {
 }
 
 /**
- * Save the nine global tuning values.
+ * Save the six global tuning values.
  *
  * **The `ai` prefix the columns carry is dropped on the way in and out**
  * (`aiTemperature` -> `temperature`), and the two halves of that mapping are the
@@ -696,9 +681,6 @@ export async function saveAdvanced(input: unknown): Promise<AiResult> {
           .update(userSettings)
           .set({
             aiTemperature: values.temperature,
-            aiMaxTokens: values.maxTokens,
-            aiDefaultDailyLimit: values.dailyLimit,
-            aiDefaultMonthlyLimit: values.monthlyLimit,
             aiMaxPromptLength: values.maxPromptLength,
             aiRequestTimeout: values.requestTimeout,
             aiMaxRetries: values.maxRetries,

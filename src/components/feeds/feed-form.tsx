@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useState, useTransition, type FormEvent } from "react";
+import { Suspense, use, useState, useTransition, type FormEvent } from "react";
 import { toast } from "sonner";
 
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -47,24 +47,65 @@ import { TagBadge } from "@/components/tags/tag-badge";
 import { TagColorDot } from "@/components/tags/tag-color-dot";
 import { IdentifierAutocomplete } from "./identifier-autocomplete";
 
-type FeedListRow = Feed & { tags: Tag[] };
+/**
+ * The columns this form renders, not the whole `Feed` row -- see the doc
+ * comment on `getFeed()` (`src/lib/feeds/actions.ts`), which projects into
+ * exactly this shape before it ever crosses the RSC boundary.
+ */
+export type FeedListRow = Pick<
+  Feed,
+  | "id"
+  | "name"
+  | "aggregator"
+  | "identifier"
+  | "enabled"
+  | "options"
+  | "updateIntervalMinutes"
+  | "concurrency"
+  | "maxArticleAgeDays"
+> & { tags: Tag[] };
 
+/** No capability is known before the promise resolves -- see `pending` below. */
+const EMPTY_CAPABILITIES: Capabilities = { youtube: false, reddit: false, ai: false };
+
+/**
+ * `capabilities`/`allTags` are optional and paired with `pending`, the same
+ * "not loaded yet" shape as `@/components/settings/library-section.tsx` and
+ * `@/components/ai/provider-section.tsx`: the real form renders disabled with
+ * no value rather than a `<Skeleton>` standing in for each control. The
+ * aggregator picker's own option list (`AGGREGATOR_SPECS`) needs no query, so
+ * it renders fully populated while pending -- only the capability-based
+ * filtering (which providers are configured) and the tag list are unknown.
+ * See `NewFeedForm` below for the promise-consuming wrapper `/feeds/new` uses.
+ */
 export function FeedForm({
   feed,
   capabilities,
   allTags,
+  pending = false,
 }: {
   feed?: FeedListRow;
-  capabilities: Capabilities;
-  allTags: Tag[];
+  capabilities?: Capabilities;
+  allTags?: Tag[];
+  pending?: boolean;
 }) {
   const t = useTranslations("feeds");
   const c = useTranslations("common");
   const router = useRouter();
   const trackRun = useTrackRun();
 
-  const [pending, start] = useTransition();
+  // `caps`/`tags` are what the rest of this component reads -- never the raw
+  // `capabilities`/`allTags` props, so every derived value (the picker's
+  // filtering, the missing-integration banners, the tag select) has a value to
+  // work with while pending, rather than needing its own `?? …` at each site.
+  const caps = capabilities ?? EMPTY_CAPABILITIES;
+  const tags = allTags ?? [];
+
+  const [saving, start] = useTransition();
   const [updating, startUpdate] = useTransition();
+  // Disables every control: either this form's own submit is in flight, or
+  // the data it needs (capabilities, tags) hasn't arrived yet.
+  const busy = pending || saving;
 
   function runUpdate() {
     if (!feed) return;
@@ -110,7 +151,7 @@ export function FeedForm({
   const [maxArticleAgeDays, setMaxArticleAgeDays] = useState(String(feed?.maxArticleAgeDays ?? 30));
 
   const spec = AGGREGATOR_SPECS[aggregator];
-  const visibleOptions = visibleOptionsFor(aggregator, capabilities);
+  const visibleOptions = visibleOptionsFor(aggregator, caps);
   /**
    * `visibleOptions` minus the ones whose `dependsOn` box is unchecked. That is
    * a display rule and nothing more: the value stays in `options` and is still
@@ -120,16 +161,36 @@ export function FeedForm({
   const shownOptions = visibleOptions.filter((opt) => !opt.dependsOn || options[opt.dependsOn]);
   const identifierMode = identifierModeFor(spec);
 
+  /**
+   * While `pending`, `caps` is `EMPTY_CAPABILITIES`, so a capability-gated
+   * aggregator (YouTube, Reddit) is filtered out of this list until the real
+   * capabilities resolve -- the picker does **not** render the full,
+   * unfiltered `AGGREGATOR_SPECS` while pending, even though the picker's
+   * `<Select>` below is disabled the whole time.
+   *
+   * That is deliberate, not an oversight the brief's "fully populated, like
+   * `/ai`'s provider picker" comparison would suggest fixing: the shorter
+   * list is invisible in practice, because a disabled `<Select>` cannot be
+   * opened to notice it. What is not invisible is which *direction* the list
+   * changes the moment capabilities resolve. Of the two orderings, an option
+   * appearing is harmless -- but an option *disappearing* could be the one
+   * already selected, which would silently reset the operator's choice.
+   * `/ai`'s provider picker has no equivalent hazard (its list is static and
+   * never shrinks), so that comparison does not actually hold here. Hiding
+   * capability-gated aggregators while pending and letting them appear once
+   * capabilities resolve is therefore the strictly safer of the two
+   * orderings, chosen over matching `/ai`'s pending shape exactly.
+   */
   const availableAggregators = Object.values(AGGREGATOR_SPECS).filter(
-    (s) => !s.identifierSearch || capabilities[s.identifierSearch] || s.key === feed?.aggregator,
+    (s) => !s.identifierSearch || caps[s.identifierSearch] || s.key === feed?.aggregator,
   );
   const identifierSearchUnavailable =
-    identifierMode === "search" && spec.identifierSearch && !capabilities[spec.identifierSearch];
+    identifierMode === "search" && spec.identifierSearch && !caps[spec.identifierSearch];
 
   // Check what's hidden
   const missingGuards = new Set<string>();
   spec.options.forEach((opt) => {
-    if (opt.requires && !capabilities[opt.requires]) {
+    if (opt.requires && !caps[opt.requires]) {
       missingGuards.add(opt.requires);
     }
   });
@@ -220,7 +281,7 @@ export function FeedForm({
           value={aggregator}
           onValueChange={handleAggregatorChange}
           items={availableAggregators.map((s) => ({ value: s.key, label: s.label }))}
-          disabled={pending}
+          disabled={busy}
         >
           <SelectTrigger id="aggregator">
             <SelectValue placeholder={t("form.aggregatorPlaceholder")} />
@@ -243,7 +304,7 @@ export function FeedForm({
           autoComplete="off"
           value={name}
           onChange={(event) => setName(event.target.value)}
-          disabled={pending}
+          disabled={busy}
         />
       </div>
 
@@ -259,7 +320,7 @@ export function FeedForm({
             autoComplete="off"
             value={identifier}
             onChange={(event) => setIdentifier(event.target.value)}
-            disabled={pending}
+            disabled={busy}
           />
           {spec.identifierHelp && (
             <p className="text-sm text-muted-foreground">{spec.identifierHelp}</p>
@@ -274,7 +335,7 @@ export function FeedForm({
             value={identifier || defaultIdentifierFor(spec)}
             onValueChange={(val: string | null) => val && setIdentifier(val)}
             items={spec.identifierChoices}
-            disabled={pending}
+            disabled={busy}
           >
             <SelectTrigger id="identifier">
               <SelectValue />
@@ -310,7 +371,7 @@ export function FeedForm({
             aggregator={spec.identifierSearch as "youtube" | "reddit"}
             value={identifier}
             onValueChange={setIdentifier}
-            disabled={pending || identifierSearchUnavailable}
+            disabled={busy || identifierSearchUnavailable}
           />
           {spec.identifierHelp && (
             <p className="text-sm text-muted-foreground">{spec.identifierHelp}</p>
@@ -336,8 +397,8 @@ export function FeedForm({
           multiple
           value={tagIds}
           onValueChange={(val: string[]) => setTagIds(val)}
-          items={allTags.map((tag) => ({ value: String(tag.id), label: tag.name }))}
-          disabled={pending}
+          items={tags.map((tag) => ({ value: String(tag.id), label: tag.name }))}
+          disabled={busy}
         >
           <SelectTrigger id="tags">
             <SelectValue placeholder={t("form.tagsPlaceholder")}>
@@ -346,7 +407,7 @@ export function FeedForm({
               ) : (
                 <div className="flex gap-1 flex-wrap">
                   {tagIds.map((id) => {
-                    const tag = allTags.find((t) => String(t.id) === id);
+                    const tag = tags.find((t) => String(t.id) === id);
                     return tag ? (
                       <TagBadge
                         key={id}
@@ -361,7 +422,7 @@ export function FeedForm({
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {allTags.map((tag) => (
+            {tags.map((tag) => (
               <SelectItem key={tag.id} value={String(tag.id)}>
                 <span className="flex items-center gap-2">
                   <TagColorDot color={tag.color} />
@@ -381,7 +442,7 @@ export function FeedForm({
             </Label>
             <p className="text-sm text-muted-foreground">{t("form.enabledDescription")}</p>
           </div>
-          <Switch id="enabled" checked={enabled} onCheckedChange={setEnabled} disabled={pending} />
+          <Switch id="enabled" checked={enabled} onCheckedChange={setEnabled} disabled={busy} />
         </div>
       )}
 
@@ -395,7 +456,7 @@ export function FeedForm({
             max={1440}
             value={updateIntervalMinutes}
             onChange={(event) => setUpdateIntervalMinutes(event.target.value)}
-            disabled={pending}
+            disabled={busy}
           />
           <p className="text-sm text-muted-foreground">{t("form.updateIntervalHelp")}</p>
         </div>
@@ -408,7 +469,7 @@ export function FeedForm({
             max={10}
             value={concurrency}
             onChange={(event) => setConcurrency(event.target.value)}
-            disabled={pending}
+            disabled={busy}
           />
           <p className="text-sm text-muted-foreground">{t("form.concurrencyHelp")}</p>
         </div>
@@ -421,7 +482,7 @@ export function FeedForm({
             max={3650}
             value={maxArticleAgeDays}
             onChange={(event) => setMaxArticleAgeDays(event.target.value)}
-            disabled={pending}
+            disabled={busy}
           />
           <p className="text-sm text-muted-foreground">{t("form.maxArticleAgeHelp")}</p>
         </div>
@@ -439,7 +500,7 @@ export function FeedForm({
                     type="button"
                     aria-label={t("form.customPromptEdit")}
                     onClick={() => openPromptEditor(opt)}
-                    disabled={pending}
+                    disabled={busy}
                     className={cn(
                       "w-full rounded-md border bg-background p-3 text-left text-sm",
                       "hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2",
@@ -462,7 +523,7 @@ export function FeedForm({
                     id={`opt-${opt.key}`}
                     checked={options[opt.key] as boolean}
                     onCheckedChange={(checked) => handleOptionChange(opt.key, checked)}
-                    disabled={pending}
+                    disabled={busy}
                   />
                   <Label htmlFor={`opt-${opt.key}`} className="font-normal cursor-pointer">
                     {opt.label}
@@ -475,7 +536,7 @@ export function FeedForm({
                     value={options[opt.key] as string}
                     onValueChange={(val) => handleOptionChange(opt.key, val)}
                     items={opt.options || []}
-                    disabled={pending}
+                    disabled={busy}
                   >
                     <SelectTrigger id={`opt-${opt.key}`}>
                       <SelectValue />
@@ -503,7 +564,7 @@ export function FeedForm({
                       const val = e.target.value.split("\n");
                       handleOptionChange(opt.key, val);
                     }}
-                    disabled={pending}
+                    disabled={busy}
                     rows={4}
                   />
                   {opt.help && <p className="text-xs text-muted-foreground">{opt.help}</p>}
@@ -516,7 +577,7 @@ export function FeedForm({
                     type="number"
                     value={(options[opt.key] as number | string) ?? ""}
                     onChange={(e) => handleOptionChange(opt.key, Number(e.target.value))}
-                    disabled={pending}
+                    disabled={busy}
                   />
                 </div>
               ) : (
@@ -526,7 +587,7 @@ export function FeedForm({
                     id={`opt-${opt.key}`}
                     value={(options[opt.key] as string) ?? ""}
                     onChange={(e) => handleOptionChange(opt.key, e.target.value)}
-                    disabled={pending}
+                    disabled={busy}
                   />
                 </div>
               )}
@@ -602,14 +663,14 @@ export function FeedForm({
       </Dialog>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-        <Button type="submit" disabled={pending} className="w-full sm:w-auto">
+        <Button type="submit" disabled={busy} className="w-full sm:w-auto">
           {feed ? t("form.save") : t("form.create")}
         </Button>
         {feed && (
           <Button
             type="button"
             variant="outline"
-            disabled={pending || updating}
+            disabled={busy || updating}
             onClick={runUpdate}
             className="w-full sm:w-auto"
           >
@@ -624,5 +685,97 @@ export function FeedForm({
         </Link>
       </div>
     </form>
+  );
+}
+
+/**
+ * Calls use() on both promises; suspends until they settle; renders the form
+ * for real. `/feeds/new` is the only caller -- `/feeds/[id]` has its own
+ * pair below (`EditFeedFormResolved`/`EditFeedForm`), because it additionally
+ * has a known `feed` (its 404 depends on the row, so the page body awaits it
+ * rather than streaming it) that this one does not.
+ */
+function NewFeedFormResolved({
+  capabilitiesPromise,
+  allTagsPromise,
+}: {
+  capabilitiesPromise: Promise<Capabilities>;
+  allTagsPromise: Promise<Tag[]>;
+}) {
+  const capabilities = use(capabilitiesPromise);
+  const allTags = use(allTagsPromise);
+  return <FeedForm capabilities={capabilities} allTags={allTags} />;
+}
+
+/**
+ * What `/feeds/new/page.tsx` renders. The fallback is `<FeedForm pending />`
+ * -- the real chassis, disabled -- so the aggregator picker (needs no query),
+ * the name/identifier/interval/concurrency/options fields and both action
+ * buttons are on screen from the first frame; only the capability-based
+ * filtering and the tag list stream in once `capabilitiesFor()`/`listTags()`
+ * resolve.
+ */
+export function NewFeedForm({
+  capabilitiesPromise,
+  allTagsPromise,
+}: {
+  capabilitiesPromise: Promise<Capabilities>;
+  allTagsPromise: Promise<Tag[]>;
+}) {
+  return (
+    <Suspense fallback={<FeedForm pending />}>
+      <NewFeedFormResolved
+        capabilitiesPromise={capabilitiesPromise}
+        allTagsPromise={allTagsPromise}
+      />
+    </Suspense>
+  );
+}
+
+/**
+ * Calls `use()` on both promises; suspends until they settle; renders the
+ * form for real. `feed` is already known by the time this is used --
+ * `/feeds/[id]/page.tsx` awaits `getFeed()` at the top of the page body,
+ * because it decides the 404 -- so only `capabilities`/`allTags` are
+ * promises here, unlike `NewFeedFormResolved` above.
+ */
+function EditFeedFormResolved({
+  feed,
+  capabilitiesPromise,
+  allTagsPromise,
+}: {
+  feed: FeedListRow;
+  capabilitiesPromise: Promise<Capabilities>;
+  allTagsPromise: Promise<Tag[]>;
+}) {
+  const capabilities = use(capabilitiesPromise);
+  const allTags = use(allTagsPromise);
+  return <FeedForm feed={feed} capabilities={capabilities} allTags={allTags} />;
+}
+
+/**
+ * What `/feeds/[id]/page.tsx` renders. The fallback is
+ * `<FeedForm feed={feed} pending />` -- the real chassis, disabled, already
+ * carrying the fetched feed's own values -- so only the capability-based
+ * filtering and the tag list stream in once `capabilitiesFor()`/`listTags()`
+ * resolve.
+ */
+export function EditFeedForm({
+  feed,
+  capabilitiesPromise,
+  allTagsPromise,
+}: {
+  feed: FeedListRow;
+  capabilitiesPromise: Promise<Capabilities>;
+  allTagsPromise: Promise<Tag[]>;
+}) {
+  return (
+    <Suspense fallback={<FeedForm feed={feed} pending />}>
+      <EditFeedFormResolved
+        feed={feed}
+        capabilitiesPromise={capabilitiesPromise}
+        allTagsPromise={allTagsPromise}
+      />
+    </Suspense>
   );
 }

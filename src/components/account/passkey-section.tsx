@@ -3,7 +3,7 @@
 import { KeyRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useFormatter, useTranslations } from "next-intl";
-import { useState, useTransition, type ReactNode } from "react";
+import { Suspense, use, useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import {
@@ -19,9 +19,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { removePasskey } from "@/lib/account/actions";
 import { attempt } from "@/lib/account/result";
-import type { PasskeySummary } from "@/lib/account/queries";
+import type { AccountOverview, PasskeySummary } from "@/lib/account/queries";
 import { authClient } from "@/lib/auth/client";
 import {
   PASSKEY_ALREADY_REGISTERED_CODE,
@@ -44,20 +45,28 @@ import {
  * only decides whether to *offer* the button, so a stale render, a second tab
  * or a hand-made action call still cannot strip an account of its last
  * credential -- see `removePasskey()` in `@/lib/account/actions`.
+ *
+ * **`passkeys === undefined` (paired with `pending`) is the "not loaded yet"
+ * state, and it is the one slot in this card a `<Skeleton>` still belongs in**:
+ * the number of rows is genuinely unknowable, unlike a field's value, so there
+ * is nothing a real control could show in its place. The "Add a passkey"
+ * button needs no data at all and renders for real, disabled.
  */
-export function PasskeySection({
+export function PasskeySectionForm({
   passkeys,
-  hasPassword,
+  hasPassword = false,
+  pending = false,
 }: {
-  passkeys: PasskeySummary[];
-  hasPassword: boolean;
+  passkeys?: PasskeySummary[];
+  hasPassword?: boolean;
+  pending?: boolean;
 }) {
   const t = useTranslations("account");
   const tCommon = useTranslations("common");
   const format = useFormatter();
   const router = useRouter();
   const [adding, setAdding] = useState(false);
-  const [pending, start] = useTransition();
+  const [saving, start] = useTransition();
   /**
    * Which passkey's confirmation is open, if any.
    *
@@ -75,7 +84,8 @@ export function PasskeySection({
    * self-registration, no mail transport and therefore no recovery path exist
    * here, so the way back in would be editing SQLite by hand.
    */
-  const lastResort = (id: string) => !hasPassword && passkeys.length === 1 && passkeys[0].id === id;
+  const lastResort = (id: string) =>
+    !hasPassword && passkeys?.length === 1 && passkeys[0].id === id;
 
   async function add() {
     // Feature-detected the same way the login form does it: `PublicKeyCredential`
@@ -137,12 +147,22 @@ export function PasskeySection({
     });
   }
 
-  const busy = adding || pending;
+  const busy = pending || adding || saving;
 
   return (
-    <PasskeySectionShell
-      listControl={
-        passkeys.length === 0 ? (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("passkeys.title")}</CardTitle>
+        <CardDescription>{t("passkeys.description")}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {passkeys === undefined ? (
+          // The pending list: the row count is genuinely unknowable, unlike a
+          // field's value, so this is the one place in this card a <Skeleton>
+          // is still the right affordance. Do not "fix" this into a real
+          // control -- there is no data to render one against yet.
+          <Skeleton className="h-16 w-full" />
+        ) : passkeys.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("passkeys.none")}</p>
         ) : (
           <ul className="divide-y rounded-md border">
@@ -211,47 +231,35 @@ export function PasskeySection({
               </li>
             ))}
           </ul>
-        )
-      }
-      addControl={
+        )}
+
         <Button type="button" onClick={add} disabled={busy}>
           <KeyRound aria-hidden="true" />
           {adding ? t("passkeys.adding") : t("passkeys.add")}
         </Button>
-      }
-    />
+      </CardContent>
+    </Card>
   );
 }
 
-/**
- * The section's chrome alone: the card heading, with no dependency on
- * `passkeys`/`hasPassword` -- see the doc comment on `GeneralSectionShell` in
- * `../settings/general-section.tsx` for why `account/page.tsx` renders this
- * directly as its own `<Suspense>` fallback (with skeletons standing in for
- * the list and the add button). Both slots are whole blocks rather than
- * finer-grained ones: the list's shape (empty message vs. rows, each with its
- * own delete-guard branch) and the add button's `disabled`/label both depend
- * on data or local state, so there is no static chrome left inside either.
- */
-export function PasskeySectionShell({
-  listControl,
-  addControl,
-}: {
-  listControl: ReactNode;
-  addControl: ReactNode;
-}) {
-  const t = useTranslations("account");
+/** Calls use(); suspends until the promise resolves; renders the form for real. */
+function PasskeySectionResolved({ promise }: { promise: Promise<AccountOverview> }) {
+  const { passkeys, hasPassword } = use(promise);
+  return <PasskeySectionForm passkeys={passkeys} hasPassword={hasPassword} />;
+}
 
+/**
+ * What the page renders. The fallback is the real form, in its pending
+ * state -- see the Design Reference in
+ * docs/superpowers/plans/2026-08-16-streaming-controls-migration.md -- so the
+ * heading and the "Add a passkey" button are on screen from the first frame;
+ * only the list -- the one spot a `<Skeleton>` is still correct -- streams in
+ * afterward.
+ */
+export function PasskeySection({ promise }: { promise: Promise<AccountOverview> }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("passkeys.title")}</CardTitle>
-        <CardDescription>{t("passkeys.description")}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {listControl}
-        {addControl}
-      </CardContent>
-    </Card>
+    <Suspense fallback={<PasskeySectionForm pending />}>
+      <PasskeySectionResolved promise={promise} />
+    </Suspense>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useState, useTransition, type ReactNode } from "react";
+import { Suspense, use, useState, useTransition } from "react";
 
 import { ConfirmDestructive } from "@/components/crud/confirm-destructive";
 import { StatusBadge, useReportOutcome } from "@/components/integrations/section-parts";
@@ -19,10 +19,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { removeReddit, saveReddit, testReddit } from "@/lib/integrations/actions";
+import type { IntegrationStatus } from "@/lib/integrations/queries";
 import { attempt } from "@/lib/integrations/result";
 
 /**
- * The Reddit credentials card -- `<YoutubeSection>`'s twin, with two
+ * The Reddit credentials card -- `<YoutubeSectionForm>`'s twin, with two
  * differences worth stating:
  *
  * - **Two secrets, one form.** Either field may be left empty to keep what is
@@ -35,17 +36,29 @@ import { attempt } from "@/lib/integrations/result";
  *   letting the probe report it as rejected credentials.
  *
  * Every action goes through `attempt()` -- never a bare `await` (CLAUDE.md).
+ *
+ * All four props are optional (paired with `pending`) for the same "not
+ * loaded yet" state `<YoutubeSectionForm>` documents: the real card renders,
+ * disabled, from the first frame, and the status badge is omitted entirely
+ * rather than shown with a neutral frame -- it is a probe-derived verdict,
+ * and nothing honest can be shown before it is known. `userAgent` alone
+ * defaults to `""` rather than staying `undefined`, because unlike the two
+ * secrets it is not a credential and the field is meant to hold exactly what
+ * is stored -- an empty string is what "not configured yet" looks like for a
+ * plain text field, same as every other pending text input in this migration.
  */
-export function RedditSection({
+export function RedditSectionForm({
   enabled,
   clientIdMasked,
   clientSecretMasked,
-  userAgent: storedUserAgent,
+  userAgent: storedUserAgent = "",
+  pending = false,
 }: {
-  enabled: boolean;
-  clientIdMasked: string;
-  clientSecretMasked: string;
-  userAgent: string;
+  enabled?: boolean;
+  clientIdMasked?: string;
+  clientSecretMasked?: string;
+  userAgent?: string;
+  pending?: boolean;
 }) {
   const t = useTranslations("integrations");
   const report = useReportOutcome();
@@ -55,8 +68,10 @@ export function RedditSection({
   const [userAgent, setUserAgent] = useState(storedUserAgent);
   const [saving, startSave] = useTransition();
   const [testing, startTest] = useTransition();
-  const busy = saving || testing;
-  const configured = clientIdMasked !== "" || clientSecretMasked !== "";
+  const busy = pending || saving || testing;
+  const configured =
+    (clientIdMasked !== undefined && clientIdMasked !== "") ||
+    (clientSecretMasked !== undefined && clientSecretMasked !== "");
 
   function submission() {
     return {
@@ -96,67 +111,85 @@ export function RedditSection({
   }
 
   return (
-    <RedditSectionShell
-      onSubmit={save}
-      statusControl={<StatusBadge enabled={enabled} />}
-      clientIdControl={
-        <Input
-          id="reddit-client-id"
-          type="password"
-          autoComplete="off"
-          spellCheck={false}
-          placeholder={secretPlaceholder(clientIdMasked)}
-          value={clientId}
-          onChange={(event) => setClientId(event.target.value)}
-        />
-      }
-      clientSecretControl={
-        <Input
-          id="reddit-client-secret"
-          type="password"
-          autoComplete="off"
-          spellCheck={false}
-          placeholder={secretPlaceholder(clientSecretMasked)}
-          value={clientSecret}
-          onChange={(event) => setClientSecret(event.target.value)}
-        />
-      }
-      secretsHintControl={
-        <p className="text-sm text-muted-foreground">
-          {configured ? t("keepHint") : t("notConfigured")}
-        </p>
-      }
-      userAgentControl={
-        // type="text": not a secret, and an operator has to be able to read
-        // what they wrote. `required` saves a round trip; the server
-        // enforces it either way.
-        <Input
-          id="reddit-user-agent"
-          type="text"
-          required
-          autoComplete="off"
-          value={userAgent}
-          onChange={(event) => setUserAgent(event.target.value)}
-        />
-      }
-      saveControl={
-        <Button type="submit" disabled={busy} className="w-full sm:w-auto">
-          {saving ? t("saving") : t("save")}
-        </Button>
-      }
-      testControl={
-        <Button
-          type="button"
-          variant="outline"
-          disabled={busy}
-          onClick={test}
-          className="w-full sm:w-auto"
-        >
-          {testing ? t("testing") : t("test")}
-        </Button>
-      }
-      removeControl={
-        configured ? (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("reddit.title")}</CardTitle>
+        <CardDescription>{t("reddit.description")}</CardDescription>
+        {/* Omitted entirely while pending -- see the doc comment above. */}
+        {pending ? null : <CardAction>{<StatusBadge enabled={enabled ?? false} />}</CardAction>}
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={save} className="space-y-4">
+          {/* The two secrets and the one hint that belongs to both of them. It
+              used to sit inside the client-secret group, where it read as a rule
+              about that field alone -- and "leave a field empty to keep the
+              stored value" is precisely the thing an operator has to know about
+              the *pair*, since either may be left alone independently. */}
+          <div className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="reddit-client-id">{t("reddit.clientId")}</Label>
+              <Input
+                id="reddit-client-id"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder={secretPlaceholder(clientIdMasked ?? "")}
+                value={clientId}
+                onChange={(event) => setClientId(event.target.value)}
+                disabled={busy}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="reddit-client-secret">{t("reddit.clientSecret")}</Label>
+              <Input
+                id="reddit-client-secret"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder={secretPlaceholder(clientSecretMasked ?? "")}
+                value={clientSecret}
+                onChange={(event) => setClientSecret(event.target.value)}
+                disabled={busy}
+              />
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {configured ? t("keepHint") : t("notConfigured")}
+            </p>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="reddit-user-agent">{t("reddit.userAgent")}</Label>
+            {/* type="text": not a secret, and an operator has to be able to
+                read what they wrote. `required` saves a round trip; the
+                server enforces it either way. */}
+            <Input
+              id="reddit-user-agent"
+              type="text"
+              required
+              autoComplete="off"
+              value={userAgent}
+              onChange={(event) => setUserAgent(event.target.value)}
+              disabled={busy}
+            />
+            <p className="text-sm text-muted-foreground">{t("reddit.userAgentHelp")}</p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <Button type="submit" disabled={busy} className="w-full sm:w-auto">
+              {saving ? t("saving") : t("save")}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={test}
+              className="w-full sm:w-auto"
+            >
+              {testing ? t("testing") : t("test")}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+      {configured ? (
+        <CardFooter className="justify-end">
           <ConfirmDestructive
             trigger={
               <Button type="button" variant="destructive" disabled={busy}>
@@ -168,90 +201,37 @@ export function RedditSection({
             confirmLabel={t("removeConfirm")}
             onConfirm={remove}
           />
-        ) : null
-      }
+        </CardFooter>
+      ) : null}
+    </Card>
+  );
+}
+
+/** Calls use(); suspends until the promise resolves; renders the form for real. */
+function RedditSectionResolved({ promise }: { promise: Promise<IntegrationStatus> }) {
+  const status = use(promise);
+  return (
+    <RedditSectionForm
+      enabled={status.reddit.enabled}
+      clientIdMasked={status.reddit.clientIdMasked}
+      clientSecretMasked={status.reddit.clientSecretMasked}
+      userAgent={status.reddit.userAgent}
     />
   );
 }
 
 /**
- * The card's chrome alone: the heading, description and the three field
- * labels (plus the static user-agent help text, which -- unlike the shared
- * secrets hint -- does not depend on `clientIdMasked`/`clientSecretMasked`),
- * with no dependency on the fetched props at all. `integrations/page.tsx`
- * renders this as its own `<Suspense>` fallback (with skeletons standing in
- * for the status badge, the three inputs, the shared hint and the buttons) so
- * the title and labels never disappear behind a generic skeleton block while
- * `getIntegrationStatus()` resolves. See the doc comment on
- * `GeneralSectionShell` in `../settings/general-section.tsx` for why this is a
- * plain presentational split rather than a state-sharing one.
+ * What the page renders. The fallback is the real form, in its pending
+ * state -- see the Design Reference in
+ * docs/superpowers/plans/2026-08-16-streaming-controls-migration.md -- so the
+ * heading, description and all three field labels are on screen from the
+ * first frame and only the masks, the user agent, the badge and the enabled
+ * state stream in afterward.
  */
-export function RedditSectionShell({
-  // Optional, and defaulted here rather than by the caller: `integrations/page.tsx`
-  // renders this shell from a Server Component fallback, which cannot pass a
-  // function prop into a Client Component (it isn't a Server Action, so React
-  // has nothing to serialize it as). Defaulting inside this "use client" module
-  // keeps the function entirely on the client, so the fallback needs no
-  // `onSubmit` prop at all.
-  onSubmit = (event) => event.preventDefault(),
-  statusControl,
-  clientIdControl,
-  clientSecretControl,
-  secretsHintControl,
-  userAgentControl,
-  saveControl,
-  testControl,
-  removeControl,
-}: {
-  onSubmit?: React.FormEventHandler<HTMLFormElement>;
-  statusControl: ReactNode;
-  clientIdControl: ReactNode;
-  clientSecretControl: ReactNode;
-  secretsHintControl: ReactNode;
-  userAgentControl: ReactNode;
-  saveControl: ReactNode;
-  testControl: ReactNode;
-  removeControl: ReactNode | null;
-}) {
-  const t = useTranslations("integrations");
-
+export function RedditSection({ promise }: { promise: Promise<IntegrationStatus> }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("reddit.title")}</CardTitle>
-        <CardDescription>{t("reddit.description")}</CardDescription>
-        <CardAction>{statusControl}</CardAction>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={onSubmit} className="space-y-4">
-          {/* The two secrets and the one hint that belongs to both of them. It
-              used to sit inside the client-secret group, where it read as a rule
-              about that field alone -- and "leave a field empty to keep the
-              stored value" is precisely the thing an operator has to know about
-              the *pair*, since either may be left alone independently. */}
-          <div className="space-y-4">
-            <div className="grid gap-2">
-              <Label htmlFor="reddit-client-id">{t("reddit.clientId")}</Label>
-              {clientIdControl}
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="reddit-client-secret">{t("reddit.clientSecret")}</Label>
-              {clientSecretControl}
-            </div>
-            {secretsHintControl}
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="reddit-user-agent">{t("reddit.userAgent")}</Label>
-            {userAgentControl}
-            <p className="text-sm text-muted-foreground">{t("reddit.userAgentHelp")}</p>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            {saveControl}
-            {testControl}
-          </div>
-        </form>
-      </CardContent>
-      {removeControl ? <CardFooter className="justify-end">{removeControl}</CardFooter> : null}
-    </Card>
+    <Suspense fallback={<RedditSectionForm pending />}>
+      <RedditSectionResolved promise={promise} />
+    </Suspense>
   );
 }
