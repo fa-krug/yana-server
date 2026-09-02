@@ -1057,6 +1057,60 @@ describe("src/lib/jobs/handlers", () => {
         "upserted articles: 0 created, 1 updated, 0 unchanged",
       );
     });
+
+    it("keeps the write-loop's progress() calls to a small, bounded number of distinct values for a large feed", async () => {
+      // This pins the property that actually turns 200 progress() calls into
+      // roughly 20 writes/SSE events: the per-article expression in
+      // aggregate.ts is `80 + Math.floor(((i + 1) / total) * 20)`, which only
+      // takes on ~20 distinct integers no matter how large `total` is, and
+      // progress()'s own read-before-write dedupe (queue.ts) only publishes
+      // on a genuine change. Nothing here exercises that dedupe directly --
+      // this test is about the *input* to it. If someone widened the
+      // expression's resolution (say, to `Math.floor(((i + 1) / total) *
+      // 2000)`), every one of those 200 calls would produce a distinct
+      // percentage, defeating the dedupe entirely: 200 write transactions
+      // and 200 SSE frames per job instead of ~20. That regression would not
+      // fail any test that only checks final state (all of them settle on
+      // progress: 100 either way), so the assertion below is on the *number
+      // of distinct values requested*, not on the final progress.
+      const feedId = seedAggregateFeed();
+      const total = 200;
+      const rawArticles = Array.from({ length: total }, (_, i) => ({
+        name: `Article ${i}`,
+        identifier: `art-${i}`,
+        raw_content: `<p>body ${i}</p>`,
+        content: `<p>body ${i}</p>`,
+        date: new Date(),
+      }));
+
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => rawArticles,
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      const progressSpy = vi.spyOn(queue, "progress");
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+      const job = makeJob("aggregate", { feedId });
+      await aggregateHandler!(job);
+
+      const percentagesRequested = progressSpy.mock.calls
+        .filter(([id]) => id === job.id)
+        .map(([, percent]) => percent);
+
+      expect(percentagesRequested.length).toBe(total);
+
+      const distinctCount = new Set(percentagesRequested).size;
+      // The write loop's expression only spans the 80-100 range and steps by
+      // 1/20th of the way through `total` articles each time it advances --
+      // 21 possible integer values (80 through 100 inclusive), never more,
+      // regardless of `total`. A generous upper bound (25) keeps this test
+      // from being brittle about the exact boundary rounding while still
+      // catching an order-of-magnitude regression like the one described
+      // above.
+      expect(distinctCount).toBeLessThanOrEqual(25);
+      expect(distinctCount).toBeGreaterThan(1);
+    });
   });
 
   describe("logo", () => {

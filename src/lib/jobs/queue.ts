@@ -174,6 +174,15 @@ export function fail(id: number, error: string | Error): void {
         startedAt: null,
         runAt: nextRunAt,
         error: errMsg,
+        // A retrying job goes back to "pending" -- the state a job is in
+        // before it has done any work -- so its progress must go back to 0
+        // with it. Without this, a job that had already reported real
+        // progress on this attempt (a reload that reached 100 right before
+        // an AI-processing throw, say) polls as "pending" at its old
+        // percentage through the whole backoff window, and a client
+        // displaying that number verbatim watches it sit at a stale high
+        // value and then fall backwards once the retry actually starts.
+        progress: 0,
       })
       .where(eq(jobs.id, id))
       .run();
@@ -232,7 +241,13 @@ export function progress(id: number, percent: number): void {
         jobId: id,
         runId: current.runId,
         kind: current.kind,
-        status: "running",
+        // The row's actual status, not a hardcoded "running": in practice
+        // this is always "running" (only a claimed job reaches a handler
+        // that calls progress()), but the row is already in hand here, and
+        // REST (GET /api/v1/jobs/:id) and SSE must describe the same row
+        // identically rather than one of them asserting a status by
+        // convention instead of reading it.
+        status: current.status,
         progress: clamped,
       },
     });

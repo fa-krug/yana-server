@@ -145,8 +145,12 @@ export async function handleReloadJob(job: Job): Promise<void> {
     return;
   }
 
-  // No progress call on the failed-refetch branch above: that path ends the
-  // job right here, and publishJobOutcome() reports where it got to instead.
+  // No progress call on the failed-refetch branch above: that branch returns
+  // normally (it is a handled outcome, not a thrown error -- see the doc
+  // comment above), so the job still finishes as a plain success. complete()
+  // (called by the worker once this handler returns) always forces progress
+  // to 100 regardless of the last value written here, so a reload that hits
+  // that branch still reports 100% done rather than getting stuck at 5.
   progress(job.id, 30);
 
   const rawArticle: RawArticle = {
