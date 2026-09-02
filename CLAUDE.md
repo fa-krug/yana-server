@@ -458,12 +458,12 @@ npm run lint && npm run format:check && npm run typecheck && npm test
 connection()` is correct wherever the function is already async for its own
   reasons and an extra `await` costs nothing — `src/app/layout.tsx`,
   `src/app/health/route.ts`, `src/app/login/page.tsx` (outside the
-  instant-render page set), `src/app/(app)/api-docs/route.ts`, and ten
+  instant-render page set), `src/app/(app)/api-docs/route.ts`, and eleven
   `/api/v1` route handlers that reach the database with no earlier awaited
   Dynamic API to opt them out already (`articles/[id]/content`,
   `articles/sync`, `auth/webview-session-token`, `feeds`, `images/[hash]`,
-  `jobs/events`, `openapi.json`, `reading-position`, `runs/[id]`, `tags` —
-  ten routes, not twelve). `grep -rl "await connection()" src --include="*.ts"
+  `jobs/[id]`, `jobs/events`, `openapi.json`, `reading-position`, `runs/[id]`,
+  `tags` — eleven routes, not thirteen). `grep -rl "await connection()" src --include="*.ts"
 --include="*.tsx" | grep -v test` is how to re-count; it also matches two
   comment-only mentions that name the call without making it
   (`src/app/api/auth/[...all]/route.ts`, `src/components/crud/use-list-params.ts`),
@@ -1938,6 +1938,30 @@ event.payload)` needed no change at all to carry the new event type, since
   broadcast-side throttling: the native client already debounces its own
   pushes to roughly one every two idle seconds, so the publish rate this
   route ever sees is already the rate worth broadcasting.
+
+  **Job progress rides the same bus, and now on every change, not only at the
+  end.** `queue.progress(id, percent)` (`src/lib/jobs/queue.ts`) used to be
+  silent until a job's terminal transition; it now calls `publishUserEvent`
+  with a `"job"` event on every call that actually moves the stored
+  percentage. What keeps that from flooding the bus is not a separate
+  throttle -- it is the existing write-dedupe, which was already reading the
+  row before writing it (so a redundant write of the same clamped percentage
+  is a no-op) purely to avoid a pointless `BEGIN IMMEDIATE` on every one of the
+  aggregate handler's per-article calls. That same read-before-write check now
+  gates the publish too: the handler's `80 + floor(i/total*20)` shape only
+  takes twenty distinct values across a 200-article loop, so a job that calls
+  `progress()` two hundred times only ever publishes about twenty events, one
+  per percentage it actually reaches, not one per call. **This dedupe is
+  load-bearing, not incidental** -- if a future change makes it publish
+  unconditionally on every call (e.g. to "simplify" by dropping the read), a
+  200-article aggregate job would broadcast two hundred SSE events per
+  subscriber instead of twenty, on every run, for every connected device.
+  `GET /api/v1/runs/:id` and the `run` SSE event carry the same idea for a
+  whole run: both now return a server-computed `progress` percentage
+  (`runProgressPercent(totalJobs, completedJobs, failedJobs)`), so a run is
+  a percentage rather than just a `totalJobs`/`completedJobs` pair every
+  client would otherwise have to turn into one itself, and disagree about
+  how.
 
 - **`syncArticles` selects a named column list, never `db.select()`.**
   `rawContent` is a whole fetched HTML page and `plainText` is the largest
