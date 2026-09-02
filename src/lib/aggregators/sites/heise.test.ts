@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { FeedLike } from "../base";
+import type { FeedLike, RawArticle } from "../base";
 import { DEFAULT_CHROME_LABELS } from "../chrome-labels";
+import { hasBodyContent } from "../website";
 import { HeiseAggregator } from "./heise";
 
 vi.mock("../http/fetcher", async (importOriginal) => ({
@@ -88,5 +89,58 @@ describe("HeiseAggregator.extractComments", () => {
     });
 
     expect(html).toContain("<strong>Unbekannt</strong>");
+  });
+});
+
+describe("HeiseAggregator empty-body extraction", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // The reported case: the article container is found, but every paragraph in
+  // it sits inside a <section>, which this aggregator's selectorsToRemove
+  // strips wholesale. Extraction reports no error and yields no article.
+  const BODY_ONLY_IN_SECTION = `
+    <html><body>
+      <div id="meldung">
+        <section><p>All of the prose lives in here.</p></section>
+      </div>
+    </body></html>
+  `;
+
+  function articleFor(): RawArticle {
+    return {
+      name: "Wer schuetzt Gesundheitsdaten?",
+      identifier: "https://www.heise.de/news/x-11416941.html",
+      raw_content: "",
+      content: "",
+      date: new Date(),
+    };
+  }
+
+  it("extracts no body when every paragraph sits inside a removed section", () => {
+    const agg = aggregatorFor();
+
+    const extracted = agg.extractContent(BODY_ONLY_IN_SECTION, articleFor());
+
+    expect(hasBodyContent(extracted)).toBe(false);
+  });
+
+  it("skips the article rather than storing a header image with no body", async () => {
+    class HeadlessHeise extends HeiseAggregator {
+      override async extractHeaderElement(): Promise<null> {
+        return null;
+      }
+
+      override async fetchArticleContent(): Promise<string> {
+        return BODY_ONLY_IN_SECTION;
+      }
+    }
+
+    const agg = new HeadlessHeise({ identifier: "https://www.heise.de/", dailyLimit: 20 });
+
+    const result = await agg.enrichArticles([articleFor()]);
+
+    expect(result).toEqual([]);
   });
 });

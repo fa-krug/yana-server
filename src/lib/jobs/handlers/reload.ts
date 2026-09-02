@@ -6,6 +6,7 @@ import { writeBlocks } from "@/lib/aggregators/blocks/storage";
 import type { Block } from "@/lib/aggregators/blocks/types";
 import { resolveFeedCredentials } from "@/lib/aggregators/credential-resolution";
 import { createAggregator } from "@/lib/aggregators/factory";
+import { hasBodyContent } from "@/lib/aggregators/website";
 import { applyAiOptions } from "@/lib/ai/run";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, feeds, userSettings, type Job } from "@/lib/db/schema";
@@ -44,6 +45,19 @@ function buildErrorBlocks(message: string): Block[] {
  * retrying the job would not help with a deterministic failure
  * (fetchArticleContent already exhausts its own retry budget for transient
  * ones).
+ *
+ * A page that *does* fetch but yields no article body is the opposite case and
+ * is handled the opposite way: nothing is written at all, and the job fails.
+ * The page still exists, so the stored article remains the best copy anyone
+ * has -- replacing it would put `processContent()`'s header image over an
+ * empty body, which is precisely the shape `hasBodyContent()` exists to refuse
+ * on the aggregation path (see `enrichArticles()` in
+ * `@/lib/aggregators/website`). Reload cannot answer it the way aggregation
+ * does, by skipping the article, because the row already exists; failing the
+ * job is the equivalent, and it is what puts the reason in front of the
+ * operator -- `jobs.error` is rendered verbatim in the job list, so a reload
+ * that deliberately changed nothing says so instead of reporting a green
+ * "completed".
  *
  * The feed is run through `resolveFeedCredentials()` before
  * `createAggregator()`, the same as `aggregate.ts` and `logo.ts` -- without it
@@ -151,8 +165,21 @@ export async function handleReloadJob(job: Job): Promise<void> {
   if (headerData) rawArticle.header_data = headerData;
 
   rawArticle.content = await aggregator.extractContent(freshHtml, rawArticle);
-  if (!rawArticle.content) {
-    appendLogLine(job.id, "stdout", "extracted content is empty");
+
+  // A fetched page with no article body in it is a failed reload, not a
+  // shorter article -- and unlike the failed-refetch branch above it must
+  // write *nothing*: the page still exists, so the stored article is the best
+  // copy anyone has, and overwriting it with `processContent()`'s output would
+  // leave the header image standing over an empty body. The stored row is
+  // therefore left exactly as it was, `contentHash` included, and the job is
+  // failed so the reason reaches the operator instead of a green
+  // "completed" that changed nothing. Checked before `applyAiOptions()`: there
+  // is no point spending an AI request on a body that is not there.
+  if (!hasBodyContent(rawArticle.content)) {
+    const message =
+      "The reloaded page contained no article body, so the stored article was left unchanged.";
+    appendLogLine(job.id, "stdout", message);
+    throw new Error(message);
   }
 
   const aiOutcome = await applyAiOptions(

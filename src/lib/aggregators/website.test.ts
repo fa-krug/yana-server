@@ -247,3 +247,81 @@ describe("FullWebsiteAggregator.enrichArticles", () => {
     expect(maxInFlight).toBeGreaterThan(1);
   });
 });
+
+describe("FullWebsiteAggregator.enrichArticles empty-body skip", () => {
+  const feed: FeedLike = { identifier: "https://example.com", dailyLimit: 20 };
+
+  class ExtractingAggregator extends FullWebsiteAggregator {
+    constructor(
+      feedLike: FeedLike,
+      private readonly extracted: Record<string, string>,
+    ) {
+      super(feedLike);
+    }
+
+    async extractHeaderElement(): Promise<null> {
+      return null;
+    }
+
+    async fetchArticleContent(url: string): Promise<string> {
+      return `<html><body>page for ${url}</body></html>`;
+    }
+
+    extractContent(_html: string, article: RawArticle): string {
+      return this.extracted[article.identifier] ?? "";
+    }
+
+    async processContent(html: string): Promise<string> {
+      // Stand in for the real chrome-adding processContent: a header is
+      // prepended whether or not there is a body, which is exactly how an
+      // empty extraction used to reach the database as an image-only article.
+      return `<figure><img src="https://example.com/header.jpg"></figure>${html}`;
+    }
+  }
+
+  it("drops an article whose extracted content has neither text nor media", async () => {
+    const agg = new ExtractingAggregator(feed, {
+      "https://example.com/empty": "<div>  </div>\n<p></p>",
+      "https://example.com/real": "<p>A real body.</p>",
+    });
+
+    const result = await agg.enrichArticles([
+      makeArticle("https://example.com/empty"),
+      makeArticle("https://example.com/real"),
+    ]);
+
+    expect(result.map((a) => a.identifier)).toEqual(["https://example.com/real"]);
+  });
+
+  it("reports the drop through onLog rather than dropping it silently", async () => {
+    const logged: string[] = [];
+    const agg = new ExtractingAggregator(feed, { "https://example.com/empty": "" });
+    agg.onLog = (message) => logged.push(message);
+
+    await agg.enrichArticles([makeArticle("https://example.com/empty")]);
+
+    expect(logged.some((line) => line.includes("https://example.com/empty"))).toBe(true);
+    expect(logged.join("\n")).toMatch(/no body/i);
+  });
+
+  it("keeps an image-only body, which is what a comic feed legitimately extracts", async () => {
+    const agg = new ExtractingAggregator(feed, {
+      "https://example.com/comic": '<div><img src="https://example.com/strip.png"></div>',
+    });
+
+    const result = await agg.enrichArticles([makeArticle("https://example.com/comic")]);
+
+    expect(result.map((a) => a.identifier)).toEqual(["https://example.com/comic"]);
+  });
+
+  it("keeps a media-only body carried by an iframe embed", async () => {
+    const agg = new ExtractingAggregator(feed, {
+      "https://example.com/video":
+        '<div><iframe src="https://www.youtube.com/embed/x"></iframe></div>',
+    });
+
+    const result = await agg.enrichArticles([makeArticle("https://example.com/video")]);
+
+    expect(result.map((a) => a.identifier)).toEqual(["https://example.com/video"]);
+  });
+});

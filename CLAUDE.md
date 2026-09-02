@@ -673,6 +673,64 @@ IntlMessages }` form is next-intl **3** and is a silent no-op here; 4.x
   the `contentHash` comment in `src/lib/db/schema/articles.ts`; this is its
   summary, not a second version of it.
 
+- **An article with no body is skipped, never stored — `hasBodyContent()` in
+  `src/lib/aggregators/website.ts` is the one predicate, and "no body" means no
+  text _and_ no media.** A selector miss is not the only way to extract nothing:
+  a site's own `selectorsToRemove` can match every child of a container that
+  _was_ found — Heise strips a blanket `section` and puts body paragraphs inside
+  `<section>` on some templates — so `extractContent()` reports no error and
+  returns markup with no article in it. `formatArticleContent()` then prepends
+  the header image unconditionally, and what reached the database was a header
+  image above an empty `<section>`: a real, shipped article, and it survived a
+  week before anyone noticed. Four things about the rule:
+  - **The check is in `FullWebsiteAggregator.enrichArticles()`**, between
+    `extractContent()` and `processContent()`, and reuses the existing
+    `return null` skip path — so the article never reaches `aggregate.ts` at
+    all. It therefore covers that class and its subclasses (heise, merkur,
+    caschys, mein_mmo, mactechnews, tagesschau, the three comics, plus
+    `RssSummaryFallbackAggregator`'s verge and ars). YouTube, Reddit, Podcast
+    and plain "Feed Content" feeds extend `RssAggregator`/`BaseAggregator` and
+    are deliberately outside it: they assemble a body from a description plus an
+    embed rather than by scraping a page, so an empty extraction is not a thing
+    that happens to them. Heise is the only subclass overriding
+    `enrichArticles`, and it delegates to `super`.
+  - **Text _or_ media, and the `or` is load-bearing.** Oglaf, Explosm and Dark
+    Legacy build their entire body from `extractContent()`'s output and it is
+    legitimately a bare `<img>` with no text at all — a text-only check skips
+    every comic article in the tree.
+  - **Skipping is the point, not merely refusing the write.** An aggregation run
+    only ever sees the entries the feed currently lists, and that window is
+    short (heise.rdf holds ~150 undated items, roughly two days), so a stored
+    stub is permanent: nothing refetches an entry that has aged out, and the
+    `contentHash` update branch can only repair a row while the entry is still
+    listed. Dropping it leaves the next run free to create it properly — which
+    is the case this exists for, a site that publishes a stub and fills in the
+    prose later.
+  - **The skip logs** (`console.warn` + `onLog`, so it lands in the job output).
+    Silence at ingestion is half of why the original case went unnoticed; the
+    other half was that `reload.ts` logged the empty case and wrote it anyway.
+
+  **`reload.ts` answers the same condition the opposite way, and the asymmetry
+  is the decision.** Its two failure modes are not variants of one branch:
+  - **The page will not fetch** → the content is replaced with a short error
+    notice and `contentHash` nulled. Unchanged, and correct — the page is gone,
+    so the stored copy is worthless.
+  - **The page fetches but has no body** → **nothing is written at all** and the
+    job is failed. The page still exists, so the stored article is the best copy
+    anyone has, and `processContent()`'s output would put the header image over
+    an empty body — the very shape the ingestion rule refuses. `contentHash` is
+    left alone too, deliberately: nulling it would make the next aggregation run
+    rewrite a row this reload explicitly declined to change. Reload cannot skip
+    the way aggregation does, because the row already exists; failing the job is
+    the equivalent, and it is what puts the reason in front of the operator —
+    `jobs.error` is rendered **verbatim** in the job list
+    (`src/components/jobs/jobs-table.tsx`), so the thrown message is
+    user-facing English prose rather than a catalog key, the same convention the
+    AI-failure throw at the bottom of that handler already follows. The check
+    sits **before `applyAiOptions()`**: reload runs AI with
+    `bypassUsageLimit: true`, and there is no point spending a provider request
+    on a body that is not there.
+
 - **Article search goes through the `articles_fts` FTS5 external-content table,
   via `toFtsQuery()`** (`src/lib/articles/search-query.ts`). It replaced a
   `LIKE '%term%'` over `plainText` — the largest column on the table — which

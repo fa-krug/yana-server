@@ -1313,6 +1313,98 @@ describe("src/lib/jobs/handlers", () => {
       expect(lines).toEqual(["article not found, skipping"]);
     });
 
+    /**
+     * The reported Heise case, on the reload path: the page still exists and
+     * still fetches, but content selection finds no article body in it -- so
+     * `processContent()` returns the header image above an empty wrapper.
+     * Writing that replaces a perfectly good stored article with an image.
+     */
+    async function reloadWithEmptyExtraction(): Promise<{
+      articleId: number;
+      job: ReturnType<typeof makeJob>;
+      error: unknown;
+    }> {
+      vi.resetModules();
+      vi.doMock("@/lib/aggregators/factory", () => ({
+        createAggregator: () => ({
+          fetchArticleContent: async () => "<html><body><div id='meldung'></div></body></html>",
+          extractHeaderElement: async () => null,
+          // Every child of the container was stripped by the site's own
+          // remove-selectors: markup, but no article in it.
+          extractContent: () => "<div id='meldung'></div>",
+          processContent: (html: string) =>
+            `<figure><img src="https://example.com/header.jpg"></figure>${html}`,
+        }),
+      }));
+      handlers = await import("./index");
+
+      let articleId = 0;
+      client.writeTransaction((db) => {
+        db.insert(schema.users).values({ id: "empty-user", email: "empty@example.com" }).run();
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "Feed", userId: "empty-user" })
+          .returning({ id: schema.feeds.id })
+          .get();
+        const article = db
+          .insert(schema.articles)
+          .values({
+            name: "Has a good body already",
+            identifier: "https://example.com/art-empty",
+            feedId: feed.id,
+            rawContent: "<p>The previously stored page.</p>",
+            plainText: "The previously stored body.",
+            contentHash: "hash-of-the-good-body",
+            date: new Date(),
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        articleId = article.id;
+      });
+
+      const reloadHandler = handlers.getHandler("article.reload");
+      const job = makeJob("article.reload", { articleId });
+
+      let error: unknown = null;
+      try {
+        await reloadHandler!(job);
+      } catch (err) {
+        error = err;
+      }
+
+      return { articleId, job, error };
+    }
+
+    it("fails the job when the reloaded page has no article body", async () => {
+      const { error } = await reloadWithEmptyExtraction();
+
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toMatch(/no article body/i);
+    });
+
+    it("explains the failure in the job log", async () => {
+      const { job } = await reloadWithEmptyExtraction();
+
+      expect(logLines(job.id).join("\n")).toMatch(/no article body/i);
+    });
+
+    it("leaves the stored article untouched when the reloaded page has no article body", async () => {
+      const { articleId } = await reloadWithEmptyExtraction();
+
+      const stored = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, articleId))
+        .get();
+
+      expect(stored?.plainText).toBe("The previously stored body.");
+      expect(stored?.rawContent).toBe("<p>The previously stored page.</p>");
+      // Untouched means untouched: nulling the fingerprint would make the next
+      // aggregation run rewrite a row this reload deliberately did not change.
+      expect(stored?.contentHash).toBe("hash-of-the-good-body");
+    });
+
     it("still fetches from source when the article has no previously stored rawContent", async () => {
       vi.resetModules();
       const fetchArticleContent = vi.fn().mockResolvedValue("<p>Fresh from the source</p>");
