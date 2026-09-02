@@ -54,7 +54,7 @@ export type AiProviderStatus = {
 };
 
 /**
- * The five global tuning values, **without the `ai` prefix the columns carry**
+ * The global tuning values, **without the `ai` prefix the columns carry**
  * (`aiTemperature` -> `temperature`). That renaming happens here and nowhere
  * else: the form, the action's zod schema and this projection all speak the
  * short names, and `./actions` owns the one map back to columns.
@@ -129,6 +129,7 @@ export async function getAiStatus(): Promise<AiStatus> {
     providers,
     advanced: {
       temperature: settings.aiTemperature,
+      maxPromptLength: settings.aiMaxPromptLength,
       requestTimeout: settings.aiRequestTimeout,
       maxRetries: settings.aiMaxRetries,
       retryDelay: settings.aiRetryDelay,

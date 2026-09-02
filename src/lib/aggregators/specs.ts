@@ -137,7 +137,7 @@ const AI_OPTIONS: OptionSpec[] = [
   },
   /**
    * The checkbox/value pair mirrors `ai_translate` + `ai_translate_language`:
-   * the flag is what `applyAiOptions()` gates on, the text is what it sends.
+   * the flag is what `applyAiToBlocks()` gates on, the text is what it sends.
    * Checked with empty text is a no-op, exactly as an unchecked box is —
    * see the gating comment in `src/lib/ai/run.ts`.
    */
@@ -160,6 +160,33 @@ const AI_OPTIONS: OptionSpec[] = [
 ];
 
 /**
+ * Every aggregator carries this, because the advertising filter it switches off
+ * is in `BaseAggregator.filterArticles()` rather than in any one site's
+ * aggregator -- a publisher's own "Anzeige"/"Advertorial" label is read from
+ * the entry's categories or its title, and both are channels every feed has.
+ *
+ * Default on, and the check itself reads `!== false`, so a feed created before
+ * this option existed also gets the filter. It is a *visible* switch for the
+ * same reason the drop is logged: this filter deletes articles rather than
+ * flagging them, and a reader who subscribed to a feed *for* its deal articles
+ * has to be able to find the thing that is removing them.
+ *
+ * The key is `skip_ads` because `sites/caschys_blog.ts` already had exactly
+ * this option, as a title-only test for "(Anzeige)"; keeping the name means the
+ * feeds that already have it stored keep their setting.
+ */
+const SKIP_ADS_OPTION: OptionSpec = {
+  key: "skip_ads",
+  label: "Skip Advertising",
+  kind: "boolean",
+  default: true,
+  help: 'Drop articles the source labels as advertising ("Anzeige", "Advertorial", "Sponsored Post").',
+};
+
+/** What every aggregator offers, whatever its source. */
+const COMMON_OPTIONS: OptionSpec[] = [SKIP_ADS_OPTION, ...AI_OPTIONS];
+
+/**
  * `content_selectors`/`ignore_selectors` -- for `full_website` only, the one
  * aggregator with no site of its own and therefore no curated selectors to
  * fall back on. Every site-specific aggregator (Heise, Merkur, Tagesschau,
@@ -171,7 +198,7 @@ const AI_OPTIONS: OptionSpec[] = [
  * its `extractContent` override never even reads.
  */
 const WEBSITE_OPTIONS: OptionSpec[] = [
-  ...AI_OPTIONS,
+  ...COMMON_OPTIONS,
   {
     key: "content_selectors",
     label: "Content Selectors",
@@ -209,7 +236,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierLabel: "URL",
     identifierHelp: "RSS Feed URL",
     identifierChoices: [],
-    options: AI_OPTIONS,
+    options: COMMON_OPTIONS,
   },
   heise: {
     key: "heise",
@@ -226,7 +253,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       { value: "https://www.heise.de/rss/heise-top.rdf", label: "Top News" },
     ],
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       { key: "include_comments", label: "Include Comments", kind: "boolean", default: true },
       { key: "max_comments", label: "Max Comments", kind: "number", default: 5 },
     ],
@@ -275,7 +302,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       { value: "https://www.merkur.de/lokales/schongau/rssfeed.rdf", label: "Schongau" },
     ],
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       {
         key: "remove_empty_elements",
         label: "Remove Empty Elements",
@@ -421,7 +448,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       },
     ],
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       { key: "skip_livestreams", label: "Skip Livestreams", kind: "boolean", default: true },
       { key: "skip_videos", label: "Skip Videos", kind: "boolean", default: true },
     ],
@@ -438,7 +465,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       { value: "https://explosm.net/rss.xml", label: "Cyanide & Happiness (Main RSS)" },
     ],
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       { key: "show_alt_text", label: "Show Alt Text", kind: "boolean", default: true },
     ],
   },
@@ -454,7 +481,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       { value: "https://darklegacycomics.com/feed.xml", label: "Dark Legacy Comics (Main Feed)" },
     ],
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       { key: "show_alt_text", label: "Show Alt Text", kind: "boolean", default: true },
     ],
   },
@@ -469,10 +496,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierChoices: [
       { value: "https://stadt-bremerhaven.de/feed/", label: "Caschy's Blog (Main Feed)" },
     ],
-    options: [
-      ...AI_OPTIONS,
-      { key: "skip_ads", label: "Skip Ads", kind: "boolean", default: true },
-    ],
+    options: COMMON_OPTIONS,
   },
   mactechnews: {
     key: "mactechnews",
@@ -488,7 +512,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       { value: "https://www.mactechnews.de/Rss/Journals.x", label: "Journals" },
     ],
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       { key: "combine_pages", label: "Combine Pages", kind: "boolean", default: true },
       { key: "include_comments", label: "Include Comments", kind: "boolean", default: true },
       { key: "max_comments", label: "Max Comments", kind: "number", default: 5 },
@@ -504,7 +528,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierHelp: "Select Oglaf feed",
     identifierChoices: [{ value: "https://www.oglaf.com/feeds/rss/", label: "Oglaf (Main Feed)" }],
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       { key: "show_alt_text", label: "Show Alt Text", kind: "boolean", default: true },
     ],
   },
@@ -518,10 +542,21 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierHelp: "Select Mein MMO feed",
     identifierChoices: [{ value: "https://mein-mmo.de/feed/", label: "Main Feed (All Articles)" }],
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       { key: "combine_pages", label: "Combine Pages", kind: "boolean", default: true },
       { key: "include_comments", label: "Include Comments", kind: "boolean", default: true },
       { key: "max_comments", label: "Max Comments", kind: "number", default: 5 },
+      // Off by default, unlike every other boolean option here: this is the
+      // Dailymotion player Mein-MMO's CMS auto-inserts into article bodies,
+      // not an author's embed -- see processDailymotionBlocks() in
+      // sites/mein_mmo/content.ts. The label has to carry the whole
+      // explanation, because feed-form.tsx renders no `help` for a boolean.
+      {
+        key: "include_videos",
+        label: "Include Auto-Inserted Videos",
+        kind: "boolean",
+        default: false,
+      },
     ],
   },
   the_verge: {
@@ -533,7 +568,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierLabel: "Feed",
     identifierHelp: "Select The Verge feed",
     identifierChoices: [{ value: "https://www.theverge.com/rss/index.xml", label: "Main Feed" }],
-    options: AI_OPTIONS,
+    options: COMMON_OPTIONS,
   },
   ars_technica: {
     key: "ars_technica",
@@ -549,7 +584,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       { value: "https://arstechnica.com/science/feed/", label: "Science" },
       { value: "https://arstechnica.com/gaming/feed/", label: "Gaming" },
     ],
-    options: AI_OPTIONS,
+    options: COMMON_OPTIONS,
   },
   youtube: {
     key: "youtube",
@@ -562,7 +597,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierChoices: [],
     identifierSearch: "youtube",
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       { key: "comment_limit", label: "Comment Limit", kind: "number", default: 10 },
     ],
   },
@@ -577,7 +612,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierChoices: [],
     identifierSearch: "reddit",
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       {
         key: "subreddit_sort",
         label: "Sort Order",
@@ -611,7 +646,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierHelp: "Podcast RSS Feed",
     identifierChoices: [],
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       { key: "include_player", label: "Include Player", kind: "boolean", default: true },
       {
         key: "include_download_link",

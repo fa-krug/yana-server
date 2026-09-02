@@ -111,3 +111,111 @@ describe("convertRedditMarkdown zero-width-space entity", () => {
     expect(html).not.toContain("​");
   });
 });
+
+describe("convertRedditMarkdown backslash escapes", () => {
+  it("renders an escaped list marker as a literal dash", () => {
+    const html = convertRedditMarkdown("\\- sonic racing crossworlds");
+    expect(html).toBe("<p>- sonic racing crossworlds</p>");
+  });
+
+  it("keeps escaped dashes out of a list", () => {
+    const html = convertRedditMarkdown("\\- one\n\\- two");
+    expect(html).not.toContain("<ul>");
+    expect(html).not.toContain("\\");
+  });
+
+  it("still builds a list from unescaped dashes", () => {
+    expect(convertRedditMarkdown("- one\n- two")).toBe("<ul><li>one</li><li>two</li></ul>");
+  });
+
+  // The whole of CommonMark's escapable set, so the character class cannot
+  // drift out of agreement with the set Reddit's editor actually escapes.
+  const ESCAPABLE = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
+  const AS_ENTITY: Record<string, string> = {
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  };
+
+  it.each([...ESCAPABLE])("unescapes %s", (char) => {
+    // Reddit's `body` is HTML-escaped, so the five characters escapeHtml()
+    // touches arrive as entities rather than as themselves. Only three of them
+    // come back out as entities: cheerio, which serializes the finished
+    // markup, leaves a quote in text content as itself.
+    const escaped = `\\${AS_ENTITY[char] ?? char}`;
+    const rendered = char.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const html = convertRedditMarkdown(`before${escaped}after`);
+
+    expect(html).toBe(`<p>before${rendered}after</p>`);
+  });
+
+  it("leaves a backslash before a character markdown never escapes", () => {
+    expect(convertRedditMarkdown("\\d+ matches")).toContain("\\d+ matches");
+    expect(convertRedditMarkdown("\\1. not a list")).toContain("\\1. not a list");
+  });
+
+  it("stops an escaped character from being read as syntax", () => {
+    expect(convertRedditMarkdown("\\*not italic\\*")).toBe("<p>*not italic*</p>");
+    expect(convertRedditMarkdown("\\^caret")).not.toContain("<sup>");
+    expect(convertRedditMarkdown("\\~~not struck~~")).not.toContain("<del>");
+    expect(convertRedditMarkdown("\\#not a heading")).not.toContain("<h1>");
+    // The bare URL is still autolinked, exactly as Reddit does it -- what the
+    // escape has to prevent is the label becoming the link's text.
+    expect(convertRedditMarkdown("\\[label\\](http://example.com)")).not.toContain(">label</a>");
+  });
+
+  it("does not read an escaped quote marker as a quote", () => {
+    const html = convertRedditMarkdown("\\&gt;not quoted");
+    expect(html).not.toContain("<blockquote>");
+    expect(html).toBe("<p>&gt;not quoted</p>");
+  });
+
+  it("resolves an escape that arrived as an HTML entity", () => {
+    expect(convertRedditMarkdown("5 \\&lt; 10 at AT\\&amp;T")).toBe("<p>5 &lt; 10 at AT&amp;T</p>");
+  });
+
+  it("turns an escaped backslash into one literal backslash", () => {
+    expect(convertRedditMarkdown("C:\\\\Users")).toBe("<p>C:\\Users</p>");
+  });
+
+  it("leaves backslashes inside a code span alone", () => {
+    expect(convertRedditMarkdown("match `\\d+` and `\\.` here")).toContain(
+      "<code>\\d+</code> and <code>\\.</code>",
+    );
+  });
+
+  it("leaves backslashes inside a fenced block alone", () => {
+    const html = convertRedditMarkdown("```\nsed 's/a\\-b/c/'\n```");
+    expect(html).toContain("sed 's/a\\-b/c/'");
+  });
+
+  it("resolves escapes in the paragraph after an unclosed fence", () => {
+    const html = convertRedditMarkdown("```\ncode \\- here\n\nafter \\- here");
+    expect(html).toContain("code \\- here");
+    expect(html).toContain("after - here");
+  });
+
+  it("drops the backslash of a hard line break", () => {
+    const html = convertRedditMarkdown("line one\\\nline two");
+    expect(html).not.toContain("\\");
+    expect(html).toContain("<br>");
+  });
+
+  it("keeps an escaped character out of the href it sits in", () => {
+    const html = convertRedditMarkdown("[label](http://example.com/a\\_b)");
+    expect(html).toContain('href="http://example.com/a_b"');
+  });
+
+  it("drops a placeholder character forged in the source", () => {
+    // The escape survives the pipeline as a Private Use Area character; one
+    // typed by a commenter would otherwise be indistinguishable from it.
+    const html = convertRedditMarkdown("a\uE03Cb\uE026c");
+    expect(html).toBe("<p>abc</p>");
+  });
+
+  it("unescapes for a direct markdownToHtml caller too", () => {
+    expect(markdownToHtml("\\- literal")).toBe("<p>- literal</p>");
+  });
+});

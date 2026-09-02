@@ -10,10 +10,8 @@ import { userSettings } from "@/lib/db/schema";
 /**
  * The native client's server-mediated "ask AI" call: a free-form prompt run
  * against the caller's configured AI provider, using their stored
- * credentials and global tuning values -- no per-request overrides, and no
- * per-user call budget or prompt-length cap (both were removed; see the `/ai`
- * bullet in `CLAUDE.md`), so the only limits a caller meets are the
- * provider's own. See the design spec at
+ * credentials and global tuning values -- no per-request overrides. See the
+ * design spec at
  * `docs/superpowers/specs/2026-08-04-ai-provider-expansion-and-prompt-endpoint-design.md`.
  *
  * Settings are read directly by `user.id`, not via `getSettings()` -- that
@@ -46,6 +44,9 @@ export async function POST(request: Request): Promise<Response> {
     if (!prompt) {
       throw new ApiError(400, "invalid_prompt", "prompt is required.");
     }
+    if (prompt.length > settings.aiMaxPromptLength) {
+      throw new ApiError(400, "prompt_too_long", "prompt exceeds the configured length limit.");
+    }
 
     const providerKey = activeProvider(settings);
     if (!providerKey) {
@@ -56,6 +57,11 @@ export async function POST(request: Request): Promise<Response> {
     const result = await client.generateResponse(prompt);
 
     if (!result.ok) {
+      // No `daily_limit_exceeded`/`monthly_limit_exceeded` any more: the
+      // per-user request caps behind them were removed (see the doc comment on
+      // `AIClient.generateResponse()`), so this route can no longer answer 429
+      // at all. `prompt_too_long` above is the one bound it still enforces, and
+      // it is a request-shape check rather than a quota.
       if (result.reason === "noProvider") {
         throw new ApiError(409, "no_active_provider", "No AI provider is configured.");
       }

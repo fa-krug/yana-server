@@ -1,64 +1,9 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "2326a7c4-f3ea-4978-afca-eb0b0b2871de",
+  "id": "9b6091bc-4f22-4b85-a7e1-87f4c94a0535",
   "prevId": "d98322f0-a116-4b08-b80a-c0a138163a1b",
   "tables": {
-    "ai_requests": {
-      "name": "ai_requests",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(unixepoch())"
-        }
-      },
-      "indexes": {
-        "ai_requests_user_created_idx": {
-          "name": "ai_requests_user_created_idx",
-          "columns": [
-            "user_id",
-            "created_at"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "ai_requests_user_id_users_id_fk": {
-          "name": "ai_requests_user_id_users_id_fk",
-          "tableFrom": "ai_requests",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "article_blocks": {
       "name": "article_blocks",
       "columns": {
@@ -541,13 +486,6 @@
         },
         "content_hash": {
           "name": "content_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "source_hash": {
-          "name": "source_hash",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -2230,22 +2168,6 @@
         },
         "ai_max_tokens": {
           "name": "ai_max_tokens",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 2000
-        },
-        "ai_default_daily_limit": {
-          "name": "ai_default_daily_limit",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 200
-        },
-        "ai_default_monthly_limit": {
-          "name": "ai_default_monthly_limit",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,

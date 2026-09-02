@@ -140,4 +140,62 @@ describe("GET /api/v1/runs/[id]", () => {
     expect(requireApiUserIndex).toBeGreaterThan(-1);
     expect(connectionIndex).toBeLessThan(requireApiUserIndex);
   });
+
+  it("reports 0 progress for a run whose jobs have not finished", async () => {
+    const owner = await createUserWithPassword({
+      email: "o-progress@example.com",
+      password: "correct horse battery staple",
+    });
+    const { token } = await createDeviceSession(owner.id, "Test");
+    const { enqueueRun } = await import("@/lib/jobs/queue");
+    const runId = enqueueRun(owner.id, "aggregate", [{ feedId: 1 }, { feedId: 2 }]);
+
+    const response = await GET(
+      new Request(`https://example.com/api/v1/runs/${runId}`, {
+        headers: { authorization: `Bearer ${token}` },
+      }),
+      { params: Promise.resolve({ id: String(runId) }) },
+    );
+    const body = await response.json();
+    expect(body.progress).toBe(0);
+  });
+
+  it("reports the percentage of finished jobs, counting failures", async () => {
+    const owner = await createUserWithPassword({
+      email: "o-progress2@example.com",
+      password: "correct horse battery staple",
+    });
+    const { token } = await createDeviceSession(owner.id, "Test");
+    const { enqueueRun, claim, complete, fail } = await import("@/lib/jobs/queue");
+    const { getDb } = await import("@/lib/db/client");
+    const { jobs } = await import("@/lib/db/schema");
+    const { eq } = await import("drizzle-orm");
+    const runId = enqueueRun(owner.id, "aggregate", [
+      { feedId: 1 },
+      { feedId: 2 },
+      { feedId: 3 },
+      { feedId: 4 },
+    ]);
+
+    const first = claim();
+    complete(first!.id);
+    const second = claim();
+    // enqueueRun's jobs default to maxAttempts: 3, so a single fail() call
+    // would only schedule a retry, not settle the job -- pin maxAttempts to
+    // 1 so this fail() is already terminal, matching queue.test.ts's own
+    // convention for forcing an immediate failure.
+    getDb().update(jobs).set({ maxAttempts: 1 }).where(eq(jobs.id, second!.id)).run();
+    fail(second!.id, "boom");
+
+    const response = await GET(
+      new Request(`https://example.com/api/v1/runs/${runId}`, {
+        headers: { authorization: `Bearer ${token}` },
+      }),
+      { params: Promise.resolve({ id: String(runId) }) },
+    );
+    const body = await response.json();
+    expect(body.progress).toBe(50);
+    expect(body.completedJobs).toBe(1);
+    expect(body.failedJobs).toBe(1);
+  });
 });

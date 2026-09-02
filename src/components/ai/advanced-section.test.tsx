@@ -5,7 +5,7 @@ import { AI_ADVANCED_BOUNDS, AI_ADVANCED_FIELDS } from "@/lib/ai/bounds";
 import type { AiAdvanced } from "@/lib/ai/queries";
 import { renderWithProviders } from "@/test/render";
 
-import { AdvancedSection } from "./advanced-section";
+import { AdvancedSectionForm } from "./advanced-section";
 
 const { saveAdvanced } = vi.hoisted(() => ({ saveAdvanced: vi.fn() }));
 vi.mock("@/lib/ai/actions", () => ({ saveAdvanced }));
@@ -22,6 +22,7 @@ vi.mock("sonner", () => ({ toast: { error: toastError, success: toastSuccess } }
 
 const ADVANCED: AiAdvanced = {
   temperature: 0.7,
+  maxPromptLength: 8000,
   requestTimeout: 60,
   maxRetries: 3,
   retryDelay: 5,
@@ -29,7 +30,7 @@ const ADVANCED: AiAdvanced = {
 };
 
 function render(locale: "en" | "de" = "de") {
-  return renderWithProviders(<AdvancedSection advanced={ADVANCED} />, { locale });
+  return renderWithProviders(<AdvancedSectionForm advanced={ADVANCED} />, { locale });
 }
 
 function field(label: string): HTMLInputElement {
@@ -52,9 +53,11 @@ describe("<AdvancedSection>", () => {
     // Asserted against de.json, where the label is nothing like the field name.
     expect(field("Temperatur").value).toBe("0.7");
     expect(field("Anfrage-Timeout (Sekunden)").value).toBe("60");
-    // Five fields, one Save: they are a single unit rather than a field each,
-    // so a half-applied set can't disagree with itself.
-    expect(screen.getAllByRole("spinbutton")).toHaveLength(5);
+    // One Save for the whole card. Counted from `AI_ADVANCED_FIELDS` rather
+    // than as a literal, so removing or adding a tuning value does not need an
+    // edit here -- which is what a hard-coded 9 needed when the two request
+    // caps were removed.
+    expect(screen.getAllByRole("spinbutton")).toHaveLength(AI_ADVANCED_FIELDS.length);
     expect(screen.getAllByRole("button", { name: "Speichern" })).toHaveLength(1);
   });
 
@@ -62,7 +65,7 @@ describe("<AdvancedSection>", () => {
     // Read from `AI_ADVANCED_BOUNDS` rather than restated, because restating
     // them is the defect this pins: `@/lib/ai/actions` builds its zod schema out
     // of the same table, so a hint the browser shows and the rule the server
-    // applies cannot disagree. Asserting five literals here would be a third
+    // applies cannot disagree. Asserting the numbers here would be a third
     // copy able to drift from both.
     render();
 
@@ -75,20 +78,20 @@ describe("<AdvancedSection>", () => {
         String(AI_ADVANCED_BOUNDS[name].min),
         String(AI_ADVANCED_BOUNDS[name].max),
       ]);
-      // Only `temperature` is a float column; the other four are `.int()`
+      // Only `temperature` is a float column; every other field is `.int()`
       // server-side and must not offer a fractional step.
       expect([name, input.step]).toEqual([name, AI_ADVANCED_BOUNDS[name].integer ? "1" : "0.1"]);
     }
   });
 
-  it("submits all five values as numbers, including the ones untouched", async () => {
+  it("submits every value as a number, including the ones untouched", async () => {
     render();
 
-    fireEvent.change(field("Anfrage-Timeout (Sekunden)"), { target: { value: "2500" } });
+    fireEvent.change(field("Maximale Prompt-Länge"), { target: { value: "2500" } });
     submit();
 
     await waitFor(() =>
-      expect(saveAdvanced).toHaveBeenCalledWith({ ...ADVANCED, requestTimeout: 2500 }),
+      expect(saveAdvanced).toHaveBeenCalledWith({ ...ADVANCED, maxPromptLength: 2500 }),
     );
     expect(toastSuccess).toHaveBeenCalledWith("KI-Einstellungen gespeichert.");
   });
@@ -108,21 +111,23 @@ describe("<AdvancedSection>", () => {
   });
 
   it("shows the refusal the server named, not a generic one", async () => {
-    // Only the server's own catalog key crosses the wire -- the component
-    // never decides which field was wrong or how to word it.
-    saveAdvanced.mockResolvedValue({ ok: false, errorKey: "advanced.requestTimeoutRange" });
+    // Only the server's own catalog key crosses the wire -- never a zod
+    // message, which would reach a German UI in English. This used to use
+    // `advanced.monthlyBelowDaily`, the cross-field rule's key, which went with
+    // the request caps; any field's range key proves the same thing.
+    saveAdvanced.mockResolvedValue({ ok: false, errorKey: "advanced.maxPromptLengthRange" });
     render();
 
-    fireEvent.change(field("Anfrage-Timeout (Sekunden)"), { target: { value: "1" } });
+    fireEvent.change(field("Maximale Prompt-Länge"), { target: { value: "0" } });
     submit();
 
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith(
-        expect.stringContaining("zwischen 5 und 600 Sekunden"),
+        expect.stringContaining("Prompt-Länge muss zwischen"),
       ),
     );
-    // The typed values stay: five numbers are not worth retyping over one.
-    expect(field("Anfrage-Timeout (Sekunden)").value).toBe("1");
+    // The typed values stay: a card of numbers is not worth retyping over one.
+    expect(field("Maximale Prompt-Länge").value).toBe("0");
   });
 
   it("falls back to the namespace's own message when the server names no key", async () => {
@@ -140,7 +145,7 @@ describe("<AdvancedSection>", () => {
 
   it("survives a save that rejects instead of returning", async () => {
     // Unhandled, this rejection escalates to the (app) error boundary and
-    // replaces the page along with the five half-edited fields. `attempt()` is
+    // replaces the page along with the half-edited fields. `attempt()` is
     // what turns it into a toast.
     saveAdvanced.mockRejectedValue(new Error("the container restarted"));
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -159,5 +164,36 @@ describe("<AdvancedSection>", () => {
     } finally {
       logged.mockRestore();
     }
+  });
+
+  describe("pending", () => {
+    it("renders every field with its real bounds, disabled and empty", () => {
+      renderWithProviders(<AdvancedSectionForm pending />);
+
+      const fields = screen.getAllByRole("spinbutton") as HTMLInputElement[];
+      expect(fields).toHaveLength(AI_ADVANCED_FIELDS.length);
+      expect(fields.every((f) => f.disabled)).toBe(true);
+      expect(fields.every((f) => f.value === "")).toBe(true);
+      // Bounds come from AI_ADVANCED_BOUNDS, which imports nothing -- so they
+      // are already real, not a guess, before any row has loaded.
+      expect(fields.every((f) => f.min !== "")).toBe(true);
+      expect(fields.every((f) => f.max !== "")).toBe(true);
+    });
+
+    it("still shows the Save button, disabled", () => {
+      renderWithProviders(<AdvancedSectionForm pending />);
+
+      expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(
+        true,
+      );
+    });
+
+    it("still shows the card heading and every field label", () => {
+      renderWithProviders(<AdvancedSectionForm pending />);
+
+      expect(screen.getByText("Advanced")).toBeTruthy();
+      expect(screen.getByText("Temperature")).toBeTruthy();
+      expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBe(0);
+    });
   });
 });

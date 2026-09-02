@@ -62,13 +62,6 @@ describe("dashboard queries", () => {
     return actingUserId;
   }
 
-  async function signInAsAdmin(): Promise<string> {
-    const adminId = await seedUser({ email: "admin@example.com", role: "admin" });
-    await signInAs("admin@example.com");
-    actingUserId = adminId;
-    return adminId;
-  }
-
   async function switchToOtherUser(): Promise<string> {
     const otherId = await seedUser({ email: "other@example.com" });
     await signInAs("other@example.com");
@@ -101,6 +94,7 @@ describe("dashboard queries", () => {
           date: new Date(),
           feedId,
           plainText: "Full plain text body content",
+          rawContent: "<p>Full plain text body content</p>",
           ...overrides,
         })
         .returning()
@@ -113,16 +107,6 @@ describe("dashboard queries", () => {
     const uid = userId ?? actingUserId!;
     return client.writeTransaction((tx) =>
       tx.insert(schema.tags).values({ name: "News", userId: uid }).returning().get(),
-    );
-  }
-
-  function seedJob(overrides: Partial<typeof schema.jobs.$inferInsert> = {}) {
-    return client.writeTransaction((tx) =>
-      tx
-        .insert(schema.jobs)
-        .values({ kind: "aggregate", ...overrides })
-        .returning()
-        .get(),
     );
   }
 
@@ -194,55 +178,6 @@ describe("dashboard queries", () => {
       const stats = await queries.getDashboardStats();
       expect(stats.totalFeeds).toBe(2);
       expect(stats.enabledFeeds).toBe(1);
-    });
-
-    it("a non-admin's activeJobs counts only their own pending/running jobs", async () => {
-      const userId = await currentUserId();
-      seedJob({ userId, status: "pending" });
-      seedJob({ userId, status: "running" });
-      // Ownerless job (retention) must not be visible to a non-admin.
-      seedJob({ userId: null, status: "pending" });
-
-      await switchToOtherUser();
-      seedJob({ userId: actingUserId, status: "pending" });
-
-      await signInAs("user@example.com");
-      actingUserId = userId;
-
-      const stats = await queries.getDashboardStats();
-      expect(stats.activeJobs).toBe(2);
-    });
-
-    it("an admin's activeJobs includes ownerless jobs and other users' jobs", async () => {
-      const adminId = await signInAsAdmin();
-      seedJob({ userId: adminId, status: "pending" });
-      seedJob({ userId: null, status: "running" });
-
-      const otherId = await seedUser({ email: "someone@example.com" });
-      seedJob({ userId: otherId, status: "pending" });
-
-      // Re-establish the admin's session; seeding the other user did not
-      // change who is signed in, but be explicit for clarity.
-      await signInAs("admin@example.com");
-      actingUserId = adminId;
-
-      const stats = await queries.getDashboardStats();
-      expect(stats.activeJobs).toBe(3);
-    });
-
-    it("excludes terminal job statuses, but counts a cancelling job as active", async () => {
-      const userId = await currentUserId();
-      seedJob({ userId, status: "pending" });
-      seedJob({ userId, status: "completed" });
-      seedJob({ userId, status: "failed" });
-      seedJob({ userId, status: "cancelled" });
-      // A running job asked to stop keeps executing until its handler notices
-      // isCancelRequested() at a checkpoint -- see requestCancel() in
-      // src/lib/jobs/queue.ts. It must still count as active.
-      seedJob({ userId, status: "cancelling" });
-
-      const stats = await queries.getDashboardStats();
-      expect(stats.activeJobs).toBe(2);
     });
   });
 

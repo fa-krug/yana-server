@@ -2,6 +2,11 @@ import * as cheerio from "cheerio";
 import type { AnyNode, Element, Text } from "domhandler";
 import type { Block, EmbedBlock, ImageBlock, InlineRun, ListBlock } from "./types";
 
+// Re-exported so the callers that already have cheerio in their graph (both job
+// handlers, which also call `parseBlocks()`) keep one import. See its own module
+// for why it does not live here.
+export { plainTextOf } from "./plain-text";
+
 /**
  * Schemes a stored link is allowed to carry.
  * Allowlisted: http, https, mailto.
@@ -74,6 +79,16 @@ const DAILYMOTION_PATTERNS = [/dailymotion\.com\/(?:video|embed\/video)\/([A-Za-
 
 const TWEET_HOST_SUFFIXES = ["twitter.com", "x.com", "fxtwitter.com"];
 const CLASS_ATTRS = ["data-sanitized-class", "class"];
+/**
+ * The class an AI summary's own element carries.
+ *
+ * Nothing writes it any more: the AI stage works on the block tree and builds a
+ * `summary` block directly (`applyAiToBlocks()` in `@/lib/ai/run`), where it
+ * used to emit a marked-up `<section>` for this parser to recognise. It is still
+ * recognised because stored `articles.rawContent` from before that change
+ * encodes a summary this way, and a reload re-parses it.
+ */
+const SUMMARY_CLASS = "yana-ai-summary";
 const EMBED_MARKUP_ATTRS = [
   "data-sanitized-data-embed-content",
   "data-embed",
@@ -125,8 +140,53 @@ function makeRun(text: string, styles: Set<string>, link: string): InlineRun {
   };
 }
 
+/**
+ * Collapse every stretch of consecutive line breaks down to a single one.
+ *
+ * A `<br>` becomes a `"\n"` run, and a great many articles separate their
+ * paragraphs with `<br><br>` inside one `<p>` rather than with real
+ * paragraphs -- so the stored block tree carried two or more breaks in a row
+ * and every client rendered the blank lines they add. Mein-MMO does it twice
+ * in a single article body, which is where this was reported from.
+ *
+ * A stretch is *every* consecutive blank run, not only the newline ones:
+ * `<br> <br>` parses as `"\n"`, `" "`, `"\n"` (the whitespace between two
+ * breaks survives `normalize()` as a single space), and a group broken by
+ * that space would collapse to two breaks rather than one. A blank group with
+ * no break in it is left exactly as it was -- that is ordinary horizontal
+ * spacing between two words, not a blank line.
+ *
+ * The replacement is an unstyled run: nothing renders bold, italic or linked
+ * whitespace, and taking the first run's attributes would only make two
+ * identical-looking line breaks compare unequal.
+ */
+function collapseLineBreaks(runs: InlineRun[]): InlineRun[] {
+  const result: InlineRun[] = [];
+  let index = 0;
+  while (index < runs.length) {
+    if (runs[index].text.trim()) {
+      result.push(runs[index]);
+      index += 1;
+      continue;
+    }
+    let end = index;
+    let hasBreak = false;
+    while (end < runs.length && !runs[end].text.trim()) {
+      hasBreak = hasBreak || runs[end].text.includes("\n");
+      end += 1;
+    }
+    if (hasBreak) {
+      result.push(makeRun("\n", new Set(), ""));
+    } else {
+      result.push(...runs.slice(index, end));
+    }
+    index = end;
+  }
+  return result;
+}
+
 function trimmed(runs: InlineRun[]): InlineRun[] {
-  const result = runs.filter((run) => Boolean(run.text));
+  const result = collapseLineBreaks(runs.filter((run) => Boolean(run.text)));
   while (result.length > 0 && !result[0].text.trim()) {
     result.shift();
   }
@@ -586,6 +646,67 @@ function tweetEmbed($: cheerio.CheerioAPI, element: Element): EmbedBlock | null 
   return null;
 }
 
+/**
+ * What one inline tag adds to the styling in force for its own subtree.
+ *
+ * **Extracted so it can be applied to an element as well as to a child.** It
+ * used to be a `switch` inside `inlineRuns()`, which reads a tag only while
+ * descending *into* it -- so an inline element that was a direct child of a
+ * converted container had its own tag ignored entirely. `convert()` called
+ * `inlineRuns($, node, baseUrl)` with no styles and no link, and the element's
+ * own `<b>`/`<i>`/`<a href>` contributed nothing.
+ *
+ * That was not a cosmetic loss. `<p>a <b>x</b></p>` kept its styling (the `p`
+ * branch hands the *paragraph* to `inlineRuns()`, so the `b` is a child), but
+ * `<li>a <b>x</b></li>` did not -- and neither did any container whose text is
+ * not wrapped in a `<p>`, including a bare `<blockquote>` or `<div>`. **A link
+ * in that position lost its href**, so every bulleted list of links in every
+ * article stored plain text with no URL at all. Both halves are covered by
+ * `parser.test.ts`'s "inline styling and links survive as a direct child of
+ * any container" cases.
+ */
+function inlineContext(
+  node: Element,
+  tag: string,
+  baseUrl: string,
+  styles: Set<string>,
+  link: string,
+): { styles: Set<string>; link: string } {
+  const childStyles = new Set(styles);
+  let childLink = link;
+
+  switch (tag) {
+    case "b":
+    case "strong":
+      childStyles.add("bold");
+      break;
+    case "i":
+    case "em":
+    case "cite":
+    case "var":
+      childStyles.add("italic");
+      break;
+    case "code":
+    case "kbd":
+      childStyles.add("code");
+      break;
+    case "s":
+    case "strike":
+    case "del":
+      childStyles.add("strikethrough");
+      break;
+    case "a": {
+      const href = getAttr(node, "href");
+      if (href) {
+        childLink = resolveUrl(href, baseUrl);
+      }
+      break;
+    }
+  }
+
+  return { styles: childStyles, link: childLink };
+}
+
 function inlineRuns(
   $: cheerio.CheerioAPI,
   element: Element,
@@ -623,37 +744,13 @@ function inlineRuns(
       continue;
     }
 
-    const childStyles = new Set(styles);
-    let childLink = link;
-
-    switch (tag) {
-      case "b":
-      case "strong":
-        childStyles.add("bold");
-        break;
-      case "i":
-      case "em":
-      case "cite":
-      case "var":
-        childStyles.add("italic");
-        break;
-      case "code":
-      case "kbd":
-        childStyles.add("code");
-        break;
-      case "s":
-      case "strike":
-      case "del":
-        childStyles.add("strikethrough");
-        break;
-      case "a": {
-        const href = getAttr(node as Element, "href");
-        if (href) {
-          childLink = resolveUrl(href, baseUrl);
-        }
-        break;
-      }
-    }
+    const { styles: childStyles, link: childLink } = inlineContext(
+      node as Element,
+      tag,
+      baseUrl,
+      styles,
+      link,
+    );
 
     runs.push(...inlineRuns($, node as Element, baseUrl, childStyles, childLink));
   }
@@ -725,7 +822,11 @@ function convert(
     }
 
     if (INLINE_TAGS.has(tag)) {
-      inline.push(...inlineRuns($, node as Element, baseUrl));
+      // The element's *own* tag counts: `inlineRuns()` reads a tag only while
+      // descending into it, so passing no context here dropped this element's
+      // styling and, for an `<a>`, its href. See `inlineContext()`.
+      const own = inlineContext(node as Element, tag, baseUrl, new Set(), "");
+      inline.push(...inlineRuns($, node as Element, baseUrl, own.styles, own.link));
       const mediaList = recoverableMedia($, node as Element);
       for (const media of mediaList) {
         const block = mediaBlock($, media, baseUrl);
@@ -846,6 +947,25 @@ function convert(
       continue;
     }
 
+    if (
+      classNames(node as Element)
+        .split(/\s+/)
+        .includes(SUMMARY_CLASS)
+    ) {
+      // The AI summary's own element. Nothing writes this markup now (see
+      // SUMMARY_CLASS above) -- it is how stored HTML predating the block
+      // tree's own `summary` kind encoded one, written then by
+      // `@/lib/ai/run`. `classNames()` reads `data-sanitized-class` as well as
+      // `class`, which is what makes this work on both call paths: the reload
+      // path runs `sanitizeClassNames()` over this section afterwards.
+      flush();
+      const inner = convert($, node as Element, baseUrl, allowMediaEmbeds);
+      if (inner.length > 0) {
+        blocks.push({ kind: "summary", blocks: inner });
+      }
+      continue;
+    }
+
     // Unknown wrapper: an embed facade becomes an embed; otherwise walk it
     flush();
     const facade = embedFacade($, node as Element);
@@ -870,57 +990,4 @@ export function parseBlocks(html: string, baseUrl: string = ""): Block[] {
   const $ = cheerio.load(html);
   const container = selectContainer($);
   return convert($, container, baseUrl);
-}
-
-/**
- * Flatten blocks to visible text for search indexing.
- */
-export function plainTextOf(blocks: Block[]): string {
-  const parts: string[] = [];
-
-  function runsText(runs: InlineRun[]): string {
-    return runs.map((r) => r.text).join("");
-  }
-
-  function walk(items: Block[]): void {
-    for (const block of items) {
-      switch (block.kind) {
-        case "paragraph":
-        case "heading":
-          parts.push(runsText(block.runs));
-          break;
-        case "list":
-          for (const item of block.items) {
-            walk(item);
-          }
-          break;
-        case "blockquote":
-          walk(block.blocks);
-          break;
-        case "image": {
-          const captionText = runsText(block.caption);
-          if (captionText) {
-            parts.push(captionText);
-          }
-          break;
-        }
-        case "embed":
-          if (block.title) {
-            parts.push(block.title);
-          }
-          break;
-        case "code_block":
-          parts.push(block.text);
-          break;
-        case "divider":
-          break;
-      }
-    }
-  }
-
-  walk(blocks);
-  return parts
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0)
-    .join("\n\n");
 }

@@ -113,6 +113,36 @@ export function isLoginRedirect(error: unknown): boolean {
 }
 
 /**
+ * Is this the control-flow error `notFound()` throws?
+ *
+ * For one caller shape: `getUser()` (`src/lib/users/queries.ts`) calls
+ * `requireAdmin()`, which calls `notFound()` when the caller is not an admin.
+ * That was harmless while every caller `await`ed the query directly -- the
+ * thrown sentinel became a real 404 the normal way. The instant-render
+ * migration broke that for `/users/[id]`: the query is now called inside a
+ * `.then()` chained onto a promise handed to a Client Component and consumed
+ * with `use()`, so by the time it rejects the response's 200 status is
+ * already committed. Left uncaught, the rejection surfaced as **both** the
+ * `(app)` group's `error.tsx` boundary *and* whatever `<RecordNotFound>`
+ * would have shown -- measured live: "Something went wrong" stacked on top
+ * of "This page could not be found". `/users/[id]`'s own promise chain
+ * catches this predicate and folds it into the same `null` a missing id
+ * already produces, so a non-admin gets the single, clean not-found state
+ * every other refusal on this route gets.
+ *
+ * Matched on `digest` for the same reason `isLoginRedirect()` is: Next
+ * exports no predicate for it from a public entry point, only from
+ * `next/dist/client/components/http-access-fallback/http-access-fallback`,
+ * which this repo does not reach into. `session.test.ts` pins this against
+ * what the installed Next's own `notFound()` throws rather than a hand-built
+ * error, the same discipline `isLoginRedirect()`'s own test uses.
+ */
+export function isNotFoundError(error: unknown): boolean {
+  const digest: unknown = (error as { digest?: unknown } | null)?.digest;
+  return typeof digest === "string" && digest.startsWith("NEXT_HTTP_ERROR_FALLBACK;404");
+}
+
+/**
  * The signed-in administrator, or a 404.
  *
  * **404 rather than 403**, deliberately: a 403 confirms the route exists, which

@@ -82,9 +82,13 @@ connection carrying three event types for the caller:
 
 This is a best-effort, low-latency notification layer, not the source of
 truth: a dropped connection loses nothing except immediacy. A reconnecting
-client should always re-poll \`GET /api/v1/runs/{id}\` (or
-\`GET /api/v1/reading-position\`) to recover its actual current state, since
-events missed while disconnected are not replayed. The server sends an SSE
+client should always re-poll to recover its actual current state, since
+events missed while disconnected are not replayed -- which endpoint to poll
+depends on what was being tracked: \`GET /api/v1/runs/{id}\` for a run started
+by \`POST /api/v1/aggregate\`, \`GET /api/v1/jobs/{id}\` for a standalone job
+that has no run (an \`article.reload\` job has \`runId: null\` and is invisible
+to \`runs/{id}\`), or \`GET /api/v1/reading-position\` for the reading-position
+pointer. The server sends an SSE
 comment ping every 15 seconds to keep intermediary proxies from treating a
 quiet connection as dead; conforming SSE clients ignore comment lines.
 

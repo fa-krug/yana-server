@@ -68,17 +68,14 @@ export async function updateArticle(
           ...(name !== undefined && { name }),
           ...(feedId !== undefined && { feedId }),
           ...(date !== undefined && { date }),
-          // `articles.sourceHash` is deliberately left alone, so this edit
-          // stands. It used to be nulled (as `contentHash`) because `name` and
-          // `date` are fingerprint inputs and the stored hash therefore no
-          // longer described the row -- true then, when the hash described the
-          // stored bytes. It now fingerprints **the source the row came from**,
-          // which a local edit does not change, so the next aggregation run
-          // matches, skips, and the edit survives; a genuine upstream change
-          // still moves the fingerprint and replaces it. The old behaviour
-          // made every manual edit provisional until the next cycle silently
-          // reverted it. Same ruling as a successful `article.reload`, and for
-          // the same reason -- see `@/lib/db/schema/articles`.
+          // `name` and `date` are both aggregator-fingerprint inputs, and
+          // `feedId` is half the key the aggregate handler looks a row up by,
+          // so after this edit the stored hash no longer describes the row.
+          // Nulling it keeps the pre-`contentHash` behaviour -- the next
+          // aggregation run re-derives the article from the feed -- instead of
+          // silently making a manual edit permanent, which is a product
+          // decision nobody made. See `@/lib/db/schema/articles`.
+          contentHash: null,
         })
         .where(eq(articles.id, id))
         .run();

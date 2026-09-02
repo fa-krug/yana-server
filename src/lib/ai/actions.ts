@@ -23,7 +23,7 @@ import type { AiKey, AiResult, AiSaveResult } from "./result";
 
 /**
  * Everything `/ai` writes: seven provider credentials, which provider is
- * active, and the five global tuning values.
+ * active, and the seven global tuning values.
  *
  * **The seven providers are a table, not seven sequences.** Parse, load the
  * row, resolve each secret, guard the empty case, probe, log, judge, write --
@@ -605,7 +605,7 @@ export async function setActiveProvider(key: string): Promise<AiResult> {
 }
 
 /**
- * The five global tuning values, **built from `AI_ADVANCED_BOUNDS` rather than
+ * The six global tuning values, **built from `AI_ADVANCED_BOUNDS` rather than
  * typed out here.**
  *
  * Every bound has a reason rather than a round number, and those reasons are in
@@ -634,17 +634,17 @@ const advancedInput = z.object(advancedShape);
 /**
  * Which field failed, as a catalog key.
  *
- * The lookup stays keyed `field:code` first and the bare field name second,
- * even though nothing produces a `field:code` entry today. It was the
- * cross-field `monthlyLimit >= dailyLimit` rule that needed the first form,
- * and that rule went with the limits it compared; the two-step shape is kept
- * because the next pair rule will need it and because collapsing it would be
- * a second edit to make later. The bare-name entries cover `too_small`,
- * `too_big` and a non-integer alike: all three mean "that number is not one
- * this field accepts", and the message states the range.
+ * Still two lookups rather than one, though only the fallback has a user
+ * today: `field:code` is tried first so a future rule that lands two different
+ * failures on one field can tell them apart, and the bare field name covers
+ * `too_small`, `too_big` and a non-integer alike -- all three mean "that number
+ * is not one this field accepts", and the message states the range. The one
+ * `field:code` entry there used to be (`monthlyLimit:custom`) went with the
+ * request caps.
  */
 const ADVANCED_ERROR_KEYS: Record<string, AiKey> = {
   temperature: "advanced.temperatureRange",
+  maxPromptLength: "advanced.maxPromptLengthRange",
   requestTimeout: "advanced.requestTimeoutRange",
   maxRetries: "advanced.maxRetriesRange",
   retryDelay: "advanced.retryDelayRange",
@@ -659,7 +659,7 @@ function advancedErrorKey(issues: z.core.$ZodIssue[]): AiKey | undefined {
 }
 
 /**
- * Save the five global tuning values.
+ * Save the six global tuning values.
  *
  * **The `ai` prefix the columns carry is dropped on the way in and out**
  * (`aiTemperature` -> `temperature`), and the two halves of that mapping are the
@@ -681,6 +681,7 @@ export async function saveAdvanced(input: unknown): Promise<AiResult> {
           .update(userSettings)
           .set({
             aiTemperature: values.temperature,
+            aiMaxPromptLength: values.maxPromptLength,
             aiRequestTimeout: values.requestTimeout,
             aiMaxRetries: values.maxRetries,
             aiRetryDelay: values.retryDelay,

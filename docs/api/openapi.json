@@ -3,7 +3,7 @@
   "info": {
     "title": "Yana Client API",
     "version": "1",
-    "description": "# Yana Client API\n\nThe versioned HTTP API a native client (or the web UI itself, for images)\nuses to read and modify a signed-in user's feeds, tags, articles and AI\nconfiguration. `v1` is the only version today.\n\n**Base URL**: this server's own origin, e.g. `https://yana.example.com`.\n\n**Errors** always take the shape `{ \"error\": { \"code\": \"...\", \"message\": \"...\" } }`.\n`code` is stable and machine-readable; `message` is written by the server\nfor a human and never echoes anything the caller submitted. See the Errors\nsection below for the full code index.\n\n**Dates** are always ISO 8601 (`Date.prototype.toISOString()`).\n\n## Errors\n\nEvery error takes the shape `{ \"error\": { \"code\": \"...\", \"message\": \"...\" } }`. `message` is server-authored prose for a human and never echoes anything the caller submitted.\n\n| Code | Emitted by |\n|---|---|\n| `invalid_body` | `PATCH /api/v1/articles/{id}`, `PATCH /api/v1/reading-position` |\n| `invalid_prompt` | `POST /api/v1/ai/prompt` |\n| `no_active_provider` | `POST /api/v1/ai/prompt` |\n| `no_code_empty_body` | `GET /device/pair` |\n| `not_found` | `PATCH /api/v1/articles/{id}`, `GET /api/v1/articles/{id}/content`, `POST /api/v1/articles/{id}/reload`, `GET /api/v1/runs/{id}`, `GET /api/v1/images/{hash}`, `PATCH /api/v1/reading-position` |\n| `provider_error` | `POST /api/v1/ai/prompt` |\n| `provider_unauthorized` | `POST /api/v1/ai/prompt` |\n| `unauthorized` | `GET /api/v1/feeds`, `GET /api/v1/tags`, `GET /api/v1/articles/sync`, `PATCH /api/v1/articles/{id}`, `GET /api/v1/articles/{id}/content`, `POST /api/v1/articles/{id}/reload`, `POST /api/v1/aggregate`, `GET /api/v1/runs/{id}`, `GET /api/v1/jobs/events`, `GET /api/v1/images/{hash}`, `GET /api/v1/reading-position`, `PATCH /api/v1/reading-position`, `POST /api/v1/ai/prompt`, `POST /api/v1/auth/webview-session-token`, `GET /api/v1/openapi.json` |\n\n## Conventions\n\n- **Dates** are always ISO 8601 (`Date.prototype.toISOString()`).\n- **Pagination**: `GET /api/v1/articles/sync` is the only paginated endpoint. `limit`\n  caps rows *per stream* per call (default 200, clamped to `[1, 500]`), and `cursor` is\n  opaque -- pass back the previous response's `nextCursor` to continue.\n- **Not found vs. forbidden**: every ownership check answers 404, never 403, for a row\n  that exists but isn't the caller's -- this prevents an authenticated caller from\n  learning that a given id exists at all through the response code alone."
+    "description": "# Yana Client API\n\nThe versioned HTTP API a native client (or the web UI itself, for images)\nuses to read and modify a signed-in user's feeds, tags, articles and AI\nconfiguration. `v1` is the only version today.\n\n**Base URL**: this server's own origin, e.g. `https://yana.example.com`.\n\n**Errors** always take the shape `{ \"error\": { \"code\": \"...\", \"message\": \"...\" } }`.\n`code` is stable and machine-readable; `message` is written by the server\nfor a human and never echoes anything the caller submitted. See the Errors\nsection below for the full code index.\n\n**Dates** are always ISO 8601 (`Date.prototype.toISOString()`).\n\n## Errors\n\nEvery error takes the shape `{ \"error\": { \"code\": \"...\", \"message\": \"...\" } }`. `message` is server-authored prose for a human and never echoes anything the caller submitted.\n\n| Code | Emitted by |\n|---|---|\n| `invalid_body` | `PATCH /api/v1/articles/{id}`, `PATCH /api/v1/reading-position` |\n| `invalid_prompt` | `POST /api/v1/ai/prompt` |\n| `no_active_provider` | `POST /api/v1/ai/prompt` |\n| `no_code_empty_body` | `GET /device/pair` |\n| `not_found` | `PATCH /api/v1/articles/{id}`, `GET /api/v1/articles/{id}/content`, `POST /api/v1/articles/{id}/reload`, `GET /api/v1/runs/{id}`, `GET /api/v1/jobs/{id}`, `GET /api/v1/images/{hash}`, `PATCH /api/v1/reading-position` |\n| `prompt_too_long` | `POST /api/v1/ai/prompt` |\n| `provider_error` | `POST /api/v1/ai/prompt` |\n| `provider_unauthorized` | `POST /api/v1/ai/prompt` |\n| `unauthorized` | `GET /api/v1/feeds`, `GET /api/v1/tags`, `GET /api/v1/articles/sync`, `PATCH /api/v1/articles/{id}`, `GET /api/v1/articles/{id}/content`, `POST /api/v1/articles/{id}/reload`, `POST /api/v1/aggregate`, `GET /api/v1/runs/{id}`, `GET /api/v1/jobs/{id}`, `GET /api/v1/jobs/events`, `GET /api/v1/images/{hash}`, `GET /api/v1/reading-position`, `PATCH /api/v1/reading-position`, `POST /api/v1/ai/prompt`, `POST /api/v1/auth/webview-session-token`, `GET /api/v1/openapi.json` |\n\n## Conventions\n\n- **Dates** are always ISO 8601 (`Date.prototype.toISOString()`).\n- **Pagination**: `GET /api/v1/articles/sync` is the only paginated endpoint. `limit`\n  caps rows *per stream* per call (default 200, clamped to `[1, 500]`), and `cursor` is\n  opaque -- pass back the previous response's `nextCursor` to continue.\n- **Not found vs. forbidden**: every ownership check answers 404, never 403, for a row\n  that exists but isn't the caller's -- this prevents an authenticated caller from\n  learning that a given id exists at all through the response code alone."
   },
   "tags": [
     {
@@ -28,7 +28,7 @@
     },
     {
       "name": "Jobs",
-      "description": "`GET /api/v1/jobs/events` is a single long-lived Server-Sent-Events\nconnection carrying three event types for the caller:\n\n- `job` -- one background job's status/progress changed.\n- `run` -- a run's aggregate counters changed (see `POST /api/v1/aggregate`).\n- `readingPosition` -- another device moved the reading-position pointer.\n\nThis is a best-effort, low-latency notification layer, not the source of\ntruth: a dropped connection loses nothing except immediacy. A reconnecting\nclient should always re-poll `GET /api/v1/runs/{id}` (or\n`GET /api/v1/reading-position`) to recover its actual current state, since\nevents missed while disconnected are not replayed. The server sends an SSE\ncomment ping every 15 seconds to keep intermediary proxies from treating a\nquiet connection as dead; conforming SSE clients ignore comment lines.\n\n**The event type is carried in the SSE `event:` line, never in the JSON\nbody.** Each `data:` frame is the bare payload only (job/run/reading-position\nfields, with no `type` discriminant) -- read which of the three event types\nit is from `event:`, not from the parsed JSON."
+      "description": "`GET /api/v1/jobs/events` is a single long-lived Server-Sent-Events\nconnection carrying three event types for the caller:\n\n- `job` -- one background job's status/progress changed.\n- `run` -- a run's aggregate counters changed (see `POST /api/v1/aggregate`).\n- `readingPosition` -- another device moved the reading-position pointer.\n\nThis is a best-effort, low-latency notification layer, not the source of\ntruth: a dropped connection loses nothing except immediacy. A reconnecting\nclient should always re-poll to recover its actual current state, since\nevents missed while disconnected are not replayed -- which endpoint to poll\ndepends on what was being tracked: `GET /api/v1/runs/{id}` for a run started\nby `POST /api/v1/aggregate`, `GET /api/v1/jobs/{id}` for a standalone job\nthat has no run (an `article.reload` job has `runId: null` and is invisible\nto `runs/{id}`), or `GET /api/v1/reading-position` for the reading-position\npointer. The server sends an SSE\ncomment ping every 15 seconds to keep intermediary proxies from treating a\nquiet connection as dead; conforming SSE clients ignore comment lines.\n\n**The event type is carried in the SSE `event:` line, never in the JSON\nbody.** Each `data:` frame is the bare payload only (job/run/reading-position\nfields, with no `type` discriminant) -- read which of the three event types\nit is from `event:`, not from the parsed JSON."
     },
     {
       "name": "Images",
@@ -956,6 +956,28 @@
                             "type": {
                               "type": "string",
                               "enum": [
+                                "summary"
+                              ]
+                            },
+                            "blocks": {
+                              "type": "array",
+                              "items": {
+                                "$ref": "#/definitions/__schema0"
+                              }
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "blocks"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
                                 "image"
                               ]
                             },
@@ -1366,6 +1388,11 @@
                         "failed"
                       ]
                     },
+                    "progress": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100
+                    },
                     "totalJobs": {
                       "type": "integer",
                       "minimum": -9007199254740991,
@@ -1385,6 +1412,7 @@
                   "required": [
                     "runId",
                     "status",
+                    "progress",
                     "totalJobs",
                     "completedJobs",
                     "failedJobs"
@@ -1476,6 +1504,164 @@
         ]
       }
     },
+    "/api/v1/jobs/{id}": {
+      "get": {
+        "summary": "Poll one job's progress",
+        "description": "The durable state of a single job, including the `article.reload` job `POST /api/v1/articles/{id}/reload` returns. Such a job has `runId: null` and is invisible to `GET /api/v1/runs/{id}`. `progress` is the progress signal (0-100); `status` says whether the work has ended and whether it succeeded. Unlike the SSE stream this can be asked again at any time, so a client that was offline, or was restarted, can still learn how its job ended.",
+        "tags": [
+          "Jobs"
+        ],
+        "responses": {
+          "200": {
+            "description": "The job's current state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "jobId": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "runId": {
+                      "nullable": true,
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "progress": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "running",
+                        "cancelling",
+                        "completed",
+                        "failed",
+                        "cancelled"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "startedAt": {
+                      "nullable": true,
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                    },
+                    "finishedAt": {
+                      "nullable": true,
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                    }
+                  },
+                  "required": [
+                    "jobId",
+                    "runId",
+                    "kind",
+                    "progress",
+                    "status",
+                    "error",
+                    "startedAt",
+                    "finishedAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "no valid Bearer token or session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "the job doesn't exist, or isn't owned by the caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/jobs/events": {
       "get": {
         "summary": "Live job/run/reading-position notifications (SSE)",
@@ -1511,7 +1697,9 @@
                           "type": "string"
                         },
                         "progress": {
-                          "type": "number"
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100
                         }
                       },
                       "required": [
@@ -1534,6 +1722,11 @@
                         "status": {
                           "type": "string"
                         },
+                        "progress": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100
+                        },
                         "totalJobs": {
                           "type": "integer",
                           "minimum": -9007199254740991,
@@ -1553,6 +1746,7 @@
                       "required": [
                         "runId",
                         "status",
+                        "progress",
                         "totalJobs",
                         "completedJobs",
                         "failedJobs"
@@ -1957,7 +2151,7 @@
     "/api/v1/ai/prompt": {
       "post": {
         "summary": "Run a free-form prompt against the caller's configured AI provider",
-        "description": "Runs `prompt` against the caller's active AI provider using their stored credentials and global tuning values -- no per-request overrides. Yana imposes no call budget or prompt-length cap of its own; the only limits are the provider's.",
+        "description": "Runs `prompt` against the caller's active AI provider using their stored credentials and global tuning values -- no per-request overrides. Subject to the caller's daily and monthly AI request limits.",
         "tags": [
           "AI"
         ],
@@ -1990,7 +2184,7 @@
             }
           },
           "400": {
-            "description": "prompt is missing or empty.",
+            "description": "prompt exceeds the configured length limit.",
             "content": {
               "application/json": {
                 "schema": {

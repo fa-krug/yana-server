@@ -126,6 +126,7 @@ async function saveArticles(feed: Feed, articlesData: RawArticle[]): Promise<voi
           tx.update(articles)
             .set({
               name: articleData.name || "Untitled",
+              rawContent: htmlContent,
               plainText,
               date: pubDate,
               author: articleData.author || "",
@@ -141,6 +142,7 @@ async function saveArticles(feed: Feed, articlesData: RawArticle[]): Promise<voi
               feedId: feed.id,
               name: articleData.name || "Untitled",
               identifier: articleData.identifier,
+              rawContent: htmlContent,
               plainText,
               date: pubDate,
               author: articleData.author || "",

@@ -74,6 +74,27 @@ describe("POST /api/v1/ai/prompt", () => {
     expect(body.error.code).toBe("invalid_prompt");
   });
 
+  it("400s on a prompt longer than the configured limit", async () => {
+    const token = await ownerToken();
+    const owner = client
+      .getDb()
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.email, "o@example.com"))
+      .get()!;
+    client.writeTransaction((tx) => {
+      tx.update(schema.userSettings)
+        .set({ aiMaxPromptLength: 5 })
+        .where(eq(schema.userSettings.userId, owner.id))
+        .run();
+    });
+
+    const response = await promptRequest(token, { prompt: "this is way too long" });
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("prompt_too_long");
+  });
+
   it("409s when no AI provider is active", async () => {
     const token = await ownerToken();
     const response = await promptRequest(token, { prompt: "hello" });
@@ -212,13 +233,7 @@ describe("POST /api/v1/ai/prompt", () => {
     vi.unstubAllGlobals();
   });
 
-  /**
-   * The route used to refuse a caller past `aiDefaultDailyLimit` /
-   * `aiDefaultMonthlyLimit` with a 429, and a prompt past
-   * `aiMaxPromptLength` with a 400. All three settings are gone, so the only
-   * limits a caller meets are the provider's own.
-   */
-  it("keeps answering past what the retired daily budget would have allowed", async () => {
+  it("never 429s: repeated prompts all reach the provider", async () => {
     const token = await ownerToken();
     const owner = client
       .getDb()
@@ -237,33 +252,33 @@ describe("POST /api/v1/ai/prompt", () => {
         .where(eq(schema.userSettings.userId, owner.id))
         .run();
     });
-    // A fresh Response per call: a body can only be read once, so a single
-    // shared instance would fail every call after the first for a reason that
-    // has nothing to do with what this test asserts.
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockImplementation(
-        async () =>
-          new Response(
-            JSON.stringify({
-              id: "msg_1",
-              type: "message",
-              role: "assistant",
-              content: [{ type: "text", text: "ok" }],
-            }),
-            { status: 200 },
-          ),
-      ),
+    // A fresh Response per call, not one shared instance: a body can only be
+    // read once, so `mockResolvedValue` with a single Response 502s from the
+    // second call onward. The old two-call test never noticed, because its
+    // second call was short-circuited by the cap and never read a body.
+    const fetchMock = vi.fn().mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: "msg_1",
+            type: "message",
+            role: "assistant",
+            content: [{ type: "text", text: "ok" }],
+          }),
+          { status: 200 },
+        ),
     );
+    vi.stubGlobal("fetch", fetchMock);
 
-    for (let i = 0; i < 5; i++) {
-      const response = await promptRequest(token, { prompt: `prompt ${i}` });
+    // This used to assert a 429 with `daily_limit_exceeded` on the second call,
+    // against a daily cap of 1. The per-user request caps were removed, so this
+    // route has no 429 left to answer at all -- ten calls in a row is what
+    // proves it, since any cap small enough to matter would have fired.
+    for (let i = 0; i < 10; i++) {
+      const response = await promptRequest(token, { prompt: `p${i}` });
       expect(response.status).toBe(200);
     }
-
-    // A prompt far past the retired 500-character cap is answered too.
-    const long = await promptRequest(token, { prompt: "x".repeat(5_000) });
-    expect(long.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(10);
 
     vi.unstubAllGlobals();
   });

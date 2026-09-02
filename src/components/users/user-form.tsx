@@ -50,8 +50,17 @@ export type EditableUser = {
  * declines to implement it at all. The form says so rather than leaving the
  * absence to be noticed, because "where do I reset their password" is the first
  * question this page raises.
+ *
+ * `pending` is the "not loaded yet" state, the same shape
+ * `@/components/settings/library-section.tsx` establishes -- but, like
+ * `<TagForm>`, this form has no query of its own (`user` is either absent on
+ * `/users/new` or already resolved by `/users/[id]`'s own awaited row read).
+ * So `pending` exists purely for `/users/new/loading.tsx`, which renders this
+ * same chassis, disabled, while the route's RSC payload is still crossing the
+ * network on a client-side soft navigation -- real latency server-side
+ * streaming cannot remove (see that file's own comment).
  */
-export function UserForm({ user }: { user?: EditableUser }) {
+export function UserForm({ user, pending = false }: { user?: EditableUser; pending?: boolean }) {
   const t = useTranslations("users");
   const router = useRouter();
   const [email, setEmail] = useState(user?.email ?? "");
@@ -86,7 +95,8 @@ export function UserForm({ user }: { user?: EditableUser }) {
   /** What a save writes: the operator's choice, or the column as it stands. */
   const role = chosenRole ?? storedRole;
   const [password, setPassword] = useState("");
-  const [pending, start] = useTransition();
+  const [saving, start] = useTransition();
+  const busy = pending || saving;
 
   // One list feeding both the trigger and the popup: Base UI's <SelectValue>
   // resolves its label from `items` alone and never reads <SelectItem>'s text,
@@ -165,6 +175,7 @@ export function UserForm({ user }: { user?: EditableUser }) {
           autoComplete="off"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
+          disabled={busy}
         />
       </div>
 
@@ -176,6 +187,7 @@ export function UserForm({ user }: { user?: EditableUser }) {
             autoComplete="off"
             value={firstName}
             onChange={(event) => setFirstName(event.target.value)}
+            disabled={busy}
           />
         </div>
         <div className="grid gap-2">
@@ -185,6 +197,7 @@ export function UserForm({ user }: { user?: EditableUser }) {
             autoComplete="off"
             value={lastName}
             onChange={(event) => setLastName(event.target.value)}
+            disabled={busy}
           />
         </div>
       </div>
@@ -194,7 +207,7 @@ export function UserForm({ user }: { user?: EditableUser }) {
         <Select
           items={roleItems}
           value={roleOption}
-          disabled={pending}
+          disabled={busy}
           onValueChange={(value) => {
             // Base UI reports `null` for a clearable selection, which this one
             // never is -- the guard satisfies the wider type.
@@ -230,6 +243,7 @@ export function UserForm({ user }: { user?: EditableUser }) {
             autoComplete="new-password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
+            disabled={busy}
           />
           <p className="text-sm text-muted-foreground">
             {t("form.passwordHelp", { min: MIN_PASSWORD_LENGTH })}
@@ -238,7 +252,7 @@ export function UserForm({ user }: { user?: EditableUser }) {
       )}
 
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-        <Button type="submit" disabled={pending} className="w-full sm:w-auto">
+        <Button type="submit" disabled={busy} className="w-full sm:w-auto">
           {user ? t("form.save") : t("form.create")}
         </Button>
         {/* buttonVariants on a <Link>, not `<Button render={<Link/>}>`: the Base

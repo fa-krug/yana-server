@@ -159,19 +159,6 @@ export function buildHeaderHtml(
 }
 
 /**
- * The `data-sanitized-class` values on the two wrappers this module builds.
- *
- * **`ARTICLE_COMMENTS_CLASS` is imported by the source fingerprint**
- * (`../source-fingerprint`), which strips that section so a new comment does
- * not count as the article changing. The wrapper is written here and read
- * there, and nothing but this constant ties the two together: renaming the
- * value in a template literal would silently stop the stripping, and every
- * commented article would start rewriting itself on every cycle again.
- */
-export const ARTICLE_CONTENT_CLASS = "article-content";
-export const ARTICLE_COMMENTS_CLASS = "article-comments";
-
-/**
  * Format article content with an optional header, the main content, and optional comments.
  */
 export function formatArticleContent(
@@ -195,12 +182,10 @@ export function formatArticleContent(
     parts.push(header);
   }
 
-  parts.push(`<section data-sanitized-class="${ARTICLE_CONTENT_CLASS}">${content}</section>`);
+  parts.push(`<section data-sanitized-class="article-content">${content}</section>`);
 
   if (commentsContent) {
-    parts.push(
-      `<section data-sanitized-class="${ARTICLE_COMMENTS_CLASS}">${commentsContent}</section>`,
-    );
+    parts.push(`<section data-sanitized-class="article-comments">${commentsContent}</section>`);
   }
 
   return parts.join("\n\n");

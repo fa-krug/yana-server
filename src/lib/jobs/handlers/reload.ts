@@ -6,10 +6,11 @@ import { writeBlocks } from "@/lib/aggregators/blocks/storage";
 import type { Block } from "@/lib/aggregators/blocks/types";
 import { resolveFeedCredentials } from "@/lib/aggregators/credential-resolution";
 import { createAggregator } from "@/lib/aggregators/factory";
-import { applyAiOptions } from "@/lib/ai/run";
+import { hasBodyContent } from "@/lib/aggregators/website";
+import { applyAiToBlocks } from "@/lib/ai/run";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, feeds, userSettings, type Job } from "@/lib/db/schema";
-import { appendLogLine } from "../queue";
+import { appendLogLine, progress } from "../queue";
 
 function buildErrorBlocks(message: string): Block[] {
   return [
@@ -23,10 +24,10 @@ function buildErrorBlocks(message: string): Block[] {
 /**
  * Reload re-fetches the article from source through the same
  * `fetchArticleContent()` a fresh aggregation run would call, then re-runs
- * `extractContent()`/`processContent()` on that fresh result. It always calls
- * `fetchArticleContent()` -- it never read a stored copy of the page, which
- * is why the `articles.raw_content` column that held one turned out to have
- * no readers at all and was dropped.
+ * `extractContent()`/`processContent()` on that fresh result -- not on the
+ * previously stored `rawContent`, which is exactly the stale copy the user
+ * is asking to be replaced. This always calls `fetchArticleContent()`,
+ * regardless of whether the article already has a stored `rawContent`.
  * What "source" means depends on the aggregator: a full-page aggregator
  * (`FullWebsiteAggregator` and its site-specific subclasses -- Heise,
  * Tagesschau, ...) refetches the article's own page; a plain RSS/"Feed
@@ -38,20 +39,25 @@ function buildErrorBlocks(message: string): Block[] {
  * gone, or the entry aged out of the feed) and lands in the error-notice
  * branch below.
  *
- * **A successful reload is authoritative**: the row keeps the fingerprints the
- * aggregator wrote, so the next aggregation run recognises the source as
- * unchanged and leaves the reloaded article alone. See the long comment on the
- * `sourceHash` line below -- it used to be nulled here, which made every
- * reload provisional until the next cycle overwrote it.
- *
  * When the source page can no longer be fetched (removed, gone offline,
  * ...), the article's content is replaced with a short error notice instead:
  * leaving the old content in place would look like the reload succeeded, and
  * retrying the job would not help with a deterministic failure
  * (fetchArticleContent already exhausts its own retry budget for transient
- * ones). **That** branch does null `sourceHash`, and must: an error notice is
- * not a completed article, and the next aggregation run replacing it with the
- * real one is the only thing that heals it.
+ * ones).
+ *
+ * A page that *does* fetch but yields no article body is the opposite case and
+ * is handled the opposite way: nothing is written at all, and the job fails.
+ * The page still exists, so the stored article remains the best copy anyone
+ * has -- replacing it would put `processContent()`'s header image over an
+ * empty body, which is precisely the shape `hasBodyContent()` exists to refuse
+ * on the aggregation path (see `enrichArticles()` in
+ * `@/lib/aggregators/website`). Reload cannot answer it the way aggregation
+ * does, by skipping the article, because the row already exists; failing the
+ * job is the equivalent, and it is what puts the reason in front of the
+ * operator -- `jobs.error` is rendered verbatim in the job list, so a reload
+ * that deliberately changed nothing says so instead of reporting a green
+ * "completed".
  *
  * The feed is run through `resolveFeedCredentials()` before
  * `createAggregator()`, the same as `aggregate.ts` and `logo.ts` -- without it
@@ -60,18 +66,35 @@ function buildErrorBlocks(message: string): Block[] {
  * to call `videos.list`) fails every time, landing in the error-notice branch
  * above instead of ever reaching the source.
  *
- * AI post-processing (`applyAiOptions()`, the feed's summarize/improve/translate
- * options) runs between `extractContent()` and `processContent()`, mirroring
- * `enrichArticles()` -> `finalizeArticles()`'s order on a fresh aggregation run:
- * it needs the *distilled* content extractContent() produced, before
- * processContent() splices in embeds/header markup the AI call has no reason
- * to see. A translated title is written back too, since that is a field
- * `applyAiOptions()` can change.
+ * AI post-processing (`applyAiToBlocks()`, the feed's summarize/improve/translate
+ * options) runs **last**, below `parseBlocks()`, because the stage works on the
+ * block tree rather than on HTML -- `parseBlocks()` is one-way and has no
+ * inverse, so there is nowhere above it for a blocks-shaped stage to sit. That
+ * also makes this path's order identical to `aggregate.ts`'s (extract, process,
+ * parse, then AI), where the two used to differ: AI ran before
+ * `processContent()` here and after it there, so the same article came out with
+ * its summary nested one way on a reload and another on an aggregation run. A
+ * translated title is written back too, since that is a field
+ * `applyAiToBlocks()` can change.
  *
- * It is the same call `aggregate.ts` makes, with no per-user budget to opt
- * out of any more: the `bypassUsageLimit: true` this used to pass existed only
- * so a deliberate one-off reload would not spend the daily/monthly AI request
- * caps that unattended aggregation relied on, and both caps are gone.
+ * **The title the AI stage is given comes from source, not from
+ * `articles.name`** -- `aggregator.sourceTitle`, when the aggregator saw one
+ * while refetching (see `noteSourceTitle()` in
+ * `@/lib/aggregators/base`). `articles.name` is not source text on a feed with
+ * an AI option on: it is the model's own previous answer. Handing that back as
+ * "the article's title" made a reload ask for a rewrite of a rewrite (a title
+ * drifting a little further on every reload) and, worse, made a *translate*
+ * request self-contradictory -- `{"title": "<already German>", "document":
+ * "<English>"}` under "translate this to German", which a model can reasonably
+ * read as "already translated" and answer with the document unchanged. An
+ * unchanged document still parses, so the article was then stored with a
+ * translated title and an untranslated body, silently, on a job that reported
+ * success: exactly the "reload only translates the title" a user reported for a
+ * Reddit post. An aggregator that cannot know the source's title (the
+ * `FullWebsiteAggregator` family) reports `null` and the stored name is used, as
+ * before.
+ *
+ * One thing distinguishes this call from `aggregate.ts`'s equivalent one:
  *
  * The fresh content is still written to the article even when AI processing
  * fails (translating/summarizing it is a bonus on top of a real refetch, not
@@ -100,8 +123,15 @@ export async function handleReloadJob(job: Job): Promise<void> {
     return;
   }
 
+  // Fixed phase numbers, not computed fractions: a reload has no countable
+  // unit of work to divide progress over (it is one article, refetched and
+  // re-processed through a handful of sequential steps), unlike aggregate's
+  // per-article progress. These five values just mark that sequence's
+  // boundaries so a client polling mid-reload sees the job moving.
+  progress(job.id, 5);
+
   // Read once, up front, and handed to both resolveFeedCredentials() (which
-  // would otherwise re-run this same query itself) and applyAiOptions() below.
+  // would otherwise re-run this same query itself) and applyAiToBlocks() below.
   const settings = db.select().from(userSettings).where(eq(userSettings.userId, feed.userId)).get();
 
   const aggregator = createAggregator(resolveFeedCredentials(feed, settings ?? null));
@@ -125,14 +155,14 @@ export async function handleReloadJob(job: Job): Promise<void> {
     await writeBlocks(article.id, blocks);
     writeTransaction((tx) => {
       tx.update(articles)
-        // `sourceHash: null` is mandatory, not tidiness: this row is now an
-        // error notice, which is not a complete rendering of anything. Left in
-        // place, the next aggregation run would compare the feed's unchanged
-        // article against a fingerprint that still matches, skip it, and leave
-        // this notice standing *permanently*. Nulling it is the only thing
-        // that heals the article on the next cycle. See
-        // `articles.sourceHash`.
-        .set({ plainText, sourceHash: null, updatedAt: new Date() })
+        // `contentHash: null` is mandatory, not tidiness: this row's content is
+        // now an error notice, which the stored fingerprint no longer
+        // describes. Left in place, the next aggregation run would compare the
+        // feed's unchanged article against a hash that still matches, skip it,
+        // and leave this notice standing *permanently* -- where it used to be
+        // replaced by the real article on the very next cycle. See the
+        // `contentHash` comment in `@/lib/db/schema/articles`.
+        .set({ plainText, contentHash: null, updatedAt: new Date() })
         .where(eq(articles.id, article.id))
         .run();
     });
@@ -141,8 +171,21 @@ export async function handleReloadJob(job: Job): Promise<void> {
     return;
   }
 
+  // No progress call on the failed-refetch branch above: that branch returns
+  // normally (it is a handled outcome, not a thrown error -- see the doc
+  // comment above), so the job still finishes as a plain success. complete()
+  // (called by the worker once this handler returns) always forces progress
+  // to 100 regardless of the last value written here, so a reload that hits
+  // that branch still reports 100% done rather than getting stuck at 5.
+  progress(job.id, 30);
+
+  // Prefer what the source calls this article right now -- see the note above.
+  // `null` from an aggregator that cannot know means the stored name, which is
+  // what every reload used before this.
+  const sourceTitle = aggregator.sourceTitle;
+
   const rawArticle: RawArticle = {
-    name: article.name,
+    name: sourceTitle ?? article.name,
     identifier: article.identifier,
     raw_content: freshHtml,
     content: "",
@@ -154,49 +197,78 @@ export async function handleReloadJob(job: Job): Promise<void> {
   if (headerData) rawArticle.header_data = headerData;
 
   rawArticle.content = await aggregator.extractContent(freshHtml, rawArticle);
-  if (!rawArticle.content) {
-    appendLogLine(job.id, "stdout", "extracted content is empty");
+
+  // A fetched page with no article body in it is a failed reload, not a
+  // shorter article -- and unlike the failed-refetch branch above it must
+  // write *nothing*: the page still exists, so the stored article is the best
+  // copy anyone has, and overwriting it with `processContent()`'s output would
+  // leave the header image standing over an empty body. The stored row is
+  // therefore left exactly as it was, `contentHash` included, and the job is
+  // failed so the reason reaches the operator instead of a green
+  // "completed" that changed nothing. Checked here rather than after
+  // `processContent()`, so the AI stage below is never reached: there is no
+  // point spending a provider request on a body that is not there.
+  if (!hasBodyContent(rawArticle.content)) {
+    const message =
+      "The reloaded page contained no article body, so the stored article was left unchanged.";
+    appendLogLine(job.id, "stdout", message);
+    throw new Error(message);
   }
 
-  const aiOutcome = await applyAiOptions(rawArticle, feed.options, settings, aggregator.onLog);
+  // Content extraction is done *and* produced a usable body: the guard above
+  // throws otherwise, so this phase is only ever reached by a reload that
+  // still has something to write. A reload that fails that guard stays at 30,
+  // which is the honest answer -- it got the page back and nothing further.
+  progress(job.id, 55);
 
+  // AI runs *after* processContent() now, not before it, and both call paths
+  // are the same order for the first time: extract, process, parse, then AI on
+  // the block tree. The old ordering existed so the model would not see the
+  // embed and header markup processContent() splices in -- with blocks it
+  // cannot, because every image, embed and code block crosses as an opaque
+  // index (see `@/lib/ai/block-text`), so the reason for the asymmetry is gone.
   const processed = await aggregator.processContent(rawArticle.content || "", rawArticle);
 
-  const blocks = parseBlocks(processed, article.identifier);
-  const plainText = plainTextOf(blocks);
+  const ai = await applyAiToBlocks(
+    { title: rawArticle.name || article.name, blocks: parseBlocks(processed, article.identifier) },
+    feed.options,
+    settings,
+    aggregator.onLog,
+  );
+  // The AI stage has been applied (or has declined to run, or has failed --
+  // `applyAiToBlocks()` reports that in `ai.outcome` rather than throwing, and
+  // the failure is only turned into a thrown error at the very bottom, after
+  // the write). Either way the pipeline is past its slowest step here, which
+  // is what this phase marks. It sits *after* processContent() because that is
+  // where the AI call now lives: the branch this came from ran AI between
+  // extractContent() and processContent(), and main reordered the stage to run
+  // last, on the block tree.
+  progress(job.id, 80);
 
-  await writeBlocks(article.id, blocks);
+  const aiOutcome = ai.outcome;
+
+  const plainText = plainTextOf(ai.blocks);
+
+  await writeBlocks(article.id, ai.blocks);
 
   writeTransaction((tx) => {
     tx.update(articles)
       .set({
-        name: rawArticle.name || article.name,
+        // `ai.title` is the AI stage's answer when it ran and the source's own
+        // title when it did not (it echoes its input), so a reload of a feed
+        // with AI off now also picks up a title the source has changed --
+        // the same thing an aggregation run does with every content change.
+        name: ai.title || sourceTitle || article.name,
+        rawContent: freshHtml,
         plainText,
-        /**
-         * **`sourceHash` is deliberately not written here.**
-         *
-         * This used to null it (as `contentHash`) on the reasoning that
-         * reload's inputs are not the aggregator's, so the honest answer was
-         * "unknown". The consequence was that a reload was *provisional*: the
-         * next cycle re-derived the article from the feed and threw away what
-         * an operator had just deliberately asked for. A manual reload is the
-         * one place a human says "redo this article now" -- it has to win.
-         *
-         * Leaving the stored value is what makes it win, and it stays correct
-         * in both directions, because the fingerprint describes **the source
-         * this row came from** rather than the bytes now stored: while the
-         * source is unchanged the next run computes the same value, matches,
-         * and skips -- and when the source *does* change the values no longer
-         * match, aggregation reprocesses, and the fresh upstream article
-         * correctly replaces the reloaded one.
-         *
-         * The one case a reload cannot make stick is a row whose fingerprint
-         * is already null -- never aggregated, or left null by a previous
-         * failure. Reload cannot fill it in: the value has to be one the
-         * *aggregator* would compute, over the feed's own article rather than
-         * the page reload fetched, and it has no way to know it. Such a row is
-         * reprocessed once and settles after that.
-         */
+        // Same reason as the failed-refetch branch above: reload has just
+        // rewritten the name, the raw page and the whole block tree, so the
+        // stored fingerprint describes content that no longer exists. Null it
+        // rather than recompute it -- reload's inputs are not the aggregator's
+        // (AI post-processing may have rewritten the name and body), so the
+        // honest answer is "unknown", which makes the next aggregation run
+        // re-derive it.
+        contentHash: null,
         updatedAt: new Date(),
       })
       .where(eq(articles.id, article.id))
@@ -204,6 +276,7 @@ export async function handleReloadJob(job: Job): Promise<void> {
   });
 
   appendLogLine(job.id, "stdout", "reloaded article content");
+  progress(job.id, 100);
 
   if (aiOutcome.status === "failed") {
     // The fresh content above is already saved -- this only fails the job

@@ -12,7 +12,6 @@
     "account": "Konto"
   },
   "jobs": {
-    "title": "Aufgaben",
     "kind": "Art",
     "owner": "Benutzer",
     "systemOwner": "System",
@@ -33,7 +32,6 @@
     "log": "Protokoll",
     "logEmpty": "Noch keine Protokollausgabe.",
     "logEnded": "Auftrag beendet — Protokoll beendet.",
-    "detailTitle": "Auftrag #{id}",
     "activeRuns": "{count, plural, one {# Auftrag läuft} other {# Aufträge laufen}}",
     "bulkCancel": "Abbrechen",
     "bulkDelete": "Löschen",
@@ -66,7 +64,6 @@
     "label": "Profilbild von {name}"
   },
   "account": {
-    "title": "Konto",
     "saveFailed": "Änderungen konnten nicht gespeichert werden",
     "requestFailed": "Der Server hat nicht geantwortet. Prüfe deine Verbindung und versuche es erneut.",
     "sessionEnded": "Deine Sitzung ist abgelaufen. Melde dich erneut an.",
@@ -140,9 +137,6 @@
     }
   },
   "users": {
-    "title": "Benutzer",
-    "newTitle": "Neuer Benutzer",
-    "editTitle": "Benutzer bearbeiten",
     "new": "Neuer Benutzer",
     "searchPlaceholder": "Nach Name oder E-Mail suchen",
     "roleFilter": "Rolle",
@@ -198,9 +192,6 @@
     "lastAdmin": "Das ist das letzte Administratorkonto, das sich noch anmelden kann. Ernenne zuerst jemand anderen."
   },
   "tags": {
-    "title": "Tags",
-    "newTitle": "Neuer Tag",
-    "editTitle": "Tag bearbeiten",
     "new": "Neuer Tag",
     "searchPlaceholder": "Nach Tags suchen",
     "columns": {
@@ -253,11 +244,8 @@
     "noneSelected": "Wähle zuerst mindestens einen Tag aus."
   },
   "feeds": {
-    "title": "Feeds",
     "sessionEnded": "Deine Sitzung ist beendet. Melde dich erneut an, um fortzufahren.",
     "requestFailed": "Der Server hat nicht geantwortet. Prüfe deine Verbindung und versuche es erneut.",
-    "newTitle": "Neuer Feed",
-    "editTitle": "Feed bearbeiten",
     "new": "Neuer Feed",
     "searchPlaceholder": "Feeds suchen",
     "enabledTrue": "Aktiviert",
@@ -334,10 +322,20 @@
     "bulkExportOpml": "OPML exportieren"
   },
   "settings": {
-    "title": "Einstellungen",
-    "general": { "title": "Allgemein", "theme": "Design", "language": "Sprache" },
-    "theme": { "light": "Hell", "dark": "Dunkel", "system": "System" },
-    "language": { "en": "Englisch", "de": "Deutsch" },
+    "general": {
+      "title": "Allgemein",
+      "theme": "Design",
+      "language": "Sprache"
+    },
+    "theme": {
+      "light": "Hell",
+      "dark": "Dunkel",
+      "system": "System"
+    },
+    "language": {
+      "en": "Englisch",
+      "de": "Deutsch"
+    },
     "library": {
       "title": "Bibliothek",
       "retention": "Aufbewahrung",
@@ -357,7 +355,6 @@
     "saveFailed": "Einstellungen konnten nicht gespeichert werden"
   },
   "integrations": {
-    "title": "Integrationen",
     "description": "Zugangsdaten für die Dienste, von denen Yana abruft. Sie gehören allein zu deinem Konto, und ein gespeichertes Geheimnis wird nie wieder angezeigt — nur seine letzten vier Zeichen.",
     "sessionEnded": "Deine Sitzung ist beendet. Melde dich erneut an, um fortzufahren.",
     "requestFailed": "Der Server hat nicht geantwortet. Prüfe deine Verbindung und versuche es erneut.",
@@ -416,7 +413,6 @@
     "unexpected": "Der Anbieter hat unerwartet geantwortet, daher konnten diese Zugangsdaten nicht geprüft werden. Die Details stehen im Server-Log.",
     "unknownProvider": "Diesen KI-Anbieter unterstützt Yana nicht.",
     "activeNotVerified": "Speichere und prüfe die Zugangsdaten dieses Anbieters, bevor du ihn aktiv schaltest.",
-    "title": "KI",
     "description": "Mit welchem Anbieter die KI-Funktionen von Yana arbeiten, seine Zugangsdaten und wie jede Anfrage an ihn aussieht. Sie gehören allein zu deinem Konto, und ein gespeicherter Schlüssel wird nie wieder angezeigt — nur seine letzten vier Zeichen.",
     "verified": "Geprüft",
     "unverified": "Ungeprüft",
@@ -500,12 +496,14 @@
     },
     "advanced": {
       "title": "Erweitert",
-      "description": "Wie jede KI-Anfrage aussieht. Diese Werte gelten für den jeweils aktiven Anbieter und werden gemeinsam gespeichert.",
+      "description": "Wie jede KI-Anfrage aussieht. Diese Werte gelten für den jeweils aktiven Anbieter und werden gemeinsam gespeichert, weil sie voneinander abhängen.",
       "save": "Speichern",
       "saving": "Wird gespeichert",
       "saved": "KI-Einstellungen gespeichert.",
       "temperature": "Temperatur",
       "temperatureHelp": "Wie frei das Modell formuliert. 0 bleibt eng am Text, 2 ist am erfindungsreichsten.",
+      "maxPromptLength": "Maximale Prompt-Länge",
+      "maxPromptLengthHelp": "Wie viele Zeichen ein aus der mobilen App gesendeter Prompt höchstens haben darf. Artikel, die im Hintergrund verarbeitet werden, sind davon nicht betroffen.",
       "requestTimeout": "Anfrage-Timeout (Sekunden)",
       "requestTimeoutHelp": "Wie lange Yana auf eine Antwort wartet, bevor eine Anfrage abgebrochen wird.",
       "maxRetries": "Wiederholungen",
@@ -515,6 +513,7 @@
       "requestDelay": "Wartezeit zwischen Anfragen (Sekunden)",
       "requestDelayHelp": "Wie lange Yana zwischen zwei aufeinanderfolgenden Anfragen wartet.",
       "temperatureRange": "Die Temperatur muss zwischen 0 und 2 liegen — jeder unterstützte Anbieter lehnt höhere Werte ab.",
+      "maxPromptLengthRange": "Die Prompt-Länge muss zwischen 1 und 100000 Zeichen liegen.",
       "requestTimeoutRange": "Das Anfrage-Timeout muss zwischen 5 und 600 Sekunden liegen. Unter fünf Sekunden antwortet kein Anbieter rechtzeitig.",
       "maxRetriesRange": "Die Anzahl der Wiederholungen muss zwischen 0 und 10 liegen.",
       "retryDelayRange": "Die Wartezeit zwischen Wiederholungen muss zwischen 0 und 60 Sekunden liegen.",
@@ -551,11 +550,11 @@
     "saving": "Wird gespeichert",
     "cancel": "Abbrechen",
     "loading": "Wird geladen",
-    "new": "Neu"
+    "new": "Neu",
+    "recordNotFoundTitle": "Nicht gefunden",
+    "recordNotFoundDescription": "Dieser Eintrag existiert nicht oder Sie haben keinen Zugriff darauf."
   },
   "articles": {
-    "title": "Artikel",
-    "editTitle": "Artikel bearbeiten",
     "searchPlaceholder": "Artikel suchen",
     "columns": {
       "title": "Titel",
@@ -603,6 +602,10 @@
     "date": "Datum",
     "createdAt": "Hinzugefügt am",
     "createdAtNote": "Das Hinzufügedatum dient nur zur Information und kann nicht bearbeitet werden.",
+    "source": "Quell-URL",
+    "sourceNote": "Zum Kopieren antippen.",
+    "sourceCopied": "Quell-URL kopiert",
+    "sourceCopyFailed": "Quell-URL konnte nicht kopiert werden",
     "save": "Artikel speichern",
     "saved": "Artikel gespeichert"
   },
@@ -621,17 +624,16 @@
     "downloadEpisode": "Episode herunterladen",
     "viewOnBluesky": "Auf Bluesky ansehen",
     "viewOnReddit": "Auf Reddit ansehen",
-    "viewOnTwitter": "Auf X/Twitter ansehen"
+    "viewOnTwitter": "Auf X/Twitter ansehen",
+    "crosspost": "Crosspost"
   },
   "dashboard": {
-    "title": "Dashboard",
     "stats": {
       "unreadArticles": "Ungelesene Artikel",
       "totalArticles": "Artikel insgesamt",
       "feeds": "Feeds",
       "feedsValue": "{enabled} von {total}",
-      "tags": "Tags",
-      "activeJobs": "Laufende Aufgaben"
+      "tags": "Tags"
     },
     "recent": {
       "heading": "Zuletzt ungelesen",

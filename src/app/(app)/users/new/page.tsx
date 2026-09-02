@@ -1,5 +1,3 @@
-import { getTranslations } from "next-intl/server";
-
 import { UserForm } from "@/components/users/user-form";
 import { requireAdmin } from "@/lib/auth/session";
 
@@ -18,11 +16,9 @@ export default async function NewUserPage() {
    * needed (see the `connection()` bullet in CLAUDE.md).
    */
   await requireAdmin();
-  const t = await getTranslations("users");
 
   return (
     <div className="max-w-2xl space-y-6">
-      <h1 className="text-2xl font-semibold">{t("newTitle")}</h1>
       {/* No data region, so no Suspense boundary: the form starts empty. */}
       <UserForm />
     </div>

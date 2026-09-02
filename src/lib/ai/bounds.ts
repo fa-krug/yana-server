@@ -1,5 +1,5 @@
 /**
- * The five global tuning values: what they are called, in what order they are
+ * The seven global tuning values: what they are called, in what order they are
  * shown, and what each one accepts.
  *
  * **This module imports nothing, for `./providers`' reason.** It is read by the
@@ -29,6 +29,27 @@
  * - **`temperature` 0-2.** Every supported provider refuses a higher value:
  *   OpenAI and Gemini document the range as 0-2, Anthropic as 0-1 (so 2 is
  *   already permissive). Below 0 is not a value any of them defines.
+ *
+ * There used to be three more. `dailyLimit` and `monthlyLimit` capped how many
+ * requests a user could make per UTC day and month; `maxTokens` capped one
+ * answer's length. All three were removed on the owner's explicit instruction
+ * -- switched on, AI is expected to run without a limit refusing it -- along
+ * with the `ai_requests` table the first two counted against. Cost is
+ * controlled by not making pointless requests (the aggregate handler's
+ * `contentHash` skip) and by not asking for fields nothing needs (`wantsRewrite`
+ * in `./run`), neither of which costs anything when the work *is* wanted.
+ * They are also why the cross-field `.superRefine()` in `./actions` is gone:
+ * `monthlyLimit >= dailyLimit` was the only rule about a pair.
+ *
+ * `maxTokens` is worth its own note, because it was not merely a ceiling
+ * nobody wanted: it was a live hazard. Its default of 2000 was below what a
+ * rewritten article needs, so a longer one came back truncated mid-JSON, failed
+ * to parse, and spent the whole paid request on an `invalidJson` failure. A
+ * correct value cannot be chosen in advance -- it is the length of an answer
+ * nobody has seen yet -- so `./run` now sends no cap at all, except to
+ * Anthropic, whose API declares the field required (see `ANTHROPIC_MAX_TOKENS`
+ * there).
+ * - **`maxPromptLength` 1-100000 characters.** Zero sends an empty article.
  * - **`requestTimeout` 5-600 s.** Below five seconds no provider ever answers,
  *   so every request would abort and every summary fail -- a setting that can
  *   only be wrong. Ten minutes is past any real completion.
@@ -40,7 +61,7 @@
  */
 
 /**
- * The five, in the order the form renders them.
+ * The six, in the order the form renders them.
  *
  * The names are the projection's, not the columns' -- `aiTemperature` ->
  * `temperature`. That renaming happens in `getAiStatus()` and in
@@ -48,6 +69,7 @@
  */
 export const AI_ADVANCED_FIELDS = [
   "temperature",
+  "maxPromptLength",
   "requestTimeout",
   "maxRetries",
   "retryDelay",
@@ -65,6 +87,7 @@ export type AiBound = {
 
 export const AI_ADVANCED_BOUNDS = {
   temperature: { min: 0, max: 2, integer: false },
+  maxPromptLength: { min: 1, max: 100_000, integer: true },
   requestTimeout: { min: 5, max: 600, integer: true },
   maxRetries: { min: 0, max: 10, integer: true },
   retryDelay: { min: 0, max: 60, integer: true },

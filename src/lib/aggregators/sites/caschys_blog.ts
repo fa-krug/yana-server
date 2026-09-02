@@ -20,7 +20,7 @@ export class CaschysBlogAggregator extends FullWebsiteAggregator {
         type: "boolean",
         initial: true,
         label: "Skip Advertisements",
-        help_text: "Filter out articles marked as '(Anzeige)'.",
+        help_text: "Filter out articles the source labels as advertising.",
         required: false,
       },
     };
@@ -45,26 +45,18 @@ export class CaschysBlogAggregator extends FullWebsiteAggregator {
     return "https://stadt-bremerhaven.de";
   }
 
+  /**
+   * Only the weekly link-dump digest is site-specific now.
+   *
+   * The "(Anzeige)" title test that used to live here is the base class's
+   * advertising filter -- generalised, still gated on this feed's own
+   * `skip_ads` option, and now also reading the publisher's categories, which
+   * is what makes it work for feeds that label there instead of in the title.
+   * Leaving a copy behind would mean two vocabularies to keep agreed.
+   */
   override async filterArticles(articles: RawArticle[]): Promise<RawArticle[]> {
     const filtered = await super.filterArticles(articles);
-    const options = (this.feed.options as Record<string, unknown> | null) || {};
-    const skipAds = options.skip_ads !== false;
-
-    const result: RawArticle[] = [];
-    for (const article of filtered) {
-      const name = article.name || "";
-
-      if (skipAds && name.includes("(Anzeige)")) {
-        continue;
-      }
-
-      if (name.includes("Immer wieder sonntags KW")) {
-        continue;
-      }
-
-      result.push(article);
-    }
-    return result;
+    return filtered.filter((article) => !(article.name || "").includes("Immer wieder sonntags KW"));
   }
 
   override processContent(html: string, article: RawArticle): Promise<string> {

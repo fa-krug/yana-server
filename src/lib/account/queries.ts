@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth/server";
 import { currentUserRow } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
-import { accounts, sessions, type User } from "@/lib/db/schema";
+import { accounts, sessions } from "@/lib/db/schema";
 
 /**
  * Reads for `/account`. Writes are in `./actions`.
@@ -30,8 +30,34 @@ export type PasskeySummary = {
   createdAt: Date;
 };
 
+/**
+ * The five columns `/account`'s cards actually render -- never the whole
+ * `User` row.
+ *
+ * This is `getAccountOverview()`'s own return shape, not a narrowing left to
+ * its caller: `AccountOverview` is handed to four Client Components
+ * (`ProfileSection`, `PasswordSection`, `PasskeySection`, `DeviceSection`) as
+ * an **unawaited promise**, and React serializes a promise's *resolved
+ * value*, not its declared TypeScript type. A `Promise<AccountOverview>`
+ * annotation on those props is no boundary at all if `AccountOverview.user`
+ * were the full row -- the row also carries `role`, `banned`/`banReason`/
+ * `banExpires` and `emailVerified`, and every one of them would still cross
+ * into `/account`'s RSC payload, plain text in a browser's network tab, the
+ * moment the promise resolved. So the projection happens here, before the
+ * promise is ever constructed -- the same rule CLAUDE.md already states for
+ * the (already-awaited) row `<AppSidebar>`/`<ProfileSection>` take, applied to
+ * a value that arrives late.
+ */
+export type AccountUser = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  image: string | null;
+};
+
 export type AccountOverview = {
-  user: User;
+  user: AccountUser;
   passkeys: PasskeySummary[];
   devices: DeviceSummary[];
   /**
@@ -57,7 +83,13 @@ export async function getAccountOverview(): Promise<AccountOverview> {
   const user = await currentUserRow();
 
   return {
-    user,
+    user: {
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      image: user.image,
+    },
     passkeys: await listPasskeys(),
     devices: await listDevices(user.id),
     hasPassword: hasPasswordCredential(user.id),

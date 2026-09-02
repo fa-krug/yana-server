@@ -205,6 +205,59 @@ describe("block storage", () => {
     expect(loaded).toEqual(TREE);
   });
 
+  it("reads back a summary block with its children", async () => {
+    const tree: Block[] = [
+      {
+        kind: "summary",
+        blocks: [
+          {
+            kind: "paragraph",
+            runs: [
+              {
+                text: "The gist.",
+                bold: false,
+                italic: false,
+                code: false,
+                strikethrough: false,
+                link: "",
+              },
+            ],
+          },
+        ],
+      },
+      {
+        kind: "paragraph",
+        runs: [
+          {
+            text: "Body.",
+            bold: false,
+            italic: false,
+            code: false,
+            strikethrough: false,
+            link: "",
+          },
+        ],
+      },
+    ];
+
+    await storage.writeBlocks(articleId, tree);
+    expect(await storage.readBlocks(articleId)).toEqual(tree);
+
+    // Stored as a parent row plus its own child rows, the same shape a
+    // blockquote takes -- not flattened into the root sequence.
+    const rows = client
+      .getDb()
+      .select()
+      .from(schema.articleBlocks)
+      .where(eq(schema.articleBlocks.articleId, articleId))
+      .all();
+    const summaryRow = rows.find((row) => row.kind === "summary");
+    expect(summaryRow).toBeDefined();
+    expect(summaryRow!.parentId).toBeNull();
+    expect(summaryRow!.position).toBe(0);
+    expect(rows.filter((row) => row.parentId === summaryRow!.id)).toHaveLength(1);
+  });
+
   it("returns row count matching written article blocks in DB", async () => {
     const written = await storage.writeBlocks(articleId, TREE);
     const db = client.getDb();

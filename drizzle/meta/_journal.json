@@ -138,15 +138,15 @@
     {
       "idx": 19,
       "version": "6",
-      "when": 1788374093267,
-      "tag": "0019_article_source_hash",
+      "when": 1787564331858,
+      "tag": "0019_drop_ai_request_limits",
       "breakpoints": true
     },
     {
       "idx": 20,
       "version": "6",
-      "when": 1788374101400,
-      "tag": "0020_drop_dead_columns",
+      "when": 1787581231870,
+      "tag": "0020_drop_ai_max_tokens",
       "breakpoints": true
     }
   ]

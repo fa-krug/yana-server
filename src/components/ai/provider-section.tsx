@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useState, useTransition, type ReactNode } from "react";
+import { Suspense, use, useState, useTransition, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { StatusBadge, useReportOutcome } from "@/components/ai/section-parts";
@@ -40,7 +40,7 @@ import {
   type AiProvider,
   type AiProviderKey,
 } from "@/lib/ai/providers";
-import type { AiProviderStatus } from "@/lib/ai/queries";
+import type { AiProviderStatus, AiStatus } from "@/lib/ai/queries";
 import { attempt } from "@/lib/ai/result";
 import { attemptCall } from "@/lib/attempt";
 
@@ -98,17 +98,50 @@ import { attemptCall } from "@/lib/attempt";
  * replace the None label with it.
  *
  * Every action goes through `attempt()` -- never a bare `await` (CLAUDE.md).
+ *
+ * ## The `…Form` / `…Resolved` / `…Section({ promise })` split
+ *
+ * `active`/`providers` are now optional, and `pending` (paired with them being
+ * `undefined`) means "not loaded yet" -- the same shape
+ * `@/components/settings/library-section.tsx` and
+ * `@/components/integrations/youtube-section.tsx` establish. **Three controls
+ * about the pending render are specific to this card, not generic:**
+ *
+ * - The provider `<Select>`'s option list is static (`AI_PROVIDERS`, which
+ *   imports nothing and needs no query), so the pending picker is a **fully
+ *   populated, disabled select with no selection** -- not an empty one, and
+ *   not `value=""` either: `""` is the real "None (disabled)" item, and
+ *   passing it would render as a genuine, wrong selection rather than "nothing
+ *   chosen yet".
+ * - The model `<Select>` is the exception: which provider is active is
+ *   unknown while pending, and a `hasDynamicModels` provider's catalog is
+ *   fetched on demand even once loaded. So it renders disabled with **no
+ *   items** rather than a guessed list.
+ * - The status badge and the remove button are both probe/storage-derived
+ *   verdicts with no honest pending value (the same reasoning
+ *   `YoutubeSectionForm` states for its own badge and remove button), so both
+ *   are omitted entirely rather than rendered with a neutral guess.
+ *
+ * Every other slot -- the heading, the picker's label and hint frame, the
+ * model select, the API key field, both buttons -- renders for real, disabled,
+ * exactly as `SectionsFallback` in `../../app/(app)/ai/page.tsx` used to
+ * approximate with a skeleton standing in for each one. The one guess that
+ * disappears with this split is the provider picker itself: it used to be an
+ * anonymous bar; now it is the real, fully populated dropdown, truthfully
+ * showing no selection until the server says otherwise.
  */
 
 /** What the picker holds: a provider, or `""` for "AI features off". */
 type Selection = AiProviderKey | "";
 
-export function ProviderSection({
-  active,
+export function ProviderSectionForm({
+  active = "",
   providers,
+  pending = false,
 }: {
-  active: Selection;
-  providers: Record<AiProviderKey, AiProviderStatus>;
+  active?: Selection;
+  providers?: Record<AiProviderKey, AiProviderStatus>;
+  pending?: boolean;
 }) {
   const t = useTranslations("ai");
   const report = useReportOutcome();
@@ -116,13 +149,20 @@ export function ProviderSection({
   // Never seeded from the server: the stored key is not in this component's
   // props at all, only its mask, which is the placeholder.
   const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState(() => (active === "" ? "" : providers[active].model));
-  const [apiUrl, setApiUrl] = useState(() => (active === "" ? "" : providers[active].apiUrl));
+  // `!providers` only guards the pending render, where `active` stays at its
+  // `""` default and `providers` is `undefined` -- the two always arrive
+  // together once loaded, from `ProviderSectionResolved` below.
+  const [model, setModel] = useState(() =>
+    active === "" || !providers ? "" : providers[active].model,
+  );
+  const [apiUrl, setApiUrl] = useState(() =>
+    active === "" || !providers ? "" : providers[active].apiUrl,
+  );
   // Two transitions rather than one flag: both buttons are disabled while either
   // call is in flight, but only the one that was pressed may say so.
   const [saving, startSave] = useTransition();
   const [testing, startTest] = useTransition();
-  const busy = saving || testing;
+  const busy = pending || saving || testing;
   // The live OpenRouter catalog, once fetched -- `null` until "Refresh models"
   // is pressed, so `modelItems` below falls back to the static two-entry list
   // (`provider.models`) until then. A third transition rather than folding
@@ -135,7 +175,10 @@ export function ProviderSection({
   const [refreshingModels, startRefreshModels] = useTransition();
 
   const provider = selected === "" ? null : (providerByKey(selected) ?? null);
-  const status = provider ? providers[provider.key] : null;
+  // `providers` is only ever absent while pending, which returns before this
+  // component reaches its normal render below -- but the type stays optional,
+  // so this still guards it.
+  const status = provider && providers ? providers[provider.key] : null;
   /** Is there a stored key to keep, or to remove? */
   const configured = status !== null && status.apiKeyMasked !== "";
 
@@ -184,8 +227,11 @@ export function ProviderSection({
   function choose(next: Selection) {
     setSelected(next);
     setApiKey("");
-    setModel(next === "" ? "" : providers[next].model);
-    setApiUrl(next === "" ? "" : providers[next].apiUrl);
+    // `!providers` never happens here in practice -- this only fires from an
+    // enabled picker, which the pending render never shows -- but the guard
+    // keeps the type honest.
+    setModel(next === "" || !providers ? "" : providers[next].model);
+    setApiUrl(next === "" || !providers ? "" : providers[next].apiUrl);
     // So switching away from OpenRouter and back doesn't show a stale fetch
     // from a previous selection on screen -- it re-shows the static fallback
     // until refreshed again.
@@ -333,6 +379,77 @@ export function ProviderSection({
     report(result, "removed");
     if (result.ok) setApiKey("");
     return result.ok;
+  }
+
+  /**
+   * The pending render: the same shell, filled in with real controls rather
+   * than the `<Skeleton>` bars `SectionsFallback` used to stand in with --
+   * see the "The `…Form` / `…Resolved` / `…Section({ promise })` split"
+   * section of the doc comment above for which slots are real-but-empty and
+   * which are omitted outright.
+   *
+   * A dedicated branch rather than letting `provider === null` (the "None"
+   * state `selected`'s `""` default already produces) fall through: that
+   * state has its own true hint ("the AI features are switched off") and
+   * hides the model/API-key/Test controls on purpose, both of which would be
+   * guesses here -- nothing is yet known to be off, on, or selecting anything.
+   */
+  if (pending) {
+    return (
+      <ProviderSectionShell
+        statusBadge={null}
+        providerControl={
+          <Select items={providerItems} disabled>
+            <SelectTrigger id="ai-provider" className="w-full sm:w-64">
+              {/* No `value`: an empty string is the real "None (disabled)"
+                  item, not "nothing chosen yet" -- see the doc comment above. */}
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {providerItems.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        }
+        providerHint={null}
+        modelControl={
+          // Which provider is active is unknown, so there is no honest list
+          // to offer -- disabled and empty, not a guessed catalog.
+          <Select items={[] as { value: string; label: string }[]} disabled>
+            <SelectTrigger id="ai-model" className="w-full sm:w-64">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent />
+          </Select>
+        }
+        apiKeyControl={
+          <Input
+            id="ai-api-key"
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            value=""
+            disabled
+          />
+        }
+        apiKeyHelp={null}
+        apiUrlControl={null}
+        saveControl={
+          <Button type="submit" disabled className="w-full sm:w-auto">
+            {t("save")}
+          </Button>
+        }
+        testControl={
+          <Button type="button" variant="outline" disabled className="w-full sm:w-auto">
+            {t("test")}
+          </Button>
+        }
+        removeControl={null}
+      />
+    );
   }
 
   return (
@@ -495,27 +612,34 @@ export function ProviderSection({
 /**
  * The card's chrome alone: the heading, the picker's own label and hint, and
  * every conditionally-present field's structural wrapper -- with no
- * dependency on `active`/`providers`, so `src/app/(app)/ai/page.tsx` can
- * render this directly as its own `<Suspense>` fallback (with a skeleton bar
- * standing in for each slot) instead of an anonymous skeleton block. See the
- * doc comment on `GeneralSectionShell` in `../settings/general-section.tsx`
- * for why this split exists.
+ * dependency on `active`/`providers`, so `<ProviderSectionForm>` can render it
+ * for both its resolved state and its `pending` one (real, disabled controls
+ * in place of every slot -- see the "The `…Form` / `…Resolved` /
+ * `…Section({ promise })` split" section of the doc comment above `<ProviderSectionForm>`)
+ * from the same markup.
+ *
+ * **Deliberately not exported.** Only `<ProviderSectionForm>` in this file
+ * renders it; a page reaches the pending state through that form's `pending`
+ * prop, never through this shell. `../settings/general-section.tsx` and
+ * `../integrations/youtube-section.tsx` needed no shell split at all once
+ * their pending and resolved renders converged on one component -- this card
+ * keeps one only because of the slot-presence rule below.
  *
  * **Presence, not just content, is a slot's job here.** Unlike
- * `GeneralSectionShell`, where both controls are always shown, whether the
+ * `<GeneralSectionForm>`, where both controls are always shown, whether the
  * model/API-key/API-url fields and the remove footer render *at all* depends
  * on which provider is selected and what is stored for it -- data this shell
- * never sees. So each of those slots is `null` when `<ProviderSection>`
+ * never sees. So each of those slots is `null` when `<ProviderSectionForm>`
  * decides nothing belongs there, and this shell's only job is to wrap a
  * non-null slot in its label/structure and render nothing for a null one;
  * it never inspects `active`/`providers` itself to make that call.
  *
  * The `<form>` lives here, wrapping the picker, the conditional fields and the
- * action buttons exactly as it did inside `<ProviderSection>`'s own
+ * action buttons exactly as it did inside `<ProviderSectionForm>`'s own
  * `CardContent` -- `onSubmit` is just a callback the shell forwards, unaware
  * of what it does.
  */
-export function ProviderSectionShell({
+function ProviderSectionShell({
   statusBadge,
   providerControl,
   providerHint,
@@ -526,13 +650,10 @@ export function ProviderSectionShell({
   saveControl,
   testControl,
   removeControl,
-  // Optional, and defaulted here rather than by the caller: `ai/page.tsx`'s
-  // Suspense fallback and `ai/loading.tsx` both render this shell from a
-  // Server Component, which cannot pass a function prop into a Client
-  // Component (it isn't a Server Action, so React has nothing to serialize it
-  // as). Defaulting inside this "use client" module keeps the function
-  // entirely on the client, so neither fallback needs an `onSubmit` at all --
-  // the same fix `YoutubeSectionShell` already carries.
+  // Optional, defaulted to a no-op: the `pending` branch of
+  // `<ProviderSectionForm>` above renders this shell with no `onSubmit` at
+  // all, since every control in it is disabled and there is nothing to
+  // submit.
   onSubmit = (event) => event.preventDefault(),
 }: {
   statusBadge: ReactNode;
@@ -597,5 +718,34 @@ export function ProviderSectionShell({
           from Save. */}
       {removeControl}
     </Card>
+  );
+}
+
+/** Calls use(); suspends until the promise resolves; renders the form for real. */
+function ProviderSectionResolved({ promise }: { promise: Promise<AiStatus> }) {
+  const status = use(promise);
+  return <ProviderSectionForm active={status.active} providers={status.providers} />;
+}
+
+/**
+ * What the page renders. The fallback is the real form, in its pending
+ * state -- see the Design Reference in
+ * docs/superpowers/plans/2026-08-16-streaming-controls-migration.md -- so the
+ * heading, both card headings, every label, the provider and model pickers,
+ * the API key field and both buttons are on screen, disabled, from the first
+ * frame, and only the mask, the status badge, the active provider and the
+ * enabled state stream in afterward.
+ *
+ * `promise` is the whole `AiStatus` `getAiStatus()` resolves to, not a
+ * narrower `{ active, providers }` shape -- `<AdvancedSection>` reads the same
+ * promise for its own `advanced` slice, and `getAiStatus()` is `cache()`d
+ * through `getSettings()`, so sharing it between both sections costs no extra
+ * read (see `src/app/(app)/ai/page.tsx`).
+ */
+export function ProviderSection({ promise }: { promise: Promise<AiStatus> }) {
+  return (
+    <Suspense fallback={<ProviderSectionForm pending />}>
+      <ProviderSectionResolved promise={promise} />
+    </Suspense>
   );
 }
