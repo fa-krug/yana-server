@@ -337,18 +337,14 @@ were deleted. They stay in the client's local store indefinitely;
 - Modify: `src/lib/articles/actions.ts`
 - Modify: `src/lib/articles/actions.test.ts`
 
-- [ ] **Step 1:** Write a failing test asserting a tombstone row exists after
+- [x] **Step 1:** Write a failing test asserting a tombstone row exists after
       `deleteArticles()`.
-- [ ] **Step 2:** Insert the tombstones **inside the same `writeTransaction`** as
+- [x] **Step 2:** Insert the tombstones **inside the same `writeTransaction`** as
       the delete. Copy the shape from `retention.ts:36-44`; do not invent a
       variant.
-- [ ] **Step 3:** While here — check whether `restore.ts:23-39` should preserve
-      starred articles. `retention.ts:36-44` explicitly excludes
-      `eq(articles.starred, false)`; restore deletes everything. Two hard-delete
-      paths give opposite answers about the one thing a user explicitly marked
-      as worth keeping. **Ask the owner rather than guessing** — this is a
-      product decision, not a bug with an obvious fix.
-- [ ] **Step 4: Verify.**
+- [ ] **Step 3:** (moot — `restore.ts` was deleted earlier in this plan per the
+      Amendment above; there is no restore path left to compare against.)
+- [x] **Step 4: Verify.**
 
 ---
 

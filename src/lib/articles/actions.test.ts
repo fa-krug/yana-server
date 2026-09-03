@@ -238,6 +238,44 @@ describe("articles actions", () => {
       expect(await queries.getArticle(art1.id)).toBeNull();
       expect(await queries.getArticle(art2.id)).toBeNull();
     });
+
+    it("writes a tombstone for each deleted article, attributed to the owner", async () => {
+      const user1Id = await currentUserId();
+      const feedId = seedFeed();
+      const art1 = seedArticle(feedId);
+      const art2 = seedArticle(feedId);
+
+      await switchToOtherUser();
+      const foreignFeed = seedFeed();
+      const foreignArt = seedArticle(foreignFeed);
+
+      const cookie = await signInCookie(auth, { email: "user@example.com", password: PASSWORD });
+      requestAs(cookie);
+      actingUserId = user1Id;
+
+      await actions.deleteArticles([art1.id, art2.id, foreignArt.id]);
+
+      const tombstones = client.getDb().select().from(schema.articleTombstones).all();
+
+      expect(tombstones).toHaveLength(2);
+      expect(tombstones.map((t) => t.articleId).sort()).toEqual([art1.id, art2.id].sort());
+      expect(tombstones.every((t) => t.userId === user1Id)).toBe(true);
+    });
+
+    it("does not error and writes no tombstones when nothing is deleted", async () => {
+      await currentUserId();
+      const feedId = seedFeed();
+      const art = seedArticle(feedId);
+
+      await switchToOtherUser();
+
+      const res = await actions.deleteArticles([art.id]);
+      expect(res.ok).toBe(true);
+      expect(res.deleted).toBe(0);
+
+      const tombstones = client.getDb().select().from(schema.articleTombstones).all();
+      expect(tombstones).toHaveLength(0);
+    });
   });
 
   describe("reloadArticles", () => {

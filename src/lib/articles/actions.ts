@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import { currentUserId } from "@/lib/auth/session";
 import { getDb, writeTransaction } from "@/lib/db/client";
-import { articles, feeds } from "@/lib/db/schema";
+import { articles, articleTombstones, feeds } from "@/lib/db/schema";
 import { enqueueRun, PRIORITY_IMMEDIATE } from "@/lib/jobs/queue";
 
 const updateArticleSchema = z.object({
@@ -101,13 +101,34 @@ export async function deleteArticles(ids: number[]): Promise<{ ok: boolean; dele
   const userFeedIds = db.select({ id: feeds.id }).from(feeds).where(eq(feeds.userId, userId));
 
   return writeTransaction((tx) => {
-    const result = tx
-      .delete(articles)
+    // Tombstones must be written for exactly the rows that will actually be
+    // deleted, scoped by the same ownership condition as the delete below --
+    // never by `ids` directly, which may name articles the caller does not
+    // own. See articleTombstones' doc comment in schema/articles.ts: every
+    // hard-delete path on `articles` must insert one of these first, in the
+    // same transaction, or a client that already synced the row never learns
+    // it is gone.
+    const doomed = tx
+      .select({ id: articles.id })
+      .from(articles)
       .where(and(inArray(articles.id, ids), inArray(articles.feedId, userFeedIds)))
+      .all();
+
+    if (doomed.length === 0) {
+      revalidatePath("/articles");
+      return { ok: true, deleted: 0 };
+    }
+
+    const doomedIds = doomed.map((a) => a.id);
+
+    tx.insert(articleTombstones)
+      .values(doomedIds.map((articleId) => ({ articleId, userId })))
       .run();
 
+    tx.delete(articles).where(inArray(articles.id, doomedIds)).run();
+
     revalidatePath("/articles");
-    return { ok: true, deleted: result.changes };
+    return { ok: true, deleted: doomedIds.length };
   });
 }
 
