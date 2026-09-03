@@ -299,9 +299,20 @@ delete those rows and `fs.rm` their files. Chunk both the query and the delete â
 `blocks/storage.ts:142-147` already chunks its inserts at 100 for exactly this
 reason.
 
-Delete the **row and the file in the right order**: unlink first, then the row,
-or a crash between them leaves a row pointing at nothing (unservable) rather
-than a file nothing points at (merely leaked). Prefer leaking to breaking.
+Delete the **row and the file in the right order**: delete the row first, then
+`fs.rm` the file. A crash between them then leaves a file nothing points at
+(merely leaked) rather than a row pointing at nothing (unservable). Prefer
+leaking to breaking.
+
+> **Corrected 2026-09-03 during execution.** This step originally read "unlink
+> first, then the row" while giving the justification for the opposite order â€”
+> unlink-first is exactly what leaves a row pointing at a missing file, which
+> makes the images route's `fs.readFile` throw. The instruction and its own
+> rationale were inverted. The implemented order (row inside
+> `writeTransaction`, then `fs.rm` after it commits) is the one the rationale
+> actually demands, and it matches `removeAvatar()` in
+> `src/lib/account/actions.ts`, which nulls the column first and unlinks
+> second.
 
 - [x] **Step 4: Wire it into the retention job**
 
