@@ -7,6 +7,7 @@ import { AI_COLUMNS, activeProvider, resolveModel } from "./columns";
 import type { AiProviderKey } from "./providers";
 import {
   DEEPSEEK_API_URL,
+  GEMINI_API_BASE_URL,
   MISTRAL_API_URL,
   OPENAI_DEFAULT_API_URL,
   OPENROUTER_API_URL,
@@ -137,9 +138,14 @@ const PROVIDER_REQUESTS: Record<
     shape: "openai-compatible",
   },
   anthropic: { url: "https://api.anthropic.com/v1/messages", shape: "anthropic" },
-  // Gemini's URL is built from the model and the API key, so `callGemini()`
-  // builds it directly rather than reading a fixed one from here.
-  gemini: { url: "https://generativelanguage.googleapis.com/v1beta/models", shape: "gemini" },
+  // `GEMINI_API_BASE_URL` is the *base* -- `callGemini()` appends
+  // `/<model>:generateContent?key=<apiKey>` to whatever this resolves to. It
+  // used to be a second, independent copy of the same host string
+  // (`callGemini()` hardcoded it directly, and this table carried a third,
+  // unread copy purely to satisfy the shared `{ url, shape }` shape) -- now
+  // there is exactly one literal, in `./providers`, and both this table and
+  // `./gemini`'s probe import it.
+  gemini: { url: GEMINI_API_BASE_URL, shape: "gemini" },
   mistral: { url: MISTRAL_API_URL, shape: "openai-compatible" },
   qwen: { url: QWEN_API_URL, shape: "openai-compatible" },
   deepseek: { url: DEEPSEEK_API_URL, shape: "openai-compatible" },
@@ -355,23 +361,19 @@ export class AIClient {
 
     const model = resolveModel(provider, this.settings[columns.model] ?? "");
     const timeout = this.settings.aiRequestTimeout ?? 30;
+    // Resolved once, not once per branch: every shape reads its base URL
+    // from this same `entry.url`, whether that entry is a fixed string
+    // (every provider but OpenAI) or a function of the settings (OpenAI's
+    // operator-configurable `openaiApiUrl`).
+    const baseUrl = typeof entry.url === "function" ? entry.url(this.settings) : entry.url;
 
     switch (entry.shape) {
-      case "anthropic": {
-        const url = typeof entry.url === "function" ? entry.url(this.settings) : entry.url;
-        return this.callAnthropic(url, apiKey, model, prompt, timeout);
-      }
+      case "anthropic":
+        return this.callAnthropic(baseUrl, apiKey, model, prompt, timeout);
       case "gemini":
-        // Gemini's URL is built from the already-resolved `apiKey`/`model`
-        // above, inside `callGemini()` itself, rather than a second time from
-        // `entry.url` -- the table still declares one (every entry does, per
-        // the shared shape), but building it from values this function
-        // already resolved avoids re-deriving them a second way.
-        return this.callGemini(apiKey, model, prompt, jsonMode, jsonSchema, timeout);
-      case "openai-compatible": {
-        const baseUrl = typeof entry.url === "function" ? entry.url(this.settings) : entry.url;
+        return this.callGemini(baseUrl, apiKey, model, prompt, jsonMode, jsonSchema, timeout);
+      case "openai-compatible":
         return this.callOpenaiCompatible(baseUrl, apiKey, model, prompt, jsonMode, timeout);
-      }
     }
   }
 
@@ -456,8 +458,16 @@ export class AIClient {
     return result?.content?.[0]?.text ?? null;
   }
 
-  /** Gemini's `generateContent` envelope -- distinct from every other provider's. */
+  /**
+   * Gemini's `generateContent` envelope -- distinct from every other
+   * provider's. `baseUrl` is `entry.url` resolved by `callProvider()`
+   * (`GEMINI_API_BASE_URL` from `./providers`), not a second, independently
+   * hardcoded copy of the host -- that duplication (this method, the table
+   * entry, and the characterisation test all carrying their own copy of the
+   * same string) is exactly the class of drift Task 4 exists to remove.
+   */
   private async callGemini(
+    baseUrl: string,
     apiKey: string,
     model: string,
     prompt: string,
@@ -465,7 +475,7 @@ export class AIClient {
     jsonSchema: Record<string, unknown> | undefined,
     timeout: number,
   ): Promise<string | null> {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const url = `${baseUrl}/${model}:generateContent?key=${apiKey}`;
     const headers = {
       "Content-Type": "application/json",
     };

@@ -5,8 +5,15 @@ import {
   type ProbeResult,
 } from "@/lib/integrations/probe";
 
-/** Fixed: `hasCustomUrl` is `false` for this provider, so there is nothing to configure. */
-const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+import { GEMINI_API_BASE_URL } from "./providers";
+
+/**
+ * Fixed: `hasCustomUrl` is `false` for this provider, so there is nothing to
+ * configure. The base URL itself lives in `./providers`
+ * (`GEMINI_API_BASE_URL`) rather than as a private copy here, so this probe
+ * and `run.ts`'s `callGemini()` cannot drift apart on the host.
+ */
+const GEMINI_API_BASE = GEMINI_API_BASE_URL;
 
 /** Whether a `google.rpc.ErrorInfo` detail says the key itself was refused. */
 function saysKeyInvalid(details: unknown): boolean {

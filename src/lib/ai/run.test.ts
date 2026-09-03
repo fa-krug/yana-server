@@ -6,6 +6,7 @@ import { AI_COLUMNS } from "./columns";
 import {
   AI_PROVIDERS,
   DEEPSEEK_API_URL,
+  GEMINI_API_BASE_URL,
   MISTRAL_API_URL,
   OPENAI_DEFAULT_API_URL,
   OPENROUTER_API_URL,
@@ -745,7 +746,11 @@ describe("applyAiToBlocks & AIClient processing", () => {
         case "anthropic":
           return "https://api.anthropic.com/v1/messages";
         case "gemini":
-          return `https://generativelanguage.googleapis.com/v1beta/models/${provider.defaultModel}:generateContent?key=${apiKey}`;
+          // Built from `GEMINI_API_BASE_URL`, the same constant `run.ts`'s
+          // `PROVIDER_REQUESTS` table and `callGemini()` read -- not a
+          // hard-coded copy of the host, which is exactly the drift this
+          // sweep exists to catch (see the module doc comment above).
+          return `${GEMINI_API_BASE_URL}/${provider.defaultModel}:generateContent?key=${apiKey}`;
         case "mistral":
           return `${MISTRAL_API_URL}/chat/completions`;
         case "qwen":

@@ -67,6 +67,22 @@ export const DEEPSEEK_API_URL = "https://api.deepseek.com/v1";
  */
 export const OPENROUTER_API_URL = "https://openrouter.ai/api/v1";
 
+/**
+ * Gemini's fixed base URL, sans the trailing `/<model>:generateContent` --
+ * the model id and, per Google's own docs, the API key itself (in
+ * `?key=`) are appended by the caller. Same reason as the four above: both
+ * sides that need it (the probe in `./gemini` and `run.ts`'s matching
+ * `callGemini` method) must agree, and a client-safe constant is the only
+ * place both can import from without a probe module reaching the browser
+ * bundle. Not an operator setting -- no column, no form field, one literal.
+ * Before this constant existed, `./gemini`'s probe and `run.ts`'s table and
+ * `callGemini()` each held their own copy of this same string -- three
+ * places for the host to drift between, the exact "one rule implemented
+ * twice" failure this repository's other constants above already exist to
+ * prevent for their own providers.
+ */
+export const GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
+
 /** One entry in a provider's model select. `label` is a brand name, never translated. */
 export type AiModel = { value: string; label: string };
 
