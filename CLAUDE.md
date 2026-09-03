@@ -944,6 +944,24 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   Unlike `updateIntervalMinutes`/`concurrency`, there's no per-aggregator
   recommendation in `specs.ts` — every aggregator starts at the same flat
   `30`, freely editable per feed afterward.
+- **`feeds.dailyLimit` (default `20`) paces collection across the day rather
+  than spending it all on the first run — `BaseAggregator.getCurrentRunLimit()`
+  (private, `src/lib/aggregators/base.ts`) computes how many entries _this run_
+  may collect from `dailyLimit`, the real time of day and `collectedToday`, and
+  `aggregate()` passes that number down as an ordinary parameter to
+  `fetchSourceData(limit)` and `parseToRawArticles(sourceData, limit)`. Every
+  override **must** slice or fetch by the value it is given and must never
+  recompute its own via `getCurrentRunLimit()` — that was exactly the 2026-09-03
+  pipeline-review bug: `RssAggregator`/`PodcastAggregator`'s
+  `parseToRawArticles()` (14 of 16 registered aggregators) silently recomputed
+  with `collectedToday = 0`, discarding the pacing `aggregate()` had already
+  worked out, and a feed on `dailyLimit: 20` could store roughly 3x that in a
+  day. **This is a real behaviour change for existing installs, not just a bug
+  fix**: a fast feed on a small `dailyLimit` now genuinely caps at that number
+  per day, and any entries beyond it are simply lost once the source's own
+  window rolls past them — there is no backfill. `limit === 0` means zero
+  articles, never "unbounded"; treat it as `?? `, not `||`, wherever it is read,
+  since an explicit `0` is a valid paced value, not "no limit given".
 - **`filterArticles()` has a second half now: an article whose source labels it
   as advertising is dropped, not stored.** The vocabulary and the matching are
   `src/lib/aggregators/promotional.ts`, the drop is
@@ -1096,6 +1114,19 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   - **It governs what _triggers_ a rewrite, not what gets stored.** When the
     article's own content does change, the current comment section rides along
     into the row as before.
+
+  **Reddit and YouTube now store comments differently depending on which path
+  produced the article, and that divergence is new.** `processContent()` on
+  both aggregators only wraps `commentsContent` in the `ARTICLE_COMMENTS_CLASS`
+  section when `_reddit_comments_html`/`_youtube_comments_html` is set —
+  which only `enrichArticles()` (the aggregation path) does. `reload.ts` never
+  runs `enrichArticles()`, so on that path the two sites' own content-building
+  code concatenates comments straight into the body, unmarked, exactly as
+  aggregation itself used to before this fix. The stored block tree is
+  therefore not the same shape depending on whether an article arrived via
+  aggregation or a manual reload, on the same feed, for the same post. This is
+  a known gap for plan 3 ("unify parallel paths") to close, not something this
+  fix attempted.
 
   **Excluding the raw page is what left `articles.raw_content` with no reader,
   and it is now gone.** It held the whole fetched page, justified as "the
@@ -2118,6 +2149,19 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   the validation the static-list check performs for everyone else. An empty
   stored value is still not trusted and still falls back to the default, the
   same as every other provider's unconfigured case.
+
+  **`resolveModel()` is not a display-only substitution — `src/lib/ai/run.ts`
+  calls it too, on every one of the seven provider branches, so its answer is
+  the model id actually sent to the provider and billed.** It used to read the
+  raw `user_settings` column directly in `run.ts` while `/ai`'s own status read
+  went through `resolveModel()`, so a row written before a registry refresh
+  (still holding a retired id like `gpt-4o-mini`) showed the _substituted_
+  current model on `/ai` with a green badge while every real aggregation
+  request sent the retired id and failed outright — the only trace a per-article
+  `AI processing did not complete (providerError)` job-log line. Fixed by
+  routing `run.ts` (and `POST /api/v1/ai/prompt`'s reported model) through the
+  same `resolveModel()` call `getAiStatus()` already made, so the id shown, the
+  id sent and the id billed cannot again disagree.
 
 - **There is no per-user AI request cap and no output-token cap, and the
   absence of both is a decision.** The

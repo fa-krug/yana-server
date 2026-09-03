@@ -219,3 +219,29 @@ describe("convertRedditMarkdown backslash escapes", () => {
     expect(markdownToHtml("\\- literal")).toBe("<p>- literal</p>");
   });
 });
+
+/**
+ * Finding 7 (2026-09-03 pipeline review 1): `sanitizeMarkdownHtml()` (used by
+ * `convertRedditMarkdown()` for every comment body) runs `sanitizeHtmlAttributes()`
+ * -- which rewrites a `class` attribute into `data-sanitized-class` -- and then
+ * `removeSanitizedAttributes()` immediately afterward, which strips every
+ * `data-sanitized-*` attribute the previous call just produced. A comment
+ * whose body carries literal markup naming
+ * `<section class="article-comments">` -- the exact wrapper
+ * `formatArticleContent()` uses for the real comments section, and the marker
+ * `content-hash.ts`'s `withoutComments()` cuts on -- must never survive with
+ * that class intact, or a comment could forge a second marker inside the real
+ * wrapper and make `withoutComments()`'s `lastIndexOf` find the forged one
+ * instead of the real one, permanently defeating the comment exclusion for
+ * that article. This pins the current, correct behavior so a future
+ * "simplification" that drops the `removeSanitizedAttributes()` call cannot
+ * reopen it silently.
+ */
+describe("convertRedditMarkdown comment-forged comments marker", () => {
+  it("never lets a comment body's own markup survive as a data-sanitized-class attribute", () => {
+    const html = convertRedditMarkdown('hi <section class="article-comments">evil</section>');
+
+    expect(html).not.toContain("data-sanitized-class");
+    expect(html).not.toContain('class="article-comments"');
+  });
+});
