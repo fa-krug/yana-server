@@ -333,22 +333,31 @@ export class RedditAggregator extends BaseAggregator {
     return postData;
   }
 
-  override async filterArticles(articles: RawArticle[]): Promise<RawArticle[]> {
-    const filtered: RawArticle[] = [];
+  override async filterArticles(
+    articles: RawArticle[],
+    clock: () => Date = () => new Date(),
+  ): Promise<RawArticle[]> {
+    // Apply the base implementation first -- it is what reads the feed's own
+    // `maxArticleAgeDays` column and, when `skip_ads` is on, drops articles
+    // the source labels as advertising via `promotionalLabelOf()`. This
+    // override used to build its filtered list from scratch instead, which
+    // silently replaced `maxArticleAgeDays` with a hard-coded 60-day window
+    // and meant `skip_ads` did nothing at all on Reddit. Only Reddit's own
+    // *additional* rules (`min_comments`, `min_age_hours`, dropping
+    // AutoModerator) run below, on top of what `super` already kept.
+    const baseFiltered = await super.filterArticles(articles, clock);
+
     const minComments = (this.feed.options?.min_comments as number) ?? 5;
     const minAgeHours = (this.feed.options?.min_age_hours as number) ?? 48;
 
-    const now = new Date();
-    const twoMonthsAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+    const now = clock();
     const minAgeCutoff =
       minAgeHours > 0 ? new Date(now.getTime() - minAgeHours * 60 * 60 * 1000) : null;
 
-    for (const article of articles) {
-      const articleDate = article.date;
+    const filtered: RawArticle[] = [];
 
-      if (articleDate && articleDate < twoMonthsAgo) {
-        continue;
-      }
+    for (const article of baseFiltered) {
+      const articleDate = article.date;
 
       if (minAgeCutoff && articleDate && articleDate > minAgeCutoff) {
         continue;
@@ -423,8 +432,20 @@ export class RedditAggregator extends BaseAggregator {
           if (err instanceof ArticleSkipError) {
             return null; // drop this article; it's private/removed, not empty-with-comments
           }
-          article.raw_content = "";
-          article.content = "";
+          // A transient failure here (a comment-fetch hiccup, a
+          // buildPostContent() error) used to be caught and turned into an
+          // article with `raw_content = ""; content = ""` -- which was still
+          // returned and stored. `articleContentHash({content: ""})` is
+          // stable, so the next run computed the same hash, skipped the row,
+          // and the empty article was never repaired: a permanent, silent
+          // data loss out of what should have been a one-cycle retry.
+          // Dropping it instead, exactly like an `ArticleSkipError`, costs
+          // only a cycle's delay -- no row write means no fingerprint either,
+          // so the next run tries again while the entry is still in the
+          // feed's window.
+          const detail = err instanceof Error ? err.message : String(err);
+          this.onLog?.(`skipping "${article.name}": failed to build post content (${detail})`);
+          return null;
         }
 
         return article;

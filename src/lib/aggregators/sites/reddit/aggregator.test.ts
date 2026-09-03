@@ -10,6 +10,7 @@ import { ARTICLE_COMMENTS_CLASS } from "../../extract/format";
 import { ArticleSkipError } from "../../errors";
 import { RedditAggregator } from "./aggregator";
 import { fetchPostComments } from "./comments";
+import { buildPostContent } from "./content";
 import { RedditPostData } from "./types";
 import type { RedditPostDataDict } from "./types";
 
@@ -17,6 +18,20 @@ vi.mock("./comments", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./comments")>()),
   fetchPostComments: vi.fn(),
 }));
+
+// Wraps the real implementation by default (`vi.fn(actual.buildPostContent)`),
+// so every test that doesn't care about this -- fetchArticleContent, the
+// reload facade, the comments-wrapper wiring test -- keeps exercising the
+// real content builder. Only the failure test below overrides it, and only
+// once (`mockRejectedValueOnce`), which falls back to the real
+// implementation again afterward.
+vi.mock("./content", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./content")>();
+  return {
+    ...actual,
+    buildPostContent: vi.fn(actual.buildPostContent),
+  };
+});
 
 vi.mock("../../images/store", () => ({
   storeImageRefFromUrl: vi.fn(async () => "yana-img://abc123hash"),
@@ -142,7 +157,7 @@ describe("RedditAggregator.enrichArticles concurrency", () => {
     });
   }
 
-  it("skips articles whose comment fetch raises ArticleSkipError, keeps others on other errors", async () => {
+  it("skips articles whose comment fetch raises ArticleSkipError, and drops others on other errors too", async () => {
     vi.mocked(fetchPostComments).mockImplementation(async (_subreddit, postId) => {
       if (postId === "skip") throw new ArticleSkipError("gone", 404);
       if (postId === "fail") throw new Error("network boom");
@@ -158,10 +173,13 @@ describe("RedditAggregator.enrichArticles concurrency", () => {
 
     const result = await agg.enrichArticles(articles);
 
-    expect(result.map((a) => a.identifier)).toEqual(["ok", "fail"]);
-    // The article that failed keeps blank content, exactly as before the
-    // concurrency conversion.
-    expect(result[1]!.content).toBe("");
+    // A transient failure (anything that isn't ArticleSkipError) used to
+    // blank the article's content and still return it, which
+    // `articleContentHash({content: ""})` then fingerprinted as stable --
+    // permanently storing an empty article, never repaired on a later run.
+    // Dropping it here instead lets the next aggregation run retry it while
+    // it's still in the feed's window, exactly like an ArticleSkipError drop.
+    expect(result.map((a) => a.identifier)).toEqual(["ok"]);
   });
 
   it("preserves input order even when comment fetches finish out of completion order", async () => {
@@ -647,5 +665,89 @@ describe("RedditAggregator comments wrapper wiring", () => {
       `<section data-sanitized-class="${ARTICLE_COMMENTS_CLASS}">`,
     );
     expect(finalized!.content).toContain("a real comment");
+  });
+});
+
+/**
+ * Task 5 (2026-09-03 pipeline review 2), Bug A: `filterArticles()` used to
+ * build its filtered list from scratch instead of starting from
+ * `super.filterArticles(...)`, so a feed's own `maxArticleAgeDays` column was
+ * silently replaced by a hard-coded 60-day window (and `skip_ads` did
+ * nothing, since `promotionalLabelOf()` only runs inside the base
+ * implementation). `min_comments` and `min_age_hours` are disabled via
+ * options so this test isolates the age-cutoff behaviour alone.
+ *
+ * The system clock is frozen (`vi.useFakeTimers()`) rather than relying on an
+ * injected `clock` argument alone: the pre-fix code computed its hard-coded
+ * window from a bare `new Date()`, ignoring any `clock` passed in, so an
+ * un-frozen test would be at the mercy of the real wall-clock date instead of
+ * reliably failing before the fix.
+ */
+describe("RedditAggregator.filterArticles honours the feed's own maxArticleAgeDays", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("drops an article older than the feed's maxArticleAgeDays, even though a hard-coded 60-day window would keep it", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-02T00:00:00Z"));
+
+    const feed: FeedLike = {
+      identifier: "test",
+      dailyLimit: 20,
+      maxArticleAgeDays: 10,
+      options: { min_comments: 0, min_age_hours: 0 },
+    };
+    const agg = new RedditAggregator(feed);
+
+    const articles = [
+      article({
+        identifier: "recent",
+        date: new Date("2026-07-28T00:00:00Z"), // 5 days before "now"
+      }),
+      article({
+        identifier: "old",
+        // 28 days before "now": inside the old hard-coded 60-day window
+        // (so the pre-fix code would have kept it), but outside this
+        // feed's own 10-day maxArticleAgeDays.
+        date: new Date("2026-07-05T00:00:00Z"),
+      }),
+    ];
+
+    const filtered = await agg.filterArticles(articles);
+
+    expect(filtered.map((a) => a.identifier)).toEqual(["recent"]);
+  });
+});
+
+/**
+ * Task 5 (2026-09-03 pipeline review 2), Bug B: a transient failure inside
+ * `buildPostContent()` used to be caught and turned into an article with
+ * `raw_content = ""; content = ""` -- which was still returned and stored.
+ * `articleContentHash({content: ""})` is stable, so the next run computed the
+ * same hash, skipped the row, and the empty article was never repaired. The
+ * fix drops the article instead, exactly like an `ArticleSkipError`, so the
+ * next run's fetch gets a real chance to build it while it's still in the
+ * feed's window.
+ */
+describe("RedditAggregator.enrichArticles buildPostContent failure", () => {
+  it("drops the article rather than storing an empty body when buildPostContent throws", async () => {
+    vi.mocked(fetchPostComments).mockResolvedValue([]);
+    vi.mocked(buildPostContent).mockRejectedValueOnce(new Error("transient failure"));
+
+    const feed: FeedLike = { identifier: "test", dailyLimit: 20, options: {} };
+    const agg = new RedditAggregator(feed);
+    const articles = [
+      article({
+        identifier: "will-fail",
+        _reddit_post_data: postData("will-fail"),
+        _reddit_subreddit: "test",
+        _reddit_crosspost: null,
+      }),
+    ];
+
+    const result = await agg.enrichArticles(articles);
+
+    expect(result).toEqual([]);
   });
 });

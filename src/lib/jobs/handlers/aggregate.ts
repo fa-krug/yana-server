@@ -3,6 +3,7 @@ import { and, count, eq, gte } from "drizzle-orm";
 import { parseBlocks, plainTextOf } from "@/lib/aggregators/blocks/parser";
 import { writeBlocks } from "@/lib/aggregators/blocks/storage";
 import { rawArticleContentHash } from "@/lib/aggregators/content-hash";
+import { hasBodyContent } from "@/lib/aggregators/website";
 import { applyAiToBlocks, wantsAi } from "@/lib/ai/run";
 import { resolveFeedCredentials } from "@/lib/aggregators/credential-resolution";
 import { createAggregator } from "@/lib/aggregators/factory";
@@ -83,6 +84,10 @@ export async function handleAggregateJob(job: Job): Promise<void> {
   let created = 0;
   let updated = 0;
   let unchanged = 0;
+  // Articles with neither text nor media -- a failed extraction, not a short
+  // article. Counted for the same reason as `aiFailed` below: a run that
+  // stored fewer articles than the feed listed should say why.
+  let emptyBodySkipped = 0;
   // Articles the AI stage could not complete, so nothing was written for them
   // at all. Counted for the summary line: a run that stored fewer articles
   // than the feed listed should say why rather than look like a quiet feed.
@@ -119,6 +124,27 @@ export async function handleAggregateJob(job: Job): Promise<void> {
     // below, which ignores it -- see `rawArticleContentHash()`.
     const htmlContent = raw.content || raw.raw_content || "";
     const rawDate = raw.date ?? null;
+
+    // An article with neither text nor media is a failed extraction, not a
+    // short one, and storing it is permanent -- an aggregation run only ever
+    // sees the entries the feed currently lists, so once this one ages out of
+    // that window nothing refetches it (see the "An article with no body is
+    // skipped, never stored" note in CLAUDE.md). `website.ts`'s
+    // `FullWebsiteAggregator.enrichArticles()` already refuses this earlier,
+    // via the same `hasBodyContent()`, so such an article never reaches this
+    // loop at all -- this hoisted check is what closes the same gap for every
+    // other aggregator (Reddit, YouTube, Podcast, plain RSS), none of which
+    // had a guard of their own. `hasBodyContent()`'s "text or media" rule
+    // still applies here, so a comic feed's bare `<img>` or a podcast's
+    // `<audio>` embed is not caught by this.
+    if (!hasBodyContent(htmlContent)) {
+      const message = `no body content for "${raw.name || raw.identifier}", skipping article`;
+      console.warn(`[aggregate] ${message}`);
+      appendLogLine(job.id, "stdout", message);
+      emptyBodySkipped++;
+      progress(job.id, 80 + Math.floor(((i + 1) / total) * 20));
+      continue;
+    }
 
     // Computed here, from the article exactly as the aggregator produced it.
     // That is a fingerprint of the *source*, which is what makes it stable:
@@ -310,6 +336,7 @@ export async function handleAggregateJob(job: Job): Promise<void> {
     job.id,
     "stdout",
     `upserted articles: ${created} created, ${updated} updated, ${unchanged} unchanged` +
+      (emptyBodySkipped > 0 ? `, ${emptyBodySkipped} skipped (empty body)` : "") +
       (aiFailed > 0
         ? `, ${aiFailed} skipped (AI: ${[...aiFailureReasons].sort().join(", ")})`
         : ""),

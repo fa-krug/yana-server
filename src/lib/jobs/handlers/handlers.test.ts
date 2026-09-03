@@ -678,6 +678,99 @@ describe("src/lib/jobs/handlers", () => {
       expect(lines).toContain("upserted articles: 2 created, 0 updated, 0 unchanged");
     });
 
+    /**
+     * Task 5 (2026-09-03 pipeline review 2): the `hasBodyContent()` guard
+     * `website.ts`'s `enrichArticles()` already applies is hoisted here so it
+     * covers every aggregator, not only the `FullWebsiteAggregator` family --
+     * Reddit's own `buildPostContent()` failure used to slip a permanently
+     * empty article past that gap (see the reddit aggregator's own tests for
+     * that half of the fix). This exercises the hoisted guard directly against
+     * the job handler, independent of which aggregator produced the raw
+     * article.
+     */
+    it("skips an article with neither text nor media, and stores nothing for it", async () => {
+      const feedId = seedAggregateFeed();
+
+      const rawArticles = [
+        {
+          name: "Empty Article",
+          identifier: "art-empty",
+          raw_content: "",
+          content: "",
+          date: new Date(),
+        },
+        {
+          name: "Real Article",
+          identifier: "art-real",
+          raw_content: "<p>real body</p>",
+          content: "<p>real body</p>",
+          date: new Date(),
+        },
+      ];
+
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => rawArticles,
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+      const job = makeJob("aggregate", { feedId });
+
+      await aggregateHandler!(job);
+
+      const inserted = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.feedId, feedId))
+        .all();
+      expect(inserted.map((a) => a.identifier)).toEqual(["art-real"]);
+
+      const lines = logLines(job.id);
+      expect(lines.some((line) => line.includes("Empty Article"))).toBe(true);
+      expect(lines).toContain(
+        "upserted articles: 1 created, 0 updated, 0 unchanged, 1 skipped (empty body)",
+      );
+    });
+
+    /**
+     * The same guard must not drop a legitimately media-only body -- a comic
+     * feed's whole article is one `<img>`, and `hasBodyContent()`'s "text or
+     * media" rule exists precisely so that case survives (see the "An article
+     * with no body is skipped, never stored" note in CLAUDE.md).
+     */
+    it("keeps an article whose body is media-only, with no text at all", async () => {
+      const feedId = seedAggregateFeed();
+
+      const rawArticles = [
+        {
+          name: "Comic Strip",
+          identifier: "art-comic",
+          raw_content: "",
+          content: '<img src="https://example.com/comic.png">',
+          date: new Date(),
+        },
+      ];
+
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => rawArticles,
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+      const job = makeJob("aggregate", { feedId });
+
+      await aggregateHandler!(job);
+
+      const inserted = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.feedId, feedId))
+        .all();
+      expect(inserted.map((a) => a.identifier)).toEqual(["art-comic"]);
+    });
+
     it("logs an updated count when re-aggregating an already-seen article", async () => {
       let feedId = 0;
       client.writeTransaction((db) => {

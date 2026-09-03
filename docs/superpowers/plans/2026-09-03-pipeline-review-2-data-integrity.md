@@ -422,16 +422,16 @@ run computes the same hash, skips the row, and it is never repaired.
 - Modify: `src/lib/aggregators/sites/reddit/aggregator.ts`
 - Modify: the reddit aggregator test file
 
-- [ ] **Step 1:** Two failing tests — `maxArticleAgeDays` respected on a Reddit
+- [x] **Step 1:** Two failing tests — `maxArticleAgeDays` respected on a Reddit
       feed, and a `buildPostContent()` failure yields no stored article.
-- [ ] **Step 2:** Have the override start with `await super.filterArticles(...)`
+- [x] **Step 2:** Have the override start with `await super.filterArticles(...)`
       and apply only Reddit's *additional* rules (`min_comments`,
       `min_age_hours`) on top. Delete the hard-coded 60-day window.
-- [ ] **Step 3:** Return `null`/skip instead of blanking the article on failure.
+- [x] **Step 3:** Return `null`/skip instead of blanking the article on failure.
       Consider hoisting the `hasBodyContent` guard into `aggregate.ts` so it
       covers every aggregator rather than only the website family — that is the
       structural fix and prevents the third occurrence.
-- [ ] **Step 4: Verify.**
+- [x] **Step 4: Verify.**
 
 ---
 
