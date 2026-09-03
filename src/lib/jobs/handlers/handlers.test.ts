@@ -2550,6 +2550,88 @@ describe("src/lib/jobs/handlers", () => {
       vi.doUnmock("@/lib/ai/run");
     });
 
+    it("nulls the content fingerprint when the AI stage fails outright, instead of leaving the stale one", async () => {
+      // Task 7 established the rule for `droppedMedia` above: a stored hash
+      // means the row is current, and the hash is computed over the article
+      // as *fetched from source* -- so leaving a stale hash in place while
+      // writing the un-AI'd body lets the next aggregation run recompute the
+      // same value over the (unchanged) source, match, and skip the row
+      // forever. That reasoning applies just as much to an outright AI
+      // failure: the freshly fetched, un-processed body is written below
+      // (a deliberate choice, kept), but the old fingerprint must not survive
+      // it, or a feed configured to translate/rewrite every article gets
+      // permanently stuck serving the untranslated source for this one.
+      vi.resetModules();
+      vi.doMock("@/lib/aggregators/factory", () => ({
+        createAggregator: () => ({
+          fetchArticleContent: async () => "<p>Fresh from the source</p>",
+          extractHeaderElement: async () => null,
+          extractContent: (html: string) => html,
+          processContent: (html: string) => html,
+        }),
+      }));
+      const applyAiMock = vi.fn(async (input: { title: string; blocks: unknown[] }) => ({
+        title: input.title,
+        blocks: input.blocks,
+        outcome: { status: "failed", reason: "providerError" },
+        requested: true,
+        droppedMedia: false,
+      }));
+      vi.doMock("@/lib/ai/run", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("@/lib/ai/run")>();
+        return { ...actual, applyAiToBlocks: applyAiMock };
+      });
+      handlers = await import("./index");
+
+      let articleId = 0;
+      client.writeTransaction((db) => {
+        const user = db
+          .insert(schema.users)
+          .values({ id: "ai-failed-reload", email: "ai-failed-reload@example.com" })
+          .returning({ id: schema.users.id })
+          .get();
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "Feed", userId: user.id, options: { ai_translate: true } })
+          .returning({ id: schema.feeds.id })
+          .get();
+        const article = db
+          .insert(schema.articles)
+          .values({
+            name: "Original",
+            identifier: "https://example.com/failed-reload",
+            feedId: feed.id,
+            plainText: "stale",
+            contentHash: "pre-existing-hash",
+            date: new Date(),
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        articleId = article.id;
+      });
+
+      const reloadHandler = handlers.getHandler("article.reload");
+      const job = makeJob("article.reload", { articleId });
+
+      await expect(reloadHandler!(job)).rejects.toThrow(/AI processing did not complete/);
+
+      const reloaded = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, articleId))
+        .get();
+      // The fresh, un-translated body is still written -- that half is
+      // unchanged and deliberate.
+      expect(reloaded?.plainText).toContain("Fresh from the source");
+      // But the stale fingerprint must not survive: leaving it would make the
+      // next aggregation run recompute the same hash over the unchanged
+      // source, match, and skip this row forever.
+      expect(reloaded?.contentHash).toBeNull();
+
+      vi.doUnmock("@/lib/ai/run");
+    });
+
     /**
      * Builds the fixture shared by the reload-happy-path tests: a mocked
      * aggregator whose `fetchArticleContent` succeeds, a user/feed/article

@@ -475,11 +475,14 @@ describe("YouTubeAggregator comments wrapper wiring", () => {
  * instead of the real one, permanently defeating the comment exclusion for
  * that article. This pins the current, correct behavior so a future
  * "simplification" that drops the `removeSanitizedAttributes()` call cannot
- * reopen it silently. The shared implementation carries its own copy of this
- * test in `extract/clean.test.ts`; this one pins that the YouTube aggregator
- * still routes its comment bodies through it.
+ * reopen it silently. It calls the shared `sanitizeUntrustedFragment()`
+ * directly, the same as its copy in `extract/clean.test.ts` -- it does not
+ * verify that YouTube's own comment path routes through it (that is covered
+ * separately: `comments/section.test.ts` pins that the shared comment-section
+ * builder sanitizes unconditionally, and a byte-exact `buildCommentsHtml`
+ * characterization pin proves YouTube delegates to that builder).
  */
-describe("sanitizeUntrustedFragment comment-forged comments marker (via the YouTube comment path)", () => {
+describe("sanitizeUntrustedFragment comment-forged comments marker", () => {
   it("never lets a comment body's own markup survive as a data-sanitized-class attribute", () => {
     const html = sanitizeUntrustedFragment('hi <section class="article-comments">evil</section>');
 

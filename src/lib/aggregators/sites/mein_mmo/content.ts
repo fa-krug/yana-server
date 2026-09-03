@@ -17,6 +17,18 @@ import { processEmbeds } from "./embeds";
 const BACKGROUND_IMAGE_URL = /background-image:\s*url\(\s*['"]?\s*(https?:\/\/[^'")\s]+)/i;
 
 /**
+ * The content-container selectors this module matches against, below --
+ * the one place this pair is declared. `extractMeinMmoContent()` hardcodes
+ * these and never reads a feed's `content_selectors` override, so every
+ * other place in this site's aggregator that needs to agree with it (the
+ * multi-page combine step in `../multipage.ts`, and `aggregator.ts`'s
+ * pagination-detection scan) imports this constant rather than restating
+ * the literal -- a copy that drifted from this one would make those steps
+ * disagree with what extraction actually recognises.
+ */
+export const MEIN_MMO_CONTENT_SELECTORS = ["div.entry-content", "div.gp-entry-content"];
+
+/**
  * The poster Mein-MMO's own player shows before playback -- carried as an
  * inline `background-image` on the block's `div.thumbnail` (and, identically,
  * on its `div.video-player`) rather than as an `<img>`.
@@ -135,7 +147,7 @@ export async function extractMeinMmoContent(
 ): Promise<string> {
   const $ = cheerio.load(html);
 
-  const contentDivs = $("div.entry-content, div.gp-entry-content");
+  const contentDivs = $(MEIN_MMO_CONTENT_SELECTORS.join(", ")) as cheerio.Cheerio<Element>;
   if (contentDivs.length === 0) {
     return html;
   }

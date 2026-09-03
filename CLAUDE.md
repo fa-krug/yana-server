@@ -1487,10 +1487,21 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   means on each site. The author and timestamp reads, and whether the source
   link carries `target="_blank" rel="noopener"`, differ the same way.
   **`heise.ts` is not
-  on the builder**, and that is an exception rather than an oversight: its
-  per-comment body is the posting's _subject line_ rather than markup, so it
-  renders its own blockquotes — four sites on the builder, five commenting
-  sites in total. **And the failures log now.** This is the most
+  on the builder** — four sites on the builder, five commenting sites in
+  total — but not for a uniform reason, and one of its two renderers really
+  is a remaining duplicate rather than a structurally different case.
+  `processListItemComment()` (heise.ts:101-106) is the genuine exception: its
+  per-comment body is the posting's _subject line_ rather than markup, which
+  the builder has no shape for. `processFullViewComment()` (heise.ts:151-158)
+  is not — it emits the exact same
+  `<blockquote><p><strong>author</strong> | link</p><div>{sanitized
+markup}</div></blockquote>` shape the builder's non-`multiline` branch
+  produces, under the same `<section><h3><a>Comments</a></h3>` wrapper
+  (heise.ts:465-466). Converting it was not attempted: heise's two-renderer
+  dispatch and its nested-reply handling are real complexity that a
+  three-value `CommentSpec` field cannot express cleanly, so the second
+  duplicate was left in place rather than forced onto the builder for its
+  own sake. **And the failures log now.** This is the most
   selector-fragile code in the tree, and every implementation of it used to end
   in `catch { /* ignore */ }` — heise had two — so a site that quietly stopped
   yielding comments looked exactly like a site whose readers had stopped

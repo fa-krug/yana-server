@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import { MEIN_MMO_CONTENT_SELECTORS } from "./content";
 
 /**
  * Detect page numbers from pagination elements in Mein-MMO articles.
@@ -14,7 +15,7 @@ export function detectPagination(html: string): Set<number> {
   const pageNumbers = new Set<number>([1]);
 
   // Try to find pagination within the content area first to avoid header/footer pagination
-  const contentDiv = $("div.entry-content, div.gp-entry-content").first();
+  const contentDiv = $(MEIN_MMO_CONTENT_SELECTORS.join(", ")).first();
   let pagination = contentDiv.length > 0 ? contentDiv.find("div.page-links").first() : null;
 
   // Fallback to global search if not found in content div

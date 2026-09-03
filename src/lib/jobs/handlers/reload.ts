@@ -352,16 +352,21 @@ export async function handleReloadJob(job: Job): Promise<void> {
         // would compute over the feed's own article rather than the page reload
         // fetched. Such a row is reprocessed once and settles.
         //
-        // The one case that *does* null it explicitly: `ai.droppedMedia`. The
-        // "leave it" reasoning above assumes the stored blocks are the best
-        // available version of this article; a rewrite that dropped a
-        // media/code block is not that, and leaving the old hash in place
-        // would let a later aggregation run compare against the (unchanged)
-        // source, match, skip, and leave the dropped media gone for the life
-        // of that source article -- the exact permanence
-        // `handleAggregateJob()` withholds its own hash write to avoid. See
-        // `AiBlockResult.droppedMedia` in `@/lib/ai/run`.
-        ...(ai.droppedMedia ? { contentHash: null } : {}),
+        // The two cases that *do* null it explicitly: `ai.droppedMedia`, and
+        // the AI stage failing outright. The "leave it" reasoning above
+        // assumes the stored blocks are the best available version of this
+        // article; a rewrite that dropped a media/code block is not that,
+        // and neither is a body that never went through the AI stage a feed
+        // is configured to require -- in both cases leaving the old hash in
+        // place would let a later aggregation run compare against the
+        // (unchanged) source, match, skip, and leave the article permanently
+        // wrong (media gone, or never translated/rewritten) for the life of
+        // that source article -- the exact permanence `handleAggregateJob()`
+        // withholds its own hash write to avoid. See `AiBlockResult.droppedMedia`
+        // and `ApplyAiOutcome` in `@/lib/ai/run`. This does *not* change the
+        // deliberate choice to still write the fresh, un-processed body above
+        // -- only the stale fingerprint goes.
+        ...(ai.droppedMedia || aiOutcome.status === "failed" ? { contentHash: null } : {}),
         updatedAt: new Date(),
       })
       .where(eq(articles.id, article.id))

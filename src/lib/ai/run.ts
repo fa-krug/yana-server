@@ -2,7 +2,7 @@ import { plainTextOf } from "@/lib/aggregators/blocks/plain-text";
 import type { Block } from "@/lib/aggregators/blocks/types";
 import type { UserSettings } from "@/lib/db/schema";
 
-import { blocksToText, canonicalBlocks, textToBlocks } from "./block-text";
+import { blocksToText, textToBlocks } from "./block-text";
 import { AI_COLUMNS, activeProvider, resolveModel } from "./columns";
 import type { AiProviderKey } from "./providers";
 import {
@@ -926,12 +926,14 @@ export async function applyAiToBlocks(
   }
 
   let title = input.title;
-  // Canonicalized only on the rewrite path, where the tree has to survive the
-  // notation round trip. A summarize-only request serializes nothing, so
-  // normalizing there was pure loss: it collapsed in-paragraph line breaks and
-  // merged runs for no reason, storing a different tree than the same article
-  // would get on a feed with AI switched off.
-  let blocks = wantsRewrite ? canonicalBlocks(input.blocks) : input.blocks;
+  // Not canonicalized here: on the rewrite path this value is always either
+  // overwritten by the actual rewritten blocks (once the model's answer
+  // parses) or bypassed entirely by an early `unchanged()` return, so a
+  // canonicalized copy assigned here would never be read -- a dead full-tree
+  // copy on every rewritten article. `canonicalBlocks()` is still what makes
+  // `textToBlocks(answer.document)` comparable against the sent document (see
+  // the `echoed` check below), it is just never applied to *this* variable.
+  let blocks = input.blocks;
   /** How many blocks the rewrite came back as, before any summary block. */
   let rewrittenCount = blocks.length;
   /** See `AiBlockResult.droppedMedia` -- set below when the rewrite dropped one. */
