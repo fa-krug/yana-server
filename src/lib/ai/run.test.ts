@@ -14,13 +14,12 @@ import {
 import { AIClient, applyAiToBlocks, type AiRuntimeSettings } from "./run";
 
 function makeSettings(overrides: Partial<AiRuntimeSettings> = {}): AiRuntimeSettings {
-  const provider = overrides.activeAiProvider ?? overrides.active_ai_provider ?? "gemini";
+  const provider = overrides.activeAiProvider ?? "gemini";
   return {
     userId: "test-user",
     activeAiProvider: provider,
     aiMaxRetries: 3,
     aiRetryDelay: 0, // speed up tests by default
-    aiMaxRetryTime: 60,
     aiRequestTimeout: 30,
     aiTemperature: 0.7,
 
@@ -267,29 +266,41 @@ describe("applyAiToBlocks & AIClient processing", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
-    it("stops retrying when maxRetryTime budget would be exceeded", async () => {
-      const settings = makeSettings({
-        activeAiProvider: "gemini",
-        aiMaxRetries: 5,
-        aiRetryDelay: 2,
-        aiMaxRetryTime: 3, // max retry time budget of 3s
-      });
-      const fetchMock = vi.fn();
-      globalThis.fetch = fetchMock;
+    it("stops retrying when the fixed 60s retry-time budget would be exceeded", async () => {
+      // The retry-time budget is `MAX_RETRY_TIME_SECONDS`, a fixed constant
+      // (60s) rather than a `user_settings` column -- there never was a
+      // column in either spelling, and the setting-shaped surface that used
+      // to read one always fell back to this same value regardless. So this
+      // test drives real time forward with fake timers rather than shrinking
+      // the budget itself, which is no longer a thing a caller can do.
+      vi.useFakeTimers();
+      try {
+        const settings = makeSettings({
+          activeAiProvider: "gemini",
+          aiMaxRetries: 5,
+          aiRetryDelay: 25,
+        });
+        const fetchMock = vi.fn();
+        globalThis.fetch = fetchMock;
 
-      fetchMock.mockResolvedValue({
-        ok: false,
-        status: 429,
-        statusText: "Too Many Requests",
-      });
+        fetchMock.mockResolvedValue({
+          ok: false,
+          status: 429,
+          statusText: "Too Many Requests",
+        });
 
-      const client = new AIClient(settings);
-      const result = await client.generateResponse("test prompt");
+        const client = new AIClient(settings);
+        const resultPromise = client.generateResponse("test prompt");
+        await vi.runAllTimersAsync();
+        const result = await resultPromise;
 
-      expect(result).toMatchObject({ ok: false });
-      // Attempt 0: delay 2s, 2s < 3s -> retry
-      // Attempt 1: delay 4s, 2s + 4s = 6s > 3s -> budget exceeded, stops retry!
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(result).toMatchObject({ ok: false });
+        // Attempt 0: delay 25s, 25s <= 60s -> retry.
+        // Attempt 1: delay 50s, 25s + 50s = 75s > 60s -> budget exceeded, stops.
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
@@ -499,6 +510,201 @@ describe("applyAiToBlocks & AIClient processing", () => {
     });
   });
 
+  describe("agreeing with activeProvider() on which provider is active", () => {
+    /**
+     * The Step 5 fix: `activeAiProvider = "openai"` with `openaiEnabled =
+     * false` is exactly the state a re-probe classifying the stored key
+     * `unauthorized`, or an operator pressing Remove, leaves behind -- both
+     * deliberately keep the preference (see `activeProvider()`'s doc comment
+     * in `./columns`). Before this fix, `AIClient` read the raw
+     * `activeAiProvider` column, passed its own guard, dispatched into
+     * `callProvider()`, hit *that* function's `!enabled` check and reported
+     * `providerError` -- "the provider failed" for a request nothing ever
+     * sent -- while `/ai` (via `activeProvider()`) correctly showed no active
+     * provider. The two must agree.
+     */
+    it("reports noProvider, and never calls fetch, when the active provider's flag is off", async () => {
+      const settings = makeSettings({
+        activeAiProvider: "openai",
+        openaiEnabled: false,
+        openaiApiKey: "sk-test",
+      });
+      const fetchMock = vi.fn();
+      globalThis.fetch = fetchMock;
+
+      const client = new AIClient(settings);
+      const result = await client.generateResponse("test prompt");
+
+      expect(result).toEqual({ ok: false, reason: "noProvider" });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("applyAiToBlocks reports the same noProvider failure, not providerError", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      const fetchMock = vi.fn();
+      globalThis.fetch = fetchMock;
+
+      const settings = makeSettings({
+        activeAiProvider: "openai",
+        openaiEnabled: false,
+        openaiApiKey: "sk-test",
+      });
+
+      const result = await applyAiToBlocks(
+        { title: "T", blocks: parseBlocks("<p>a</p>") },
+        { ai_summarize: true },
+        settings,
+      );
+
+      expect(result.outcome).toEqual({ status: "failed", reason: "noProvider" });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("still dispatches when the active provider's flag is on", async () => {
+      const settings = makeSettings({
+        activeAiProvider: "openai",
+        openaiEnabled: true,
+        openaiApiKey: "sk-test",
+      });
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: "hello" } }] }),
+      } as Response);
+      globalThis.fetch = fetchMock;
+
+      const client = new AIClient(settings);
+      const result = await client.generateResponse("test prompt");
+
+      expect(result).toEqual({ ok: true, text: "hello" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("an empty stored openaiApiUrl falls back to the default, like the probe", () => {
+    /**
+     * `openaiApiUrl ?? DEFAULT` does not catch an *empty string* -- an
+     * operator who cleared the field rather than leaving it untouched -- so
+     * the request went to `https://` with nothing after it. `testOpenaiKey()`
+     * (`./openai`) already guards this with `apiUrl?.trim() || DEFAULT`; the
+     * table in `./run` now matches it.
+     */
+    it("uses the default endpoint when openaiApiUrl is an empty string", async () => {
+      const settings = makeSettings({
+        activeAiProvider: "openai",
+        openaiEnabled: true,
+        openaiApiKey: "sk-test",
+        openaiApiUrl: "",
+      });
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: "hello" } }] }),
+      } as Response);
+      globalThis.fetch = fetchMock;
+
+      const client = new AIClient(settings);
+      const result = await client.generateResponse("test prompt");
+
+      expect(result).toEqual({ ok: true, text: "hello" });
+      const calledUrl = fetchMock.mock.calls[0]?.[0] as string;
+      expect(calledUrl).toBe(`${OPENAI_DEFAULT_API_URL}/chat/completions`);
+    });
+
+    it("uses the default endpoint when openaiApiUrl is whitespace-only", async () => {
+      const settings = makeSettings({
+        activeAiProvider: "openai",
+        openaiEnabled: true,
+        openaiApiKey: "sk-test",
+        openaiApiUrl: "   ",
+      });
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: "hello" } }] }),
+      } as Response);
+      globalThis.fetch = fetchMock;
+
+      const client = new AIClient(settings);
+      await client.generateResponse("test prompt");
+
+      const calledUrl = fetchMock.mock.calls[0]?.[0] as string;
+      expect(calledUrl).toBe(`${OPENAI_DEFAULT_API_URL}/chat/completions`);
+    });
+  });
+
+  describe("timer cleanup and the abort deadline covering the response body", () => {
+    /**
+     * Step 7. `AbortSignal.timeout()` replaced a hand-rolled
+     * `AbortController` + `setTimeout(() => controller.abort(), …)` pair that
+     * had two problems: `clearTimeout` was skipped on the `catch` path, and
+     * even on the success path it only ever bounded receiving the *headers*
+     * -- it fired the instant `fetch()` resolved, before any of the three
+     * request shapes calls `response.json()`, so a provider that sent headers
+     * and then stalled the body could hang indefinitely.
+     */
+    it("aborts a response whose body stalls past the timeout, rather than hanging", async () => {
+      const settings = makeSettings({
+        activeAiProvider: "gemini",
+        aiRequestTimeout: 1, // 1s, so the test does not wait long
+      });
+
+      globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+        const signal = init.signal!;
+        return {
+          ok: true,
+          status: 200,
+          json: () =>
+            new Promise((_resolve, reject) => {
+              // The body "stalls": it never resolves on its own, exactly like
+              // a provider that sent headers and then hung. Only the abort
+              // signal firing settles this promise.
+              signal.addEventListener("abort", () => reject(new Error("aborted")));
+            }),
+        } as unknown as Response;
+      });
+
+      const client = new AIClient(settings);
+      const result = await client.generateResponse("test prompt");
+
+      // The stalled body is what raced against the timeout; a hang here would
+      // fail this test on the suite's own timeout instead, which is exactly
+      // the defect this step fixes.
+      expect(result).toEqual({ ok: false, reason: "providerError" });
+    }, 20_000);
+
+    it("leaves no armed timer behind when an attempt throws", async () => {
+      // Regression coverage for the `clearTimeout`-skipped-on-throw half of
+      // the same defect: a manual timer left running after a rejected fetch
+      // used to keep firing `controller.abort()` against a controller no
+      // subsequent attempt reused. `AbortSignal.timeout()` has nothing to
+      // leak -- there is no manual timer at all -- so a rejected attempt
+      // followed by a real one on the next call must behave normally rather
+      // than being disturbed by state left over from the first.
+      const settings = makeSettings({
+        activeAiProvider: "gemini",
+        aiMaxRetries: 0,
+      });
+
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(new TypeError("fetch failed"))
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ candidates: [{ content: { parts: [{ text: "second call" }] } }] }),
+        } as Response);
+      globalThis.fetch = fetchMock;
+
+      const client = new AIClient(settings);
+      const first = await client.generateResponse("first");
+      expect(first).toEqual({ ok: false, reason: "providerError" });
+
+      const second = await client.generateResponse("second");
+      expect(second).toEqual({ ok: true, text: "second call" });
+    });
+  });
+
   /**
    * **Every one of the seven registered providers, actually exercised.**
    *
@@ -551,6 +757,32 @@ describe("applyAiToBlocks & AIClient processing", () => {
       }
     };
 
+    /**
+     * The exact headers each provider's request carries, pinned **before**
+     * Step 3 collapses the seven `callXxx()` methods into one table -- this is
+     * the characterisation the plan's method calls for: a table that quietly
+     * sends the wrong header to one provider is a paid-API-request bug with no
+     * other test positioned to catch it.
+     */
+    const expectedHeadersFor = (
+      key: (typeof AI_PROVIDERS)[number]["key"],
+      apiKey: string,
+    ): Record<string, string> => {
+      switch (key) {
+        case "anthropic":
+          return {
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+          };
+        case "gemini":
+          return { "Content-Type": "application/json" };
+        default:
+          // openai, mistral, qwen, deepseek, openrouter.
+          return { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" };
+      }
+    };
+
     it.each(AI_PROVIDERS.map((provider) => provider.key))(
       "calls %s with its own request shape and parses its own response shape",
       async (key) => {
@@ -582,6 +814,22 @@ describe("applyAiToBlocks & AIClient processing", () => {
         const calledUrl = fetchMock.mock.calls[0]?.[0] as string;
         expect(calledUrl).toBe(expectedUrlFor(key, provider, apiKey));
 
+        const init = fetchMock.mock.calls[0]?.[1] as {
+          method: string;
+          headers: Record<string, string>;
+          body: string;
+          redirect: string;
+          signal: AbortSignal;
+        };
+        expect(init.method).toBe("POST");
+        expect(init.headers).toEqual(expectedHeadersFor(key, apiKey));
+        // Every provider call refuses a redirect -- SSRF hardening for
+        // OpenAI's operator-settable base URL, applied to every branch rather
+        // than remembered per call site (CLAUDE.md's `redirect: "error"`
+        // bullet).
+        expect(init.redirect).toBe("error");
+        expect(init.signal).toBeInstanceOf(AbortSignal);
+
         // **No output cap goes out**, on any provider but the one whose API
         // will not take a request without one. `aiMaxTokens` was removed with
         // the request caps, and it was the more damaging of the two: its
@@ -589,18 +837,83 @@ describe("applyAiToBlocks & AIClient processing", () => {
         // came back truncated mid-JSON and the whole paid request was spent on
         // an answer that could not be parsed. A reintroduced cap would fail
         // here rather than only on a long article.
+        const body = JSON.parse(init.body) as Record<string, unknown>;
+        if (key === "anthropic") {
+          // Required by the Messages API, so a constant rather than a setting.
+          expect(body.max_tokens).toBe(16000);
+          expect(body).toEqual({
+            model: provider.defaultModel,
+            messages: [{ role: "user", content: "test prompt" }],
+            max_tokens: 16000,
+            temperature: 0.7,
+          });
+        } else if (key === "gemini") {
+          expect(body.generationConfig).not.toHaveProperty("maxOutputTokens");
+          expect(body).toEqual({
+            contents: [{ parts: [{ text: "test prompt" }] }],
+            generationConfig: { temperature: 0.7 },
+          });
+        } else {
+          expect(body).not.toHaveProperty("max_tokens");
+          expect(body).not.toHaveProperty("max_completion_tokens");
+          expect(body).toEqual({
+            model: provider.defaultModel,
+            messages: [{ role: "user", content: "test prompt" }],
+            temperature: 0.7,
+          });
+        }
+      },
+    );
+
+    /**
+     * `jsonMode`'s effect on the wire, pinned per shape: every OpenAI-compatible
+     * provider gets `response_format: { type: "json_object" }`, Gemini gets
+     * `responseMimeType`, and Anthropic (whose `callAnthropic()` takes no
+     * `jsonMode` parameter at all) sends neither -- its request is identical
+     * with or without it. Characterised before Step 3 collapses the branches so
+     * a provider silently losing this flag in the collapse fails here.
+     */
+    it.each(AI_PROVIDERS.map((provider) => provider.key))(
+      "%s: jsonMode's effect on the request body",
+      async (key) => {
+        const provider = AI_PROVIDERS.find((p) => p.key === key)!;
+        const columns = AI_COLUMNS[key];
+        const apiKey = `test-${key}-key`;
+
+        const settings = makeSettings({
+          activeAiProvider: key,
+          [columns.enabled]: true,
+          [columns.apiKey]: apiKey,
+          [columns.model]: provider.defaultModel,
+        } as Partial<AiRuntimeSettings>);
+
+        const fetchMock = vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: async () => responseShapeFor(key, "ok"),
+        } as Response);
+        globalThis.fetch = fetchMock;
+
+        const client = new AIClient(settings);
+        await client.generateResponse("test prompt", true, { type: "OBJECT" });
+
         const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as { body: string }).body) as Record<
           string,
           unknown
         >;
-        if (key === "anthropic") {
-          // Required by the Messages API, so a constant rather than a setting.
-          expect(body.max_tokens).toBe(16000);
-        } else if (key === "gemini") {
-          expect(body.generationConfig).not.toHaveProperty("maxOutputTokens");
+
+        if (key === "gemini") {
+          expect(body).toMatchObject({
+            generationConfig: {
+              responseMimeType: "application/json",
+              responseSchema: { type: "OBJECT" },
+            },
+          });
+        } else if (key === "anthropic") {
+          expect(body).not.toHaveProperty("response_format");
+          expect(body).not.toHaveProperty("generationConfig");
         } else {
-          expect(body).not.toHaveProperty("max_tokens");
-          expect(body).not.toHaveProperty("max_completion_tokens");
+          expect(body).toMatchObject({ response_format: { type: "json_object" } });
         }
       },
     );

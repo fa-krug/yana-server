@@ -3,10 +3,12 @@ import type { Block } from "@/lib/aggregators/blocks/types";
 import type { UserSettings } from "@/lib/db/schema";
 
 import { blocksToText, canonicalBlocks, textToBlocks } from "./block-text";
-import { resolveModel } from "./columns";
+import { AI_COLUMNS, activeProvider, resolveModel } from "./columns";
+import type { AiProviderKey } from "./providers";
 import {
   DEEPSEEK_API_URL,
   MISTRAL_API_URL,
+  OPENAI_DEFAULT_API_URL,
   OPENROUTER_API_URL,
   QWEN_API_URL,
   providerByKey,
@@ -16,50 +18,22 @@ import {
  * What `AIClient` and `applyAiToBlocks` accept for a user's AI configuration.
  *
  * `getSettings()`'s real row is `UserSettings` -- camelCase, one field per
- * column -- so `Partial<UserSettings>` covers every production caller. Every
- * field is also read under its snake_case column name (`this.settings.aiMaxRetries
- * ?? this.settings.ai_max_retries`), which nothing in this codebase's own
- * callers produces today; it is kept because dropping it would be a behavior
- * change for whatever *does* hand this a snake_case row (a raw query result, a
- * fixture ported from `old/core/ai_client.py`'s Django settings object).
+ * column -- so `Partial<UserSettings>` covers every production caller:
+ * `aggregate.ts`, `reload.ts` and `POST /api/v1/ai/prompt` all pass a full
+ * Drizzle `UserSettings` row.
  *
- * `aiMaxRetryTime`/`ai_max_retry_time` (the retry-budget cap read in
- * `requestWithRetry()`) has no `user_settings` column at all -- `old/core/ai_client.py`
- * reads it with `getattr(self.settings, "ai_max_retry_time", 60)`, always falling
- * back to its default -- so both spellings are declared here rather than on
- * `UserSettings`.
+ * **There used to be a parallel snake_case surface here too** -- every field
+ * also readable under its snake_case column name
+ * (`this.settings.aiMaxRetries ?? this.settings.ai_max_retries`), 29 fields and
+ * 38 fallback chains, kept "for whatever *does* hand this a snake_case row."
+ * Nothing does: every production caller reads a Drizzle row, camelCase by
+ * construction, and the only object literals using the snake_case keys were
+ * raw-SQL row assertions in tests (reading a column back from SQLite, not
+ * constructing an `AiRuntimeSettings`). Deleted along with it:
+ * `aiMaxRetryTime`/`ai_max_retry_time` had **no column in either spelling** --
+ * see `MAX_RETRY_TIME_SECONDS` below for where that budget lives now.
  */
-export type AiRuntimeSettings = Partial<UserSettings> & {
-  active_ai_provider?: string;
-  aiMaxRetryTime?: number;
-  ai_max_retries?: number;
-  ai_retry_delay?: number;
-  ai_max_retry_time?: number;
-  ai_temperature?: number;
-  ai_request_timeout?: number;
-  openai_enabled?: boolean;
-  openai_api_key?: string;
-  openai_api_url?: string;
-  openai_model?: string;
-  anthropic_enabled?: boolean;
-  anthropic_api_key?: string;
-  anthropic_model?: string;
-  gemini_enabled?: boolean;
-  gemini_api_key?: string;
-  gemini_model?: string;
-  mistral_enabled?: boolean;
-  mistral_api_key?: string;
-  mistral_model?: string;
-  qwen_enabled?: boolean;
-  qwen_api_key?: string;
-  qwen_model?: string;
-  deepseek_enabled?: boolean;
-  deepseek_api_key?: string;
-  deepseek_model?: string;
-  openrouter_enabled?: boolean;
-  openrouter_api_key?: string;
-  openrouter_model?: string;
-};
+export type AiRuntimeSettings = Partial<UserSettings>;
 
 /** The JSON body an AI provider's chat/completion endpoint is POSTed. */
 export type AiRequestBody = Record<string, unknown>;
@@ -89,18 +63,26 @@ export type AiGenerationResult =
  */
 const ANTHROPIC_MAX_TOKENS = 16000;
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * The fixed ceiling on how long `requestWithRetry()` will keep backing off a
+ * 429 before giving up, in seconds.
+ *
+ * **A named constant, not a `user_settings` column, and that is a deliberate
+ * ruling.** There is no `aiMaxRetryTime`/`ai_max_retry_time` column in either
+ * spelling -- the setting-shaped surface that used to read one always fell
+ * back to this same value, so the "setting" never actually varied. Adding a
+ * column now would reverse the direction the rest of this module's tuning
+ * values already went: the per-user request caps and `aiMaxTokens` were both
+ * removed outright (see `generateResponse()`'s doc comment) on the owner's
+ * explicit instruction that AI, once switched on, runs without knobs refusing
+ * work. A seventh retry-budget knob would be exactly that kind of knob. `60` is
+ * also the only value this has ever had in production: the Django original
+ * this was ported from read it as `getattr(self.settings, "ai_max_retry_time",
+ * 60)`, always falling through to the default.
+ */
+const MAX_RETRY_TIME_SECONDS = 60;
 
-/** Narrows a caught value to the numeric `.status` some rejections carry. */
-function errorStatus(err: unknown): number | undefined {
-  if (typeof err === "object" && err !== null && "status" in err) {
-    const status = (err as Record<string, unknown>).status;
-    if (typeof status === "number") {
-      return status;
-    }
-  }
-  return undefined;
-}
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Mirrors `err?.message || err` for a caught value of unknown shape. */
 function describeError(err: unknown): string {
@@ -113,14 +95,77 @@ function describeError(err: unknown): string {
   return String(err);
 }
 
+/**
+ * Which request/response envelope a provider speaks. `AIClient.callProvider()`
+ * switches on this to decide which method actually issues the call; the
+ * `openai-compatible` five all end up in the one `callOpenaiCompatible()`
+ * shared body, while `anthropic` and `gemini` keep methods of their own.
+ */
+type ProviderRequestShape = "openai-compatible" | "anthropic" | "gemini";
+
+/**
+ * One row per provider: where its request goes, and which envelope it speaks.
+ *
+ * **This is the table Task 4 exists to build.** Five of the seven `callXxx()`
+ * methods this replaced were the same twelve-line shape -- read `enabled`,
+ * read `apiKey`, warn-and-return, read `model`, read `timeout`, call
+ * `callOpenaiCompatible` with a base URL -- differing only in which columns
+ * and which constant URL they read. Declaring that difference as data here,
+ * once, is what `AIClient.callProvider()` now reads instead of an
+ * `if (this.provider === "openai") … else if …` chain of seven branches.
+ *
+ * `url` is a function only for OpenAI, whose base URL is the one
+ * operator-configurable setting among the seven (`openaiApiUrl`); every other
+ * provider's endpoint is the fixed constant from `./providers`.
+ *
+ * A plain type annotation, not `satisfies`, is enough here to make a missing
+ * provider a compile error -- unlike `AI_COLUMNS` in `./columns`, no entry's
+ * shape needs to differ from its neighbours' (there is no optional field the
+ * way `apiUrl` is optional there), so there is nothing a wider inferred type
+ * would lose.
+ */
+const PROVIDER_REQUESTS: Record<
+  AiProviderKey,
+  { url: string | ((settings: AiRuntimeSettings) => string); shape: ProviderRequestShape }
+> = {
+  openai: {
+    // `?.trim() || DEFAULT`, matching `testOpenaiKey()` in `./openai` --
+    // `??` alone does not catch an *empty* stored `openaiApiUrl` (an operator
+    // who cleared the field rather than leaving it untouched), which would
+    // otherwise send every request to `https://` with nothing after it.
+    url: (settings) => settings.openaiApiUrl?.trim() || OPENAI_DEFAULT_API_URL,
+    shape: "openai-compatible",
+  },
+  anthropic: { url: "https://api.anthropic.com/v1/messages", shape: "anthropic" },
+  // Gemini's URL is built from the model and the API key, so `callGemini()`
+  // builds it directly rather than reading a fixed one from here.
+  gemini: { url: "https://generativelanguage.googleapis.com/v1beta/models", shape: "gemini" },
+  mistral: { url: MISTRAL_API_URL, shape: "openai-compatible" },
+  qwen: { url: QWEN_API_URL, shape: "openai-compatible" },
+  deepseek: { url: DEEPSEEK_API_URL, shape: "openai-compatible" },
+  openrouter: { url: OPENROUTER_API_URL, shape: "openai-compatible" },
+};
+
 export class AIClient {
   private settings: AiRuntimeSettings;
-  private provider: string;
+  private provider: AiProviderKey | "";
   private onLog?: (message: string) => void;
 
   constructor(settings: AiRuntimeSettings, onLog?: (message: string) => void) {
     this.settings = settings || {};
-    this.provider = this.settings.activeAiProvider ?? this.settings.active_ai_provider ?? "";
+    // **Routed through `activeProvider()`, not the raw `activeAiProvider`
+    // column.** That function (`./columns`, re-exported from `./queries` for
+    // `/ai` and `POST /api/v1/ai/prompt`) is documented as "the *only* place
+    // this decision is made" -- it requires the provider's own probe-derived
+    // `*Enabled` flag to agree with the stored preference, which a bare
+    // truthiness read on the column does not. Without this, a re-probe that
+    // classified a key `unauthorized`, or an operator pressing Remove -- both
+    // of which deliberately leave `activeAiProvider` in place -- left `/ai`
+    // correctly reporting no active provider while this client still passed
+    // its guard, dispatched, hit the provider's own `!enabled` check and
+    // reported `providerError`: "the provider failed" for a request that was
+    // never sent.
+    this.provider = activeProvider(this.settings);
     this.onLog = onLog;
   }
 
@@ -139,17 +184,14 @@ export class AIClient {
     data: AiRequestBody,
     timeoutSeconds: number,
   ): Promise<Response | null> {
-    const maxRetries = this.settings.aiMaxRetries ?? this.settings.ai_max_retries ?? 3;
-    const retryDelay = this.settings.aiRetryDelay ?? this.settings.ai_retry_delay ?? 2;
-    const maxRetryTime = this.settings.aiMaxRetryTime ?? this.settings.ai_max_retry_time ?? 60;
+    const maxRetries = this.settings.aiMaxRetries ?? 3;
+    const retryDelay = this.settings.aiRetryDelay ?? 2;
+    const maxRetryTime = MAX_RETRY_TIME_SECONDS;
 
     const startTime = Date.now();
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
-
         const response = await fetch(url, {
           method: "POST",
           headers,
@@ -160,10 +202,20 @@ export class AIClient {
           // call past whatever host validation exists. No real provider
           // endpoint redirects a POST.
           redirect: "error",
-          signal: controller.signal,
+          // `AbortSignal.timeout()`, as every probe already does, rather than
+          // a hand-rolled `AbortController` + `setTimeout` pair. That
+          // combination had two problems: `clearTimeout` was skipped whenever
+          // `fetch` threw, leaving an armed timer behind on every failed
+          // attempt, and it only ever bounded the headers -- `clearTimeout`
+          // fired the moment `fetch()` resolved, before any of the three
+          // `callXxx()` shapes calls `response.json()`, so a provider that
+          // sent headers and then stalled the body could hang the job
+          // indefinitely. A self-cleaning, self-expiring signal fixes both:
+          // nothing to leak on a throw, and the deadline still covers the
+          // body, since aborting the signal after `fetch()` resolves but
+          // before the body is fully read aborts that read too.
+          signal: AbortSignal.timeout(timeoutSeconds * 1000),
         });
-
-        clearTimeout(timeoutId);
 
         if (response.ok) {
           return response;
@@ -202,26 +254,19 @@ export class AIClient {
         return null;
       } catch (err: unknown) {
         if (err instanceof ProviderUnauthorizedError) throw err;
-        if (attempt < maxRetries && errorStatus(err) === 429) {
-          const waitSeconds = retryDelay ? retryDelay * Math.pow(2, attempt) : 0;
-          const elapsedSeconds = (Date.now() - startTime) / 1000;
-          if (waitSeconds > 0 && elapsedSeconds + waitSeconds > maxRetryTime) {
-            this.warn(
-              `Rate limited (429), but retrying would exceed time budget (${Math.round(
-                elapsedSeconds,
-              )}s elapsed, ${waitSeconds}s wait, ${maxRetryTime}s max). Giving up.`,
-            );
-            return null;
-          }
-          this.warn(
-            `Rate limited (429), retrying in ${waitSeconds}s (attempt ${attempt + 1}/${maxRetries})`,
-          );
-          if (waitSeconds > 0) {
-            await sleep(waitSeconds * 1000);
-          }
-          continue;
-        }
 
+        // **No caught-error 429 branch here**, unlike the response-status one
+        // above. A `fetch()` rejection is a `TypeError` (undici's
+        // `"fetch failed"`, carrying the real transport cause) or a
+        // `DOMException` from `AbortSignal.timeout()` firing -- neither ever
+        // carries a `.status`, which only exists on a `Response`, and a
+        // response with a status is the `response.ok`/`response.status`
+        // branch above, never this `catch`. There is therefore no rejection
+        // shape that reaches here with `.status === 429`; the code that used
+        // to check for one was a literal port of Python `requests`'
+        // `raise_for_status()` idiom, where a non-2xx response *is* a raised
+        // exception carrying `.response.status_code` -- a shape `fetch`
+        // does not share.
         this.warn(`AI API request error: ${describeError(err)}`);
         return null;
       }
@@ -255,31 +300,14 @@ export class AIClient {
     jsonMode = false,
     jsonSchema?: Record<string, unknown>,
   ): Promise<AiGenerationResult> {
-    if (!this.provider) {
+    const provider = this.provider;
+    if (!provider) {
       this.warn("No AI provider selected.");
       return { ok: false, reason: "noProvider" };
     }
 
     try {
-      let text: string | null;
-      if (this.provider === "openai") {
-        text = await this.callOpenai(prompt, jsonMode);
-      } else if (this.provider === "anthropic") {
-        text = await this.callAnthropic(prompt);
-      } else if (this.provider === "gemini") {
-        text = await this.callGemini(prompt, jsonMode, jsonSchema);
-      } else if (this.provider === "mistral") {
-        text = await this.callMistral(prompt, jsonMode);
-      } else if (this.provider === "qwen") {
-        text = await this.callQwen(prompt, jsonMode);
-      } else if (this.provider === "deepseek") {
-        text = await this.callDeepseek(prompt, jsonMode);
-      } else if (this.provider === "openrouter") {
-        text = await this.callOpenrouter(prompt, jsonMode);
-      } else {
-        this.warn(`Unknown AI provider: ${this.provider}`);
-        return { ok: false, reason: "providerError" };
-      }
+      const text = await this.callProvider(provider, prompt, jsonMode, jsonSchema);
       return text === null ? { ok: false, reason: "providerError" } : { ok: true, text };
     } catch (e: unknown) {
       if (e instanceof ProviderUnauthorizedError) {
@@ -292,11 +320,66 @@ export class AIClient {
   }
 
   /**
+   * Dispatches to the one provider `generateResponse()` already confirmed is
+   * active, reading everything provider-specific -- its enabled flag, its
+   * credential column, its model column, and which request URL and envelope
+   * it uses -- out of {@link PROVIDER_REQUESTS} and `AI_COLUMNS`
+   * (`./columns`) rather than out of seven near-identical methods.
+   *
+   * **Anthropic and Gemini keep their own request/response envelopes**
+   * (`callAnthropic`/`callGemini`, below) -- neither speaks the shared
+   * `/chat/completions` shape -- but both read their column names and base
+   * URL from this same table, so a provider cannot end up with its enabled
+   * flag checked against one column and its API key against another's.
+   */
+  private async callProvider(
+    key: AiProviderKey,
+    prompt: string,
+    jsonMode: boolean,
+    jsonSchema?: Record<string, unknown>,
+  ): Promise<string | null> {
+    const provider = providerByKey(key);
+    const entry = PROVIDER_REQUESTS[key];
+    if (!provider || !entry) {
+      this.warn(`Unknown AI provider: ${key}`);
+      return null;
+    }
+
+    const columns = AI_COLUMNS[key];
+    const enabled = Boolean(this.settings[columns.enabled]);
+    const apiKey = this.settings[columns.apiKey];
+    if (!enabled || !apiKey) {
+      this.warn(`${provider.label} is not enabled or configured.`);
+      return null;
+    }
+
+    const model = resolveModel(provider, this.settings[columns.model] ?? "");
+    const timeout = this.settings.aiRequestTimeout ?? 30;
+
+    switch (entry.shape) {
+      case "anthropic": {
+        const url = typeof entry.url === "function" ? entry.url(this.settings) : entry.url;
+        return this.callAnthropic(url, apiKey, model, prompt, timeout);
+      }
+      case "gemini":
+        // Gemini's URL is built from the already-resolved `apiKey`/`model`
+        // above, inside `callGemini()` itself, rather than a second time from
+        // `entry.url` -- the table still declares one (every entry does, per
+        // the shared shape), but building it from values this function
+        // already resolved avoids re-deriving them a second way.
+        return this.callGemini(apiKey, model, prompt, jsonMode, jsonSchema, timeout);
+      case "openai-compatible": {
+        const baseUrl = typeof entry.url === "function" ? entry.url(this.settings) : entry.url;
+        return this.callOpenaiCompatible(baseUrl, apiKey, model, prompt, jsonMode, timeout);
+      }
+    }
+  }
+
+  /**
    * The `/chat/completions` request/response shape every OpenAI-compatible
-   * provider shares. `callOpenai()` and the Mistral/Qwen/DeepSeek branches
-   * all call this with their own resolved base URL, key and model — only
-   * OpenAI's base URL is an operator setting, so only `callOpenai()` needs
-   * to resolve one before calling in.
+   * provider shares -- OpenAI itself, plus Mistral, Qwen, DeepSeek and
+   * OpenRouter, all five routed here by {@link callProvider} through
+   * {@link PROVIDER_REQUESTS}.
    */
   private async callOpenaiCompatible(
     baseUrl: string,
@@ -312,7 +395,7 @@ export class AIClient {
       "Content-Type": "application/json",
     };
 
-    const temperature = this.settings.aiTemperature ?? this.settings.ai_temperature ?? 0.7;
+    const temperature = this.settings.aiTemperature ?? 0.7;
 
     // No `max_tokens`. Every OpenAI-compatible provider treats it as optional
     // and defaults to "as much as the model can answer with", which is the
@@ -337,46 +420,21 @@ export class AIClient {
     return result?.choices?.[0]?.message?.content ?? null;
   }
 
-  private async callOpenai(prompt: string, jsonMode: boolean): Promise<string | null> {
-    const enabled = this.settings.openaiEnabled ?? this.settings.openai_enabled;
-    const apiKey = this.settings.openaiApiKey ?? this.settings.openai_api_key;
-    if (!enabled || !apiKey) {
-      console.warn("OpenAI is not enabled or configured.");
-      return null;
-    }
-
-    const baseUrl =
-      this.settings.openaiApiUrl ?? this.settings.openai_api_url ?? "https://api.openai.com/v1";
-    const model = resolveModel(
-      providerByKey("openai")!,
-      this.settings.openaiModel ?? this.settings.openai_model ?? "",
-    );
-    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
-
-    return this.callOpenaiCompatible(baseUrl, apiKey, model, prompt, jsonMode, timeout);
-  }
-
-  private async callAnthropic(prompt: string): Promise<string | null> {
-    const enabled = this.settings.anthropicEnabled ?? this.settings.anthropic_enabled;
-    const apiKey = this.settings.anthropicApiKey ?? this.settings.anthropic_api_key;
-    if (!enabled || !apiKey) {
-      console.warn("Anthropic is not enabled or configured.");
-      return null;
-    }
-
-    const url = "https://api.anthropic.com/v1/messages";
+  /** Anthropic's Messages API envelope -- distinct from every other provider's. */
+  private async callAnthropic(
+    url: string,
+    apiKey: string,
+    model: string,
+    prompt: string,
+    timeout: number,
+  ): Promise<string | null> {
     const headers = {
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
       "Content-Type": "application/json",
     };
 
-    const model = resolveModel(
-      providerByKey("anthropic")!,
-      this.settings.anthropicModel ?? this.settings.anthropic_model ?? "",
-    );
-    const temperature = this.settings.aiTemperature ?? this.settings.ai_temperature ?? 0.7;
-    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
+    const temperature = this.settings.aiTemperature ?? 0.7;
 
     const data = {
       model,
@@ -398,29 +456,21 @@ export class AIClient {
     return result?.content?.[0]?.text ?? null;
   }
 
+  /** Gemini's `generateContent` envelope -- distinct from every other provider's. */
   private async callGemini(
+    apiKey: string,
+    model: string,
     prompt: string,
     jsonMode: boolean,
-    jsonSchema?: Record<string, unknown>,
+    jsonSchema: Record<string, unknown> | undefined,
+    timeout: number,
   ): Promise<string | null> {
-    const enabled = this.settings.geminiEnabled ?? this.settings.gemini_enabled;
-    const apiKey = this.settings.geminiApiKey ?? this.settings.gemini_api_key;
-    if (!enabled || !apiKey) {
-      console.warn("Gemini is not enabled or configured.");
-      return null;
-    }
-
-    const model = resolveModel(
-      providerByKey("gemini")!,
-      this.settings.geminiModel ?? this.settings.gemini_model ?? "",
-    );
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
     const headers = {
       "Content-Type": "application/json",
     };
 
-    const temperature = this.settings.aiTemperature ?? this.settings.ai_temperature ?? 0.7;
-    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
+    const temperature = this.settings.aiTemperature ?? 0.7;
 
     // No `maxOutputTokens`, for the reason spelled out in
     // `callOpenaiCompatible()`: omitted, Gemini answers up to the model's own
@@ -447,70 +497,10 @@ export class AIClient {
     const result = await response.json();
     const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (text === undefined) {
-      console.warn(`Unexpected Gemini response format: ${JSON.stringify(result)}`);
+      this.warn(`Unexpected Gemini response format: ${JSON.stringify(result)}`);
       return null;
     }
     return text;
-  }
-
-  private async callMistral(prompt: string, jsonMode: boolean): Promise<string | null> {
-    const enabled = this.settings.mistralEnabled ?? this.settings.mistral_enabled;
-    const apiKey = this.settings.mistralApiKey ?? this.settings.mistral_api_key;
-    if (!enabled || !apiKey) {
-      console.warn("Mistral is not enabled or configured.");
-      return null;
-    }
-    const model = resolveModel(
-      providerByKey("mistral")!,
-      this.settings.mistralModel ?? this.settings.mistral_model ?? "",
-    );
-    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
-    return this.callOpenaiCompatible(MISTRAL_API_URL, apiKey, model, prompt, jsonMode, timeout);
-  }
-
-  private async callQwen(prompt: string, jsonMode: boolean): Promise<string | null> {
-    const enabled = this.settings.qwenEnabled ?? this.settings.qwen_enabled;
-    const apiKey = this.settings.qwenApiKey ?? this.settings.qwen_api_key;
-    if (!enabled || !apiKey) {
-      console.warn("Qwen is not enabled or configured.");
-      return null;
-    }
-    const model = resolveModel(
-      providerByKey("qwen")!,
-      this.settings.qwenModel ?? this.settings.qwen_model ?? "",
-    );
-    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
-    return this.callOpenaiCompatible(QWEN_API_URL, apiKey, model, prompt, jsonMode, timeout);
-  }
-
-  private async callDeepseek(prompt: string, jsonMode: boolean): Promise<string | null> {
-    const enabled = this.settings.deepseekEnabled ?? this.settings.deepseek_enabled;
-    const apiKey = this.settings.deepseekApiKey ?? this.settings.deepseek_api_key;
-    if (!enabled || !apiKey) {
-      console.warn("DeepSeek is not enabled or configured.");
-      return null;
-    }
-    const model = resolveModel(
-      providerByKey("deepseek")!,
-      this.settings.deepseekModel ?? this.settings.deepseek_model ?? "",
-    );
-    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
-    return this.callOpenaiCompatible(DEEPSEEK_API_URL, apiKey, model, prompt, jsonMode, timeout);
-  }
-
-  private async callOpenrouter(prompt: string, jsonMode: boolean): Promise<string | null> {
-    const enabled = this.settings.openrouterEnabled ?? this.settings.openrouter_enabled;
-    const apiKey = this.settings.openrouterApiKey ?? this.settings.openrouter_api_key;
-    if (!enabled || !apiKey) {
-      console.warn("OpenRouter is not enabled or configured.");
-      return null;
-    }
-    const model = resolveModel(
-      providerByKey("openrouter")!,
-      this.settings.openrouterModel ?? this.settings.openrouter_model ?? "",
-    );
-    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
-    return this.callOpenaiCompatible(OPENROUTER_API_URL, apiKey, model, prompt, jsonMode, timeout);
   }
 }
 
@@ -761,7 +751,19 @@ export async function applyAiToBlocks(
     console.warn("No userSettings provided for AI processing.");
     return unchanged({ status: "failed", reason: "noProvider" });
   }
-  if (!(userSettings.activeAiProvider ?? userSettings.active_ai_provider)) {
+  // Routed through `activeProvider()`, the same function `AIClient`'s
+  // constructor now uses, rather than a bare truthiness read of
+  // `activeAiProvider` -- the raw column agrees with this function everywhere
+  // except the one state it exists to catch: a stored preference whose
+  // provider has since been probed as unauthorized, or explicitly removed
+  // (both leave the preference in place, see `activeProvider()`'s doc comment
+  // in `./columns`). In that state the raw-column check here used to pass
+  // (the column is still truthy), `AIClient` would dispatch anyway and hit
+  // the provider's own `!enabled` guard, and the article was reported
+  // `{ status: "failed", reason: "providerError" }` -- "the provider failed"
+  // for a request that never left this process, one layer above the
+  // identical bug in `AIClient` itself.
+  if (!activeProvider(userSettings)) {
     console.warn("No active AI provider selected.");
     return unchanged({ status: "failed", reason: "noProvider" });
   }

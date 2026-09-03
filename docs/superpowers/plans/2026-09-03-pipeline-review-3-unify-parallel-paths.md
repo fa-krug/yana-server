@@ -239,9 +239,9 @@ half.
 
 **Files:** modify `src/lib/ai/run.ts`, `src/lib/ai/run.test.ts`.
 
-- [ ] **Step 1:** Characterisation tests pinning the exact request URL, headers
+- [x] **Step 1:** Characterisation tests pinning the exact request URL, headers
       and body for all seven providers.
-- [ ] **Step 2: Delete the dead snake_case surface.** `AiRuntimeSettings`
+- [x] **Step 2: Delete the dead snake_case surface.** `AiRuntimeSettings`
       (`run.ts:26-55`) declares 29 snake_case fields, read via 38
       `this.settings.xxxYyy ?? this.settings.xxx_yyy` chains. **No production
       caller supplies one** — `aggregate.ts:35`, `reload.ts:135` and
@@ -256,7 +256,7 @@ half.
       Decide explicitly: add a column, or make the constant a named constant and
       say so. Do not leave a settings-shaped value that no setting reaches.
 
-- [ ] **Step 3: Collapse the seven branches** into one table:
+- [x] **Step 3: Collapse the seven branches** into one table:
 
 ```ts
 Record<AiProviderKey, {
@@ -268,7 +268,7 @@ Record<AiProviderKey, {
 Anthropic and Gemini keep their own request/response envelopes but read their
 columns from the same table.
 
-- [ ] **Step 4: Deduplicate `requestWithRetry`'s 429 handling.** Lines 166-186
+- [x] **Step 4: Deduplicate `requestWithRetry`'s 429 handling.** Lines 166-186
       (429 response) and 199-217 (caught error with `.status === 429`) are the
       same ~19 lines, behaviourally identical. **The second is unreachable** —
       undici rejections are `TypeError`/`DOMException` with `.code`/`.cause`,
@@ -276,7 +276,7 @@ columns from the same table.
       check. It is a literal port of Python `requests`' `raise_for_status()`
       idiom. Delete lines 199-217 and the `errorStatus()` helper.
 
-- [ ] **Step 5: Make the client agree with `activeProvider()`.** `run.ts:117`
+- [x] **Step 5: Make the client agree with `activeProvider()`.** `run.ts:117`
       sets `this.provider` from the raw `activeAiProvider` column, and
       `run.ts:742`'s guard is a bare truthiness test — but `activeProvider()`
       (`queries.ts:103-106`), documented as "the *only* place that decision is
@@ -292,14 +292,14 @@ columns from the same table.
       `activeProvider()` first (`route.ts:48`) — which is itself the
       inconsistency. Route both through `activeProvider()`.
 
-- [ ] **Step 6: Route the seven "not enabled or configured" warnings through
+- [x] **Step 6: Route the seven "not enabled or configured" warnings through
       `this.warn()`.** They currently use bare `console.warn`
       (`run.ts:338,354,398,447,460,472,485`, plus `run.ts:437`), so the one
       message that explains why an article was skipped is the one message that
       never reaches the job log. `this.warn()` (`run.ts:124`) is what mirrors
       into `onLog`.
 
-- [ ] **Step 7: Two smaller fixes in the same function.**
+- [x] **Step 7: Two smaller fixes in the same function.**
       (a) `clearTimeout` is skipped on the throw path (`run.ts:139-159`), so a
       failed attempt leaves a timer armed. (b) The abort timeout does not cover
       the response body — `clearTimeout` fires before `await response.json()`
@@ -307,7 +307,7 @@ columns from the same table.
       hangs the job indefinitely. Use `AbortSignal.timeout`, as every probe
       already does.
 
-- [ ] **Step 8: Guard `openaiApiUrl = ""`.** `run.ts:342` uses `??`, which does
+- [x] **Step 8: Guard `openaiApiUrl = ""`.** `run.ts:342` uses `??`, which does
       not catch an empty string; `testOpenaiKey` (`openai.ts:61`) uses
       `apiUrl?.trim() || DEFAULT` and is immune. Match the probe.
 

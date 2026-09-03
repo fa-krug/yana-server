@@ -1,11 +1,21 @@
-import type { UserSettings } from "@/lib/db/schema";
 import { mask } from "@/lib/secrets";
 import { getSettings } from "@/lib/settings/queries";
 
 import type { AiAdvancedField } from "./bounds";
-import { AI_COLUMNS, providersWithColumns, resolveModel } from "./columns";
+import { activeProvider, providersWithColumns, resolveModel } from "./columns";
 import type { AiProviderKey } from "./providers";
-import { providerByKey } from "./providers";
+
+/**
+ * Re-exported so `/ai` and every existing caller is unchanged. **The
+ * implementations moved to `./columns`** -- a human ruling made for `./run`'s
+ * benefit: `AIClient` needs the same "is a provider active" decision this
+ * module already made, and importing this file would have dragged `getDb()`
+ * (via `getSettings()`, below) into `run.ts`'s module graph. `providerEnabled()`
+ * and `activeProvider()` are pure row predicates with no session or database
+ * dependency of their own, so `./columns` -- which imports only `./providers`
+ * and `./bounds` -- is where both halves can read them from.
+ */
+export { activeProvider, providerEnabled } from "./columns";
 
 /**
  * Reads for `/ai`. Writes are in `./actions`.
@@ -70,9 +80,12 @@ export type AiStatus = {
   /**
    * The provider AI actually runs on, or `""` for none.
    *
-   * **Derived, not read straight out of the column, and this is the *only*
-   * place that decision is made.** `active_ai_provider` is a preference; a
-   * provider is only active if its probe-derived `*Enabled` flag agrees. Nothing
+   * **Derived, not read straight out of the column, by `activeProvider()` in
+   * `./columns` -- the *only* place this decision is made,** re-exported here
+   * (see the top of this file) so `AIClient` (`./run`) can read the identical
+   * answer without importing this module. `active_ai_provider` is a
+   * preference; a provider is only active if its probe-derived `*Enabled` flag
+   * agrees. Nothing
    * on the write side erases the preference when a flag goes false -- see
    * `setActiveProvider()` in `./actions` for why not, in short: OpenAI's unpaid
    * bill classifies as `unauthorized`, so clearing would permanently drop a
@@ -93,17 +106,6 @@ export type AiStatus = {
   providers: Record<AiProviderKey, AiProviderStatus>;
   advanced: AiAdvanced;
 };
-
-/** Is the provider this key names switched on in this row? */
-export function providerEnabled(settings: UserSettings, key: AiProviderKey): boolean {
-  return settings[AI_COLUMNS[key].enabled];
-}
-
-/** {@link AiStatus.active}: the stored preference, but only if its flag agrees. */
-export function activeProvider(settings: UserSettings): AiProviderKey | "" {
-  const provider = providerByKey(settings.activeAiProvider);
-  return provider && providerEnabled(settings, provider.key) ? provider.key : "";
-}
 
 export async function getAiStatus(): Promise<AiStatus> {
   const settings = await getSettings();

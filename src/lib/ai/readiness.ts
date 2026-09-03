@@ -20,13 +20,14 @@ import { wantsAi } from "@/lib/ai/run";
  * **Reuses two existing predicates rather than writing a third "is AI on"
  * check.** `wantsAi()` (`./run`) already carries a doc comment recording that
  * it was duplicated once before and the copies silently disagreed -- do not
- * repeat that here. `activeProvider()` (`./queries`) is the version that
- * requires the provider's own probe-derived `*Enabled` flag, not `run.ts`'s
- * bare truthiness test on the `activeAiProvider` column (which reads a
- * provider some other, unverified process pointed the preference at as
- * "active" even though nothing ever confirmed it can answer) -- see
- * `AiStatus.active`'s doc comment in `./queries` for why that distinction
- * matters.
+ * repeat that here. `activeProvider()` (`./columns`, re-exported from
+ * `./queries`) is the version that requires the provider's own probe-derived
+ * `*Enabled` flag to agree with the stored `activeAiProvider` preference --
+ * `AIClient` (`./run`) routes through the identical function now too, so a
+ * provider some other, unverified process pointed the preference at without
+ * ever confirming it can answer is refused consistently everywhere, not just
+ * here -- see `AiStatus.active`'s doc comment in `./queries` for why that
+ * distinction matters.
  *
  * Consumed by every path that enqueues aggregation for a feed: the scheduler
  * (`@/lib/jobs/scheduler`), the feed dashboard's bulk/single update action
