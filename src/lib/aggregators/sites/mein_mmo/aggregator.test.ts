@@ -237,3 +237,36 @@ describe("MeinMmoAggregator.enrichArticles", () => {
     expect(slowResult.content).not.toContain("FAST-MARKER");
   });
 });
+
+/**
+ * Pipeline-review-3, Task 3, Finding 1: MeinMmoAggregator.extractContent()
+ * (via extractMeinMmoContent()'s removeSelectors(getIgnoreSelectors()) call)
+ * runs before MeinMmoAggregator.processContent()'s proxyYoutubeEmbeds() ever
+ * sees a raw iframe. The static selectorsToRemove used to carry a bare
+ * "iframe:not([src*='youtube.com']):not([src*='youtu.be'])" rule, so a
+ * youtube-nocookie.com iframe that isn't wrapped in a <figure> (and so is
+ * never claimed by processEmbeds()'s figure-based strategies either) was
+ * deleted during extraction. Fixed by widening that rule to
+ * YOUTUBE_IFRAME_KEEP_SELECTOR, which also exempts youtube-nocookie.com.
+ * This drives the real extractContent() -> processContent() chain on the
+ * real subclass, not the bare FullWebsiteAggregator base class.
+ */
+describe("MeinMmoAggregator YouTube iframe survives extraction into a facade", () => {
+  it("keeps a bare youtube-nocookie.com iframe through extractContent() and turns it into a facade in processContent()", async () => {
+    const agg = new MeinMmoAggregator(FEED);
+    const html = `<html><body><div class="entry-content">
+      <p>Video below.</p>
+      <iframe src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"></iframe>
+    </div></body></html>`;
+
+    const extracted = await agg.extractContent(html, ARTICLE);
+    // The bug: this used to be gone already, before processContent() ever ran.
+    expect(extracted).toContain("<iframe");
+    expect(extracted).toContain("youtube-nocookie.com");
+
+    const processed = await agg.processContent(extracted, ARTICLE);
+    expect(processed).toContain("youtube-embed-container");
+    expect(processed).toContain("dQw4w9WgXcQ");
+    expect(processed).not.toContain("<iframe");
+  });
+});

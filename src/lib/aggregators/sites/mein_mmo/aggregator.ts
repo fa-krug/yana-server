@@ -6,6 +6,7 @@ import { formatArticleContent } from "../../extract/format";
 import { getHeaderImageRef } from "../../header/context";
 import { storeImageRefFromUrl } from "../../images/store";
 import { FullWebsiteAggregator, proxyYoutubeEmbeds } from "../../website";
+import { YOUTUBE_IFRAME_KEEP_SELECTOR } from "../../embeds/youtube-url";
 import { extractComments } from "./comments";
 import { extractMeinMmoContent } from "./content";
 import { detectPagination, fetchAllPages } from "./multipage";
@@ -100,7 +101,7 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
     "div.wp-block-wbd-affiliate-widget",
     "script",
     "style",
-    "iframe:not([src*='youtube.com']):not([src*='youtu.be'])",
+    YOUTUBE_IFRAME_KEEP_SELECTOR,
     "noscript",
     // Do NOT add ".dailymotion-embed-container" here! That is the facade
     // extractMeinMmoContent() builds for an author-inserted Dailymotion embed,

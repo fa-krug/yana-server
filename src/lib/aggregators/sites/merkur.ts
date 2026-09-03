@@ -7,6 +7,7 @@ import {
 } from "../extract/clean";
 import { extractMainContent } from "../extract/content";
 import { proxyYoutubeEmbeds } from "../embeds/youtube";
+import { YOUTUBE_IFRAME_KEEP_SELECTOR } from "../embeds/youtube-url";
 import { FullWebsiteAggregator } from "../website";
 
 export class MerkurAggregator extends FullWebsiteAggregator {
@@ -75,7 +76,7 @@ export class MerkurAggregator extends FullWebsiteAggregator {
     "figcaption",
     "script",
     "style",
-    "iframe:not([src*='youtube.com']):not([src*='youtu.be'])",
+    YOUTUBE_IFRAME_KEEP_SELECTOR,
     "noscript",
     "svg",
     ".id-StoryElement-intestitialLink",

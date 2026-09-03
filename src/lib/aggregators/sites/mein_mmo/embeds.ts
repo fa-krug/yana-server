@@ -3,7 +3,7 @@ import type { Element } from "domhandler";
 import type { ChromeLabels } from "../../chrome-labels";
 import { buildBlueskyEmbedHtml, isBlueskyUrl } from "../../embeds/bluesky";
 import { localizeThumbnail } from "../../embeds/youtube";
-import { YOUTUBE_EMBED_DOMAIN_ALTERNATION } from "../../embeds/youtube-url";
+import { isYoutubeUrl, YOUTUBE_EMBED_DOMAIN_ALTERNATION } from "../../embeds/youtube-url";
 import { buildYoutubeFacadeHtml } from "../../extract/format";
 
 // Shares its domain list with embeds/youtube-url.ts's youtubeIdFrom() -- see
@@ -289,7 +289,7 @@ export class YouTubeFallbackProcessor implements EmbedProcessorStrategy {
     const anchors = figure.find("a[href]").toArray();
     for (const a of anchors) {
       const href = $(a).attr("href") || "";
-      if (href.includes("youtube.com") || href.includes("youtu.be")) {
+      if (isYoutubeUrl(href)) {
         return true;
       }
     }
@@ -305,10 +305,15 @@ export class YouTubeFallbackProcessor implements EmbedProcessorStrategy {
     const anchors = figure.find("a[href]").toArray();
     for (const a of anchors) {
       const href = $(a).attr("href") || "";
-      if (href.includes("youtube.com") || href.includes("youtu.be")) {
-        const match = href.match(
-          /(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/,
-        );
+      if (isYoutubeUrl(href)) {
+        // Shares its domain list (and this {11} length constraint) with
+        // youtubeIdFrom() via the two module-scope patterns above -- see
+        // their doc comment for why they stay separate, tighter patterns
+        // rather than folding into the shared extractor. This is the third
+        // inline copy in this file to route through the shared domain
+        // alternation constant, flagged in the pipeline-review-3 task-3
+        // report as a residual gap and closed here per that review.
+        const match = YOUTUBE_EMBED_ID_PATTERN.exec(href) || YOUTUBE_WATCH_ID_PATTERN.exec(href);
         if (match) {
           videoId = match[1]!;
           break;

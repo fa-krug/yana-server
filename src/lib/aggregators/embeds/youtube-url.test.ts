@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import * as cheerio from "cheerio";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -8,6 +9,8 @@ import {
   thumbnailUrlFor,
   youtubeIdFrom,
   YOUTUBE_EMBED_DOMAIN_ALTERNATION,
+  YOUTUBE_IFRAME_KEEP_SELECTOR,
+  YOUTUBE_URL_DOMAINS,
 } from "./youtube-url";
 
 const ROOT = path.resolve(import.meta.dirname, "../../../..");
@@ -114,5 +117,36 @@ describe("YOUTUBE_EMBED_DOMAIN_ALTERNATION", () => {
     expect(re.test("youtube.com")).toBe(true);
     expect(re.test("youtube-nocookie.com")).toBe(true);
     expect(re.test("evil.com")).toBe(false);
+  });
+});
+
+describe("YOUTUBE_IFRAME_KEEP_SELECTOR", () => {
+  /**
+   * This selector is a hand-written CSS literal, kept in sync with
+   * YOUTUBE_URL_DOMAINS by hand rather than derived from it (see the
+   * constant's doc comment for why). This is the drift guard: an iframe
+   * whose src contains any domain isYoutubeUrl() (and, by extension,
+   * youtubeIdFrom()) recognises must survive this selector, or a site's
+   * selectorsToRemove would delete it during extraction, one stage before
+   * youtubeIdFrom() is ever consulted -- exactly the live bug this module
+   * exists to close. Checked by actually running the selector against a real
+   * iframe for each domain, not by asserting the domain string appears
+   * literally in the selector: "m.youtube.com" is covered by the
+   * :not([src*=\'youtube.com\']) clause as a substring match, with no
+   * separate clause of its own, so a literal toContain(domain) check would
+   * be a false failure for that one entry.
+   */
+  it("keeps an iframe alive for every domain YOUTUBE_URL_DOMAINS lists", () => {
+    for (const domain of YOUTUBE_URL_DOMAINS) {
+      const $ = cheerio.load(`<div><iframe src="https://${domain}/embed/abc"></iframe></div>`);
+      $(YOUTUBE_IFRAME_KEEP_SELECTOR).remove();
+      expect($("iframe").length, `expected an iframe on ${domain} to survive`).toBe(1);
+    }
+  });
+
+  it("still removes a stray, non-YouTube iframe", () => {
+    const $ = cheerio.load('<div><iframe src="https://evil.example.com/embed/abc"></iframe></div>');
+    $(YOUTUBE_IFRAME_KEEP_SELECTOR).remove();
+    expect($("iframe").length).toBe(0);
   });
 });

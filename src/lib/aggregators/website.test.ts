@@ -97,14 +97,22 @@ describe("FullWebsiteAggregator", () => {
   });
 
   /**
-   * The live bug this task fixes: isYoutubeUrl() (in embeds/youtube-url.ts)
-   * already accepted youtube-nocookie.com, but the extractor it fed used to
-   * disagree and return null -- so the iframe was left untouched here, and
-   * Heise/Merkur/Mein-MMO's `selectorsToRemove` (which only excludes
-   * `youtube.com`/`youtu.be`) then deleted it outright. A privacy-embedded
-   * video vanished from the article with no facade, no thumbnail and no log
-   * line. Before the fix this iframe survived proxyYoutubeEmbeds() unchanged;
-   * now it becomes a facade like any other YouTube embed.
+   * One half of the live bug this task fixes: isYoutubeUrl() (in
+   * embeds/youtube-url.ts) already accepted youtube-nocookie.com, but the
+   * extractor it fed used to disagree and return null, so proxyYoutubeEmbeds()
+   * left a nocookie iframe untouched here regardless of what called it.
+   *
+   * This test exercises only that recognition bug, against a bare
+   * FullWebsiteAggregator whose default selectorsToRemove is
+   * `[IFRAME_SANITIZE_SELECTOR]` -- it carries no
+   * `iframe:not([src*='youtube.com']):not([src*='youtu.be'])` rule at all,
+   * so it says nothing about whether an iframe survives a site's own
+   * *extraction* step. That second half of the bug -- Heise, Merkur and
+   * Mein-MMO's own selectorsToRemove deleting a nocookie iframe during
+   * extractContent(), one stage *before* processContent() (and therefore
+   * this function) ever runs -- is covered end-to-end against those three
+   * real subclasses in heise.test.ts, merkur.test.ts and
+   * mein_mmo/aggregator.test.ts, not here.
    */
   it("replaces a youtube-nocookie.com (privacy-embed) iframe with a facade", async () => {
     const feed: FeedLike = { identifier: "https://example.com", dailyLimit: 20 };

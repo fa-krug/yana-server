@@ -40,7 +40,12 @@
 export const YOUTUBE_EMBED_DOMAIN_ALTERNATION = "youtube\\.com|youtube-nocookie\\.com";
 
 /** Domain fragments `isYoutubeUrl()` matches as a substring of the input URL. */
-const YOUTUBE_URL_DOMAINS = ["youtube.com", "youtu.be", "m.youtube.com", "youtube-nocookie.com"];
+export const YOUTUBE_URL_DOMAINS = [
+  "youtube.com",
+  "youtu.be",
+  "m.youtube.com",
+  "youtube-nocookie.com",
+];
 
 /**
  * Patterns for extracting a YouTube video id from every URL form this
@@ -94,3 +99,30 @@ export function isYoutubeUrl(url: string): boolean {
 export function thumbnailUrlFor(id: string, quality: string = "maxresdefault"): string {
   return `https://img.youtube.com/vi/${id}/${quality}.jpg`;
 }
+
+/**
+ * CSS `:not()` clauses that keep a YouTube iframe alive through a site
+ * aggregator's `selectorsToRemove` pass.
+ *
+ * `extractContent()` (via `extractMainContent()`/`removeSelectors()`) runs
+ * *before* `processContent()`'s `proxyYoutubeEmbeds()` ever sees an iframe --
+ * so a bare `<iframe src="...">` that a site's own `selectorsToRemove` would
+ * otherwise strip is gone before `youtubeIdFrom()` gets a chance to
+ * recognise it, no matter how complete that extractor is. Heise, Merkur and
+ * Mein-MMO all carry a copy of this selector precisely to keep a YouTube
+ * embed's iframe from being swept up by their generic "drop stray iframes"
+ * rule; each must list every domain a YouTube iframe can arrive with, or a
+ * form `youtubeIdFrom()` accepts is deleted one stage before it is ever
+ * consulted. This is that shared list, in CSS-selector form.
+ *
+ * Kept as a hand-written literal rather than derived from
+ * `YOUTUBE_URL_DOMAINS` above: that array is JS string matching
+ * (`url.includes(domain)`), this is a CSS attribute selector fed to cheerio
+ * -- building one from the other needs a real selector-building helper for
+ * exactly three call sites, which is more machinery than three call sites
+ * warrant. `youtube-url.test.ts` pins that every domain
+ * `YOUTUBE_URL_DOMAINS` lists is also named here, so the two cannot drift
+ * silently.
+ */
+export const YOUTUBE_IFRAME_KEEP_SELECTOR =
+  "iframe:not([src*='youtube.com']):not([src*='youtu.be']):not([src*='youtube-nocookie.com'])";

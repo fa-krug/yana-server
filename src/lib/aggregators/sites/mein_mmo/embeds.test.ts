@@ -74,6 +74,16 @@ describe("processEmbeds - other processors still run under the async loop", () =
     );
   });
 
+  /**
+   * This only covers a nocookie embed already wrapped in a recognised
+   * `<figure>` -- processEmbeds() runs *after* extractMeinMmoContent()'s
+   * removeSelectors() call and never sees a bare, unwrapped
+   * `<iframe src="...nocookie...">` at all (that case is deleted during
+   * extraction, before processEmbeds() or this test's direct call to it ever
+   * runs). The bare-iframe case is covered end-to-end, through the real
+   * MeinMmoAggregator.extractContent() -> processContent() chain, in
+   * aggregator.test.ts.
+   */
   it("still converts a privacy-embedded (youtube-nocookie.com) figure to a facade", async () => {
     const $ = cheerio.load(
       '<div class="entry-content"><figure class="wp-block-embed-youtube" ' +
@@ -101,5 +111,29 @@ describe("processEmbeds - other processors still run under the async loop", () =
 
     expect($content.find("figure").length).toBe(0);
     expect($content.find("img").attr("src")).toBe("https://reddit.com/thumb.jpg");
+  });
+
+  /**
+   * Pipeline-review-3, Task 3, Finding 2: YouTubeFallbackProcessor is the
+   * third inline copy of YouTube URL recognition in this file (after
+   * YouTubeEmbedProcessor's own extractVideoId()), and it used to test only
+   * the "youtube.com"/"youtu.be" substrings on an anchor href -- the same
+   * gap Finding 1 closed for iframe srcs. This figure carries none of
+   * YouTubeEmbedProcessor's recognised classes, so it falls through to the
+   * fallback processor, which must now recognise the nocookie domain too
+   * (routed through isYoutubeUrl() from embeds/youtube-url.ts).
+   */
+  it("falls back to recognising a nocookie.com anchor href when no other processor claims the figure", async () => {
+    const $ = cheerio.load(
+      '<div class="entry-content"><figure class="wp-block-embed">' +
+        '<a href="https://www.youtube-nocookie.com/embed/abcdefghijk">watch</a>' +
+        "</figure></div>",
+    );
+    const $content = $(".entry-content");
+
+    await processEmbeds($content, $, DEFAULT_CHROME_LABELS);
+
+    expect($content.find("figure").length).toBe(0);
+    expect($content.find('div[data-sanitized-class="youtube-embed"]').length).toBe(1);
   });
 });

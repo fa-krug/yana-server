@@ -12,6 +12,7 @@ import {
 import { extractMainContentIfPresent } from "../extract/content";
 import { escapeHtml, formatArticleContent } from "../extract/format";
 import { proxyYoutubeEmbeds } from "../embeds/youtube";
+import { YOUTUBE_IFRAME_KEEP_SELECTOR } from "../embeds/youtube-url";
 import { getHeaderImageRef } from "../header/context";
 import { fetchHtml } from "../http/fetcher";
 import { FullWebsiteAggregator } from "../website";
@@ -213,7 +214,7 @@ export class HeiseAggregator extends FullWebsiteAggregator {
     "div[data-component='RecommendationBox']",
     ".opt-in__content-container",
     ".a-box",
-    "iframe:not([src*='youtube.com']):not([src*='youtu.be'])",
+    YOUTUBE_IFRAME_KEEP_SELECTOR,
     ".a-u-inline",
     ".redakteurskuerzel",
     ".branding",
