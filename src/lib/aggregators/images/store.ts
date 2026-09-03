@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { eq, inArray, isNotNull, ne } from "drizzle-orm";
+import { eq, inArray, isNotNull, lte, ne } from "drizzle-orm";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { mediaRoot } from "@/lib/avatar-storage";
 import { articleBlocks, articleImages, feeds } from "@/lib/db/schema";
@@ -232,6 +232,24 @@ export interface ImageSweepResult {
 // under that limit regardless of how many orphans a single sweep finds.
 const SWEEP_BATCH_SIZE = 100;
 
+// An image is stored (storeImageRefFromUrl(), during aggregation) well before
+// the article_blocks row that references it: handleAggregateJob() writes
+// blocks one article at a time, behind AI calls and a per-article
+// aiRequestDelay sleep, so on a large feed with AI on that gap is tens of
+// minutes to hours -- and retention can run concurrently with aggregation
+// (scheduler.ts enqueues both in the same tick, and startWorker() runs
+// several worker loops at once). Without a grace window, the sweep would
+// delete a just-fetched image's row and file before the block that will
+// reference it is ever written; the article then gets a yana-img:// ref
+// pointing at a deleted file, and because its contentHash IS written,
+// handleAggregateJob() skips that row forever afterward -- a permanently
+// broken image with no repair path. 24 hours is not arbitrary: retention
+// runs nightly, so a true orphan is simply collected on the next run, at the
+// cost of one extra day of leaked storage -- the same "prefer leaking to
+// breaking" trade-off that already governs this sweep's delete-then-unlink
+// ordering below. Do not tune this toward zero.
+export const SWEEP_GRACE_PERIOD_MS = 24 * 60 * 60_000;
+
 function chunk<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let i = 0; i < items.length; i += size) {
@@ -268,6 +286,10 @@ function chunk<T>(items: T[], size: number): T[][] {
  * `IMAGE_REF_SCHEME` before joining the referenced set -- comparing them
  * un-stripped against bare content hashes would match nothing, and "matches
  * nothing" here means "every image looks unreferenced".
+ *
+ * **A row younger than `SWEEP_GRACE_PERIOD_MS` is never swept, no matter what
+ * the reference scan finds.** See that constant's comment for why: an image
+ * can be stored well before the block row that will reference it exists.
  */
 export async function sweepUnreferencedImages(): Promise<ImageSweepResult> {
   const db = getDb();
@@ -302,11 +324,13 @@ export async function sweepUnreferencedImages(): Promise<ImageSweepResult> {
     if (row.hash) referenced.add(row.hash);
   }
 
-  const allImages = db
+  const sweepCutoff = new Date(Date.now() - SWEEP_GRACE_PERIOD_MS);
+  const eligibleImages = db
     .select({ contentHash: articleImages.contentHash, file: articleImages.file })
     .from(articleImages)
+    .where(lte(articleImages.createdAt, sweepCutoff))
     .all();
-  const orphaned = allImages.filter((row) => !referenced.has(row.contentHash));
+  const orphaned = eligibleImages.filter((row) => !referenced.has(row.contentHash));
 
   let sweptImages = 0;
   for (const batch of chunk(orphaned, SWEEP_BATCH_SIZE)) {

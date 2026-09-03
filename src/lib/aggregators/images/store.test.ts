@@ -249,6 +249,20 @@ describe("image store", () => {
       return article.id;
     }
 
+    /**
+     * Backdates an `article_images` row past the sweep's grace window, so a
+     * test can put it in the "eligible to be swept" state without waiting on
+     * a real clock.
+     */
+    function backdatePastGracePeriod(hash: string): void {
+      client
+        .getDb()
+        .update(articleImages)
+        .set({ createdAt: new Date(Date.now() - store.SWEEP_GRACE_PERIOD_MS - 60_000) })
+        .where(eq(articleImages.contentHash, hash))
+        .run();
+    }
+
     it("deletes a row and file referenced by nothing, and keeps one referenced by an article block imageRef", async () => {
       const keptBytes = Buffer.from("kept-image-bytes");
       const orphanBytes = Buffer.from("orphan-image-bytes");
@@ -259,6 +273,7 @@ describe("image store", () => {
       });
       expect(keptHash).not.toBeNull();
       expect(orphanHash).not.toBeNull();
+      backdatePastGracePeriod(orphanHash!);
 
       const db = client.getDb();
       const feedId = seedFeed();
@@ -337,6 +352,7 @@ describe("image store", () => {
           compress: false,
         });
         expect(hash).not.toBeNull();
+        backdatePastGracePeriod(hash!);
       }
 
       const db = client.getDb();
@@ -346,6 +362,63 @@ describe("image store", () => {
 
       expect(result.sweptImages).toBe(orphanCount);
       expect(db.select().from(articleImages).all().length).toBe(0);
+    });
+
+    it("keeps an unreferenced image whose row is still within the grace window", async () => {
+      // Reproduces the in-flight-aggregation hazard: an image can be stored
+      // (storeImageRefFromUrl(), mid-aggregation) well before the
+      // article_blocks row that will reference it is written. A sweep that
+      // runs in that gap must not delete it.
+      const freshBytes = Buffer.from("just-fetched-image-bytes");
+      const freshHash = await store.storeImageBytes(freshBytes, "image/png", { compress: false });
+      expect(freshHash).not.toBeNull();
+
+      const db = client.getDb();
+      const rowBefore = db
+        .select()
+        .from(articleImages)
+        .where(eq(articleImages.contentHash, freshHash!))
+        .get();
+      const fileBefore = path.join(mediaPath, rowBefore!.file);
+      expect(fs.existsSync(fileBefore)).toBe(true);
+
+      const result = await store.sweepUnreferencedImages();
+
+      expect(result.sweptImages).toBe(0);
+      const rowAfter = db
+        .select()
+        .from(articleImages)
+        .where(eq(articleImages.contentHash, freshHash!))
+        .get();
+      expect(rowAfter).toBeDefined();
+      expect(fs.existsSync(fileBefore)).toBe(true);
+    });
+
+    it("sweeps an unreferenced image once its row is past the grace window", async () => {
+      const staleBytes = Buffer.from("stale-orphan-image-bytes");
+      const staleHash = await store.storeImageBytes(staleBytes, "image/png", { compress: false });
+      expect(staleHash).not.toBeNull();
+      backdatePastGracePeriod(staleHash!);
+
+      const db = client.getDb();
+      const rowBefore = db
+        .select()
+        .from(articleImages)
+        .where(eq(articleImages.contentHash, staleHash!))
+        .get();
+      const fileBefore = path.join(mediaPath, rowBefore!.file);
+      expect(fs.existsSync(fileBefore)).toBe(true);
+
+      const result = await store.sweepUnreferencedImages();
+
+      expect(result.sweptImages).toBe(1);
+      const rowAfter = db
+        .select()
+        .from(articleImages)
+        .where(eq(articleImages.contentHash, staleHash!))
+        .get();
+      expect(rowAfter).toBeUndefined();
+      expect(fs.existsSync(fileBefore)).toBe(false);
     });
   });
 });

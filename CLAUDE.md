@@ -1315,6 +1315,58 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
     sits ahead of `processContent()`, so the AI stage below it is never reached:
     there is no point spending a provider request on a body that is not there.
 
+- **The article-image store is content-addressed and refcount-free, so nothing
+  ever deletes "one article's images" — the only thing that removes a row is
+  `sweepUnreferencedImages()` in `src/lib/aggregators/images/store.ts`, mark-
+  and-sweep GC that the nightly `retention` job (`src/lib/jobs/handlers/
+retention.ts`) runs once per run, after that run's own article deletions,
+  never per user.** There are exactly three reference roots —
+  `articleBlocks.imageRef`, `articleBlocks.embedThumbnailRef` and
+  `feeds.logoImageHash` — verified against the schema rather than assumed, and
+  they are the same three `GET /api/v1/images/[hash]`'s `ownsHash()` checks.
+  **Adding a fourth place a `yana-img://` hash can live obliges you to add it
+  to this sweep's reference scan** — an image root the sweep doesn't know
+  about is an image root it will happily delete out from under, silently,
+  since nothing else in the schema tracks a refcount for it. Two things about
+  it are easy to get backwards:
+  - **The two encodings are not the same, and conflating them deletes every
+    image on the instance.** The two `articleBlocks` columns store the _full_
+    `yana-img://<hash>` ref; `feeds.logoImageHash` stores the _bare_ hash, the
+    same encoding `articleImages.contentHash` itself uses. The sweep strips
+    `IMAGE_REF_SCHEME` off the block columns before joining the referenced
+    set — compare an un-stripped ref against a bare hash and it matches
+    nothing, and "matches nothing" here means every row in the table reads as
+    unreferenced.
+  - **Delete the database row before the file, never the reverse**, the same
+    ordering `removeAvatar()` already uses and for the same reason: the two
+    writes can't be one atomic operation (better-sqlite3 has no async driver,
+    so the `fs.rm` can't live inside the same synchronous `writeTransaction()`
+    callback as the delete), so a crash between them is possible, and
+    row-then-file means a crash there only leaks an orphaned file — harmless,
+    and exactly the state a later sweep would have produced anyway. File-then-
+    row would instead risk a database row surviving with no file behind it,
+    which `GET /api/v1/images/[hash]` cannot serve and throws on.
+  - **A row younger than 24 hours is never swept, no matter what the
+    reference scan finds** — the grace window closes a real race, not a
+    theoretical one. An image is stored (`storeImageRefFromUrl()`, called from
+    roughly fifteen aggregator/embed modules) _during_ the aggregator's own
+    `aggregate()` run, while the `article_blocks` row that will reference it
+    is written much later — one article at a time, in `handleAggregateJob()`'s loop, behind AI
+    calls and a per-article `aiRequestDelay` sleep. On a large feed with AI on
+    that gap is tens of minutes to hours, and `scheduler.ts` enqueues
+    `aggregate` and `retention` in the same tick while `startWorker()` runs
+    several worker loops concurrently — so retention routinely runs while
+    another loop is mid-aggregation. Without the window, the sweep would
+    delete a just-fetched image's row and file before the block referencing it
+    exists; the article then gets a `yana-img://` ref pointing at a deleted
+    file, and because its `contentHash` _is_ written, the row is skipped on
+    every later aggregation run forever — a permanently broken image with no
+    repair path. 24 hours is sized against the sweep's own cadence (nightly),
+    not picked arbitrarily: a true orphan is just collected on the next run,
+    at the cost of one extra day of leaked storage, the same "prefer leaking
+    to breaking" trade-off the row-then-file ordering above already makes. Do
+    not tune it toward zero.
+
 - **Article search goes through the `articles_fts` FTS5 external-content table,
   via `toFtsQuery()`** (`src/lib/articles/search-query.ts`). It replaced a
   `LIKE '%term%'` over `plainText` — the largest column on the table — which

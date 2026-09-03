@@ -439,6 +439,14 @@ describe("src/lib/jobs/handlers", () => {
           .set({ imageRef: store.buildImageRef(keptHash!) })
           .where(eq(schema.articleBlocks.kind, "image"))
           .run();
+
+        // Push the orphan's row past the sweep's grace window (see
+        // SWEEP_GRACE_PERIOD_MS in store.ts) so this test still exercises a
+        // real sweep rather than one skipping every row as "too fresh".
+        db.update(schema.articleImages)
+          .set({ createdAt: new Date(Date.now() - store.SWEEP_GRACE_PERIOD_MS - 60_000) })
+          .where(eq(schema.articleImages.contentHash, orphanHash!))
+          .run();
       });
 
       const keptFile = client
