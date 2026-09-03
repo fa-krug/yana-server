@@ -3342,7 +3342,37 @@ describe("src/lib/jobs/handlers", () => {
         }
       });
 
-      it("rolls back the row update too when the block write fails inside the merged transaction", async () => {
+      /**
+       * **Honesty note, added on review: this test does not discriminate
+       * old reload.ts from the merged version, and it is not a durability
+       * pin the way the aggregate-side "rolls back" test above is.**
+       *
+       * The aggregate-side test (and the `SQL_VARIABLE_BATCH_SIZE` read/write
+       * chunking test in `storage.test.ts`) were both confirmed, via
+       * `git stash` of the source changes with the test kept, to *fail*
+       * against the pre-Task-5 code and pass only after the merge -- real
+       * before/after pins. This one was checked the same way and it *passes
+       * against the pre-Task-5 reload.ts too*: that code's order was
+       * blocks-then-row, so injecting the failure in the block write (an
+       * unrecognized block `kind`, below) throws and rolls back before old
+       * reload's separate row-update transaction ever opens -- the row is
+       * left untouched in both the old code and the new code, for different
+       * reasons. A discriminating test would instead need to fail *after*
+       * the block write commits and *during* the row write -- which the old
+       * code ran as two independent transactions and the new code runs as
+       * one -- but nothing in this schema gives a legitimately-shaped
+       * aggregator/AI answer a way to make the row `UPDATE` itself throw
+       * (no CHECK constraint on `name`/`plainText`/`updatedAt` a real value
+       * can trip), and forcing it with a driver-level spy on `tx.update`
+       * would violate this repo's no-driver-mocks testing convention. So this
+       * test is kept as a forward-looking guard only: it pins that a block
+       * write failure and a row write happen together in one transaction
+       * today, and it will catch a future change that re-splits them in a
+       * way where a block-write failure stops rolling back the row -- but a
+       * green run here must not be read as proof of the specific old-reload
+       * defect the way the aggregate-side test is.
+       */
+      it("keeps the row and block writes in one transaction (does not discriminate old reload.ts -- see comment)", async () => {
         vi.resetModules();
         vi.doMock("@/lib/aggregators/factory", () => ({
           createAggregator: () => ({
@@ -3377,9 +3407,11 @@ describe("src/lib/jobs/handlers", () => {
             .from(schema.articles)
             .where(eq(schema.articles.id, articleId))
             .get();
-          // Rolled back: the row still holds its pre-reload content, not
-          // the half-applied AI answer -- the merged transaction discarded
-          // both the row update and the failed block write together.
+          // The row still holds its pre-reload content, not the
+          // half-applied AI answer. True in both the old and new code for
+          // this particular injected failure (see the doc comment above) --
+          // still worth pinning, because a future change that reaches the
+          // row write before failing would break it.
           expect(row!.name).toBe("Original");
           expect(row!.plainText).toBe("original body");
         } finally {
