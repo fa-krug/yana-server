@@ -6,9 +6,8 @@ import { isSafeUrl } from "../blocks/parser";
 import {
   cleanHtml,
   removeImageByUrl,
-  removeSanitizedAttributes,
   sanitizeClassNames,
-  sanitizeHtmlAttributes,
+  sanitizeUntrustedFragment,
 } from "../extract/clean";
 import { extractMainContentIfPresent } from "../extract/content";
 import { escapeHtml, formatArticleContent } from "../extract/format";
@@ -22,29 +21,6 @@ function commentSourceLink(url: string, labels: ChromeLabels): string {
     return `<a href="${escapeHtml(url)}">${labels.source}</a>`;
   }
   return labels.source;
-}
-
-function sanitizeCommentHtml(contentHtml: string): string {
-  const $ = cheerio.load(cleanHtml(contentHtml));
-  sanitizeHtmlAttributes($);
-  removeSanitizedAttributes($);
-
-  $("a").each((_, tag) => {
-    const href = $(tag).attr("href");
-    if (href && !isSafeUrl(href)) {
-      $(tag).removeAttr("href");
-    }
-  });
-
-  $("img").each((_, tag) => {
-    const src = $(tag).attr("src");
-    if (src && !isSafeUrl(src)) {
-      $(tag).remove();
-    }
-  });
-
-  const body = $("body");
-  return body.length > 0 ? body.html() || "" : $.html();
 }
 
 function findForumUrl(html: string, articleUrl: string): string | null {
@@ -177,7 +153,7 @@ function processFullViewComment(
     `<blockquote>` +
     `<p><strong>${escapeHtml(author)}</strong> | ` +
     `${commentSourceLink(commentUrl, labels)}</p>` +
-    `<div>${sanitizeCommentHtml(content)}</div>` +
+    `<div>${sanitizeUntrustedFragment(content)}</div>` +
     `</blockquote>`
   );
 }

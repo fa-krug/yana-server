@@ -1,12 +1,7 @@
 import * as cheerio from "cheerio";
 import { RawArticle } from "../base";
 import { isSafeUrl } from "../blocks/parser";
-import {
-  cleanHtml,
-  removeSanitizedAttributes,
-  sanitizeClassNames,
-  sanitizeHtmlAttributes,
-} from "../extract/clean";
+import { cleanHtml, sanitizeClassNames, sanitizeUntrustedFragment } from "../extract/clean";
 import { escapeHtml, formatArticleContent } from "../extract/format";
 import { RssAggregator } from "../rss";
 import { FeedEntry, ParsedFeed, unescapeEntities } from "../rss-parser";
@@ -15,31 +10,6 @@ function safeUrlAttr(url?: string | null): string | null {
   if (!url) return null;
   if (!isSafeUrl(url)) return null;
   return escapeHtml(url);
-}
-
-function sanitizeShowNotesHtml(contentHtml: string): string {
-  const cleaned = cleanHtml(contentHtml);
-  const $ = cheerio.load(cleaned);
-
-  sanitizeHtmlAttributes($);
-  removeSanitizedAttributes($);
-
-  $("a").each((_, elem) => {
-    const href = $(elem).attr("href");
-    if (href && !isSafeUrl(href)) {
-      $(elem).removeAttr("href");
-    }
-  });
-
-  $("img").each((_, elem) => {
-    const src = $(elem).attr("src");
-    if (src && !isSafeUrl(src)) {
-      $(elem).remove();
-    }
-  });
-
-  const body = $("body");
-  return body.length > 0 ? body.html() || "" : $.html();
 }
 
 export class PodcastAggregator extends RssAggregator {
@@ -275,7 +245,7 @@ export class PodcastAggregator extends RssAggregator {
       if (description) {
         htmlParts.push(`<div data-sanitized-class="podcast-description">`);
         htmlParts.push(`<h4>${labels.showNotes}</h4>`);
-        htmlParts.push(sanitizeShowNotesHtml(description));
+        htmlParts.push(sanitizeUntrustedFragment(description));
         htmlParts.push(`</div>`);
       }
 

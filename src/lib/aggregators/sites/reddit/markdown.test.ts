@@ -221,13 +221,16 @@ describe("convertRedditMarkdown backslash escapes", () => {
 });
 
 /**
- * Finding 7 (2026-09-03 pipeline review 1): `sanitizeMarkdownHtml()` (used by
- * `convertRedditMarkdown()` for every comment body) runs `sanitizeHtmlAttributes()`
- * -- which rewrites a `class` attribute into `data-sanitized-class` -- and then
- * `removeSanitizedAttributes()` immediately afterward, which strips every
- * `data-sanitized-*` attribute the previous call just produced. A comment
- * whose body carries literal markup naming
- * `<section class="article-comments">` -- the exact wrapper
+ * Finding 7 (2026-09-03 pipeline review 1): `sanitizeUntrustedFragment()`
+ * (used by `convertRedditMarkdown()` for every comment body -- see the
+ * 2026-09-03 pipeline-review-3 "one HTML sanitizer, not six" task, which
+ * consolidated what used to be this file's own `sanitizeMarkdownHtml()` into
+ * the shared implementation in `extract/clean.ts`) runs
+ * `sanitizeHtmlAttributes()` -- which rewrites a `class` attribute into
+ * `data-sanitized-class` -- and then `removeSanitizedAttributes()`
+ * immediately afterward, which strips every `data-sanitized-*` attribute the
+ * previous call just produced. A comment whose body carries literal markup
+ * naming `<section class="article-comments">` -- the exact wrapper
  * `formatArticleContent()` uses for the real comments section, and the marker
  * `content-hash.ts`'s `withoutComments()` cuts on -- must never survive with
  * that class intact, or a comment could forge a second marker inside the real
@@ -235,7 +238,9 @@ describe("convertRedditMarkdown backslash escapes", () => {
  * instead of the real one, permanently defeating the comment exclusion for
  * that article. This pins the current, correct behavior so a future
  * "simplification" that drops the `removeSanitizedAttributes()` call cannot
- * reopen it silently.
+ * reopen it silently. The shared implementation carries its own copy of this
+ * test in `extract/clean.test.ts`; this one pins that Reddit's markdown path
+ * still routes its comment bodies through it.
  */
 describe("convertRedditMarkdown comment-forged comments marker", () => {
   it("never lets a comment body's own markup survive as a data-sanitized-class attribute", () => {

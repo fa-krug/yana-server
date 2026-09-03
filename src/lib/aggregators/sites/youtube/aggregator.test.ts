@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { FeedLike, RawArticle } from "../../base";
 import { DEFAULT_CHROME_LABELS } from "../../chrome-labels";
+import { sanitizeUntrustedFragment } from "../../extract/clean";
 import { ARTICLE_COMMENTS_CLASS } from "../../extract/format";
-import { sanitizeCommentBodyHtml, YouTubeAggregator } from "./aggregator";
+import { YouTubeAggregator } from "./aggregator";
 import type { YouTubeClient, YouTubeCommentThread } from "./client";
 
 // finalizeArticles() embeds a localized thumbnail via storeImageRefFromUrl,
@@ -417,7 +418,11 @@ describe("YouTubeAggregator comments wrapper wiring", () => {
 });
 
 /**
- * Finding 7 (2026-09-03 pipeline review 1): `sanitizeCommentBodyHtml()` runs
+ * Finding 7 (2026-09-03 pipeline review 1): `sanitizeUntrustedFragment()`
+ * (used by the YouTube aggregator for every comment body -- see the
+ * 2026-09-03 pipeline-review-3 "one HTML sanitizer, not six" task, which
+ * consolidated what used to be this file's own `sanitizeCommentBodyHtml()`
+ * into the shared implementation in `extract/clean.ts`) runs
  * `sanitizeHtmlAttributes()` -- which rewrites a `class` attribute into
  * `data-sanitized-class` -- and then `removeSanitizedAttributes()`
  * immediately afterward, which strips every `data-sanitized-*` attribute the
@@ -430,11 +435,13 @@ describe("YouTubeAggregator comments wrapper wiring", () => {
  * instead of the real one, permanently defeating the comment exclusion for
  * that article. This pins the current, correct behavior so a future
  * "simplification" that drops the `removeSanitizedAttributes()` call cannot
- * reopen it silently.
+ * reopen it silently. The shared implementation carries its own copy of this
+ * test in `extract/clean.test.ts`; this one pins that the YouTube aggregator
+ * still routes its comment bodies through it.
  */
-describe("sanitizeCommentBodyHtml comment-forged comments marker", () => {
+describe("sanitizeUntrustedFragment comment-forged comments marker (via the YouTube comment path)", () => {
   it("never lets a comment body's own markup survive as a data-sanitized-class attribute", () => {
-    const html = sanitizeCommentBodyHtml('hi <section class="article-comments">evil</section>');
+    const html = sanitizeUntrustedFragment('hi <section class="article-comments">evil</section>');
 
     expect(html).not.toContain("data-sanitized-class");
     expect(html).not.toContain('class="article-comments"');

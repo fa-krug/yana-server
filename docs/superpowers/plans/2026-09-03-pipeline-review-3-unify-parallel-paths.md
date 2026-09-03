@@ -100,14 +100,14 @@ to one copy protects one site.
 **Files:** create the shared export in `src/lib/aggregators/extract/clean.ts`;
 modify the six sites; modify their tests.
 
-- [ ] **Step 1:** Pin current output for each of the six with a characterisation
+- [x] **Step 1:** Pin current output for each of the six with a characterisation
       test over a fixture containing a script tag, an `onclick`, a
       `javascript:` href, a `data:` image and a normal link.
-- [ ] **Step 2:** Export one `sanitizeUntrustedFragment(html: string): string`
+- [x] **Step 2:** Export one `sanitizeUntrustedFragment(html: string): string`
       from `extract/clean.ts`. Take the strictest behaviour where the six
       differ, and note any deliberate widening in a comment.
-- [ ] **Step 3:** Replace all six call sites. Confirm the pins pass.
-- [ ] **Step 4:** While in `clean.ts` — the "walk every element including self"
+- [x] **Step 3:** Replace all six call sites. Confirm the pins pass.
+- [x] **Step 4:** While in `clean.ts` — the "walk every element including self"
       idiom is written out four times (`clean.ts:103,182,198,256`) as
       `typeof soup === "function" ? soup("*") : soup.find("*").addBack("*")`.
       Extract it to one helper.

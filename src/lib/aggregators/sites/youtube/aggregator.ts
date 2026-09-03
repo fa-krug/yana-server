@@ -4,14 +4,13 @@
  * Ported from old/core/aggregators/youtube/aggregator.py.
  */
 
-import * as cheerio from "cheerio";
 import { BaseAggregator, FeedLike, RawArticle } from "../../base";
 import type { ChromeLabels } from "../../chrome-labels";
 import { mapWithConcurrency } from "../../concurrency";
 import type { HeaderElementData } from "../../header/context";
 import { isSafeUrl } from "../../blocks/parser";
-import { cleanHtml, removeSanitizedAttributes, sanitizeHtmlAttributes } from "../../extract/clean";
 import { createYoutubeEmbedHtml, escapeHtml, formatArticleContent } from "../../extract/format";
+import { sanitizeUntrustedFragment } from "../../extract/clean";
 import { localizeThumbnail } from "../../embeds/youtube";
 import {
   YouTubeAPIError,
@@ -43,29 +42,6 @@ export function safeCommentAuthorHtml(
 // unconstrained <img> to every comment with no product need for it.
 export function safeCommentAvatarHtml(): string {
   return "";
-}
-
-export function sanitizeCommentBodyHtml(contentHtml: string): string {
-  const $ = cheerio.load(cleanHtml(contentHtml));
-  sanitizeHtmlAttributes($);
-  removeSanitizedAttributes($);
-
-  $("a").each((_, tag) => {
-    const href = $(tag).attr("href");
-    if (href && !isSafeUrl(href)) {
-      $(tag).removeAttr("href");
-    }
-  });
-
-  $("img").each((_, tag) => {
-    const src = $(tag).attr("src");
-    if (src && !isSafeUrl(src)) {
-      $(tag).remove();
-    }
-  });
-
-  const body = $("body");
-  return body.length > 0 ? body.html() || "" : $.html();
 }
 
 export class YouTubeAggregator extends BaseAggregator {
@@ -330,7 +306,7 @@ export class YouTubeAggregator extends BaseAggregator {
       const commentUrl = `https://www.youtube.com/watch?v=${videoId}&lc=${escapeHtml(String(commentId))}`;
 
       const authorHtml = safeCommentAuthorHtml(labels, author, channelUrl);
-      const sanitizedBody = sanitizeCommentBodyHtml(body);
+      const sanitizedBody = sanitizeUntrustedFragment(body);
 
       html += `\n<blockquote>\n<p><strong>${authorHtml}</strong> | <a href="${commentUrl}" target="_blank" rel="noopener">${labels.source}</a></p>\n<div>${sanitizedBody}</div>\n</blockquote>\n`;
     }

@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import type { Element } from "domhandler";
+import { isSafeUrl } from "../blocks/parser";
 
 type SoupOrSelection = cheerio.CheerioAPI | cheerio.Cheerio<Element>;
 
@@ -15,6 +16,27 @@ function getWrapper(soup: SoupOrSelection) {
     };
     return internal.constructor(node, internal._root, internal._options);
   };
+}
+
+/**
+ * Select every element in `soup`, including the selection's own elements
+ * when `soup` is already a `Cheerio<Element>` rather than the whole document.
+ * `soup("*")` on the root `CheerioAPI` already reaches every element in the
+ * document; `soup.find("*")` on a narrower selection only reaches
+ * descendants, so `.addBack("*")` is what folds the selection's own elements
+ * back in. Was written out at four call sites (`cleanDataAttributes`,
+ * `sanitizeClassNames`, `sanitizeHtmlAttributes`, `removeSanitizedAttributes`)
+ * before being pulled out here.
+ */
+function selectAllIncludingSelf(soup: SoupOrSelection): cheerio.Cheerio<Element> {
+  // "*" only ever matches element nodes, but `CheerioAPI`'s call signature is
+  // typed to return `Cheerio<AnyNode>` (it can select comments, text, etc. for
+  // other selectors) -- the cast just states what the selector already
+  // guarantees, the same narrowing every call site below did by hand before
+  // this was extracted.
+  return (
+    typeof soup === "function" ? soup("*") : soup.find("*").addBack("*")
+  ) as cheerio.Cheerio<Element>;
 }
 
 /**
@@ -100,7 +122,7 @@ export function cleanDataAttributes(
   keep: string[] = ["data-src", "data-srcset"],
 ): void {
   const keepSet = new Set(keep);
-  const elems = typeof soup === "function" ? soup("*") : soup.find("*").addBack("*");
+  const elems = selectAllIncludingSelf(soup);
   elems.each((_, elem) => {
     if (elem.type === "tag" && elem.attribs) {
       for (const attr of Object.keys(elem.attribs)) {
@@ -179,7 +201,7 @@ export function removeImageByUrl(soup: SoupOrSelection, imageUrl?: string | null
  * Convert all class attributes to data-sanitized-class attributes.
  */
 export function sanitizeClassNames(soup: SoupOrSelection): void {
-  const elems = typeof soup === "function" ? soup("*") : soup.find("*").addBack("*");
+  const elems = selectAllIncludingSelf(soup);
   elems.each((_, elem) => {
     if (elem.type === "tag" && elem.attribs && "class" in elem.attribs) {
       elem.attribs["data-sanitized-class"] = elem.attribs["class"];
@@ -195,7 +217,7 @@ export function sanitizeClassNames(soup: SoupOrSelection): void {
 export function sanitizeHtmlAttributes(soup: SoupOrSelection): void {
   removeSelectors(soup, ["script", "object", "embed", "style", "iframe"]);
 
-  const elems = typeof soup === "function" ? soup("*") : soup.find("*").addBack("*");
+  const elems = selectAllIncludingSelf(soup);
   elems.each((_, elem) => {
     if (elem.type === "tag" && elem.attribs) {
       const attribs = elem.attribs;
@@ -253,7 +275,7 @@ export function sanitizeHtmlAttributes(soup: SoupOrSelection): void {
  * Remove all data-sanitized-* attributes from elements.
  */
 export function removeSanitizedAttributes(soup: SoupOrSelection): void {
-  const elems = typeof soup === "function" ? soup("*") : soup.find("*").addBack("*");
+  const elems = selectAllIncludingSelf(soup);
   elems.each((_, elem) => {
     if (elem.type === "tag" && elem.attribs) {
       for (const attr of Object.keys(elem.attribs)) {
@@ -263,4 +285,65 @@ export function removeSanitizedAttributes(soup: SoupOrSelection): void {
       }
     }
   });
+}
+
+/**
+ * Sanitize an untrusted HTML fragment -- scraped comment markup, a Reddit
+ * post's converted Markdown, a podcast's show notes -- for safe storage and
+ * eventual serving by `GET /api/v1/articles/[id]/content`. Strips HTML
+ * comments; removes `script`/`object`/`embed`/`style`/`iframe` elements
+ * outright; removes every `on*` event-handler attribute; and drops any
+ * `href`/`src` whose scheme `isSafeUrl()` does not allow (a `javascript:`
+ * link loses its `href` but the anchor and its text survive; an unsafe
+ * `<img>` is removed entirely, since there is no safe fallback rendering for
+ * an image).
+ *
+ * `class`/`style`/`id`/`data-*` attributes are first converted to inert
+ * `data-sanitized-*` names (`sanitizeHtmlAttributes()`) and then those
+ * `data-sanitized-*` attributes are stripped outright
+ * (`removeSanitizedAttributes()`) rather than left in place. That two-step
+ * dance -- rename, then delete the renamed form -- is deliberate, not
+ * redundant: it is what stops an untrusted fragment from forging
+ * `class="article-comments"`, the exact marker `formatArticleContent()`
+ * wraps the real comments section in and `content-hash.ts`'s
+ * `withoutComments()` cuts on by `lastIndexOf`. A comment carrying that
+ * literal markup must never survive with the class intact, or it could
+ * plant a second marker inside the real wrapper and make `lastIndexOf` find
+ * the forged one instead of the real one -- permanently defeating the
+ * comment exclusion for that article. See the "comment-forged comments
+ * marker" tests in the sites that consume this.
+ *
+ * This is the one implementation of a sequence that used to be hand-copied,
+ * byte-for-byte, into six aggregator site modules (mactechnews, mein_mmo,
+ * heise, youtube, reddit, podcast) -- see the 2026-09-03 pipeline-review-3
+ * "one HTML sanitizer, not six" task. All six were verified byte-identical
+ * over the same fixture before being consolidated here, so nothing here is a
+ * behaviour change; a future hardening now protects every call site instead
+ * of whichever one it was applied to.
+ *
+ * Deliberately has no options and no site parameter -- every call site's
+ * needs turned out identical, and a parameter that nothing yet uses is a
+ * seam for the next difference to drift back through unnoticed.
+ */
+export function sanitizeUntrustedFragment(html: string): string {
+  const $ = cheerio.load(cleanHtml(html));
+  sanitizeHtmlAttributes($);
+  removeSanitizedAttributes($);
+
+  $("a").each((_, tag) => {
+    const href = $(tag).attr("href");
+    if (href && !isSafeUrl(href)) {
+      $(tag).removeAttr("href");
+    }
+  });
+
+  $("img").each((_, tag) => {
+    const src = $(tag).attr("src");
+    if (src && !isSafeUrl(src)) {
+      $(tag).remove();
+    }
+  });
+
+  const body = $("body");
+  return body.length > 0 ? body.html() || "" : $.html();
 }

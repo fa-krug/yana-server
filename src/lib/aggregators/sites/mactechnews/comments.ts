@@ -1,7 +1,7 @@
 import * as cheerio from "cheerio";
 import type { Element } from "domhandler";
 import { isSafeUrl } from "../../blocks/parser";
-import { cleanHtml, removeSanitizedAttributes, sanitizeHtmlAttributes } from "../../extract/clean";
+import { sanitizeUntrustedFragment } from "../../extract/clean";
 import { escapeHtml } from "../../extract/format";
 import type { ChromeLabels } from "../../chrome-labels";
 
@@ -10,29 +10,6 @@ function commentLink(url: string, label: string): string {
     return `<a href="${escapeHtml(url)}">${label}</a>`;
   }
   return label;
-}
-
-function sanitizeCommentHtml(contentHtml: string): string {
-  const $ = cheerio.load(cleanHtml(contentHtml));
-  sanitizeHtmlAttributes($);
-  removeSanitizedAttributes($);
-
-  $("a").each((_, tag) => {
-    const href = $(tag).attr("href");
-    if (href && !isSafeUrl(href)) {
-      $(tag).removeAttr("href");
-    }
-  });
-
-  $("img").each((_, tag) => {
-    const src = $(tag).attr("src");
-    if (src && !isSafeUrl(src)) {
-      $(tag).remove();
-    }
-  });
-
-  const body = $("body");
-  return body.length > 0 ? body.html() || "" : $.html();
 }
 
 function processComment(
@@ -71,7 +48,7 @@ function processComment(
     `<blockquote>` +
     `<p><strong>${escapeHtml(author)}</strong>${tsDisplay} | ` +
     `${commentLink(anchorUrl, labels.source)}</p>` +
-    `<div>${sanitizeCommentHtml(commentText)}</div>` +
+    `<div>${sanitizeUntrustedFragment(commentText)}</div>` +
     `</blockquote>`
   );
 }

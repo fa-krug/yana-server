@@ -7,7 +7,7 @@
 import * as cheerio from "cheerio";
 import type { AnyNode } from "domhandler";
 import { isSafeUrl } from "../../blocks/parser";
-import { cleanHtml, removeSanitizedAttributes, sanitizeHtmlAttributes } from "../../extract/clean";
+import { sanitizeUntrustedFragment } from "../../extract/clean";
 import { escapeHtml } from "../../extract/format";
 import { decodeHtmlEntitiesInUrl } from "./urls";
 
@@ -372,29 +372,6 @@ export function linkifyHtml(htmlContent: string): string {
   }
 }
 
-export function sanitizeMarkdownHtml(contentHtml: string): string {
-  const $ = cheerio.load(cleanHtml(contentHtml));
-  sanitizeHtmlAttributes($);
-  removeSanitizedAttributes($);
-
-  $("a").each((_, tag) => {
-    const href = $(tag).attr("href");
-    if (href && !isSafeUrl(href)) {
-      $(tag).removeAttr("href");
-    }
-  });
-
-  $("img").each((_, tag) => {
-    const src = $(tag).attr("src");
-    if (src && !isSafeUrl(src)) {
-      $(tag).remove();
-    }
-  });
-
-  const body = $("body");
-  return body.length > 0 ? body.html() || "" : $.html();
-}
-
 export function convertRedditMarkdown(text: string): string {
   if (!text) return "";
 
@@ -467,5 +444,5 @@ export function convertRedditMarkdown(text: string): string {
 
   const htmlContent = markdownToHtml(input);
   const linked = linkifyHtml(htmlContent);
-  return sanitizeMarkdownHtml(linked);
+  return sanitizeUntrustedFragment(linked);
 }
