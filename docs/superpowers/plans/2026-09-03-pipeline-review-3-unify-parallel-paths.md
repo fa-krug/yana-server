@@ -608,11 +608,11 @@ legitimately differs per site and should stay separate.
 
 ## Done criteria
 
-- [ ] All nine tasks complete. Each consolidation landed as its own commit with
+- [x] All nine tasks complete. Each consolidation landed as its own commit with
       characterisation tests passing before and after.
-- [ ] The block-text fuzz test from Task 6 Step 5 is in the suite and green.
-- [ ] Four CI checks green; no new lint warnings.
-- [ ] `CLAUDE.md` rewritten for every invariant this plan changes — in
+- [x] The block-text fuzz test from Task 6 Step 5 is in the suite and green.
+- [x] Four CI checks green; no new lint warnings.
+- [x] `CLAUDE.md` rewritten for every invariant this plan changes — in
       particular the `noteSourceTitle` bullet (now a hook, not a per-site
       decision), the comment-section contract, and the AI provider-table shape.
       Several existing bullets assert unification that was aspirational; they
