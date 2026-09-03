@@ -267,14 +267,14 @@ enqueues a second concurrent `aggregate` for the same feeds.
 - Modify: `src/lib/jobs/scheduler.ts`
 - Modify: `src/lib/jobs/scheduler.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Two cases in `scheduler.test.ts`: (a) an overdue feed with an existing
 **`running`** aggregate job → `tick()` enqueues nothing; (b) an overdue feed with
 an existing pending **`feed.update`** job → `tick()` enqueues nothing. Confirm
 both FAIL.
 
-- [ ] **Step 2: Widen the dedupe query**
+- [x] **Step 2: Widen the dedupe query**
 
 Change the `where` to cover every kind that runs the aggregate handler and every
 non-terminal status:
@@ -290,7 +290,7 @@ Derive the kind list from the handler registry if that is clean to do, rather
 than a third hand-written literal — `handlers/index.ts` is the source of truth
 for which kinds run `handleAggregateJob`.
 
-- [ ] **Step 3: Note the follow-up, do not do it here**
+- [x] **Step 3: Note the follow-up, do not do it here**
 
 `feeds.updatedAt` is overloaded — it carries `$onUpdate`, so *any* feed write
 (a logo store at `src/lib/feeds/logo.ts:284`, a `/feeds` edit) postpones the
@@ -299,7 +299,7 @@ next aggregation by a full interval. The clean fix is a dedicated
 and belongs in **plan 2**, not here. Add a `TODO` comment at `scheduler.ts:109`
 pointing at it.
 
-- [ ] **Step 4: Verify** — `npm test src/lib/jobs` then the four CI checks.
+- [x] **Step 4: Verify** — `npm test src/lib/jobs` then the four CI checks.
 
 ---
 

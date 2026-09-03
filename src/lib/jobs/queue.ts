@@ -21,6 +21,24 @@ export interface EnqueueOptions {
  */
 export const PRIORITY_IMMEDIATE = 10;
 
+/**
+ * Every job kind that ends up running `handleAggregateJob`
+ * (`src/lib/jobs/handlers/aggregate.ts`) -- directly, as `"aggregate"` does,
+ * or by delegating to it, as `handleUpdateJob`/`handleRestoreJob` do for
+ * `"feed.update"`/`"feed.restore"` (see `src/lib/jobs/handlers/index.ts`).
+ * That delegation means the registry's kind -> function mapping cannot be
+ * introspected to derive this list -- `"feed.update"` maps to
+ * `handleUpdateJob`, a distinct function reference that happens to call
+ * `handleAggregateJob` itself, not to `handleAggregateJob` directly. This is
+ * the one hand-maintained definition; `scheduler.ts`'s dedupe query and
+ * `handlers/index.ts`'s registration both read it rather than restating the
+ * three kinds separately.
+ */
+export const AGGREGATE_HANDLER_JOB_KINDS = ["aggregate", "feed.update", "feed.restore"] as const;
+
+/** Every `jobs.status` that has not yet reached a terminal outcome. */
+export const NON_TERMINAL_JOB_STATUSES = ["pending", "running", "cancelling"] as const;
+
 export function enqueue(
   kind: string,
   payload: Record<string, unknown> = {},

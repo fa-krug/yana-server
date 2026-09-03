@@ -1,9 +1,9 @@
-import { and, eq, gte } from "drizzle-orm";
+import { and, eq, gte, inArray } from "drizzle-orm";
 
 import { writeTransaction } from "../db/client";
 import { feeds, jobs } from "../db/schema";
 import { notifyAdmins } from "../email/error-notifications";
-import { enqueue } from "./queue";
+import { AGGREGATE_HANDLER_JOB_KINDS, NON_TERMINAL_JOB_STATUSES, enqueue } from "./queue";
 
 const SCHEDULER_STARTED = Symbol.for("yana.scheduler.started");
 
@@ -79,10 +79,22 @@ export async function tick(): Promise<void> {
       .where(eq(feeds.enabled, true))
       .all();
 
+    // Every kind that runs (or delegates to) handleAggregateJob, in every
+    // non-terminal status -- not just a pending "aggregate" row. A job
+    // outlives one 60s tick whenever AI post-processing is on, so
+    // status = 'pending' alone missed every job already claimed to
+    // "running"; and kind = 'aggregate' alone missed "feed.update" (what
+    // updateFeedsBulk() enqueues) and "feed.restore" entirely, both of which
+    // run the same handler. See AGGREGATE_HANDLER_JOB_KINDS's doc comment.
     const pendingAggregateJobs = db
       .select({ payload: jobs.payload })
       .from(jobs)
-      .where(and(eq(jobs.kind, "aggregate"), eq(jobs.status, "pending")))
+      .where(
+        and(
+          inArray(jobs.kind, AGGREGATE_HANDLER_JOB_KINDS),
+          inArray(jobs.status, NON_TERMINAL_JOB_STATUSES),
+        ),
+      )
       .all();
 
     const pendingFeedIds = new Set<number>();
@@ -106,6 +118,12 @@ export async function tick(): Promise<void> {
       const jitter = 1 + (Math.random() * 2 - 1) * INTERVAL_JITTER_FRACTION;
       const intervalMs = baseIntervalMs * jitter;
 
+      // TODO(plan 2, docs/superpowers/plans/2026-09-03-pipeline-review-2-data-integrity.md):
+      // feeds.updatedAt is overloaded as "last aggregated" -- it carries
+      // $onUpdate, so *any* write to this feed (a logo store, a /feeds edit)
+      // postpones the next aggregation by a full interval. Needs a dedicated
+      // feeds.lastAggregationStartedAt column, stamped at claim time, which
+      // needs a migration and belongs in that plan, not here.
       let lastRunTime = 0;
       if (item.updatedAt instanceof Date) {
         lastRunTime = item.updatedAt.getTime();

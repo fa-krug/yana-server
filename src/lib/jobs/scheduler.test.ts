@@ -86,6 +86,80 @@ describe("src/lib/jobs/scheduler", () => {
     expect(jobList2.length).toBe(1);
   });
 
+  it("does not enqueue a duplicate when an aggregate job for the feed is already running", async () => {
+    let feedId = 0;
+    client.writeTransaction((db) => {
+      let user = db.select().from(schema.users).limit(1).get();
+      if (!user) {
+        db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+        user = db.select().from(schema.users).limit(1).get();
+      }
+
+      const inserted = db
+        .insert(schema.feeds)
+        .values({
+          name: "Test Feed",
+          aggregator: "full_website",
+          userId: user!.id,
+          enabled: true,
+        })
+        .returning({ id: schema.feeds.id })
+        .get();
+      feedId = inserted.id;
+
+      const oneHourAgoSec = Math.floor((Date.now() - 3_600_000) / 1000);
+      db.run(sql`UPDATE feeds SET updated_at = ${oneHourAgoSec} WHERE id = ${feedId}`);
+    });
+
+    // A job for this feed is already in flight -- claim() moves it from
+    // pending to running, exactly as a worker loop would.
+    queue.enqueue("aggregate", { feedId });
+    const claimed = queue.claim();
+    expect(claimed?.status).toBe("running");
+
+    await scheduler.tick();
+
+    const { jobs: jobList } = queue.listJobs({ kind: "aggregate" });
+    expect(jobList.length).toBe(1);
+  });
+
+  it("does not enqueue a duplicate aggregate job when a pending feed.update job covers the feed", async () => {
+    let feedId = 0;
+    client.writeTransaction((db) => {
+      let user = db.select().from(schema.users).limit(1).get();
+      if (!user) {
+        db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+        user = db.select().from(schema.users).limit(1).get();
+      }
+
+      const inserted = db
+        .insert(schema.feeds)
+        .values({
+          name: "Test Feed",
+          aggregator: "full_website",
+          userId: user!.id,
+          enabled: true,
+        })
+        .returning({ id: schema.feeds.id })
+        .get();
+      feedId = inserted.id;
+
+      const oneHourAgoSec = Math.floor((Date.now() - 3_600_000) / 1000);
+      db.run(sql`UPDATE feeds SET updated_at = ${oneHourAgoSec} WHERE id = ${feedId}`);
+    });
+
+    // updateFeedsBulk() enqueues this kind, and it runs the same handler as
+    // "aggregate" -- see src/lib/jobs/handlers/index.ts.
+    queue.enqueue("feed.update", { feedId });
+
+    await scheduler.tick();
+
+    const { jobs: aggregateJobs } = queue.listJobs({ kind: "aggregate" });
+    expect(aggregateJobs.length).toBe(0);
+    const { jobs: updateJobs } = queue.listJobs({ kind: "feed.update" });
+    expect(updateJobs.length).toBe(1);
+  });
+
   it("stamps a scheduled aggregate job with its feed's userId", async () => {
     let feedId = 0;
     let userId = "";
