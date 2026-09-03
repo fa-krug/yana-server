@@ -55,53 +55,12 @@ export function detectPagination(html: string): Set<number> {
 }
 
 /**
- * Fetch all pages and combine content divs.
- *
- * @param baseUrl - Base article URL
- * @param pageNumbers - Set of page numbers to fetch
- * @param fetcher - Function to fetch HTML from URL
- * @param firstPageHtml - Already fetched HTML for the first page
- * @returns Combined HTML with all content divs
+ * Build URL for a specific page number using path-segment pagination
+ * (`/N/`) -- the one genuine difference from MacTechNews' query-parameter
+ * form (`?page=N`, see ../mactechnews/multipage.ts's `buildPageUrl()`).
+ * Everything else about fetching and combining a paginated article's pages
+ * is shared, in ../../multipage.ts.
  */
-export async function fetchAllPages(
-  baseUrl: string,
-  pageNumbers: Set<number>,
-  fetcher: (pageUrl: string) => Promise<string>,
-  firstPageHtml?: string | null,
-): Promise<string> {
-  const sortedPages = Array.from(pageNumbers).sort((a, b) => a - b);
-  const contentParts: string[] = [];
-
-  for (const pageNum of sortedPages) {
-    let pageUrl: string;
-    if (pageNum === 1) {
-      pageUrl = baseUrl;
-    } else {
-      pageUrl = baseUrl.endsWith("/") ? `${baseUrl}${pageNum}/` : `${baseUrl}/${pageNum}/`;
-    }
-
-    try {
-      let pageHtml: string;
-      if (pageNum === 1 && firstPageHtml) {
-        pageHtml = firstPageHtml;
-      } else {
-        pageHtml = await fetcher(pageUrl);
-      }
-
-      const $ = cheerio.load(pageHtml);
-      const contentDiv = $("div.entry-content, div.gp-entry-content").first();
-
-      if (contentDiv.length > 0) {
-        contentParts.push($.html(contentDiv));
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  if (contentParts.length === 0) {
-    return "";
-  }
-
-  return contentParts.join("\n\n");
+export function buildPageUrl(baseUrl: string, pageNum: number): string {
+  return baseUrl.endsWith("/") ? `${baseUrl}${pageNum}/` : `${baseUrl}/${pageNum}/`;
 }

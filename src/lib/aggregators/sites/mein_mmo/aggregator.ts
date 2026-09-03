@@ -5,11 +5,12 @@ import { cleanHtml, removeImageByUrl } from "../../extract/clean";
 import { formatArticleContent } from "../../extract/format";
 import { getHeaderImageRef } from "../../header/context";
 import { storeImageRefFromUrl } from "../../images/store";
+import { FirstPageStash, fetchAllPages } from "../../multipage";
 import { FullWebsiteAggregator, proxyYoutubeEmbeds } from "../../website";
 import { YOUTUBE_IFRAME_KEEP_SELECTOR } from "../../embeds/youtube-url";
 import { extractComments } from "./comments";
 import { extractMeinMmoContent } from "./content";
-import { detectPagination, fetchAllPages } from "./multipage";
+import { buildPageUrl, detectPagination } from "./multipage";
 
 export class MeinMmoAggregator extends FullWebsiteAggregator {
   static MEIN_MMO_URL = "https://mein-mmo.de/";
@@ -127,14 +128,16 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
   ];
   protected selectorsToRemove = [...MeinMmoAggregator.selectorsToRemove];
 
-  // Keyed by article URL rather than a single instance field: enrichArticles()
-  // now runs up to this.concurrency articles concurrently, so a
-  // single `firstPageHtml` field could be overwritten by a sibling article's
-  // fetchArticleContent() while this article's processContent() was still
-  // awaiting its img-resolution loop. Each entry is deleted once read, since
-  // one aggregator instance processes one feed's articles in one run -- this
-  // is a bounded per-run scratch space, not a cache.
-  private firstPageHtmlByUrl = new Map<string, string>();
+  // Keyed by article URL, not a single field -- see `FirstPageStash`'s doc
+  // comment in `../../multipage` for why: `enrichArticles()` runs
+  // `fetchArticleContent()` for up to `this.concurrency` articles
+  // concurrently on one aggregator instance, so a single field could be
+  // overwritten by a sibling article's fetchArticleContent() while this
+  // article's processContent() was still awaiting its img-resolution loop.
+  // (This is the same shared stash MacTechNews now uses too -- see
+  // ../mactechnews/aggregator.ts -- rather than a second, hand-rolled copy
+  // of this same map.)
+  private firstPages = new FirstPageStash();
 
   constructor(feed: FeedLike) {
     super(feed);
@@ -148,7 +151,7 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
     const combinePages = options.combine_pages !== false;
 
     const firstPageHtml = await super.fetchArticleContent(url);
-    this.firstPageHtmlByUrl.set(url, firstPageHtml);
+    this.firstPages.set(url, firstPageHtml);
 
     if (!combinePages) {
       return firstPageHtml;
@@ -159,14 +162,16 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
       return firstPageHtml;
     }
 
-    const combinedHtml = await fetchAllPages(
+    const { combined } = await fetchAllPages(
       url,
       pageNumbers,
+      this.getContentSelectors(),
       (pageUrl) => super.fetchArticleContent(pageUrl),
       firstPageHtml,
+      buildPageUrl,
     );
 
-    return combinedHtml;
+    return combined;
   }
 
   override async extractContent(html: string, article: RawArticle): Promise<string> {
@@ -213,8 +218,7 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
     // always records one regardless of the include_comments option, so leaving the read
     // gated behind that option would leak an entry per article on every run with
     // comments disabled.
-    const firstPageHtml = this.firstPageHtmlByUrl.get(article.identifier);
-    this.firstPageHtmlByUrl.delete(article.identifier);
+    const firstPageHtml = this.firstPages.take(article.identifier);
 
     let commentsHtml: string | null = null;
     const options = (this.feed.options as Record<string, unknown> | null) || {};

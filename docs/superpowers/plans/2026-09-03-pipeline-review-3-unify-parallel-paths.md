@@ -596,13 +596,13 @@ Mein-MMO's hardcodes its selectors. The only genuine difference is the page-URL
 builder (`?page=N` vs `/N/`), which is a 3-line callback. `detectPagination()`
 legitimately differs per site and should stay separate.
 
-- [ ] **Step 1:** Failing test — a two-page MacTechNews article keeps its
+- [x] **Step 1:** Failing test — a two-page MacTechNews article keeps its
       comments.
-- [ ] **Step 2:** One shared `fetchAllPages()` returning
+- [x] **Step 2:** One shared `fetchAllPages()` returning
       `{ combined, firstPage }`, so neither site can forget the un-truncated
       first page. That is the structural fix; copying Mein-MMO's map into
       MacTechNews would be a second copy of the workaround.
-- [ ] **Step 3:** Point both sites' comment extraction at `firstPage`.
+- [x] **Step 3:** Point both sites' comment extraction at `firstPage`.
 
 ---
 

@@ -4,9 +4,10 @@ import { proxyYoutubeEmbeds } from "../../embeds/youtube";
 import { cleanHtml, removeImageByUrl, sanitizeClassNames } from "../../extract/clean";
 import { formatArticleContent } from "../../extract/format";
 import { getHeaderImageRef } from "../../header/context";
+import { FirstPageStash, fetchAllPages } from "../../multipage";
 import { FullWebsiteAggregator } from "../../website";
 import { extractComments } from "./comments";
-import { detectPagination, fetchAllPages } from "./multipage";
+import { buildPageUrl, detectPagination } from "./multipage";
 
 export const TECHTICKER_TITLE_PREFIX = "TechTicker:";
 
@@ -87,6 +88,12 @@ export class MactechnewsAggregator extends FullWebsiteAggregator {
 
   usesFirstContentMatch = false;
 
+  // Keyed by article URL, not a single field -- see `FirstPageStash`'s doc
+  // comment in `../../multipage` for why: `enrichArticles()` runs
+  // `fetchArticleContent()` for up to `this.concurrency` articles
+  // concurrently on one aggregator instance.
+  private firstPages = new FirstPageStash();
+
   constructor(feed: FeedLike) {
     super(feed);
     if (!this.identifier) {
@@ -129,6 +136,7 @@ export class MactechnewsAggregator extends FullWebsiteAggregator {
     const combinePages = options.combine_pages !== false;
 
     const firstPageHtml = await super.fetchArticleContent(url);
+    this.firstPages.set(url, firstPageHtml);
 
     if (!combinePages) {
       return firstPageHtml;
@@ -139,15 +147,16 @@ export class MactechnewsAggregator extends FullWebsiteAggregator {
       return firstPageHtml;
     }
 
-    const combinedHtml = await fetchAllPages(
+    const { combined } = await fetchAllPages(
       url,
       pageNumbers,
       this.getContentSelectors(),
       (pageUrl) => super.fetchArticleContent(pageUrl),
       firstPageHtml,
+      buildPageUrl,
     );
 
-    return combinedHtml;
+    return combined;
   }
 
   override async processContent(html: string, article: RawArticle): Promise<string> {
@@ -224,21 +233,35 @@ export class MactechnewsAggregator extends FullWebsiteAggregator {
     // Determine header image URL
     const headerImageUrl = headerData ? getHeaderImageRef(headerData) : null;
 
-    // Extract comments from raw HTML
+    // Retrieve and clear this article's entry unconditionally -- fetchArticleContent()
+    // always records one regardless of the include_comments option, so leaving the read
+    // gated behind that option would leak an entry per article on every run with
+    // comments disabled.
+    const firstPageHtml = this.firstPages.take(article.identifier);
+
+    // Extract comments from the raw, un-truncated first page -- never
+    // `article.raw_content`. On a multi-page article that field holds
+    // `fetchAllPages()`'s `combined` result (see ../../multipage.ts), which
+    // only ever contains `.MtnArticle` matches from every page and never
+    // `div.MtnCommentScroll`, a sibling element outside every page's content
+    // selector -- reading it here lost every multi-page article's comments.
+    // Falls back to `raw_content` when nothing was stashed (combine_pages
+    // off, so there was only ever one page and `raw_content` already holds
+    // it in full).
     let commentsHtml: string | null = null;
     const options = (this.feed.options as Record<string, unknown> | null) || {};
     const includeComments = options.include_comments !== false;
     const maxComments = typeof options.max_comments === "number" ? options.max_comments : 5;
 
     if (includeComments) {
-      const rawHtml = article.raw_content || "";
-      if (rawHtml) {
+      const commentSource = firstPageHtml || article.raw_content || "";
+      if (commentSource) {
         // extractComments() never throws -- a selector-extraction failure is
         // caught and logged by the shared buildCommentsSection() it delegates
         // to (see src/lib/aggregators/comments/section.ts), rather than being
         // swallowed silently by a try/catch here.
         commentsHtml = extractComments(
-          rawHtml,
+          commentSource,
           article.identifier,
           maxComments,
           labels,
