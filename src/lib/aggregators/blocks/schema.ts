@@ -10,6 +10,7 @@
  */
 
 import {
+  clampHeadingLevel,
   EMBED_PROVIDERS,
   FORMAT_VERSION,
   STYLE_NAMES,
@@ -139,10 +140,16 @@ export function encodeDocument(blocks: Block[]): WireDocument {
   };
 }
 
+/**
+ * Coerce an untrusted wire value into a heading level. Only the coercion --
+ * float truncation, string parsing, NaN defaulting to 1 -- is this function's
+ * own concern; the 1-6 bound itself is `clampHeadingLevel()` (`./types`), the
+ * one place that arithmetic lives, so this doesn't hold its own copy of it.
+ */
 function clampLevel(value: unknown): number {
   let level = typeof value === "number" ? Math.floor(value) : parseInt(String(value), 10);
   if (isNaN(level)) level = 1;
-  return Math.min(Math.max(level, 1), 6);
+  return clampHeadingLevel(level);
 }
 
 export function decodeRuns(items: unknown): InlineRun[] {

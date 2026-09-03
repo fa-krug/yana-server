@@ -86,6 +86,19 @@ describe("block schema encoding / decoding", () => {
     ]);
   });
 
+  it("clamps a heading's level off the wire to 1-6, via the shared clampHeadingLevel()", () => {
+    // The bound itself lives in `clampHeadingLevel()` (`./types`) -- this
+    // covers that `decodeBlock()`'s own coercion (float truncation, string
+    // parsing, NaN defaulting to 1) still lands on that one shared clamp
+    // rather than a local copy of the arithmetic.
+    expect(decodeBlock({ type: "heading", level: 7, runs: [] })).toMatchObject({ level: 6 });
+    expect(decodeBlock({ type: "heading", level: 0, runs: [] })).toMatchObject({ level: 1 });
+    expect(decodeBlock({ type: "heading", level: -3, runs: [] })).toMatchObject({ level: 1 });
+    expect(decodeBlock({ type: "heading", level: "not a number", runs: [] })).toMatchObject({
+      level: 1,
+    });
+  });
+
   it("throws UnsupportedFormatVersion for versions other than 1", () => {
     expect(() => decodeDocument({ version: 2, blocks: [] })).toThrow(UnsupportedFormatVersion);
     expect(() => decodeDocument({ version: 0, blocks: [] })).toThrow(UnsupportedFormatVersion);
