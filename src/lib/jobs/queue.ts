@@ -480,6 +480,32 @@ function resolveJobUserId(job: Job): string | null {
 }
 
 /**
+ * Marks `runId` terminal once `completedJobs + failedJobs >= totalJobs` --
+ * the one rule that decides a run is done, shared by every caller that can
+ * change either side of that inequality (`bumpRunCounters()` below, and
+ * `decrementRunTotal()`, which changes `totalJobs` rather than the counters).
+ * Guarded on `status === "running"` so calling this against an
+ * already-terminal run is a no-op rather than re-stamping `finishedAt`.
+ *
+ * Returns the run's current row (after any transition this call made), or
+ * `null` if it does not exist, so a caller outside the transaction can tell
+ * whether *this* call is what flipped it and publish accordingly.
+ */
+function finalizeRunIfDone(tx: ReturnType<typeof getDb>, runId: number): Run | null {
+  const run = tx.select().from(runs).where(eq(runs.id, runId)).get();
+  if (!run) return null;
+
+  if (run.status === "running" && run.completedJobs + run.failedJobs >= run.totalJobs) {
+    const status = run.failedJobs > 0 ? "failed" : "completed";
+    const finishedAt = new Date();
+    tx.update(runs).set({ status, finishedAt }).where(eq(runs.id, runId)).run();
+    return { ...run, status, finishedAt };
+  }
+
+  return run;
+}
+
+/**
  * Bumps a run's completed/failed counter for one finished child job, then
  * marks the run terminal once every child has reported in. Called from
  * inside `complete()`/`fail()`'s `writeTransaction`, so the read-then-write
@@ -502,14 +528,68 @@ function bumpRunCounters(
       .run();
   }
 
-  const run = tx.select().from(runs).where(eq(runs.id, runId)).get();
-  if (!run) return;
+  finalizeRunIfDone(tx, runId);
+}
 
-  if (run.completedJobs + run.failedJobs >= run.totalJobs) {
-    tx.update(runs)
-      .set({ status: run.failedJobs > 0 ? "failed" : "completed", finishedAt: new Date() })
-      .where(eq(runs.id, runId))
-      .run();
+/**
+ * Removes `count` pending jobs from `runId`'s total and re-evaluates
+ * terminality through the same `finalizeRunIfDone()` rule `bumpRunCounters()`
+ * uses -- so deleting a run's last outstanding pending job flips it terminal
+ * right here, rather than leaving it to a completion event that will never
+ * come now that the job is gone (`deleteJobs()`, `@/lib/jobs/actions`).
+ *
+ * Must be called from inside the same transaction as the delete that made
+ * `count` of `runId`'s pending jobs disappear: `runs.totalJobs` and the
+ * surviving `jobs` rows must never be observably out of sync with each
+ * other. `count` covers only rows that were `pending` -- a deleted
+ * `completed`/`failed`/`cancelled` row already contributed to
+ * `completedJobs`/`failedJobs` and needs no adjustment here.
+ *
+ * A run whose `totalJobs` reaches 0 this way settles the same as
+ * `enqueueRun()`'s empty-`payloads` path: `0 >= 0` is true and no job
+ * failed, so it finalizes as `"completed"` rather than being left `"running"`
+ * with nothing left that could ever finish it.
+ *
+ * Returns the run's row after the decrement (and any resulting terminal
+ * transition) for the caller to inspect once its own transaction has
+ * committed, mirroring how `complete()`/`fail()` only publish afterward.
+ */
+export function decrementRunTotal(
+  tx: ReturnType<typeof getDb>,
+  runId: number,
+  count: number,
+): Run | null {
+  tx.update(runs)
+    .set({ totalJobs: sql`${runs.totalJobs} - ${count}` })
+    .where(eq(runs.id, runId))
+    .run();
+
+  return finalizeRunIfDone(tx, runId);
+}
+
+/**
+ * Publishes the `run` event for `run`'s current counters, best-effort like
+ * `publishJobOutcome()` below (never throws -- a broken subscriber must not
+ * turn a caller's already-committed write into a reported failure). For a
+ * caller that changed run state without a child job's own completed/failed
+ * transition running through `publishJobOutcome()` -- today, `deleteJobs()`
+ * flipping a run terminal by deleting its last pending job.
+ */
+export function publishRunUpdate(userId: string, run: Run): void {
+  try {
+    publishUserEvent(userId, {
+      type: "run",
+      payload: {
+        runId: run.id,
+        status: run.status,
+        progress: runProgressPercent(run.totalJobs, run.completedJobs, run.failedJobs),
+        totalJobs: run.totalJobs,
+        completedJobs: run.completedJobs,
+        failedJobs: run.failedJobs,
+      },
+    });
+  } catch (err) {
+    console.error(`[queue] failed to publish run update for run ${run.id}:`, err);
   }
 }
 
@@ -550,17 +630,7 @@ function publishJobOutcome(job: Job, status: "completed" | "failed" | "cancelled
     if (job.runId !== null) {
       const run = getRun(job.runId);
       if (run) {
-        publishUserEvent(userId, {
-          type: "run",
-          payload: {
-            runId: run.id,
-            status: run.status,
-            progress: runProgressPercent(run.totalJobs, run.completedJobs, run.failedJobs),
-            totalJobs: run.totalJobs,
-            completedJobs: run.completedJobs,
-            failedJobs: run.failedJobs,
-          },
-        });
+        publishRunUpdate(userId, run);
       }
     }
   } catch (err) {

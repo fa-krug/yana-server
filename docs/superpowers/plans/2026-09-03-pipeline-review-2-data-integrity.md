@@ -277,13 +277,13 @@ the helper a sweep was going to use, written and never wired up. Reuse it.
 - Modify: `src/lib/aggregators/images/store.test.ts`,
   `src/lib/jobs/handlers/handlers.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Store two images, reference one from an article block, delete the other's
 article, run the sweep, and assert the unreferenced row **and its file** are
 gone while the referenced one survives. Confirm it FAILS.
 
-- [ ] **Step 2: Enumerate every reference root**
+- [x] **Step 2: Enumerate every reference root**
 
 The live roots are `articleBlocks.imageRef`, `articleBlocks.embedThumbnailRef`
 and `feeds.logoImageHash`. **Read the schema and confirm this list is complete
@@ -291,7 +291,7 @@ before writing the sweep** — a missed root deletes a live image, which is far
 worse than the leak being fixed. If any column stores a ref inside prose rather
 than as a column, `findImageRefs()` is the helper for extracting it.
 
-- [ ] **Step 3: Implement the sweep**
+- [x] **Step 3: Implement the sweep**
 
 Select every `article_images.contentHash` not present in the union of roots,
 delete those rows and `fs.rm` their files. Chunk both the query and the delete —
@@ -303,13 +303,13 @@ Delete the **row and the file in the right order**: unlink first, then the row,
 or a crash between them leaves a row pointing at nothing (unservable) rather
 than a file nothing points at (merely leaked). Prefer leaking to breaking.
 
-- [ ] **Step 4: Wire it into the retention job**
+- [x] **Step 4: Wire it into the retention job**
 
 `handlers/retention.ts` runs once per boot across every user. Run the sweep
 **after** the article deletions in the same job, so a run cleans up what it just
 orphaned. Log the count swept to the job output.
 
-- [ ] **Step 5: Consider directory sharding — decide, do not silently skip**
+- [x] **Step 5: Consider directory sharding — decide, do not silently skip**
 
 `media/article_images/` is flat, one file per hash
 (`store.ts:139`). With cleanup in place, growth is bounded, so sharding may no
@@ -317,7 +317,7 @@ longer be needed. If you decide against it, record that decision in a comment;
 if for it, note that existing files must be migrated, which makes it its own
 task rather than a step here.
 
-- [ ] **Step 6: Verify** — `npm test src/lib/aggregators/images src/lib/jobs`, then CI.
+- [x] **Step 6: Verify** — `npm test src/lib/aggregators/images src/lib/jobs`, then CI.
 
 ---
 
@@ -478,16 +478,16 @@ renders `null` at `count === 0` — is held open with it.
 - Modify: `src/lib/jobs/actions.ts`
 - Modify: `src/lib/jobs/actions.test.ts`
 
-- [ ] **Step 1:** Failing test — delete one pending job of a two-job run, assert
+- [x] **Step 1:** Failing test — delete one pending job of a two-job run, assert
       the run reaches a terminal state once the other finishes.
-- [ ] **Step 2:** Decrement `runs.totalJobs` and re-evaluate terminality **inside
+- [x] **Step 2:** Decrement `runs.totalJobs` and re-evaluate terminality **inside
       the same transaction** as the delete.
-- [ ] **Step 3:** Note but do not fix here — `deleteJobs` calls `requestCancel()`
+- [x] **Step 3:** Note but do not fix here — `deleteJobs` calls `requestCancel()`
       from *inside* a `writeTransaction`, which is safe only because the
       `pending` branch (which publishes SSE events) is currently unreachable
       from that set. `writeTransaction` has no savepoints. Add a comment
       recording the hazard.
-- [ ] **Step 4: Verify.**
+- [x] **Step 4: Verify.**
 
 ---
 

@@ -6,7 +6,8 @@ import { isAdminRole } from "@/lib/auth/roles";
 import { currentUserId, requireUserFreshRole } from "@/lib/auth/session";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { jobs, runs } from "@/lib/db/schema";
-import { requestCancel } from "@/lib/jobs/queue";
+import type { Run } from "@/lib/db/schema";
+import { decrementRunTotal, publishRunUpdate, requestCancel } from "@/lib/jobs/queue";
 
 export type RunStatus = {
   status: string;
@@ -95,6 +96,28 @@ export async function cancelJobs(ids: number[]): Promise<{ ok: true; affected: n
  * one already `cancelling`) and returned in `stopping`, for the caller to
  * poll (`@/lib/jobs/wait-for-jobs-terminal`) and delete again once it has
  * actually stopped.
+ *
+ * A deleted `pending` job that belonged to a run has its run's `totalJobs`
+ * decremented in the same transaction (`decrementRunTotal()`,
+ * `@/lib/jobs/queue`) -- without that, `runs.totalJobs` would keep counting a
+ * job that can now never complete or fail, and `bumpRunCounters()`'s
+ * `completedJobs + failedJobs >= totalJobs` check would never see the run as
+ * done. `waitForRun()` (`@/lib/jobs/wait-for-run`) is deliberately unbounded,
+ * so a run stranded that way would spin the dashboard's tracking UI forever.
+ * Deleted `completed`/`failed`/`cancelled` rows need no such adjustment: they
+ * already contributed to `completedJobs`/`failedJobs` before being deleted.
+ *
+ * HAZARD (noted, not fixed here -- see Task 7's brief): the `requestCancel()`
+ * loop below runs *inside* this `writeTransaction`. That is safe today only
+ * because `stopping` never contains a `pending` id -- every pending id was
+ * already routed into `deletable` above -- so `requestCancel()`'s own-pending
+ * branch (`cancelled()`, which opens a *second*, nested `writeTransaction`
+ * and publishes SSE events) is never reached from in here.
+ * `writeTransaction()` has no savepoints, so a nested one would be a real
+ * hazard if that branch ever became reachable from this call site. Do not
+ * widen `stopping` to include pending ids, and do not call `requestCancel()`
+ * on an id whose status this function has not just checked itself, without
+ * addressing that first.
  */
 export async function deleteJobs(
   ids: number[],
@@ -106,20 +129,24 @@ export async function deleteJobs(
   const ownedIds = ownedJobIds(ids, user.id, admin);
   if (ownedIds.length === 0) return { ok: true, deleted: 0, stopping: [] };
 
-  return writeTransaction((db) => {
+  const { deleted, stopping, terminalRuns } = writeTransaction((db) => {
     const rows = db
-      .select({ id: jobs.id, status: jobs.status })
+      .select({ id: jobs.id, status: jobs.status, runId: jobs.runId })
       .from(jobs)
       .where(inArray(jobs.id, ownedIds))
       .all();
 
     const stopping: number[] = [];
     const deletable: number[] = [];
+    const deletedPendingByRun = new Map<number, number>();
     for (const row of rows) {
       if (row.status === "running" || row.status === "cancelling") {
         stopping.push(row.id);
       } else {
         deletable.push(row.id);
+        if (row.status === "pending" && row.runId !== null) {
+          deletedPendingByRun.set(row.runId, (deletedPendingByRun.get(row.runId) ?? 0) + 1);
+        }
       }
     }
 
@@ -130,6 +157,21 @@ export async function deleteJobs(
     const result =
       deletable.length > 0 ? db.delete(jobs).where(inArray(jobs.id, deletable)).run() : null;
 
-    return { ok: true, deleted: result?.changes ?? 0, stopping };
+    const terminalRuns: Run[] = [];
+    for (const [runId, count] of deletedPendingByRun) {
+      const run = decrementRunTotal(db, runId, count);
+      if (run && run.status !== "running") terminalRuns.push(run);
+    }
+
+    return { deleted: result?.changes ?? 0, stopping, terminalRuns };
   });
+
+  // Published only after the transaction above has committed, mirroring
+  // complete()/fail()'s publishJobOutcome(): a rolled-back delete must never
+  // get an event published for it.
+  for (const run of terminalRuns) {
+    publishRunUpdate(run.userId, run);
+  }
+
+  return { ok: true, deleted, stopping };
 }
