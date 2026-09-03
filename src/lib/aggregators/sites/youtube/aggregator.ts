@@ -206,7 +206,9 @@ export class YouTubeAggregator extends BaseAggregator {
     }
 
     const uploadsPlaylistId = channelData?.uploads_playlist_id;
-    const desiredCount = limit || this.dailyLimit;
+    // `??`, not `||`: an explicit `limit` of `0` means zero, not "no limit
+    // given" -- see the `parseToRawArticles()` contract on `BaseAggregator`.
+    const desiredCount = limit ?? this.dailyLimit;
 
     let videos: YouTubeVideoItem[] = [];
     if (uploadsPlaylistId) {
@@ -222,8 +224,11 @@ export class YouTubeAggregator extends BaseAggregator {
     };
   }
 
-  async parseToRawArticles(sourceData: YouTubeSourceData): Promise<RawArticle[]> {
-    const videos: YouTubeVideoItem[] = sourceData?.videos || [];
+  async parseToRawArticles(sourceData: YouTubeSourceData, limit: number): Promise<RawArticle[]> {
+    // Sliced by the paced `limit` `aggregate()` computed, never by however
+    // many videos `fetchSourceData()` happened to fetch -- see the contract on
+    // `BaseAggregator.parseToRawArticles()`.
+    const videos: YouTubeVideoItem[] = (sourceData?.videos || []).slice(0, limit);
     const articles: RawArticle[] = [];
 
     for (const video of videos) {

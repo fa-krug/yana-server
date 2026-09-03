@@ -201,7 +201,9 @@ export class RedditAggregator extends BaseAggregator {
     );
 
     const sort = (this.feed.options?.subreddit_sort as string) || "hot";
-    const fetchLimit = Math.min((limit || 25) * 3, 100);
+    // `??`, not `||`: an explicit `limit` of `0` means zero, not "no limit
+    // given" -- see the `parseToRawArticles()` contract on `BaseAggregator`.
+    const fetchLimit = Math.min((limit ?? 25) * 3, 100);
 
     const url = accessToken
       ? `https://oauth.reddit.com/r/${subreddit}/${sort}?limit=${fetchLimit}`
@@ -246,9 +248,12 @@ export class RedditAggregator extends BaseAggregator {
     return { posts, subreddit };
   }
 
-  async parseToRawArticles(sourceData: unknown): Promise<RawArticle[]> {
+  async parseToRawArticles(sourceData: unknown, limit: number): Promise<RawArticle[]> {
     const data = sourceData as RedditSourceData | null | undefined;
-    const posts: Array<{ data: RedditPostData }> = data?.posts || [];
+    // Sliced by the paced `limit` `aggregate()` computed, never by however
+    // many posts `fetchSourceData()` happened to fetch -- see the contract on
+    // `BaseAggregator.parseToRawArticles()`.
+    const posts: Array<{ data: RedditPostData }> = (data?.posts || []).slice(0, limit);
     const subreddit: string = data?.subreddit || "";
     const articles: RawArticle[] = [];
 

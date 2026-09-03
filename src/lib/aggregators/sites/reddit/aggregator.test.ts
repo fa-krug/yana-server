@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { FeedLike, RawArticle } from "../../base";
+import { ARTICLE_COMMENTS_CLASS } from "../../extract/format";
 import { ArticleSkipError } from "../../errors";
 import { RedditAggregator } from "./aggregator";
 import { fetchPostComments } from "./comments";
@@ -512,7 +513,7 @@ describe("RedditAggregator crosspost recognition", () => {
   it("captures the origin subreddit, which _getOriginalPostData() drops", async () => {
     const agg = aggregatorFor({});
 
-    const [raw] = await agg.parseToRawArticles(crosspostListing());
+    const [raw] = await agg.parseToRawArticles(crosspostListing(), 10);
 
     // Unchanged: the article itself is still the original post.
     expect(raw!.name).toBe("the original title");
@@ -525,20 +526,23 @@ describe("RedditAggregator crosspost recognition", () => {
   it("leaves the attribution null for an ordinary post", async () => {
     const agg = aggregatorFor({});
 
-    const [raw] = await agg.parseToRawArticles({
-      subreddit: "de",
-      posts: [
-        {
-          data: new RedditPostData({
-            id: "abc123",
-            title: "an ordinary post",
-            permalink: "/r/de/comments/abc123/title/",
-            created_utc: 1,
-            author: "someone",
-          }),
-        },
-      ],
-    });
+    const [raw] = await agg.parseToRawArticles(
+      {
+        subreddit: "de",
+        posts: [
+          {
+            data: new RedditPostData({
+              id: "abc123",
+              title: "an ordinary post",
+              permalink: "/r/de/comments/abc123/title/",
+              created_utc: 1,
+              author: "someone",
+            }),
+          },
+        ],
+      },
+      10,
+    );
 
     expect(raw!._reddit_crosspost).toBeNull();
   });
@@ -547,11 +551,101 @@ describe("RedditAggregator crosspost recognition", () => {
     vi.mocked(fetchPostComments).mockResolvedValue([]);
     const agg = aggregatorFor({ comment_limit: 5 });
 
-    const [enriched] = await agg.enrichArticles(await agg.parseToRawArticles(crosspostListing()));
+    const [enriched] = await agg.enrichArticles(
+      await agg.parseToRawArticles(crosspostListing(), 10),
+    );
 
     expect(enriched!.content).toContain("Crosspost: ");
     expect(enriched!.content).toContain(">r/ich_iel<");
     expect(enriched!.content).toContain('href="https://reddit.com/r/ich_iel"');
     expect(enriched!.content).not.toContain("r/de");
+  });
+});
+
+/**
+ * Finding 3/4 (2026-09-03 pipeline review 1): `fetchSourceData()`'s
+ * `Math.min((limit || 25) * 3, 100)` and `parseToRawArticles()`'s complete
+ * lack of a `limit` parameter both defeated `aggregate()`'s daily-limit
+ * pacing -- exactly the class of bug Task 4 fixed for `rss.ts`/`podcast.ts`,
+ * left open here. `limit || 25` also reads an explicit `0` as "no limit
+ * given", the same inversion `base.ts`'s contract forbids (see the
+ * `parseToRawArticles()` doc comment on `BaseAggregator`).
+ */
+describe("RedditAggregator limit handling", () => {
+  it("fetches by the given limit even when it is zero, never falling back to a default", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { children: [] } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const agg = aggregatorFor({});
+
+    await agg.fetchSourceData(0);
+
+    const requestedUrl = fetchMock.mock.calls[0]?.[0] as string;
+    expect(requestedUrl).toContain("limit=0");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("slices parsed posts to the given limit, not to however many fetchSourceData returned", async () => {
+    const agg = aggregatorFor({});
+    const posts = Array.from({ length: 10 }, (_, i) => ({
+      data: new RedditPostData(postData(`p${i}`)),
+    }));
+
+    const articles = await agg.parseToRawArticles({ subreddit: "test", posts }, 3);
+
+    expect(articles).toHaveLength(3);
+  });
+});
+
+/**
+ * Finding 2 (2026-09-03 pipeline review 1): Task 2 fixed `withoutComments()`
+ * and threaded `commentsContent` through `formatArticleContent()`, but every
+ * test for it drove `formatArticleContent()` directly -- proving the codec,
+ * never that `RedditAggregator` actually calls it that way. This test drives
+ * the real production wiring instead: `enrichArticles()` (which stashes
+ * `_reddit_comments_html`) followed by `finalizeArticles()` (which calls
+ * `processContent()`, the one place that reaches `formatArticleContent()`),
+ * exactly the path `aggregate()` runs. If a later change (e.g. plan 3's
+ * site-aggregator consolidation) drops the `_reddit_comments_html` stash or
+ * the `commentsContent` argument at `processContent()`'s call site, this is
+ * what catches it -- `content-hash.test.ts`'s cases cannot, since they never
+ * touch this aggregator.
+ */
+describe("RedditAggregator comments wrapper wiring", () => {
+  it("wraps the stitched-in comment section in ARTICLE_COMMENTS_CLASS on the real enrich+finalize path", async () => {
+    vi.mocked(fetchPostComments).mockResolvedValue([
+      {
+        id: "c1",
+        body: "a real comment",
+        body_html: null,
+        author: "someone",
+        score: 1,
+        permalink: "/r/test/comments/abc123/post/c1/",
+        created_utc: 0,
+        replies: null,
+      },
+    ]);
+
+    const feed: FeedLike = { identifier: "test", dailyLimit: 20, options: { comment_limit: 5 } };
+    const agg = new RedditAggregator(feed);
+    const raw = article({
+      identifier: "abc123",
+      content: "<p>the post body</p>",
+      _reddit_post_data: postData("abc123"),
+      _reddit_subreddit: "test",
+      _reddit_crosspost: null,
+    });
+
+    const enriched = await agg.enrichArticles([raw]);
+    const [finalized] = await agg.finalizeArticles(enriched);
+
+    expect(finalized!.content).toContain(
+      `<section data-sanitized-class="${ARTICLE_COMMENTS_CLASS}">`,
+    );
+    expect(finalized!.content).toContain("a real comment");
   });
 });

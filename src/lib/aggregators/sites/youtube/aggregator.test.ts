@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { FeedLike, RawArticle } from "../../base";
 import { DEFAULT_CHROME_LABELS } from "../../chrome-labels";
-import { YouTubeAggregator } from "./aggregator";
+import { ARTICLE_COMMENTS_CLASS } from "../../extract/format";
+import { sanitizeCommentBodyHtml, YouTubeAggregator } from "./aggregator";
 import type { YouTubeClient, YouTubeCommentThread } from "./client";
 
 // finalizeArticles() embeds a localized thumbnail via storeImageRefFromUrl,
@@ -311,5 +312,131 @@ describe("YouTubeAggregator.enrichArticles concurrency", () => {
     // Confirms the pool actually parallelizes rather than degenerating to
     // sequential execution.
     expect(maxInFlight).toBeGreaterThan(1);
+  });
+});
+
+/**
+ * Finding 3/4 (2026-09-03 pipeline review 1): `fetchSourceData()`'s
+ * `limit || this.dailyLimit` reads an explicit `0` as "no limit given" --
+ * the same inversion `base.ts`'s contract forbids (see the
+ * `parseToRawArticles()` doc comment on `BaseAggregator`) -- and
+ * `parseToRawArticles()` had no `limit` parameter at all to defend against a
+ * source that returned more than intended.
+ */
+describe("YouTubeAggregator limit handling", () => {
+  it("requests by the given limit even when it is zero, never falling back to dailyLimit", async () => {
+    let requestedCount: number | null = null;
+
+    class FakeClientAggregator extends YouTubeAggregator {
+      protected getClient(): YouTubeClient {
+        return {
+          resolveChannelId: async () => ["UCtest", null],
+          fetchChannelData: async () => ({
+            channel_id: "UCtest",
+            title: "Some Channel",
+            custom_url: "@some-channel",
+            uploads_playlist_id: "UUtest",
+            channel_icon_url: null,
+          }),
+          fetchVideosFromPlaylist: async (_playlistId: string, maxResults: number) => {
+            requestedCount = maxResults;
+            return [];
+          },
+        } as unknown as YouTubeClient;
+      }
+    }
+
+    const feed: FeedLike = { identifier: "UCtest", dailyLimit: 20, options: {} };
+    const agg = new FakeClientAggregator(feed);
+
+    await agg.fetchSourceData(0);
+
+    expect(requestedCount).toBe(0);
+  });
+
+  it("slices parsed videos to the given limit, not to however many fetchSourceData returned", async () => {
+    const agg = aggregatorFor();
+    const videos = Array.from({ length: 10 }, (_, i) => ({
+      id: `v${i}`,
+      snippet: { title: `video ${i}`, description: "", publishedAt: "2026-01-01T00:00:00Z" },
+    }));
+
+    const articles = await agg.parseToRawArticles(
+      { videos, channel_id: "UCtest", channel_title: "Some Channel" },
+      3,
+    );
+
+    expect(articles).toHaveLength(3);
+  });
+});
+
+/**
+ * Finding 2 (2026-09-03 pipeline review 1): same gap as Reddit's -- Task 2's
+ * fix has no test on the live call path. This drives the real production
+ * wiring: `enrichArticles()` (which stashes `_youtube_comments_html`)
+ * followed by `finalizeArticles()` (which calls `processContent()`, the one
+ * place that reaches `formatArticleContent()`), exactly the path
+ * `aggregate()` runs. `content-hash.test.ts`'s cases cannot catch a
+ * regression here, since they never touch this aggregator.
+ */
+describe("YouTubeAggregator comments wrapper wiring", () => {
+  it("wraps the stitched-in comment section in ARTICLE_COMMENTS_CLASS on the real enrich+finalize path", async () => {
+    const feed: FeedLike = { identifier: "UCtest", dailyLimit: 20, options: { comment_limit: 5 } };
+
+    class FakeClientAggregator extends YouTubeAggregator {
+      protected getClient(): YouTubeClient {
+        return {
+          fetchVideoComments: async (): Promise<YouTubeCommentThread[]> => [
+            {
+              id: "c1",
+              snippet: {
+                topLevelComment: {
+                  snippet: {
+                    authorDisplayName: "Someone",
+                    textDisplay: "a real comment",
+                  },
+                },
+              },
+            },
+          ],
+        } as unknown as YouTubeClient;
+      }
+    }
+
+    const agg = new FakeClientAggregator(feed);
+    const article = enrichmentArticle("abc123");
+
+    const enriched = await agg.enrichArticles([article]);
+    const [finalized] = await agg.finalizeArticles(enriched);
+
+    expect(finalized!.content).toContain(
+      `<section data-sanitized-class="${ARTICLE_COMMENTS_CLASS}">`,
+    );
+    expect(finalized!.content).toContain("a real comment");
+  });
+});
+
+/**
+ * Finding 7 (2026-09-03 pipeline review 1): `sanitizeCommentBodyHtml()` runs
+ * `sanitizeHtmlAttributes()` -- which rewrites a `class` attribute into
+ * `data-sanitized-class` -- and then `removeSanitizedAttributes()`
+ * immediately afterward, which strips every `data-sanitized-*` attribute the
+ * previous call just produced. A comment whose body carries literal markup
+ * naming `<section class="article-comments">` -- the exact wrapper
+ * `formatArticleContent()` uses for the real comments section, and the marker
+ * `content-hash.ts`'s `withoutComments()` cuts on -- must never survive with
+ * that class intact, or a comment could forge a second marker inside the real
+ * wrapper and make `withoutComments()`'s `lastIndexOf` find the forged one
+ * instead of the real one, permanently defeating the comment exclusion for
+ * that article. This pins the current, correct behavior so a future
+ * "simplification" that drops the `removeSanitizedAttributes()` call cannot
+ * reopen it silently.
+ */
+describe("sanitizeCommentBodyHtml comment-forged comments marker", () => {
+  it("never lets a comment body's own markup survive as a data-sanitized-class attribute", () => {
+    const html = sanitizeCommentBodyHtml('hi <section class="article-comments">evil</section>');
+
+    expect(html).not.toContain("data-sanitized-class");
+    expect(html).not.toContain('class="article-comments"');
   });
 });
