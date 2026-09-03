@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 
 import type { RawArticle } from "@/lib/aggregators/base";
 import { parseBlocks, plainTextOf } from "@/lib/aggregators/blocks/parser";
-import { writeBlocks } from "@/lib/aggregators/blocks/storage";
+import { writeBlocksIn } from "@/lib/aggregators/blocks/storage";
 import type { Block } from "@/lib/aggregators/blocks/types";
 import { resolveFeedCredentials } from "@/lib/aggregators/credential-resolution";
 import { createAggregator } from "@/lib/aggregators/factory";
@@ -152,8 +152,12 @@ export async function handleReloadJob(job: Job): Promise<void> {
     );
     const plainText = plainTextOf(blocks);
 
-    await writeBlocks(article.id, blocks);
+    // The block write and the row write are one transaction: either the error
+    // notice's blocks and its row both land, or neither does -- no window
+    // where the row says "content_hash: null" (so the next run will retry)
+    // while the block tree still holds the previous, now-stale content.
     writeTransaction((tx) => {
+      writeBlocksIn(tx, article.id, blocks);
       tx.update(articles)
         // `contentHash: null` is mandatory, not tidiness: this row's content is
         // now an error notice, which the stored fingerprint no longer
@@ -249,9 +253,11 @@ export async function handleReloadJob(job: Job): Promise<void> {
 
   const plainText = plainTextOf(ai.blocks);
 
-  await writeBlocks(article.id, ai.blocks);
-
+  // Block write and row write, one transaction: either both land or neither
+  // does. See the failed-refetch branch above for the same reasoning.
   writeTransaction((tx) => {
+    writeBlocksIn(tx, article.id, ai.blocks);
+
     tx.update(articles)
       .set({
         // `ai.title` is the AI stage's answer when it ran and the source's own

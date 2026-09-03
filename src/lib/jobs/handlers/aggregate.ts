@@ -1,7 +1,7 @@
 import { and, count, eq, gte } from "drizzle-orm";
 
 import { parseBlocks, plainTextOf } from "@/lib/aggregators/blocks/parser";
-import { writeBlocks } from "@/lib/aggregators/blocks/storage";
+import { writeBlocksIn } from "@/lib/aggregators/blocks/storage";
 import { rawArticleContentHash } from "@/lib/aggregators/content-hash";
 import { hasBodyContent } from "@/lib/aggregators/website";
 import { applyAiToBlocks, wantsAi } from "@/lib/ai/run";
@@ -255,8 +255,17 @@ export async function handleAggregateJob(job: Job): Promise<void> {
     const plainText = plainTextOf(blocks);
     const name = ai.title || raw.name || "Untitled";
 
-    let articleId = 0;
-
+    // The row write, the block tree write and the contentHash write all
+    // happen in this one writeTransaction now, rather than as three separate
+    // top-level transactions with awaits between them. Either everything for
+    // this article lands, or (on a thrown error, or a process crash) none of
+    // it does -- there is no window in which the row exists with zero blocks
+    // and a null hash. The contentHash column's "written last" reasoning
+    // (see schema/articles.ts) still holds and is now automatic rather than
+    // depending on three separate commits to enforce it: a failed AI stage
+    // never reaches here at all (that article is skipped whole, above), so a
+    // fingerprint written here always describes a row whose block tree is
+    // current for this content.
     writeTransaction((tx) => {
       // Re-read inside the transaction rather than trusting `known` above:
       // that read was outside the write lock, and two worker loops can be
@@ -267,6 +276,8 @@ export async function handleAggregateJob(job: Job): Promise<void> {
         .from(articles)
         .where(and(eq(articles.feedId, feedId), eq(articles.identifier, raw.identifier)))
         .get();
+
+      let articleId: number;
 
       if (existing) {
         articleId = existing.id;
@@ -302,27 +313,13 @@ export async function handleAggregateJob(job: Job): Promise<void> {
         articleId = inserted.id;
         created++;
       }
+
+      if (blocks.length > 0) {
+        writeBlocksIn(tx, articleId, blocks);
+      }
+
+      tx.update(articles).set({ contentHash: hash }).where(eq(articles.id, articleId)).run();
     });
-
-    if (articleId > 0 && blocks.length > 0) {
-      await writeBlocks(articleId, blocks);
-    }
-
-    if (articleId > 0) {
-      // Written last, deliberately: a stored hash means "the row *and* its
-      // block tree are current for this content". A crash anywhere above
-      // leaves it stale or null, so the next run redoes the work rather than
-      // trusting a fingerprint for a half-written article.
-      //
-      // A failed AI stage never reaches here at all any more -- that article
-      // is skipped whole, above, rather than stored un-processed and left
-      // without a fingerprint. Same conclusion, one step earlier: a
-      // fingerprint says "this article is done", and an article whose summary
-      // or translation never happened is not.
-      writeTransaction((tx) => {
-        tx.update(articles).set({ contentHash: hash }).where(eq(articles.id, articleId)).run();
-      });
-    }
 
     // The 80-100% band is this loop, and it is no longer the cheap part: AI
     // moved in here, so a feed with AI options on sits in this band for the

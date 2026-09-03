@@ -333,24 +333,24 @@ stream (cursored on `createdAt`) bodyless, and the `new` cursor advances past it
 **Files:** modify `src/lib/aggregators/blocks/storage.ts`,
 `src/lib/jobs/handlers/aggregate.ts`, `reload.ts`, and their tests.
 
-- [ ] **Step 1:** Extract `writeBlocksIn(tx, articleId, blocks)` from
+- [x] **Step 1:** Extract `writeBlocksIn(tx, articleId, blocks)` from
       `writeBlocks()`; keep `writeBlocks()` as a thin wrapper for other callers.
-- [ ] **Step 2:** In `aggregate.ts`, do the row write, block write and hash write
+- [x] **Step 2:** In `aggregate.ts`, do the row write, block write and hash write
       in **one** `writeTransaction`. This is strictly less code, removes two
       lock acquisitions per article, and makes the article atomically visible.
       The "hash written last" reasoning in `schema/articles.ts:48-51` survives
       unchanged — within one transaction it is automatic.
-- [ ] **Step 3:** Align `reload.ts` to the same single-transaction shape.
-- [ ] **Step 4:** Drop the cosmetic `async` from `writeBlocks`,
+- [x] **Step 3:** Align `reload.ts` to the same single-transaction shape.
+- [x] **Step 4:** Drop the cosmetic `async` from `writeBlocks`,
       `loadBlocksForArticles` and `readBlocks` if no caller needs it.
-- [ ] **Step 5: Fix the read-path chunking asymmetry.** `storage.ts:142-147`
+- [x] **Step 5: Fix the read-path chunking asymmetry.** `storage.ts:142-147`
       chunks inserts at 100 to survive a 999-variable
       `SQLITE_MAX_VARIABLE_NUMBER` build, with a comment noting "a long-form
       scraped article can produce thousands of blocks". Twelve lines later,
       `loadBlocksForArticles` binds every block id in one `inArray`
       (`:322`, `:333`) — unchunked. On the build the write side defends against,
       reading back an article it just wrote throws. Chunk both.
-- [ ] **Step 6: Note the `RETURNING` order assumption.** `storage.ts:182-203`
+- [x] **Step 6: Note the `RETURNING` order assumption.** `storage.ts:182-203`
       pairs `insertedRows[i].id` positionally with `level[i]`. SQLite documents
       `RETURNING` row order as **undefined**; it holds in practice under
       better-sqlite3, but the failure mode is a silently scrambled tree. Either

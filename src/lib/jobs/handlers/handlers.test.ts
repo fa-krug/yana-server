@@ -3099,4 +3099,294 @@ describe("src/lib/jobs/handlers", () => {
       expect(reloaded?.plainText).toContain("Translated content");
     });
   });
+
+  /**
+   * Task 5 (2026-09-03 pipeline review 3): aggregate.ts wrote the article
+   * row, then `writeBlocks()`, then `contentHash` as three separate
+   * top-level `writeTransaction()` calls with awaits between them, and
+   * reload.ts did the same work in the *opposite* order (blocks then row).
+   * All three writes now happen in one `writeTransaction()` in both
+   * handlers. The characterisation tests below pin what each handler stores
+   * for a normal, successful write -- unchanged by the restructuring -- and
+   * the "rolls back" tests pin the actual behaviour change: a failure
+   * partway through the write can no longer leave a half-written row behind
+   * (a real row with zero blocks and a null/stale contentHash), because
+   * there is only one transaction left to fail out of.
+   */
+  describe("Task 5 (2026-09-03 pipeline review 3): one article write, one transaction", () => {
+    function seedT5Feed(userId: string): number {
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        db.insert(schema.users)
+          .values({ id: userId, email: `${userId}@example.com` })
+          .run();
+        feedId = db
+          .insert(schema.feeds)
+          .values({ name: "T5 Feed", userId, enabled: true })
+          .returning({ id: schema.feeds.id })
+          .get().id;
+      });
+      return feedId;
+    }
+
+    describe("aggregate", () => {
+      it("characterises what a fresh article stores: row fields, block tree, and a non-null contentHash", async () => {
+        vi.resetModules();
+        const rawArticles = [
+          {
+            name: "Atomic Article",
+            identifier: "https://example.com/atomic",
+            raw_content: "<p>Body text.</p>",
+            content: "<p>Body text.</p>",
+            date: new Date("2026-01-01T00:00:00.000Z"),
+          },
+        ];
+        // Registered directly with its own `vi.fn()`-free factory, rather
+        // than reaching for the file's hoisted `vi.mock("@/lib/aggregators/
+        // factory", ...)` via `vi.mocked(...)`: several earlier tests in
+        // this file leave their own `vi.doMock` of that specifier in place
+        // (no matching `vi.doUnmock`), which shadows the hoisted mock for
+        // every test after them regardless of `vi.resetModules()` --
+        // `vi.doMock` registrations are not cleared by resetting the module
+        // cache. Registering our own here, last, wins over whatever earlier
+        // test left standing.
+        vi.doMock("@/lib/aggregators/factory", () => ({
+          createAggregator: () => ({ aggregate: async () => rawArticles }),
+        }));
+        // Defensive, for the same reason as the reload characterisation test
+        // below: an earlier test in this file may leave "@/lib/ai/run"
+        // doMock'd (e.g. to a translated-title stub) with no matching
+        // `vi.doUnmock` of its own, and that registration outlives
+        // `vi.resetModules()`. Un-mocking it here guarantees this test runs
+        // the real `applyAiToBlocks()` regardless of file order.
+        vi.doUnmock("@/lib/ai/run");
+        handlers = await import("./index");
+
+        const feedId = seedT5Feed("t5-agg-fresh");
+
+        try {
+          const aggregateHandler = handlers.getHandler("aggregate");
+          await aggregateHandler!(makeJob("aggregate", { feedId }));
+
+          const row = client
+            .getDb()
+            .select()
+            .from(schema.articles)
+            .where(eq(schema.articles.feedId, feedId))
+            .get();
+          expect(row).toBeDefined();
+          expect(row!.name).toBe("Atomic Article");
+          expect(row!.plainText).toContain("Body text.");
+          expect(row!.identifier).toBe("https://example.com/atomic");
+          // A stored hash means "row and blocks both current" -- the whole
+          // point of the invariant the merged transaction now enforces
+          // automatically. See schema/articles.ts's contentHash comment.
+          expect(row!.contentHash).not.toBeNull();
+
+          const blocks = client
+            .getDb()
+            .select()
+            .from(schema.articleBlocks)
+            .where(eq(schema.articleBlocks.articleId, row!.id))
+            .all();
+          expect(blocks.length).toBeGreaterThan(0);
+        } finally {
+          vi.doUnmock("@/lib/aggregators/factory");
+        }
+      });
+
+      it("rolls back the article row too when the block write fails inside the merged transaction", async () => {
+        vi.resetModules();
+        const rawArticles = [
+          {
+            name: "Doomed Article",
+            identifier: "https://example.com/doomed",
+            raw_content: "",
+            content: "<p>Body.</p>",
+            date: new Date("2026-01-01T00:00:00.000Z"),
+          },
+        ];
+        vi.doMock("@/lib/aggregators/factory", () => ({
+          createAggregator: () => ({ aggregate: async () => rawArticles }),
+        }));
+        const applyAiMock = vi.fn(async (input: { title: string; blocks: unknown[] }) => ({
+          title: input.title,
+          // An unrecognized block `kind`: rowForNode()'s exhaustive switch
+          // (storage.ts) throws a TypeError for it. This stands in for a
+          // failure partway through the block write, without needing to
+          // fake a driver error -- the point is to prove the *article row*
+          // insert rolls back with it, now that both live in one
+          // writeTransaction. Before this task, the row insert already ran
+          // (and committed) in its own transaction before the separate
+          // block-write transaction ever opened, so this same failure used
+          // to leave a real row behind with zero blocks and a null
+          // contentHash.
+          blocks: [{ kind: "not-a-real-block" }],
+          outcome: { status: "applied" },
+        }));
+        vi.doMock("@/lib/ai/run", async (importOriginal) => {
+          const actual = await importOriginal<typeof import("@/lib/ai/run")>();
+          return { ...actual, applyAiToBlocks: applyAiMock };
+        });
+        handlers = await import("./index");
+
+        const feedId = seedT5Feed("t5-agg-doomed");
+
+        try {
+          const aggregateHandler = handlers.getHandler("aggregate");
+          await expect(aggregateHandler!(makeJob("aggregate", { feedId }))).rejects.toThrow(
+            /not a block/,
+          );
+
+          const rows = client
+            .getDb()
+            .select()
+            .from(schema.articles)
+            .where(eq(schema.articles.feedId, feedId))
+            .all();
+          // The whole write rolled back: no half-written row with zero
+          // blocks and a null contentHash left behind for a later run to
+          // find.
+          expect(rows).toEqual([]);
+        } finally {
+          vi.doUnmock("@/lib/aggregators/factory");
+          vi.doUnmock("@/lib/ai/run");
+        }
+      });
+    });
+
+    describe("reload", () => {
+      function seedT5Article(userId: string): { feedId: number; articleId: number } {
+        let feedId = 0;
+        let articleId = 0;
+        client.writeTransaction((db) => {
+          db.insert(schema.users)
+            .values({ id: userId, email: `${userId}@example.com` })
+            .run();
+          feedId = db
+            .insert(schema.feeds)
+            .values({ name: "T5 Reload Feed", userId })
+            .returning({ id: schema.feeds.id })
+            .get().id;
+          articleId = db
+            .insert(schema.articles)
+            .values({
+              name: "Original",
+              identifier: "https://example.com/orig",
+              feedId,
+              plainText: "original body",
+              date: new Date(),
+            })
+            .returning({ id: schema.articles.id })
+            .get().id;
+        });
+        return { feedId, articleId };
+      }
+
+      it("characterises what a successful reload stores: row fields, block tree, contentHash left untouched", async () => {
+        vi.resetModules();
+        vi.doMock("@/lib/aggregators/factory", () => ({
+          createAggregator: () => ({
+            fetchArticleContent: vi.fn().mockResolvedValue("<p>Fresh from source</p>"),
+            extractHeaderElement: async () => null,
+            extractContent: (html: string) => html,
+            processContent: (html: string) => html,
+          }),
+        }));
+        // No `vi.doMock("@/lib/ai/run", ...)` here -- but an earlier test in
+        // this file may have left one registered without a matching
+        // `vi.doUnmock` (that is exactly the bug that made this test flaky
+        // when the whole file ran together: a previous test's mock, never
+        // torn down because that test failed before reaching its own
+        // cleanup, made this test see "not-a-real-block" too). Un-mocking it
+        // here first, defensively, guarantees the real implementation runs
+        // regardless of what an earlier, unrelated test left behind.
+        vi.doUnmock("@/lib/ai/run");
+        handlers = await import("./index");
+
+        const { articleId } = seedT5Article("t5-reload-fresh");
+
+        try {
+          // Give the row a non-null contentHash first, matching a normal
+          // aggregated article, so this test can assert the reload leaves it
+          // exactly as-is (see reload.ts's "contentHash is deliberately not
+          // written here").
+          client.writeTransaction((db) => {
+            db.update(schema.articles)
+              .set({ contentHash: "pre-existing-hash" })
+              .where(eq(schema.articles.id, articleId))
+              .run();
+          });
+
+          const reloadHandler = handlers.getHandler("article.reload");
+          await reloadHandler!(makeJob("article.reload", { articleId }));
+
+          const row = client
+            .getDb()
+            .select()
+            .from(schema.articles)
+            .where(eq(schema.articles.id, articleId))
+            .get();
+          expect(row!.plainText).toContain("Fresh from source");
+          expect(row!.contentHash).toBe("pre-existing-hash");
+
+          const blocks = client
+            .getDb()
+            .select()
+            .from(schema.articleBlocks)
+            .where(eq(schema.articleBlocks.articleId, articleId))
+            .all();
+          expect(blocks.length).toBeGreaterThan(0);
+        } finally {
+          vi.doUnmock("@/lib/aggregators/factory");
+        }
+      });
+
+      it("rolls back the row update too when the block write fails inside the merged transaction", async () => {
+        vi.resetModules();
+        vi.doMock("@/lib/aggregators/factory", () => ({
+          createAggregator: () => ({
+            fetchArticleContent: vi.fn().mockResolvedValue("<p>Fresh from source</p>"),
+            extractHeaderElement: async () => null,
+            extractContent: (html: string) => html,
+            processContent: (html: string) => html,
+          }),
+        }));
+        const applyAiMock = vi.fn(async (input: { title: string; blocks: unknown[] }) => ({
+          title: input.title,
+          blocks: [{ kind: "not-a-real-block" }],
+          outcome: { status: "applied" },
+        }));
+        vi.doMock("@/lib/ai/run", async (importOriginal) => {
+          const actual = await importOriginal<typeof import("@/lib/ai/run")>();
+          return { ...actual, applyAiToBlocks: applyAiMock };
+        });
+        handlers = await import("./index");
+
+        const { articleId } = seedT5Article("t5-reload-doomed");
+
+        try {
+          const reloadHandler = handlers.getHandler("article.reload");
+          await expect(reloadHandler!(makeJob("article.reload", { articleId }))).rejects.toThrow(
+            /not a block/,
+          );
+
+          const row = client
+            .getDb()
+            .select()
+            .from(schema.articles)
+            .where(eq(schema.articles.id, articleId))
+            .get();
+          // Rolled back: the row still holds its pre-reload content, not
+          // the half-applied AI answer -- the merged transaction discarded
+          // both the row update and the failed block write together.
+          expect(row!.name).toBe("Original");
+          expect(row!.plainText).toBe("original body");
+        } finally {
+          vi.doUnmock("@/lib/aggregators/factory");
+          vi.doUnmock("@/lib/ai/run");
+        }
+      });
+    });
+  });
 });
