@@ -54,8 +54,11 @@ export class CaschysBlogAggregator extends FullWebsiteAggregator {
    * is what makes it work for feeds that label there instead of in the title.
    * Leaving a copy behind would mean two vocabularies to keep agreed.
    */
-  override async filterArticles(articles: RawArticle[]): Promise<RawArticle[]> {
-    const filtered = await super.filterArticles(articles);
+  override async filterArticles(
+    articles: RawArticle[],
+    clock: () => Date = () => new Date(),
+  ): Promise<RawArticle[]> {
+    const filtered = await super.filterArticles(articles, clock);
     return filtered.filter((article) => !(article.name || "").includes("Immer wieder sonntags KW"));
   }
 

@@ -277,8 +277,11 @@ export class HeiseAggregator extends FullWebsiteAggregator {
     return super.fetchArticleContent(articleUrl);
   }
 
-  override async filterArticles(articles: RawArticle[]): Promise<RawArticle[]> {
-    const baseFiltered = await super.filterArticles(articles);
+  override async filterArticles(
+    articles: RawArticle[],
+    clock: () => Date = () => new Date(),
+  ): Promise<RawArticle[]> {
+    const baseFiltered = await super.filterArticles(articles, clock);
 
     const skipTerms = [
       "die Bilder der Woche",

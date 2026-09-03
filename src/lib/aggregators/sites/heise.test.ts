@@ -144,3 +144,43 @@ describe("HeiseAggregator empty-body extraction", () => {
     expect(result).toEqual([]);
   });
 });
+
+/**
+ * Finding 5 (2026-09-03 pipeline review 1): `filterArticles()` used to call
+ * `super.filterArticles(articles)` with no clock, so this override's own age
+ * cutoff always read the real `Date.now()` even when a caller injected one --
+ * see `BaseAggregator.filterArticles()`'s injectable `clock` parameter.
+ */
+describe("HeiseAggregator.filterArticles clock threading", () => {
+  it("computes the age cutoff from the injected clock, not Date.now()", async () => {
+    const feed: FeedLike = {
+      identifier: "https://www.heise.de/",
+      dailyLimit: 20,
+      maxArticleAgeDays: 30,
+    };
+    const agg = new HeiseAggregator(feed);
+    const articles: RawArticle[] = [
+      {
+        name: "Within 30 days of the injected clock",
+        identifier: "https://example.com/a",
+        raw_content: "",
+        content: "",
+        date: new Date("2026-07-10T00:00:00Z"),
+      },
+      {
+        name: "Older than 30 days of the injected clock, but not of the real one",
+        identifier: "https://example.com/b",
+        raw_content: "",
+        content: "",
+        date: new Date("2020-01-01T00:00:00Z"),
+      },
+    ];
+    const clock = () => new Date("2026-08-02T00:00:00Z");
+
+    const filtered = await agg.filterArticles(articles, clock);
+
+    expect(filtered.map((article) => article.name)).toEqual([
+      "Within 30 days of the injected clock",
+    ]);
+  });
+});

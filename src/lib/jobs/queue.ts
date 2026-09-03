@@ -30,9 +30,11 @@ export const PRIORITY_IMMEDIATE = 10;
  * introspected to derive this list -- `"feed.update"` maps to
  * `handleUpdateJob`, a distinct function reference that happens to call
  * `handleAggregateJob` itself, not to `handleAggregateJob` directly. This is
- * the one hand-maintained definition; `scheduler.ts`'s dedupe query and
- * `handlers/index.ts`'s registration both read it rather than restating the
- * three kinds separately.
+ * the one hand-maintained definition; `scheduler.ts`'s dedupe query is the
+ * single reader of it. `handlers/index.ts`'s `registerDefaultHandlers()`
+ * still restates all three kinds as literals in its own `registerHandler()`
+ * calls and imports nothing from here -- nothing keeps the two lists agreed,
+ * so a kind added to one and not the other will not be caught.
  */
 export const AGGREGATE_HANDLER_JOB_KINDS = ["aggregate", "feed.update", "feed.restore"] as const;
 

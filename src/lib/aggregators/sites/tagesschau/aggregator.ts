@@ -124,8 +124,11 @@ export class TagesschauAggregator extends FullWebsiteAggregator {
     return "https://www.tagesschau.de";
   }
 
-  override async filterArticles(articles: RawArticle[]): Promise<RawArticle[]> {
-    const filtered = await super.filterArticles(articles);
+  override async filterArticles(
+    articles: RawArticle[],
+    clock: () => Date = () => new Date(),
+  ): Promise<RawArticle[]> {
+    const filtered = await super.filterArticles(articles, clock);
     const options = (this.feed.options as Record<string, unknown> | null) || {};
     const skipLivestreams = options.skip_livestreams !== false;
     const skipVideos = options.skip_videos !== false;

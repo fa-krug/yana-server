@@ -98,8 +98,11 @@ export class MactechnewsAggregator extends FullWebsiteAggregator {
     return "https://www.mactechnews.de";
   }
 
-  override async filterArticles(articles: RawArticle[]): Promise<RawArticle[]> {
-    const filtered = await super.filterArticles(articles);
+  override async filterArticles(
+    articles: RawArticle[],
+    clock: () => Date = () => new Date(),
+  ): Promise<RawArticle[]> {
+    const filtered = await super.filterArticles(articles, clock);
     const kept: RawArticle[] = [];
     for (const article of filtered) {
       if ((article.name || "").startsWith(TECHTICKER_TITLE_PREFIX)) {
