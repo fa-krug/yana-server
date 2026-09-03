@@ -1,7 +1,8 @@
-import { act, fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/render";
+import { updateArticle } from "@/lib/articles/actions";
 
 import { ArticleForm, type ArticleDetailRow } from "./article-form";
 
@@ -21,6 +22,11 @@ vi.mock("next/navigation", async () => import("@/test/next-navigation"));
 vi.mock("@/lib/articles/actions", () => ({
   updateArticle: vi.fn(),
   reloadArticles: vi.fn(),
+}));
+
+const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
+vi.mock("sonner", () => ({
+  toast: { error: toastError, success: vi.fn() },
 }));
 
 const article: ArticleDetailRow = {
@@ -89,5 +95,37 @@ describe("ArticleForm", () => {
     renderWithProviders(<ArticleForm article={{ ...article, identifier: "" }} feeds={[]} />);
 
     expect((screen.getByLabelText("Source URL") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  /**
+   * `updateArticle()` is called through `attemptCall()`, not bare -- see the
+   * doc comment on `UpdateArticleErrorKey` in `@/lib/articles/actions`. A
+   * server action can fail *without returning* (a dropped connection, the
+   * container restarting mid-request); unwrapped, that rejection would
+   * escalate out of this `useTransition` scope to the (app) group's error
+   * boundary and replace the whole form -- and whatever the user just
+   * typed -- with "Something went wrong". This pins that it does not.
+   */
+  it("survives a save that rejects instead of returning, without losing the edit", async () => {
+    vi.mocked(updateArticle).mockRejectedValue(new Error("the container restarted"));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      renderWithProviders(<ArticleForm article={article} feeds={[{ id: 5, name: "Example" }]} />);
+
+      const name = screen.getByLabelText("Title") as HTMLInputElement;
+      fireEvent.change(name, { target: { value: "Edited while the network dies" } });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Save article" }));
+      });
+
+      await waitFor(() => expect(toastError).toHaveBeenCalledWith("Could not save article"));
+      // The half-typed edit is still there -- the form was not replaced by an
+      // error boundary.
+      expect(name.value).toBe("Edited while the network dies");
+    } finally {
+      logged.mockRestore();
+    }
   });
 });

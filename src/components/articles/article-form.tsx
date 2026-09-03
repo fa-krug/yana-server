@@ -159,10 +159,27 @@ export function ArticleForm({
       // `feedId` is deliberately not part of this payload -- the picker below
       // is disabled and never changes it, and `updateArticle()` would refuse
       // it anyway (see the note beside the `feedId` state above).
-      const res = await updateArticle(article.id, {
-        name,
-        date: parsedDate,
-      });
+      //
+      // Never a bare `await` of a server action from a client component (see
+      // `@/lib/attempt`): an action that fails without returning -- a dropped
+      // connection, the container restarting mid-request -- rejects inside
+      // this transition scope and escalates to the (app) group's error
+      // boundary, replacing the whole form (and whatever the user just typed)
+      // with "Something went wrong". `attemptCall` rather than a namespaced
+      // `attempt()` because `articles` has no binding of its own -- same
+      // reasoning as `runReload()` above.
+      const attempted = await attemptCall(
+        () => updateArticle(article.id, { name, date: parsedDate }),
+        { label: "Saving an article edit rejected instead of returning" },
+      );
+
+      if (attempted.status !== "returned") {
+        setError(t("saveFailed"));
+        toast.error(t("saveFailed"));
+        return;
+      }
+
+      const res = attempted.result;
 
       if (!res.ok) {
         // `errorKey` is a catalog key under this component's own `articles`
