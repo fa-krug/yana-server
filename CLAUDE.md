@@ -2546,8 +2546,8 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   seven to six. (A later removal took it to **five**: `aiMaxPromptLength` —
   the last Yana-imposed AI limit, enforced only by `POST /api/v1/ai/prompt` —
   went with the request caps for the same reason, along with that route's
-  `prompt_too_long` code; see the `aiMaxPromptLength` bullet below for what it
-  bounded while it existed.) A request cap only ever refused work; this one
+  `prompt_too_long` code; see the `aiMaxPromptLength` bullet below for the
+  detail.) A request cap only ever refused work; this one
   _corrupted_ it. Its default of 2000 was below what a rewritten article needs, so a longer
   one came back truncated mid-JSON, failed to parse, and spent the whole paid
   request on an `invalidJson` failure — and no correct value exists to set it
@@ -2979,17 +2979,22 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   one `fetchArticleContent()` call, and a headline selector that matches on
   page 1 but not on page 2 must not blank out what page 1 found.
 
-  **`aiMaxPromptLength` bounds none of this, and its name invites the assumption
-  that it does.** It is read in exactly one place — `POST /api/v1/ai/prompt`, to
-  refuse an over-long prompt from the native client — while the article path
-  sends whole articles with no length bound, and deliberately keeps none: the
-  request caps were removed on the owner's instruction (see the no-request-cap
-  bullet above), and a length cap is the same kind of ceiling, refusing work
-  already decided to be worth doing. Its default is `500`, a sane ceiling for a
-  hand-typed mobile prompt and one that would truncate essentially every article
-  to a fragment, so it must not simply be pointed at this path. `bounds.ts`'s own
-  doc line ("Zero sends an empty article") describes an intent that was never
-  wired up.
+  **`aiMaxPromptLength` is gone too, and the asymmetry it used to guard against
+  is gone with it.** It used to bound exactly one thing — `POST
+/api/v1/ai/prompt`, refusing an over-long prompt from the native client —
+  while the article path had always sent whole articles with no length bound
+  at all, deliberately: a length cap is the same kind of ceiling as the
+  removed request caps, refusing work already decided to be worth doing. That
+  made the field's name misleading on its own (it bounded a mobile prompt, not
+  "articles" in general), and it was dropped in the same wave that took the
+  tuning values from six to five (see above) — the column, the `bounds.ts`
+  entry and the route's `prompt_too_long` code all went together.
+  `POST /api/v1/ai/prompt` now sends the caller's trimmed prompt straight
+  through with no length check at all (`route.ts`'s `if (!prompt)` only
+  refuses an _empty_ one), so the two paths finally agree: neither bounds
+  length, on the same "do not refuse work already decided worth doing"
+  reasoning, and nothing should reintroduce a cap on either without revisiting
+  that decision.
 
   **The summary has a block kind of its own; the header does not, and that
   asymmetry is deliberate.** `summary` is the tenth entry in `BLOCK_KINDS` —
