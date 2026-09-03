@@ -417,14 +417,14 @@ with no reason to exist — the value is never used for anything but a null chec
 - Modify: `src/lib/aggregators/header/strategies.ts`
 - Modify: `src/lib/aggregators/header/extractor.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Assert that `extractHeaderElement()` on a reddit permalink attempts the
 subreddit-icon fetch for a feed whose `userId` is a realistic Better Auth id
 starting with a letter (e.g. `"aB3xY9kLmNoPqRsTuVwXyZ0123456789"`). Confirm it
 FAILS.
 
-- [ ] **Step 2: Remove the `userId` parameter entirely**
+- [x] **Step 2: Remove the `userId` parameter entirely**
 
 Drop it from `fetchSubredditIcon()`, `HeaderElementContext`,
 `HeaderElementExtractor.extractHeaderElement()` and
@@ -432,7 +432,7 @@ Drop it from `fetchSubredditIcon()`, `HeaderElementContext`,
 the `parseInt` block. `fetchSubredditIcon` keeps its `if (!subreddit) return null`
 guard.
 
-- [ ] **Step 3: Narrow `FeedLike.userId`**
+- [x] **Step 3: Narrow `FeedLike.userId`**
 
 `base.ts:13` declares `userId?: string | number | null`, wider than the real
 `Feed.userId: string`. The `number` arm is unreachable legacy from the Django
@@ -440,23 +440,28 @@ port, where user ids were integers, and is what made the `parseInt` look
 plausible. Narrow it to `string | null`, and simplify `chrome-labels.ts:65-76`'s
 `String(userId)` accordingly if its signature narrows too.
 
-- [ ] **Step 4: Fix the test that pinned the bug**
+- [x] **Step 4: Fix the test that pinned the bug**
 
 `header/extractor.test.ts:102`'s `fetchSubredditIcon("typescript", 42)` must
 lose its second argument.
 
-- [ ] **Step 5: Verify** — `npm test src/lib/aggregators` then the four CI checks.
+- [x] **Step 5: Verify** — `npm test src/lib/aggregators` then the four CI checks.
 
 ---
 
 ## Done criteria
 
-- [ ] All five tasks complete, each with a regression test verified to fail
+- [x] All five tasks complete, each with a regression test verified to fail
       before its fix.
-- [ ] `npm run lint && npm run format:check && npm run typecheck && npm test`
+- [x] `npm run lint && npm run format:check && npm run typecheck && npm test`
       all green.
-- [ ] No new lint warnings beyond the 35 pre-existing ones.
-- [ ] `CLAUDE.md` updated where a documented invariant changed — specifically
+- [x] No new lint warnings beyond the 35 pre-existing ones.
+- [x] `CLAUDE.md` updated where a documented invariant changed — specifically
       the `contentHash` comment in `src/lib/db/schema/articles.ts` if Task 2
       alters what the fingerprint covers, and the aggregation bullets if Task 4
-      changes `parseToRawArticles`'s signature.
+      changes `parseToRawArticles`'s signature. (Task 2's commit `b6064fe0`
+      updated the `contentHash` bullet and comment; Task 4 changed
+      `parseToRawArticles`'s signature but CLAUDE.md never documented that
+      signature's parameter list, so nothing there went stale; Task 5's
+      `feed.userId`/header-extraction pipeline is likewise undocumented in
+      CLAUDE.md, so no update was needed for it either.)

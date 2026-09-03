@@ -10,7 +10,7 @@ export interface FeedLike {
   maxArticleAgeDays?: number;
   aggregator?: string;
   options?: Record<string, unknown> | null;
-  userId?: string | number | null;
+  userId?: string | null;
   [key: string]: unknown;
 }
 
@@ -279,13 +279,7 @@ export abstract class BaseAggregator {
     const url = article.identifier;
     const alt = article.name || "Article image";
     if (!url) return null;
-    const userId =
-      typeof this.feed.userId === "number"
-        ? this.feed.userId
-        : typeof this.feed.userId === "string"
-          ? parseInt(this.feed.userId, 10) || null
-          : null;
-    return extractHeaderElement(url, alt, userId, this.onLog);
+    return extractHeaderElement(url, alt, this.onLog);
   }
 
   private _sourceTitle: string | null = null;

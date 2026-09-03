@@ -35,11 +35,8 @@ export function fixRedditMediaUrl(url: string): string {
   return url.replace(/&amp;/g, "&");
 }
 
-export async function fetchSubredditIcon(
-  subreddit: string,
-  userId?: number | null,
-): Promise<string | null> {
-  if (!subreddit || !userId) return null;
+export async function fetchSubredditIcon(subreddit: string): Promise<string | null> {
+  if (!subreddit) return null;
   try {
     const res = await fetch(`https://www.reddit.com/r/${subreddit}/about.json`, {
       headers: { "User-Agent": "Yana/1.0" },
@@ -88,7 +85,7 @@ export class RedditPostStrategy implements HeaderElementStrategy {
       const subreddit = postInfo.subreddit;
       if (!subreddit) return null;
 
-      const iconUrl = await fetchSubredditIcon(subreddit, context.userId);
+      const iconUrl = await fetchSubredditIcon(subreddit);
       if (!iconUrl) return null;
 
       const imageResult = await fetchSingleImage(iconUrl);

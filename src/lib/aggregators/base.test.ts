@@ -459,4 +459,44 @@ describe("BaseAggregator", () => {
       expect(await agg.finalizeArticles(input)).toBe(input);
     });
   });
+
+  describe("extractHeaderElement", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    // A Better Auth id is a 32-char alphanumeric string, and ~84% of them
+    // start with a letter. `RedditPostStrategy` (via `fetchSubredditIcon()`)
+    // used to be handed `feed.userId` run through `parseInt()`, which turns
+    // a letter-first id into NaN -> null and makes the subreddit-icon fetch
+    // never even start -- for the large majority of real accounts, silently.
+    // This drives the real pipeline (BaseAggregator -> extractHeaderElement
+    // -> RedditPostStrategy -> fetchSubredditIcon) with such an id and
+    // asserts the reddit `about.json` request is attempted at all.
+    it("attempts the subreddit-icon fetch for a feed whose userId is a realistic Better Auth id", async () => {
+      const calls = vi.fn().mockResolvedValue(new Response("not found", { status: 404 }));
+      globalThis.fetch = calls;
+
+      const feed: FeedLike = {
+        identifier: "test",
+        dailyLimit: 20,
+        userId: "aB3xY9kLmNoPqRsTuVwXyZ0123456789",
+      };
+      const agg = new TestAggregator(feed);
+      const article: RawArticle = {
+        name: "A reddit post",
+        identifier: "https://reddit.com/r/typescript/comments/abc123/title",
+        raw_content: "",
+        content: "",
+        date: new Date(),
+      };
+
+      await agg.extractHeaderElement(article);
+
+      const attemptedSubredditIconFetch = calls.mock.calls.some(([url]) =>
+        String(url).includes("/r/typescript/about.json"),
+      );
+      expect(attemptedSubredditIconFetch).toBe(true);
+    });
+  });
 });

@@ -87,9 +87,11 @@ describe("Header Element Extraction", () => {
       );
     });
 
-    it("fetchSubredditIcon handles missing userId or API response", async () => {
-      expect(await fetchSubredditIcon("typescript", null)).toBeNull();
+    it("fetchSubredditIcon returns null for a missing subreddit", async () => {
+      expect(await fetchSubredditIcon("")).toBeNull();
+    });
 
+    it("fetchSubredditIcon parses the icon URL from the API response", async () => {
       vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
         new Response(
           JSON.stringify({
@@ -99,7 +101,7 @@ describe("Header Element Extraction", () => {
         ),
       );
 
-      const iconUrl = await fetchSubredditIcon("typescript", 42);
+      const iconUrl = await fetchSubredditIcon("typescript");
       expect(iconUrl).toBe("https://styles.redditmedia.com/icon.png?a=1&b=2");
     });
 
