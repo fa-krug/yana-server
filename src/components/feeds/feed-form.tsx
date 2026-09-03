@@ -118,7 +118,12 @@ export function FeedForm({
       // replacing the whole form with "Something went wrong".
       const result = await attempt(() => updateFeedsBulk([feed.id]));
       if (!result.ok) {
-        toast.error(t("saveFailed"));
+        // A catalog key, never provider prose (see section-kit.tsx's
+        // reporting convention) -- `result.errorKey` names *why* when the
+        // action itself refused (e.g. this feed's AI options are on and no
+        // AI provider is configured), falling back to the generic message
+        // only for an unattributed failure (a session probe, a rejection).
+        toast.error(t(result.errorKey ?? "saveFailed"));
         return;
       }
 

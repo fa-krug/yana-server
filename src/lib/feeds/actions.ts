@@ -7,7 +7,16 @@ import { z } from "zod";
 
 import { currentUserId } from "@/lib/auth/session";
 import { getDb, writeTransaction } from "@/lib/db/client";
-import { feeds, feedTags, tags, jobs, articles, articleTombstones } from "@/lib/db/schema";
+import {
+  feeds,
+  feedTags,
+  tags,
+  jobs,
+  articles,
+  articleTombstones,
+  userSettings,
+} from "@/lib/db/schema";
+import { aiReadinessFor } from "@/lib/ai/readiness";
 import { enqueueRun } from "@/lib/jobs/queue";
 import { getSettings } from "@/lib/settings/queries";
 import type { ListParams } from "@/lib/crud/params";
@@ -521,24 +530,55 @@ export async function refreshLogos(
   return { ok: true, enqueued: validFeeds.length, runId };
 }
 
-export async function updateFeedsBulk(
-  ids: number[],
-): Promise<{ ok: boolean; enqueued: number; runId: number }> {
+export type UpdateFeedsBulkResult =
+  { ok: true; enqueued: number; runId: number } | { ok: false; errorKey: NamespaceKey<"feeds"> };
+
+/**
+ * Enqueues a `feed.update` job (which runs the same `handleAggregateJob` as
+ * `"aggregate"` -- see `AGGREGATE_HANDLER_JOB_KINDS`) for every caller-owned
+ * id, whether this is a bulk run from the feed table or a single feed's own
+ * "Update now" (`feed-form.tsx` calls this with a one-element array).
+ *
+ * **Refuses a feed whose AI options are on but whose owner has no working AI
+ * provider**, via `aiReadinessFor()` (`@/lib/ai/readiness`) -- see its doc
+ * comment for why: enqueueing anyway would run every article through
+ * `applyAiToBlocks()`'s permanent `noProvider` failure, which
+ * `handleAggregateJob` treats as transient and skips-and-retries forever,
+ * silently losing every article as it ages out of the feed's window.
+ *
+ * A batch that is *entirely* blocked this way reports a refusal --
+ * `{ ok: false, errorKey: "aiNoProvider" }`, never provider prose -- rather
+ * than enqueueing nothing and calling that success. A batch that is only
+ * partly blocked still runs for the feeds that are ready; the blocked ones
+ * are silently excluded, the same way the scheduler skips them on its own
+ * tick.
+ */
+export async function updateFeedsBulk(ids: number[]): Promise<UpdateFeedsBulkResult> {
   const userId = await currentUserId();
 
   const validFeeds = getDb()
-    .select({ id: feeds.id })
+    .select({ id: feeds.id, options: feeds.options })
     .from(feeds)
     .where(and(inArray(feeds.id, ids), eq(feeds.userId, userId)))
     .all();
 
+  const settings = getDb().select().from(userSettings).where(eq(userSettings.userId, userId)).get();
+
+  const readyFeeds = validFeeds.filter(
+    (feed) => aiReadinessFor(feed.options, settings) !== "noProvider",
+  );
+
+  if (validFeeds.length > 0 && readyFeeds.length === 0) {
+    return { ok: false, errorKey: "aiNoProvider" };
+  }
+
   const runId = enqueueRun(
     userId,
     "feed.update",
-    validFeeds.map((f) => ({ feedId: f.id })),
+    readyFeeds.map((f) => ({ feedId: f.id })),
   );
 
-  return { ok: true, enqueued: validFeeds.length, runId };
+  return { ok: true, enqueued: readyFeeds.length, runId };
 }
 
 type FeedsKey = NamespaceKey<"feeds">;

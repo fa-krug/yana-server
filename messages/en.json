@@ -299,6 +299,8 @@
     "logoUpdateCompletedWithFailures": "{completed} updated, {failed} failed",
     "bulkUpdateLogo": "Update logo",
     "bulkRunAggregation": "Run aggregation",
+    "aiNoProvider": "These feeds use AI options that need a working AI provider, and none is configured. Set one up on the AI page first.",
+    "aiNoProviderBadge": "AI not configured",
     "aggregationCompleted": "{count, plural, one {# feed updated} other {# feeds updated}}",
     "aggregationCompletedWithFailures": "{completed} updated, {failed} failed",
     "bulkDelete": "Delete",

@@ -299,6 +299,8 @@
     "logoUpdateCompletedWithFailures": "{completed} aktualisiert, {failed} fehlgeschlagen",
     "bulkUpdateLogo": "Logo aktualisieren",
     "bulkRunAggregation": "Aggregation ausführen",
+    "aiNoProvider": "Diese Feeds verwenden KI-Optionen, für die ein funktionierender KI-Anbieter nötig ist, und es ist keiner konfiguriert. Richte zuerst einen auf der KI-Seite ein.",
+    "aiNoProviderBadge": "KI nicht konfiguriert",
     "aggregationCompleted": "{count, plural, one {# Feed aktualisiert} other {# Feeds aktualisiert}}",
     "aggregationCompletedWithFailures": "{completed} aktualisiert, {failed} fehlgeschlagen",
     "bulkDelete": "Löschen",

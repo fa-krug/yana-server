@@ -645,6 +645,7 @@ describe("updateFeedsBulk", () => {
     const b = await actions.createFeed({ name: "B", aggregator: "heise", identifier: "" });
 
     const result = await actions.updateFeedsBulk([a.id!, b.id!]);
+    if (!result.ok) throw new Error("expected updateFeedsBulk to succeed");
     expect(result.ok).toBe(true);
     expect(result.enqueued).toBe(2);
 
@@ -685,6 +686,7 @@ describe("updateFeedsBulk", () => {
     actingUserId = userId1;
 
     const result = await actions.updateFeedsBulk([mine.id!, theirs.id!]);
+    if (!result.ok) throw new Error("expected updateFeedsBulk to succeed");
     expect(result.enqueued).toBe(1);
     expect(typeof result.runId).toBe("number");
   });
@@ -693,6 +695,7 @@ describe("updateFeedsBulk", () => {
     await currentUserId();
     const result = await actions.updateFeedsBulk([]);
     expect(result).toEqual({ ok: true, enqueued: 0, runId: expect.any(Number) });
+    if (!result.ok) throw new Error("expected updateFeedsBulk to succeed");
 
     const runRow = client
       .getDb()
@@ -702,6 +705,47 @@ describe("updateFeedsBulk", () => {
       .find((r) => r.id === result.runId)!;
     expect(runRow.status).toBe("completed");
     expect(runRow.totalJobs).toBe(0);
+  });
+
+  it("refuses to enqueue an AI-enabled feed whose owner has no working AI provider", async () => {
+    const userId = await currentUserId();
+
+    // AI is active while the feed is created, so `ai_translate` survives
+    // `stripUnavailable()` (see `src/lib/aggregators/specs.ts`) rather than
+    // being dropped for a capability the owner didn't have yet.
+    raw(client.getDb()).exec(
+      `UPDATE user_settings SET active_ai_provider = 'openai', openai_enabled = 1 ` +
+        `WHERE user_id = '${userId}'`,
+    );
+
+    const feed = await actions.createFeed({
+      name: "Translated",
+      aggregator: "heise",
+      identifier: "",
+      options: { ai_translate: true },
+    });
+    expect(feed.ok).toBe(true);
+
+    // The owner's provider stops working -- credentials removed, quota
+    // permanently revoked, whatever the cause. The feed's own options are
+    // untouched; only the owner's readiness changed.
+    raw(client.getDb()).exec(
+      `UPDATE user_settings SET active_ai_provider = '', openai_enabled = 0 ` +
+        `WHERE user_id = '${userId}'`,
+    );
+
+    const result = await actions.updateFeedsBulk([feed.id!]);
+
+    expect(result.ok).toBe(false);
+    expect("errorKey" in result && result.errorKey).toBeTruthy();
+
+    const jobRows = client
+      .getDb()
+      .select()
+      .from(schema.jobs)
+      .all()
+      .filter((j) => j.kind === "feed.update" || j.kind === "aggregate");
+    expect(jobRows).toHaveLength(0);
   });
 });
 

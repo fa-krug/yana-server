@@ -4,8 +4,10 @@ import { Pagination } from "@/components/crud/pagination";
 import { FeedsChrome } from "@/components/feeds/feeds-chrome";
 import { FeedsListRegion } from "@/components/feeds/feeds-list-region";
 import { FeedsTableBody } from "@/components/feeds/feeds-table";
+import { aiReadinessFor } from "@/lib/ai/readiness";
 import { parseListParams, type ListParams } from "@/lib/crud/params";
 import { listFeeds } from "@/lib/feeds/actions";
+import { getSettings } from "@/lib/settings/queries";
 
 type SearchParamsPromise = Promise<Record<string, string | string[] | undefined>>;
 
@@ -27,8 +29,18 @@ const resolveParams = cache(async (searchParams: SearchParamsPromise): Promise<L
 
 async function FeedsBody({ searchParams }: { searchParams: SearchParamsPromise }) {
   const params = await resolveParams(searchParams);
-  const { rows } = await cachedListFeeds(params);
-  return <FeedsTableBody rows={rows} />;
+  const [{ rows }, settings] = await Promise.all([cachedListFeeds(params), getSettings()]);
+
+  // Only `aiReadinessFor()`'s derived enum crosses into the client component
+  // -- never `settings` itself, which carries every stored provider secret
+  // (see `getSettingsSummary()`'s doc comment on `/settings` for why a whole
+  // `UserSettings` row must never be handed to a Client Component prop).
+  const rowsWithReadiness = rows.map((row) => ({
+    ...row,
+    aiReadiness: aiReadinessFor(row.options, settings),
+  }));
+
+  return <FeedsTableBody rows={rowsWithReadiness} />;
 }
 
 async function FeedsPagination({ searchParams }: { searchParams: SearchParamsPromise }) {

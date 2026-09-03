@@ -177,6 +177,23 @@ export async function handleAggregateJob(job: Job): Promise<void> {
 
     if (ai.outcome.status === "failed") {
       /**
+       * **This per-article skip-and-retry is correct only for *transient*
+       * failures** -- a 429, a 503, a provider hiccup on one article of many.
+       * It used to also catch the *permanent* case: a feed with an AI option
+       * on and no working AI provider, where `applyAiToBlocks()` returns
+       * `reason: "noProvider"` for every single article, forever. Retrying
+       * "next run" never helps a permanent misconfiguration, and every
+       * skipped article still ages out of the feed's source window and is
+       * lost for good -- while this job keeps reporting success. That case is
+       * refused *before* a job is even enqueued now (`aiReadinessFor()` in
+       * `@/lib/ai/readiness`, consulted by the scheduler and
+       * `updateFeedsBulk()`), so a `"noProvider"` outcome reaching this arm
+       * today means the owner's provider broke *mid-run* -- genuinely
+       * transient from this job's point of view, since the pre-flight check
+       * already passed. Do not "simplify" this arm away because the
+       * permanent cause was moved upstream: it still has to exist for a 429,
+       * a 503, and everything else that is transient by nature.
+       *
        * **Write nothing at all, so the next run can store the article whole.**
        *
        * The feed asked for this article to be summarized, translated or

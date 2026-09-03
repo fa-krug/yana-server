@@ -1,7 +1,8 @@
 import { and, eq, gte, inArray } from "drizzle-orm";
 
+import { aiReadinessFor } from "../ai/readiness";
 import { writeTransaction } from "../db/client";
-import { feeds, jobs } from "../db/schema";
+import { feeds, userSettings, jobs } from "../db/schema";
 import { notifyAdmins } from "../email/error-notifications";
 import { AGGREGATE_HANDLER_JOB_KINDS, NON_TERMINAL_JOB_STATUSES, enqueue } from "./queue";
 
@@ -74,10 +75,22 @@ export async function tick(): Promise<void> {
         userId: feeds.userId,
         updatedAt: feeds.updatedAt,
         updateIntervalMinutes: feeds.updateIntervalMinutes,
+        options: feeds.options,
       })
       .from(feeds)
       .where(eq(feeds.enabled, true))
       .all();
+
+    // Every owner's settings row, read once per tick rather than once per
+    // feed -- several feeds commonly share one owner. Keyed by userId so the
+    // readiness check below is a map lookup, not a query per feed.
+    const settingsByUserId = new Map(
+      db
+        .select()
+        .from(userSettings)
+        .all()
+        .map((row) => [row.userId, row] as const),
+    );
 
     // Every kind that runs (or delegates to) handleAggregateJob, in every
     // non-terminal status -- not just a pending "aggregate" row. A job
@@ -132,6 +145,24 @@ export async function tick(): Promise<void> {
       }
 
       if (now.getTime() - lastRunTime >= intervalMs) {
+        // Refuse to enqueue a feed whose AI options are on but whose owner
+        // has no working provider -- see `aiReadinessFor()`'s doc comment.
+        // Enqueueing anyway would run `handleAggregateJob`, which treats
+        // every article's AI failure as transient and skips-and-retries it
+        // forever; for this permanent misconfiguration that means every
+        // article ages out of the feed's window and is lost for good, on a
+        // job that reports success. One log line per feed per tick, not per
+        // article -- the per-article log lives in `handleAggregateJob`
+        // itself and would flood the job output at this volume.
+        const readiness = aiReadinessFor(item.options, settingsByUserId.get(item.userId));
+        if (readiness === "noProvider") {
+          console.warn(
+            `[Scheduler] skipping feed ${item.feedId}: AI options are on but no working ` +
+              `AI provider is configured for its owner`,
+          );
+          continue;
+        }
+
         enqueue("aggregate", { feedId: item.feedId }, { userId: item.userId });
         pendingFeedIds.add(item.feedId);
       }

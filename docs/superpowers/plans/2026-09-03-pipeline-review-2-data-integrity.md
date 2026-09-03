@@ -180,14 +180,18 @@ article.
 - Produces: `aiReadinessFor(feedOptions, settings): "ok" | "noProvider" | "notNeeded"`
   — consumed by the scheduler, the manual-update actions, and the feeds UI.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 (a) `tick()` does not enqueue for an overdue feed with `ai_translate: true`
 whose owner has no `activeAiProvider`. (b) `updateFeedsBulk` reports a refusal
 rather than enqueueing for such a feed. (c) `handleRestoreJob` deletes nothing
 when the feed is in that state. Confirm all FAIL.
 
-- [ ] **Step 2: Build `aiReadinessFor()`**
+(Test (c) is dropped along with Step 4 below — `handlers/restore.ts` no longer
+exists as of Task 0's deletion of the dead `feed.restore` path. Only (a) and
+(b) were written, and both were confirmed failing before the fix.)
+
+- [x] **Step 2: Build `aiReadinessFor()`**
 
 One function, one place the rule lives. It must reuse `wantsAi()` from
 `@/lib/ai/run` (do not write a second copy of "is AI on" — that predicate was
@@ -199,7 +203,7 @@ provider's `*Enabled` flag, unlike `run.ts`'s bare truthiness test on
 Return `notNeeded` when `wantsAi()` is false, `ok` when a provider resolves, and
 `noProvider` otherwise.
 
-- [ ] **Step 3: Gate the three enqueue paths**
+- [x] **Step 3: Gate the three enqueue paths**
 
 The scheduler (`scheduler.ts:117`), `updateFeedsBulk`
 (`src/lib/feeds/actions.ts:537`) and any single-feed update action must consult
@@ -207,26 +211,32 @@ it. The scheduler should skip silently but log once per feed per tick — not on
 per article. The user-triggered actions must return a catalog `errorKey` so the
 UI can say *why*, never a raw string.
 
-- [ ] **Step 4: Gate restore before it deletes**
+(The single-feed update action is `updateFeedsBulk` itself — `feed-form.tsx`'s
+"Update now" calls it with a one-element array — so gating `updateFeedsBulk`
+covers both. `POST /api/v1/aggregate` also enqueues `"aggregate"` jobs, one per
+enabled feed of the Bearer-authenticated caller; left ungated, since it is not
+one of the three paths this step names and the native client has no UI here to
+surface a refusal to — flagged in the report as worth a follow-up.)
 
-`handlers/restore.ts` must check readiness **before** the delete at
-`restore.ts:36`, and fail the job with a clear message if not ready. This is the
-single most destructive path in the codebase; the check belongs first.
+- [x] ~~**Step 4: Gate restore before it deletes**~~ — **dropped**. Superseded
+  by the amendment above: Task 0 deleted `handlers/restore.ts` (and the dead
+  `feed.restore` path entirely) immediately before this task ran, so there is
+  no restore left to gate.
 
-- [ ] **Step 5: Surface it in the feeds UI**
+- [x] **Step 5: Surface it in the feeds UI**
 
 A feed in `noProvider` state needs a visible badge or warning in the feed list
 linking to `/ai`. Both catalogs get the key. Follow the existing
 `section-kit.tsx` reporting conventions — a catalog key, never provider prose.
 
-- [ ] **Step 6: Keep the per-article arm for transient failures**
+- [x] **Step 6: Keep the per-article arm for transient failures**
 
 Do **not** remove `aggregate.ts`'s skip-and-retry — it remains correct for
 genuinely transient reasons (a 429, a 503). This task removes the *permanent*
 reasons from ever reaching it. Add a comment at `aggregate.ts:178` recording
 that split, so a future reader does not "simplify" the pre-flight check away.
 
-- [ ] **Step 7: Verify** — `npm test src/lib/jobs src/lib/ai src/lib/feeds`, then CI.
+- [x] **Step 7: Verify** — `npm test src/lib/jobs src/lib/ai src/lib/feeds`, then CI.
 
 ---
 

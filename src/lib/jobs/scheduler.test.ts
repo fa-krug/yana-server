@@ -278,6 +278,76 @@ describe("src/lib/jobs/scheduler", () => {
     expect(jobList.some((j) => j.payload?.feedId === notDueFeedId)).toBe(false);
   });
 
+  it("does not enqueue an overdue AI-enabled feed whose owner has no active provider", async () => {
+    let feedId = 0;
+    client.writeTransaction((db) => {
+      let user = db.select().from(schema.users).limit(1).get();
+      if (!user) {
+        db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+        user = db.select().from(schema.users).limit(1).get();
+      }
+
+      db.insert(schema.userSettings).values({ userId: user!.id, activeAiProvider: "" }).run();
+
+      const inserted = db
+        .insert(schema.feeds)
+        .values({
+          name: "Test Feed",
+          aggregator: "full_website",
+          userId: user!.id,
+          enabled: true,
+          options: { ai_translate: true },
+        })
+        .returning({ id: schema.feeds.id })
+        .get();
+      feedId = inserted.id;
+
+      const oneHourAgoSec = Math.floor((Date.now() - 3_600_000) / 1000);
+      db.run(sql`UPDATE feeds SET updated_at = ${oneHourAgoSec} WHERE id = ${feedId}`);
+    });
+
+    await scheduler.tick();
+
+    const { jobs: aggregateJobs } = queue.listJobs({ kind: "aggregate" });
+    expect(aggregateJobs.some((j) => j.payload?.feedId === feedId)).toBe(false);
+  });
+
+  it("still enqueues an overdue AI-enabled feed once the owner has a working provider", async () => {
+    let feedId = 0;
+    client.writeTransaction((db) => {
+      let user = db.select().from(schema.users).limit(1).get();
+      if (!user) {
+        db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+        user = db.select().from(schema.users).limit(1).get();
+      }
+
+      db.insert(schema.userSettings)
+        .values({ userId: user!.id, activeAiProvider: "openai", openaiEnabled: true })
+        .run();
+
+      const inserted = db
+        .insert(schema.feeds)
+        .values({
+          name: "Test Feed",
+          aggregator: "full_website",
+          userId: user!.id,
+          enabled: true,
+          options: { ai_translate: true },
+        })
+        .returning({ id: schema.feeds.id })
+        .get();
+      feedId = inserted.id;
+
+      const oneHourAgoSec = Math.floor((Date.now() - 3_600_000) / 1000);
+      db.run(sql`UPDATE feeds SET updated_at = ${oneHourAgoSec} WHERE id = ${feedId}`);
+    });
+
+    await scheduler.tick();
+
+    const { jobs: aggregateJobs } = queue.listJobs({ kind: "aggregate" });
+    expect(aggregateJobs.some((j) => j.payload?.feedId === feedId)).toBe(true);
+  });
+
   it("enqueues daily retention job and deduplicates", async () => {
     await scheduler.tick();
 
