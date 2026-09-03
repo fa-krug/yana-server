@@ -1163,6 +1163,52 @@ describe("applyAiToBlocks & AIClient processing", () => {
 
         expect(onLog).toHaveBeenCalledWith(expect.stringContaining("dropped"));
       });
+
+      it("flags droppedMedia when a non-lead placeholder is genuinely lost", async () => {
+        vi.spyOn(console, "warn").mockImplementation(() => {});
+        respondWith({ title: "T", document: "Just prose." });
+
+        const result = await applyAiToBlocks(
+          docOf(`<p>a</p><hr><pre><code>x</code></pre>`),
+          { ai_improve_writing: true },
+          openai(),
+        );
+
+        // `handleAggregateJob()` reads this to withhold the content
+        // fingerprint so the next run retries rather than matching the
+        // unchanged source and losing the media forever.
+        expect(result.droppedMedia).toBe(true);
+      });
+
+      it("does not flag droppedMedia when the only dropped placeholder is the lead media pinLeadMedia recovered", async () => {
+        respondWith({ title: "T", document: "Only prose." });
+
+        const result = await applyAiToBlocks(
+          docOf(`${LEAD}${BODY}`),
+          { ai_improve_writing: true },
+          openai(),
+        );
+
+        // pinLeadMedia() above already put the lead image back at index 0
+        // deterministically, so the document that was actually stored is not
+        // missing anything -- withholding the fingerprint here would just
+        // make an ordinary rewrite (many models omit the lead placeholder) a
+        // recurring paid request for no reason.
+        expect(result.blocks[0]).toMatchObject({ kind: "image", ref: "yana-img://lead" });
+        expect(result.droppedMedia).toBe(false);
+      });
+
+      it("does not flag droppedMedia when nothing was dropped", async () => {
+        respondWith({ title: "T", document: "[[M0]]\n\nRewritten prose." });
+
+        const result = await applyAiToBlocks(
+          docOf(`${LEAD}${BODY}`),
+          { ai_improve_writing: true },
+          openai(),
+        );
+
+        expect(result.droppedMedia).toBe(false);
+      });
     });
 
     describe("the summary", () => {
@@ -1427,7 +1473,11 @@ describe("applyAiToBlocks & AIClient processing", () => {
           onLog,
         );
 
-        expect(result.outcome).toEqual({ status: "failed", reason: "missingSummary" });
+        // `degraded`, not `failed`: a rewrite genuinely came back and is kept
+        // (`title`/`blocks` below are not `input` echoed back), so a caller
+        // must not treat this the way it treats a fully failed request -- see
+        // `ApplyAiOutcome`'s doc comment.
+        expect(result.outcome).toEqual({ status: "degraded", reason: "missingSummary" });
         expect(result.title).toBe("New title");
         expect(plainTextOf(result.blocks)).toContain("Rewritten prose.");
         expect(onLog).toHaveBeenCalledWith(expect.stringContaining("no summary"));

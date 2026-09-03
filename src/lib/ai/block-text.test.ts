@@ -351,6 +351,69 @@ describe("blocksToText / textToBlocks", () => {
       expect(blocks).toHaveLength(1);
     });
 
+    // The three rows of the pipeline-review-3 task-7 table: `OPAQUE_LINE`
+    // required the placeholder to be the *entire* line, and `state.seen` was a
+    // `Set` with no count, so each of these was a distinct, silent loss.
+    describe("what OPAQUE_LINE being whole-line-only and seen being count-free used to cost", () => {
+      it("row 1: reports (and does not silently apply) a caption cleared on the way back", () => {
+        const d = blocksToText(
+          fromHtml(
+            '<figure><img src="yana-img://a"><figcaption>Nice caption</figcaption></figure>',
+          ),
+        );
+        expect(d.opaque).toHaveLength(1);
+        expect((d.opaque[0] as { caption: unknown[] }).caption.length).toBeGreaterThan(0);
+
+        // The model reproduced the placeholder but omitted the caption text.
+        const { blocks, droppedOpaque, clearedCaptions } = textToBlocks("[[M0]]", d);
+
+        // The image itself is kept -- this is not a drop.
+        expect(droppedOpaque).toEqual([]);
+        expect(blocks).toEqual([expect.objectContaining({ kind: "image", caption: [] })]);
+        // But the caption loss is now visible to the caller rather than
+        // indistinguishable from an image that never had one.
+        expect(clearedCaptions).toEqual([0]);
+      });
+
+      it("row 2: strips a placeholder embedded mid-prose rather than storing it literally", () => {
+        const d = blocksToText(fromHtml('<img src="yana-img://a"><p>Text.</p>'));
+        expect(d.opaque).toHaveLength(1);
+
+        const { blocks, droppedOpaque } = textToBlocks("As shown in [[M0]] the sales rose.", d);
+
+        // The image is genuinely lost -- it never appeared on its own line --
+        // and that half was already reported before this task.
+        expect(droppedOpaque).toEqual([0]);
+        // What was missing is that the literal token used to survive into the
+        // stored prose as visible text. It no longer does.
+        const runs = (blocks[0] as { runs: { text: string }[] }).runs;
+        const text = runs.map((r) => r.text).join("");
+        expect(text).not.toContain("[[M0]]");
+        expect(text).toBe("As shown in the sales rose.");
+      });
+
+      it("row 3: keeps a repeated placeholder once and reports the duplicate, instead of storing it twice", () => {
+        const d = blocksToText(
+          fromHtml('<img src="yana-img://a"><img src="yana-img://b"><p>Text.</p>'),
+        );
+        expect(d.opaque).toHaveLength(2);
+
+        // M0 emitted twice; M1 never referenced at all.
+        const { blocks, droppedOpaque, duplicatedOpaque } = textToBlocks(
+          "[[M0]]\n\nSome prose.\n\n[[M0]]",
+          d,
+        );
+
+        const images = blocks.filter((b) => b.kind === "image");
+        expect(images).toHaveLength(1);
+        expect(duplicatedOpaque).toEqual([0]);
+        // The *other* image was the real loss, and is reported as dropped --
+        // rather than the duplication silently costing it with no report at
+        // all.
+        expect(droppedOpaque).toEqual([1]);
+      });
+    });
+
     it("keeps every word when a delimiter is left unmatched", () => {
       const d = blocksToText(fromHtml("<p>x</p>"));
       const { blocks } = textToBlocks("A **stray marker and *another one", d);

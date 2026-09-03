@@ -1105,6 +1105,148 @@ describe("src/lib/jobs/handlers", () => {
       vi.doUnmock("@/lib/ai/run");
     });
 
+    it("withholds the content fingerprint and retries the AI stage when it dropped media", async () => {
+      // Task 7: `applyAiToBlocks()` reports `droppedMedia: true` when the model
+      // dropped a non-lead media/code placeholder. The fingerprint here is a
+      // hash of the unchanged *source*, so writing it as usual would make the
+      // next run's comparison match and skip -- losing that media for the life
+      // of this source article. Withholding it costs a retry (and a repeated
+      // provider request) instead of a permanent loss.
+      vi.resetModules();
+      const applyAiMock = vi.fn(async (input: { title: string; blocks: unknown[] }) => ({
+        title: input.title,
+        blocks: input.blocks,
+        outcome: { status: "applied" },
+        droppedMedia: true,
+      }));
+      vi.doMock("@/lib/ai/run", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("@/lib/ai/run")>();
+        return { ...actual, applyAiToBlocks: applyAiMock };
+      });
+      const rawArticles = [
+        {
+          name: "Degraded",
+          identifier: "https://example.com/degraded",
+          raw_content: "",
+          content: "<p>Body.</p>",
+          date: new Date("2026-01-01T00:00:00.000Z"),
+        },
+      ];
+      handlers = await import("./index");
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => rawArticles,
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        db.insert(schema.users).values({ id: "ai-dropped", email: "ai-dropped@example.com" }).run();
+        db.insert(schema.userSettings)
+          .values({ userId: "ai-dropped", activeAiProvider: "openai", aiRequestDelay: 0 })
+          .run();
+        feedId = db
+          .insert(schema.feeds)
+          .values({ name: "Feed", userId: "ai-dropped", options: { ai_improve_writing: true } })
+          .returning({ id: schema.feeds.id })
+          .get().id;
+      });
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+      const firstJob = makeJob("aggregate", { feedId });
+      await aggregateHandler!(firstJob);
+      expect(applyAiMock).toHaveBeenCalledTimes(1);
+
+      const stored = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.identifier, "https://example.com/degraded"))
+        .get();
+      // The row and its blocks are still stored -- this is not the
+      // write-nothing `failed` arm -- but the fingerprint is withheld.
+      expect(stored?.contentHash).toBeNull();
+      expect(logLines(firstJob.id).join("\n")).toContain("withholding the content fingerprint");
+
+      // Same, unchanged source article. With a normal (non-null) fingerprint
+      // this would skip and never call AI again -- the whole point of the
+      // guarantee under test is that it does not skip here.
+      const secondJob = makeJob("aggregate", { feedId });
+      await aggregateHandler!(secondJob);
+      expect(applyAiMock).toHaveBeenCalledTimes(2);
+
+      vi.doUnmock("@/lib/ai/run");
+    });
+
+    it("stores a degraded rewrite (kept, not discarded) and logs it, rather than skipping the article whole", async () => {
+      // Task 7: `missingSummary` with a rewrite that did come back is
+      // `degraded`, not `failed` -- `ai.blocks`/`ai.title` are a genuine
+      // applied rewrite, not `input` echoed back. Discarding it the way the
+      // handler discards a real `failed` outcome would throw away a rewrite
+      // that succeeded over one field (the summary) that didn't.
+      vi.resetModules();
+      const applyAiMock = vi.fn(async () => ({
+        title: "Rewritten Title",
+        blocks: [{ kind: "paragraph", runs: [{ text: "Rewritten body." }] }],
+        outcome: { status: "degraded", reason: "missingSummary" },
+        requested: true,
+        droppedMedia: false,
+      }));
+      vi.doMock("@/lib/ai/run", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("@/lib/ai/run")>();
+        return { ...actual, applyAiToBlocks: applyAiMock };
+      });
+      const rawArticles = [
+        {
+          name: "Original",
+          identifier: "https://example.com/degraded-summary",
+          raw_content: "",
+          content: "<p>Body.</p>",
+          date: new Date("2026-01-01T00:00:00.000Z"),
+        },
+      ];
+      handlers = await import("./index");
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => rawArticles,
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        db.insert(schema.users).values({ id: "ai-degr", email: "ai-degr@example.com" }).run();
+        db.insert(schema.userSettings)
+          .values({ userId: "ai-degr", activeAiProvider: "openai", aiRequestDelay: 0 })
+          .run();
+        feedId = db
+          .insert(schema.feeds)
+          .values({
+            name: "Feed",
+            userId: "ai-degr",
+            options: { ai_improve_writing: true, ai_summarize: true },
+          })
+          .returning({ id: schema.feeds.id })
+          .get().id;
+      });
+
+      const aggregateHandler = handlers.getHandler("aggregate");
+      const job = makeJob("aggregate", { feedId });
+      await aggregateHandler!(job);
+
+      const stored = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.identifier, "https://example.com/degraded-summary"))
+        .get();
+      // Stored, with the rewrite kept -- not skipped whole like a real failure.
+      expect(stored?.name).toBe("Rewritten Title");
+      // No droppedMedia here, so the fingerprint is written as usual.
+      expect(stored?.contentHash).not.toBeNull();
+      expect(logLines(job.id).join("\n")).toContain("degraded AI result");
+      expect(logLines(job.id).join("\n")).toMatch(/upserted articles: 1 created/);
+
+      vi.doUnmock("@/lib/ai/run");
+    });
+
     it("does not pace requests the AI stage never made", async () => {
       // `aiRequestDelay` spaces *provider requests*, and the handler cannot
       // decide on its own which loop iterations made one: `applyAiToBlocks()`
@@ -2252,6 +2394,153 @@ describe("src/lib/jobs/handlers", () => {
       } finally {
         globalThis.fetch = originalFetch;
       }
+    });
+
+    it("does not fail the job for a degraded (not failed) AI outcome, and keeps the rewrite", async () => {
+      // Task 7: before this, `missingSummary` with a rewrite that came back was
+      // reported as `failed`, so a reload that mostly succeeded (a good
+      // rewrite, just no summary) threw and mailed the owner a failure notice.
+      // `degraded` is a plain success with a note in the job's own log.
+      vi.resetModules();
+      vi.doMock("@/lib/aggregators/factory", () => ({
+        createAggregator: () => ({
+          fetchArticleContent: async () => "<p>Fresh from the source</p>",
+          extractHeaderElement: async () => null,
+          extractContent: (html: string) => html,
+          processContent: (html: string) => html,
+        }),
+      }));
+      const applyAiMock = vi.fn(async () => ({
+        title: "Rewritten Title",
+        blocks: [{ kind: "paragraph", runs: [{ text: "Rewritten body." }] }],
+        outcome: { status: "degraded", reason: "missingSummary" },
+        requested: true,
+        droppedMedia: false,
+      }));
+      vi.doMock("@/lib/ai/run", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("@/lib/ai/run")>();
+        return { ...actual, applyAiToBlocks: applyAiMock };
+      });
+      handlers = await import("./index");
+
+      let articleId = 0;
+      client.writeTransaction((db) => {
+        const user = db
+          .insert(schema.users)
+          .values({ id: "ai-degraded-reload", email: "ai-degraded-reload@example.com" })
+          .returning({ id: schema.users.id })
+          .get();
+        const feed = db
+          .insert(schema.feeds)
+          .values({
+            name: "Feed",
+            userId: user.id,
+            options: { ai_improve_writing: true, ai_summarize: true },
+          })
+          .returning({ id: schema.feeds.id })
+          .get();
+        const article = db
+          .insert(schema.articles)
+          .values({
+            name: "Original",
+            identifier: "https://example.com/degraded-reload",
+            feedId: feed.id,
+            plainText: "stale",
+            contentHash: "pre-existing-hash",
+            date: new Date(),
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        articleId = article.id;
+      });
+
+      const reloadHandler = handlers.getHandler("article.reload");
+      const job = makeJob("article.reload", { articleId });
+
+      await reloadHandler!(job);
+
+      const reloaded = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, articleId))
+        .get();
+      expect(reloaded?.name).toBe("Rewritten Title");
+      expect(logLines(job.id)).toContain("reloaded article content");
+      expect(logLines(job.id).join("\n")).toContain("AI processing partially completed");
+      expect(logLines(job.id).join("\n")).not.toContain("AI processing did not complete");
+
+      vi.doUnmock("@/lib/ai/run");
+    });
+
+    it("nulls the content fingerprint when the AI stage dropped media, instead of leaving the stale one", async () => {
+      // Task 7: reload normally leaves `contentHash` exactly as it was --
+      // that is what makes a manual reload win over the next aggregation run
+      // re-deriving the article. But a rewrite that dropped media is not the
+      // best available version of this article, so leaving the old hash in
+      // place would let a later aggregation run match the (unchanged) source,
+      // skip, and leave the dropped media gone for good.
+      vi.resetModules();
+      vi.doMock("@/lib/aggregators/factory", () => ({
+        createAggregator: () => ({
+          fetchArticleContent: async () => "<p>Fresh from the source</p>",
+          extractHeaderElement: async () => null,
+          extractContent: (html: string) => html,
+          processContent: (html: string) => html,
+        }),
+      }));
+      const applyAiMock = vi.fn(async (input: { title: string; blocks: unknown[] }) => ({
+        title: input.title,
+        blocks: input.blocks,
+        outcome: { status: "applied" },
+        requested: true,
+        droppedMedia: true,
+      }));
+      vi.doMock("@/lib/ai/run", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("@/lib/ai/run")>();
+        return { ...actual, applyAiToBlocks: applyAiMock };
+      });
+      handlers = await import("./index");
+
+      let articleId = 0;
+      client.writeTransaction((db) => {
+        const user = db
+          .insert(schema.users)
+          .values({ id: "ai-dropped-reload", email: "ai-dropped-reload@example.com" })
+          .returning({ id: schema.users.id })
+          .get();
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "Feed", userId: user.id, options: { ai_improve_writing: true } })
+          .returning({ id: schema.feeds.id })
+          .get();
+        const article = db
+          .insert(schema.articles)
+          .values({
+            name: "Original",
+            identifier: "https://example.com/dropped-reload",
+            feedId: feed.id,
+            plainText: "stale",
+            contentHash: "pre-existing-hash",
+            date: new Date(),
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        articleId = article.id;
+      });
+
+      const reloadHandler = handlers.getHandler("article.reload");
+      await reloadHandler!(makeJob("article.reload", { articleId }));
+
+      const reloaded = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.id, articleId))
+        .get();
+      expect(reloaded?.contentHash).toBeNull();
+
+      vi.doUnmock("@/lib/ai/run");
     });
 
     /**

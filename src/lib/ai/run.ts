@@ -520,9 +520,26 @@ export class AIClient {
  * summarize/improve-writing/translate options) and didn't get it needs to be
  * able to tell that apart from "no AI options were configured at all," which
  * is a normal, silent no-op rather than a failure.
+ *
+ * **`degraded` is a fourth arm, not a footnote on `failed`.** `failed` means
+ * `blocks`/`title` on the result are `input` verbatim -- every `unchanged()`
+ * return below is exactly that. `missingSummary` breaks that rule on purpose
+ * when a rewrite was also requested and *did* come back (see the doc comment
+ * where it is returned): the tree is a genuine, applied rewrite, just missing
+ * the summary the feed also asked for. That distinction used to live only in
+ * a comment, which is exactly why the two callers disagreed about it --
+ * `aggregate.ts` discarded the kept rewrite along with every real failure, and
+ * `reload.ts` wrote it and then failed the job over the one missing field,
+ * mailing the owner a failure notice for a run that was mostly a success.
+ * `degraded` makes the distinction something a caller has to handle rather
+ * than infer: treat it as a stored, successful write with a caveat, never as
+ * the "write nothing at all" case `failed` is.
  */
 export type ApplyAiOutcome =
-  { status: "skipped" } | { status: "applied" } | { status: "failed"; reason: string };
+  | { status: "skipped" }
+  | { status: "applied" }
+  | { status: "degraded"; reason: string }
+  | { status: "failed"; reason: string };
 
 /**
  * The notation spec the model is given, once per request.
@@ -662,6 +679,21 @@ export interface AiBlockResult extends AiBlockDocument {
    * a 50-article feed whose provider was simply not configured.
    */
   requested: boolean;
+  /**
+   * Whether the model dropped a media/code placeholder from the rewrite
+   * (`textToBlocks()`'s `droppedOpaque`). `false` on every arm that returns
+   * `input.blocks` untouched, and on a summarize-only request, which never
+   * serializes the document at all.
+   *
+   * This is what `handleAggregateJob()` reads to withhold the `contentHash`
+   * write even though the article and its (possibly degraded) blocks are
+   * still stored: the hash is a fingerprint of the unchanged *source*, so
+   * writing it here would make the next cycle match, skip, and leave the
+   * dropped media gone for the life of that source article. Withholding it
+   * costs a retry (and, if the model drops the same media reliably, a
+   * recurring provider request on every cycle) rather than a permanent loss.
+   */
+  droppedMedia: boolean;
 }
 
 /**
@@ -722,6 +754,7 @@ export async function applyAiToBlocks(
     ...input,
     outcome,
     requested,
+    droppedMedia: false,
   });
 
   const opts = options || {};
@@ -901,6 +934,8 @@ export async function applyAiToBlocks(
   let blocks = wantsRewrite ? canonicalBlocks(input.blocks) : input.blocks;
   /** How many blocks the rewrite came back as, before any summary block. */
   let rewrittenCount = blocks.length;
+  /** See `AiBlockResult.droppedMedia` -- set below when the rewrite dropped one. */
+  let droppedMedia = false;
 
   if (wantsRewrite) {
     let rewritten: Block[] | null = null;
@@ -964,9 +999,52 @@ export async function applyAiToBlocks(
         }
 
         if (parsed.droppedOpaque.length > 0) {
+          // **Whether this counts as "still degraded" for `droppedMedia`
+          // excludes a dropped *lead* that `pinLeadMedia()` just recovered.**
+          // That call above unconditionally puts the input's lead media back
+          // at index 0 regardless of what the model did with it, so a model
+          // that reproduces every placeholder *except* the lead one -- which
+          // the notation spec does not forbid any more strictly than dropping
+          // any other placeholder, and is common enough in practice -- ends
+          // up with a fully correct document anyway. Counting that as
+          // "degraded" would withhold the content fingerprint (see
+          // `AiBlockResult.droppedMedia`) on an article that is not actually
+          // missing anything, turning an ordinary rewrite into a recurring
+          // paid request on every cycle. A *non*-lead placeholder has no such
+          // recovery, so it is the only thing that still counts here.
+          const leadIndex = lead
+            ? document.opaque.findIndex((block) => sameMedia(block, lead))
+            : -1;
+          if (parsed.droppedOpaque.some((index) => index !== leadIndex)) {
+            droppedMedia = true;
+          }
+
           const message =
             `AI dropped ${parsed.droppedOpaque.length} media/code block(s) from article ` +
-            `'${input.title}'; the rest of the rewrite was kept.`;
+            `'${input.title}'; the rest of the rewrite was kept.` +
+            (droppedMedia
+              ? " The content fingerprint will be withheld so the next aggregation run " +
+                "retries this article."
+              : "");
+          console.warn(message);
+          onLog?.(message);
+        }
+
+        if (parsed.duplicatedOpaque.length > 0) {
+          // Only the first occurrence made it into `rewritten` (see
+          // `parseLines()` in `./block-text`); this is purely a report that the
+          // model repeated a placeholder rather than moving it.
+          const message =
+            `AI repeated ${parsed.duplicatedOpaque.length} media/code placeholder(s) in ` +
+            `article '${input.title}'; only the first occurrence was kept.`;
+          console.warn(message);
+          onLog?.(message);
+        }
+
+        if (parsed.clearedCaptions.length > 0) {
+          const message =
+            `AI dropped the caption on ${parsed.clearedCaptions.length} image(s) in article ` +
+            `'${input.title}'; the image itself was kept.`;
           console.warn(message);
           onLog?.(message);
         }
@@ -1019,12 +1097,20 @@ export async function applyAiToBlocks(
       const message = `AI returned no summary for article '${title}'.`;
       console.warn(message);
       onLog?.(message);
+      // `degraded`, not `failed`, when a rewrite came back: `blocks`/`title`
+      // here are the applied rewrite, not `input` echoed back, and a caller
+      // that treated this like `missingDocument` (write nothing, fail the
+      // job) would throw away a good rewrite and mail the owner a failure
+      // notice for a run that was mostly a success. With no rewrite requested
+      // there is nothing to keep, so that case still reports plain `failed`
+      // with `input` untouched, via `unchanged()`.
       return wantsRewrite
         ? {
             title,
             blocks,
-            outcome: { status: "failed", reason: "missingSummary" },
+            outcome: { status: "degraded", reason: "missingSummary" },
             requested: true,
+            droppedMedia,
           }
         : unchanged({ status: "failed", reason: "missingSummary" }, true);
     }
@@ -1047,5 +1133,5 @@ export async function applyAiToBlocks(
       (wantsSummary ? ", summary added" : ""),
   );
 
-  return { title, blocks, outcome: { status: "applied" }, requested: true };
+  return { title, blocks, outcome: { status: "applied" }, requested: true, droppedMedia };
 }

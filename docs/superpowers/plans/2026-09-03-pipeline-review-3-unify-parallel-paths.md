@@ -446,20 +446,20 @@ Separately, `run.ts:932-939` logs `droppedOpaque` and then reports
 run matches and skips. **The images the model dropped are gone for the life of
 that source article.**
 
-- [ ] **Step 1:** Tests for all three rows of the table above.
-- [ ] **Step 2:** Count occurrences instead of `Set.has`; report duplicates.
-- [ ] **Step 3:** Report a caption that was non-empty on the way out and empty on
+- [x] **Step 1:** Tests for all three rows of the table above.
+- [x] **Step 2:** Count occurrences instead of `Set.has`; report duplicates.
+- [x] **Step 3:** Report a caption that was non-empty on the way out and empty on
       the way back.
-- [ ] **Step 4:** Strip or refuse a `[[Mn]]` token that survives into run text —
+- [x] **Step 4:** Strip or refuse a `[[Mn]]` token that survives into run text —
       storing the literal placeholder as prose is never right.
-- [ ] **Step 5: Decide the policy for `droppedOpaque.length > 0`.** Given
+- [x] **Step 5: Decide the policy for `droppedOpaque.length > 0`.** Given
       `aggregate.ts`'s own stated rule for a failed AI stage ("write nothing at
       all, so the next run can store the article whole"), dropped media should
       either land in the failure arm or at minimum **suppress the `contentHash`
       write** so the next cycle retries. Recommend the latter — it is the
       smaller change and it removes the permanence, which is the actual harm.
       Put the choice to the owner if it is not obvious in context.
-- [ ] **Step 6: Make the two callers agree about `failed`.** `applyAiToBlocks`
+- [x] **Step 6: Make the two callers agree about `failed`.** `applyAiToBlocks`
       documents a deliberate asymmetry — `missingDocument` returns the input
       untouched, `missingSummary` **keeps a rewrite that did come back**. But
       `aggregate.ts:180-206` discards `ai.blocks` entirely on any failure, so

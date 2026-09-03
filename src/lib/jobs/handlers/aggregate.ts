@@ -95,6 +95,12 @@ export async function handleAggregateJob(job: Job): Promise<void> {
   // than the feed listed should say why rather than look like a quiet feed.
   let aiFailed = 0;
   const aiFailureReasons = new Set<string>();
+  // Articles that *were* stored, with a kept rewrite, but whose AI request
+  // only partially completed (`ApplyAiOutcome`'s `degraded` arm -- today only
+  // a rewrite that came back with no summary). Distinct from `aiFailed`: this
+  // article is not missing, it is stored as the best available version.
+  let aiDegraded = 0;
+  const aiDegradedReasons = new Set<string>();
 
   // Whether this feed asks for AI at all, decided once -- by `wantsAi()`, the
   // same predicate `applyAiToBlocks()` itself uses, so there is no second copy
@@ -251,21 +257,52 @@ export async function handleAggregateJob(job: Job): Promise<void> {
       continue;
     }
 
+    if (ai.outcome.status === "degraded") {
+      // Unlike `failed`, `ai.blocks`/`ai.title` here are a genuine, applied
+      // rewrite -- only a secondary part of the request (today: the summary)
+      // did not come back. Storing it is the whole point of the `degraded`
+      // arm existing: falling into the skip-and-retry branch above would
+      // throw away a rewrite that succeeded, over one field that didn't.
+      // Logged, not silently accepted, so a run that stored an article this
+      // way is visible in its own output rather than looking identical to a
+      // fully clean one.
+      aiDegraded++;
+      aiDegradedReasons.add(ai.outcome.reason);
+      appendLogLine(
+        job.id,
+        "stdout",
+        `stored "${raw.name || raw.identifier}" with a degraded AI result ` +
+          `(${ai.outcome.reason}); the rewrite was kept`,
+      );
+    }
+
+    if (ai.droppedMedia) {
+      appendLogLine(
+        job.id,
+        "stdout",
+        `withholding the content fingerprint for "${raw.name || raw.identifier}" so the next ` +
+          "aggregation run retries the media the AI stage dropped",
+      );
+    }
+
     const blocks = ai.blocks;
     const plainText = plainTextOf(blocks);
     const name = ai.title || raw.name || "Untitled";
 
-    // The row write, the block tree write and the contentHash write all
-    // happen in this one writeTransaction now, rather than as three separate
-    // top-level transactions with awaits between them. Either everything for
-    // this article lands, or (on a thrown error, or a process crash) none of
-    // it does -- there is no window in which the row exists with zero blocks
-    // and a null hash. The contentHash column's "written last" reasoning
-    // (see schema/articles.ts) still holds and is now automatic rather than
-    // depending on three separate commits to enforce it: a failed AI stage
-    // never reaches here at all (that article is skipped whole, above), so a
-    // fingerprint written here always describes a row whose block tree is
-    // current for this content.
+    // The row write, the block tree write and the (conditional) contentHash
+    // write all happen in this one writeTransaction now, rather than as three
+    // separate top-level transactions with awaits between them. Either
+    // everything for this article lands, or (on a thrown error, or a process
+    // crash) none of it does -- there is no window in which the row exists
+    // with zero blocks and a stale hash. The contentHash column's "written
+    // last" reasoning (see schema/articles.ts) still holds and is now
+    // automatic rather than depending on three separate commits to enforce
+    // it: a fully failed AI stage never reaches here at all (that article is
+    // skipped whole, above), so a fingerprint written here always describes a
+    // row whose block tree is current for this content -- and the one case
+    // that does reach here without a current fingerprint (`ai.droppedMedia`)
+    // skips the hash write itself, below, rather than skipping the whole
+    // transaction.
     writeTransaction((tx) => {
       // Re-read inside the transaction rather than trusting `known` above:
       // that read was outside the write lock, and two worker loops can be
@@ -318,7 +355,19 @@ export async function handleAggregateJob(job: Job): Promise<void> {
         writeBlocksIn(tx, articleId, blocks);
       }
 
-      tx.update(articles).set({ contentHash: hash }).where(eq(articles.id, articleId)).run();
+      // Withheld when the AI stage dropped a media/code block
+      // (`ai.droppedMedia`, logged above): `hash` fingerprints the unchanged
+      // *source*, so writing it here would make the next cycle's comparison
+      // match, skip this article, and leave the dropped media gone for the
+      // life of that source article -- exactly the permanence a stale hash
+      // causes everywhere else in this file. Not writing it leaves whatever
+      // was there before (a new article's is `null`; an existing one's is
+      // already known to differ from `hash`, or this article would not have
+      // reached this loop iteration at all), so either way the next run's
+      // comparison misses again and this article is retried, not lost.
+      if (!ai.droppedMedia) {
+        tx.update(articles).set({ contentHash: hash }).where(eq(articles.id, articleId)).run();
+      }
     });
 
     // The 80-100% band is this loop, and it is no longer the cheap part: AI
@@ -338,6 +387,9 @@ export async function handleAggregateJob(job: Job): Promise<void> {
       (emptyBodySkipped > 0 ? `, ${emptyBodySkipped} skipped (empty body)` : "") +
       (aiFailed > 0
         ? `, ${aiFailed} skipped (AI: ${[...aiFailureReasons].sort().join(", ")})`
+        : "") +
+      (aiDegraded > 0
+        ? `, ${aiDegraded} stored degraded (AI: ${[...aiDegradedReasons].sort().join(", ")})`
         : ""),
   );
 }

@@ -526,6 +526,9 @@ type Style = {
 
 const NO_STYLE: Style = { bold: false, italic: false, code: false, strikethrough: false, link: "" };
 
+/** A `[[Mn]]` placeholder found anywhere, not just anchored to a whole line -- see `parseInline()`. */
+const STRAY_OPAQUE_TOKEN = /^\[\[M\d+\]\]/;
+
 /**
  * Turn one line of inline notation back into runs.
  *
@@ -547,6 +550,27 @@ function parseInline(source: string, links: string[], style: Style = NO_STYLE): 
 
   let i = 0;
   while (i < source.length) {
+    // A `[[Mn]]` placeholder that survives to here is not on its own line --
+    // `parseLines()` only ever hands a whole placeholder line to `OPAQUE_LINE`
+    // before reaching inline parsing, so one found mid-run is a token the
+    // model embedded in running prose (`As shown in [[M0]] the sales rose.`).
+    // The referenced block is already correctly reported as dropped (it never
+    // reaches `state.seen`), so this is purely about not also storing the
+    // literal `[[M0]]` as visible article text. Stripped, never refused: the
+    // parser is total, and failing an otherwise-fine paragraph over a stray
+    // token the model left behind would be a worse answer than losing the
+    // eight characters of markup.
+    const stray = STRAY_OPAQUE_TOKEN.exec(source.slice(i));
+    if (stray) {
+      i += stray[0].length;
+      // Swallow one adjacent space so the removal doesn't leave a double
+      // space behind; the plain text before and after is otherwise untouched.
+      if (source[i] === " " && (plain === "" || plain.endsWith(" "))) {
+        i += 1;
+      }
+      continue;
+    }
+
     const consumed = tryDelimiter(source, i, links, style);
     if (consumed) {
       flush();
@@ -653,8 +677,27 @@ function findClosing(source: string, from: number, delim: string): number {
 interface ParseState {
   opaque: Block[];
   links: string[];
-  /** Placeholder indices the returned document referenced. */
-  seen: Set<number>;
+  /**
+   * Placeholder indices the returned document referenced, and how many times
+   * each appeared as its own line. A `Set` here used to mean a model that
+   * emitted `[[M0]]` twice stored the block twice while the *other* image went
+   * unreferenced and unreported -- `pinLeadMedia()` in `./run` only
+   * deduplicates the lead block, so every other placeholder was exposed to
+   * this. A count is what lets `textToBlocks()` keep the first occurrence only
+   * and report the rest as `duplicatedOpaque`, rather than trusting a boolean
+   * that could not tell "seen" from "seen again."
+   */
+  seen: Map<number, number>;
+  /**
+   * Indices whose block carried a non-empty caption in the input and came
+   * back with an empty one -- the model reproduced `[[M0]]` on its own line
+   * but omitted the trailing caption text. `parseLines()` reads that silently
+   * as "no caption" (a placeholder's caption is genuinely optional coming out
+   * of `blocksToText()`, e.g. an image that never had one), so the only way to
+   * tell "never had a caption" from "had one and lost it" is to compare
+   * against the input here, at the point the loss can still be seen.
+   */
+  clearedCaptions: Set<number>;
 }
 
 const OPAQUE_LINE = /^\[\[M(\d+)\]\](?:\s+(.*))?$/;
@@ -686,14 +729,31 @@ function parseLines(lines: string[], state: ParseState): Block[] {
       const index = Number(opaqueMatch[1]);
       const block = state.opaque[index];
       if (block) {
-        state.seen.add(index);
-        if (block.kind === "image") {
-          // The caption is prose and may have been rewritten; the ref is not
-          // and comes from the table.
-          const caption = opaqueMatch[2] ? parseInline(opaqueMatch[2], state.links) : [];
-          blocks.push({ ...block, caption });
-        } else {
-          blocks.push(block);
+        const priorCount = state.seen.get(index) ?? 0;
+        state.seen.set(index, priorCount + 1);
+        // Only the first occurrence is ever stored. A repeat is the model
+        // reproducing the same placeholder more than once -- reported via
+        // `duplicatedOpaque` below rather than pushed again, or the block
+        // would be stored twice while whatever the model dropped *instead*
+        // stayed the only visible loss.
+        if (priorCount === 0) {
+          if (block.kind === "image") {
+            // The caption is prose and may have been rewritten; the ref is not
+            // and comes from the table.
+            const caption = opaqueMatch[2] ? parseInline(opaqueMatch[2], state.links) : [];
+            if (caption.length === 0 && block.caption.length > 0) {
+              // Had a caption on the way out, none on the way back -- distinct
+              // from an image that never had one, which this same branch
+              // handles identically otherwise. Reported, not silently applied,
+              // for the same reason a dropped placeholder is: losing prose
+              // nobody asked to lose looks exactly like prose that was never
+              // there.
+              state.clearedCaptions.add(index);
+            }
+            blocks.push({ ...block, caption });
+          } else {
+            blocks.push(block);
+          }
         }
       }
       // An index with no entry is dropped: the model invented a placeholder.
@@ -788,6 +848,19 @@ export interface TextToBlocksResult {
    * article that never had one.
    */
   droppedOpaque: number[];
+  /**
+   * Placeholder indices that came back more than once as their own line. Only
+   * the first occurrence is kept in `blocks` (see `parseLines()`); this is
+   * what tells a caller the model duplicated a media/code block rather than
+   * moved it.
+   */
+  duplicatedOpaque: number[];
+  /**
+   * Indices of image placeholders whose caption was non-empty in the input
+   * and came back empty. The image itself is kept -- only the caption text
+   * was lost.
+   */
+  clearedCaptions: number[];
 }
 
 export function textToBlocks(
@@ -797,11 +870,21 @@ export function textToBlocks(
   const state: ParseState = {
     opaque: document.opaque,
     links: document.links,
-    seen: new Set(),
+    seen: new Map(),
+    clearedCaptions: new Set(),
   };
   const blocks = parseLines(text.replace(/\r\n?/g, "\n").split("\n"), state);
   const droppedOpaque = document.opaque
     .map((_, index) => index)
     .filter((index) => !state.seen.has(index));
-  return { blocks, droppedOpaque };
+  const duplicatedOpaque = [...state.seen.entries()]
+    .filter(([, occurrences]) => occurrences > 1)
+    .map(([index]) => index)
+    .sort((a, b) => a - b);
+  return {
+    blocks,
+    droppedOpaque,
+    duplicatedOpaque,
+    clearedCaptions: [...state.clearedCaptions].sort((a, b) => a - b),
+  };
 }

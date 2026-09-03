@@ -239,14 +239,14 @@ export async function handleReloadJob(job: Job): Promise<void> {
     settings,
     aggregator.onLog,
   );
-  // The AI stage has been applied (or has declined to run, or has failed --
-  // `applyAiToBlocks()` reports that in `ai.outcome` rather than throwing, and
-  // the failure is only turned into a thrown error at the very bottom, after
-  // the write). Either way the pipeline is past its slowest step here, which
-  // is what this phase marks. It sits *after* processContent() because that is
-  // where the AI call now lives: the branch this came from ran AI between
-  // extractContent() and processContent(), and main reordered the stage to run
-  // last, on the block tree.
+  // The AI stage has been applied (or has declined to run, or has failed, or
+  // has degraded -- `applyAiToBlocks()` reports that in `ai.outcome` rather
+  // than throwing, and a real failure is only turned into a thrown error at
+  // the very bottom, after the write). Either way the pipeline is past its
+  // slowest step here, which is what this phase marks. It sits *after*
+  // processContent() because that is where the AI call now lives: the branch
+  // this came from ran AI between extractContent() and processContent(), and
+  // main reordered the stage to run last, on the block tree.
   progress(job.id, 80);
 
   const aiOutcome = ai.outcome;
@@ -289,6 +289,17 @@ export async function handleReloadJob(job: Job): Promise<void> {
         // cannot fill it in, because the value has to be one the *aggregator*
         // would compute over the feed's own article rather than the page reload
         // fetched. Such a row is reprocessed once and settles.
+        //
+        // The one case that *does* null it explicitly: `ai.droppedMedia`. The
+        // "leave it" reasoning above assumes the stored blocks are the best
+        // available version of this article; a rewrite that dropped a
+        // media/code block is not that, and leaving the old hash in place
+        // would let a later aggregation run compare against the (unchanged)
+        // source, match, skip, and leave the dropped media gone for the life
+        // of that source article -- the exact permanence
+        // `handleAggregateJob()` withholds its own hash write to avoid. See
+        // `AiBlockResult.droppedMedia` in `@/lib/ai/run`.
+        ...(ai.droppedMedia ? { contentHash: null } : {}),
         updatedAt: new Date(),
       })
       .where(eq(articles.id, article.id))
@@ -297,6 +308,20 @@ export async function handleReloadJob(job: Job): Promise<void> {
 
   appendLogLine(job.id, "stdout", "reloaded article content");
   progress(job.id, 100);
+
+  if (aiOutcome.status === "degraded") {
+    // Unlike `failed`, the content just written above *is* a genuine, applied
+    // rewrite -- only a secondary part of the request (today: the summary)
+    // did not come back. The job stays a plain success (a thrown error here
+    // would mail the owner a failure notice for a run that mostly worked);
+    // the note lands in the job's own log instead, which is where an operator
+    // configuring this feed's AI options would look.
+    appendLogLine(
+      job.id,
+      "stdout",
+      `AI processing partially completed (${aiOutcome.reason}); the rewrite was kept`,
+    );
+  }
 
   if (aiOutcome.status === "failed") {
     // The fresh content above is already saved -- this only fails the job
