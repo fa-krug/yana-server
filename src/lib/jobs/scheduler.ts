@@ -73,7 +73,7 @@ export async function tick(): Promise<void> {
       .select({
         feedId: feeds.id,
         userId: feeds.userId,
-        updatedAt: feeds.updatedAt,
+        lastAggregationStartedAt: feeds.lastAggregationStartedAt,
         updateIntervalMinutes: feeds.updateIntervalMinutes,
         options: feeds.options,
       })
@@ -131,17 +131,24 @@ export async function tick(): Promise<void> {
       const jitter = 1 + (Math.random() * 2 - 1) * INTERVAL_JITTER_FRACTION;
       const intervalMs = baseIntervalMs * jitter;
 
-      // TODO(plan 2, docs/superpowers/plans/2026-09-03-pipeline-review-2-data-integrity.md):
-      // feeds.updatedAt is overloaded as "last aggregated" -- it carries
-      // $onUpdate, so *any* write to this feed (a logo store, a /feeds edit)
-      // postpones the next aggregation by a full interval. Needs a dedicated
-      // feeds.lastAggregationStartedAt column, stamped at claim time, which
-      // needs a migration and belongs in that plan, not here.
+      // The scheduler's own clock -- feeds.updatedAt is *not* read here on
+      // purpose, because it carries $onUpdate and so is bumped by any write
+      // to the row (a logo store, a /feeds edit), which used to postpone the
+      // next aggregation by a full interval for reasons unrelated to
+      // aggregating. lastAggregationStartedAt is stamped only by claim()
+      // (src/lib/jobs/queue.ts), at the moment a job that runs this feed's
+      // aggregation is picked up. A NULL value -- every feed that predates
+      // the column, and every feed never yet aggregated by this mechanism --
+      // reads as "never aggregated", i.e. immediately due, so lastRunTime
+      // stays 0 for it: see feeds.lastAggregationStartedAt's doc comment.
       let lastRunTime = 0;
-      if (item.updatedAt instanceof Date) {
-        lastRunTime = item.updatedAt.getTime();
-      } else if (typeof item.updatedAt === "number") {
-        lastRunTime = item.updatedAt > 1e11 ? item.updatedAt : item.updatedAt * 1000;
+      if (item.lastAggregationStartedAt instanceof Date) {
+        lastRunTime = item.lastAggregationStartedAt.getTime();
+      } else if (typeof item.lastAggregationStartedAt === "number") {
+        lastRunTime =
+          item.lastAggregationStartedAt > 1e11
+            ? item.lastAggregationStartedAt
+            : item.lastAggregationStartedAt * 1000;
       }
 
       if (now.getTime() - lastRunTime >= intervalMs) {

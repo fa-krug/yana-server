@@ -88,7 +88,7 @@ export function claim(): Job | null {
   return writeTransaction((db) => {
     const now = new Date();
     const candidate = db
-      .select({ id: jobs.id })
+      .select({ id: jobs.id, kind: jobs.kind, payload: jobs.payload })
       .from(jobs)
       .where(and(eq(jobs.status, "pending"), lte(jobs.runAt, now)))
       .orderBy(desc(jobs.priority), asc(jobs.runAt), asc(jobs.id))
@@ -114,6 +114,26 @@ export function claim(): Job | null {
 
     if (result.changes !== 1) {
       return null;
+    }
+
+    // The scheduler's own clock (see feeds.lastAggregationStartedAt's doc
+    // comment) is stamped here, at claim -- not at completion in
+    // handleAggregateJob. Claim time is what makes the scheduler's
+    // non-terminal-status dedupe (AGGREGATE_HANDLER_JOB_KINDS,
+    // NON_TERMINAL_JOB_STATUSES) actually work: a job stamped only on
+    // completion would still read as "not yet aggregated" for its entire
+    // run, so tick() would keep re-evaluating the feed as overdue by wall
+    // clock alone and rely solely on the dedupe query to hold it off.
+    // Stamping here means the feed genuinely looks "just started" the moment
+    // a worker picks the job up.
+    if (
+      (AGGREGATE_HANDLER_JOB_KINDS as readonly string[]).includes(candidate.kind) &&
+      typeof candidate.payload?.feedId === "number"
+    ) {
+      db.update(feeds)
+        .set({ lastAggregationStartedAt: now })
+        .where(eq(feeds.id, candidate.payload.feedId))
+        .run();
     }
 
     return db.select().from(jobs).where(eq(jobs.id, candidate.id)).get() ?? null;

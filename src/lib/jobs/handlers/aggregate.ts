@@ -74,9 +74,11 @@ export async function handleAggregateJob(job: Job): Promise<void> {
   appendLogLine(job.id, "stdout", `fetched ${rawArticles.length} articles`);
 
   if (rawArticles.length === 0) {
-    writeTransaction((tx) => {
-      tx.update(feeds).set({ updatedAt: new Date() }).where(eq(feeds.id, feedId)).run();
-    });
+    // No `feeds` touch here: that used to be a bare `set({ updatedAt: new
+    // Date() })` whose only purpose was to bump the row so the scheduler
+    // would see it as "just aggregated" -- redundant now that the scheduler
+    // reads its own dedicated `lastAggregationStartedAt` clock, stamped at
+    // claim() time (src/lib/jobs/queue.ts), not here.
     return;
   }
 
@@ -328,9 +330,9 @@ export async function handleAggregateJob(job: Job): Promise<void> {
     progress(job.id, 80 + Math.floor(((i + 1) / total) * 20));
   }
 
-  writeTransaction((tx) => {
-    tx.update(feeds).set({ updatedAt: new Date() }).where(eq(feeds.id, feedId)).run();
-  });
+  // No `feeds` touch here either -- see the same note above the
+  // empty-`rawArticles` early return. The scheduler's clock is stamped once,
+  // at claim(), and completion no longer needs to touch this row at all.
 
   appendLogLine(
     job.id,

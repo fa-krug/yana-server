@@ -1,0 +1,1 @@
+ALTER TABLE `feeds` ADD `last_aggregation_started_at` integer;

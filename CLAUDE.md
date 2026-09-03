@@ -930,6 +930,36 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   form from `AggregatorSpec.recommendedIntervalMinutes`/`recommendedConcurrency`
   (`src/lib/aggregators/specs.ts`) on create and on aggregator switch — a
   starting point, not an enforced limit, freely editable per feed afterward.
+- **`feeds.lastAggregationStartedAt` is the scheduler's own clock, and it
+  exists because `feeds.updatedAt` cannot be trusted as one.** `updatedAt`
+  carries `$onUpdate` (see that convention above), so it is bumped by _any_
+  Drizzle write to the row — a `/feeds` name edit, `storeLogo()` writing
+  `logoImageHash`, `refreshLogos()` touching every feed at once — none of
+  which means "this feed was just aggregated". `scheduler.ts`'s `tick()` used
+  to read `updatedAt` as "last aggregation time" regardless, so any of those
+  unrelated writes silently postponed the feed's next scheduled run by a full
+  interval; `refreshLogos()` did this to every feed in the instance at once.
+  `lastAggregationStartedAt` is a separate, nullable column, stamped by
+  `claim()` (`src/lib/jobs/queue.ts`) — not `handleAggregateJob()` on
+  completion — at the moment a job that runs the aggregate handler
+  (`"aggregate"` or `"feed.update"`, i.e. `AGGREGATE_HANDLER_JOB_KINDS`) is
+  claimed for that feed. Claim time, not completion, is what makes the
+  scheduler's non-terminal-status dedupe (`NON_TERMINAL_JOB_STATUSES`, widened
+  to cover a `running` job) actually hold: a long-running aggregation's feed
+  reads as "just started" for its whole run, not merely "not yet finished".
+  `NULL` means "never aggregated by this mechanism" — true for a brand-new
+  feed and for every row that predates the column — and the scheduler treats
+  a `NULL` the same as an aggregation from the epoch, so such a feed is picked
+  up on the very next tick rather than skipped or, if it had been defaulted to
+  "now" instead, stampeded into lining up with every other feed's next run.
+  `handleAggregateJob()` no longer touches `feeds` at all on completion — the
+  `set({ updatedAt: new Date() })` it used to run in both its empty-result and
+  success paths existed only to bump this row for the scheduler's old,
+  overloaded read, and nothing else reads `feeds.updatedAt` as a signal that
+  aggregation happened (the `/api/v1/feeds` wire form serializes whatever
+  `updatedAt` holds, but as an ordinary "row last modified" field, the same
+  meaning every other REST resource on this API gives it — not as evidence of
+  a completed aggregation).
 - **`feeds.maxArticleAgeDays` (default `30`) is an ingestion filter, not a
   retention policy — that's `userSettings.articleRetentionDays` (default
   `60`), a separate column enforced by the nightly `retention` job. This one

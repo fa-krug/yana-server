@@ -30,6 +30,7 @@ const feed: Feed = {
   logoImageHash: null,
   createdAt: new Date("2026-01-01T00:00:00Z"),
   updatedAt: new Date("2026-01-01T00:00:00Z"),
+  lastAggregationStartedAt: null,
 };
 
 const article: Article & { feed: Feed } = {

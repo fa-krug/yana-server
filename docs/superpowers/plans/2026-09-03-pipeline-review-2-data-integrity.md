@@ -457,17 +457,17 @@ hides the double duty.
 - Modify: `src/lib/jobs/scheduler.ts`, `src/lib/jobs/handlers/aggregate.ts`
 - Modify: `scheduler.test.ts`
 
-- [ ] **Step 1:** Failing test — editing a feed's name does not postpone its
+- [x] **Step 1:** Failing test — editing a feed's name does not postpone its
       next scheduled aggregation.
-- [ ] **Step 2:** Add a nullable `lastAggregationStartedAt` column and generate
+- [x] **Step 2:** Add a nullable `lastAggregationStartedAt` column and generate
       the migration. Nullable so existing rows are "never aggregated" and get
       picked up on the first tick.
-- [ ] **Step 3:** Stamp it at **claim** time, not completion — that is what makes
+- [x] **Step 3:** Stamp it at **claim** time, not completion — that is what makes
       plan 1's `running`-status dedupe robust rather than merely wider.
-- [ ] **Step 4:** Point the scheduler at the new column and drop the redundant
+- [x] **Step 4:** Point the scheduler at the new column and drop the redundant
       `updatedAt` set at `aggregate.ts:288` (keep a bare touch only if something
       genuinely needs the row's `updatedAt` moved; check before removing).
-- [ ] **Step 5: Verify** — including that a fresh database and an existing one
+- [x] **Step 5: Verify** — including that a fresh database and an existing one
       both schedule correctly.
 
 ---

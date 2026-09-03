@@ -267,6 +267,7 @@ async function main(): Promise<void> {
         logoImageHash: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        lastAggregationStartedAt: null,
         redditSubredditId: null,
         youtubeChannelId: null,
         updateIntervalMinutes: 30,

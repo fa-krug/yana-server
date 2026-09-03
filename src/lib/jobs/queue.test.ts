@@ -134,6 +134,62 @@ describe("src/lib/jobs/queue", () => {
       expect(queue.claim()?.id).toBe(olderLowPriority);
     });
 
+    it("stamps the feed's lastAggregationStartedAt when claiming an aggregate job", () => {
+      const userId = seedUserAndReturnId();
+      const db = client.getDb();
+      const feed = db
+        .insert(feeds)
+        .values({ name: "Feed", userId })
+        .returning({ id: feeds.id })
+        .get();
+      expect(
+        db.select().from(feeds).where(eq(feeds.id, feed.id)).get()?.lastAggregationStartedAt,
+      ).toBeNull();
+
+      queue.enqueue("aggregate", { feedId: feed.id });
+      const before = Date.now();
+      queue.claim();
+
+      const reread = db.select().from(feeds).where(eq(feeds.id, feed.id)).get();
+      expect(reread?.lastAggregationStartedAt).not.toBeNull();
+      expect(reread!.lastAggregationStartedAt!.getTime()).toBeGreaterThanOrEqual(before - 1000);
+    });
+
+    it("stamps the feed's lastAggregationStartedAt when claiming a feed.update job too", () => {
+      // feed.update delegates to handleAggregateJob (see
+      // src/lib/jobs/handlers/index.ts) and is covered by the scheduler's
+      // dedupe alongside "aggregate" -- claim() must stamp for it as well.
+      const userId = seedUserAndReturnId();
+      const db = client.getDb();
+      const feed = db
+        .insert(feeds)
+        .values({ name: "Feed", userId })
+        .returning({ id: feeds.id })
+        .get();
+
+      queue.enqueue("feed.update", { feedId: feed.id });
+      queue.claim();
+
+      const reread = db.select().from(feeds).where(eq(feeds.id, feed.id)).get();
+      expect(reread?.lastAggregationStartedAt).not.toBeNull();
+    });
+
+    it("does not stamp lastAggregationStartedAt for a job kind that is not an aggregation", () => {
+      const userId = seedUserAndReturnId();
+      const db = client.getDb();
+      const feed = db
+        .insert(feeds)
+        .values({ name: "Feed", userId })
+        .returning({ id: feeds.id })
+        .get();
+
+      queue.enqueue("feed.logo", { feedId: feed.id });
+      queue.claim();
+
+      const reread = db.select().from(feeds).where(eq(feeds.id, feed.id)).get();
+      expect(reread?.lastAggregationStartedAt).toBeNull();
+    });
+
     it("resets a job orphaned by a crash", () => {
       const id = queue.enqueue("noop", {});
       queue.claim();
