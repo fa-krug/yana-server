@@ -1,11 +1,10 @@
 import * as cheerio from "cheerio";
 import { FeedLike, RawArticle } from "../../base";
-import { proxyYoutubeEmbeds } from "../../embeds/youtube";
 import { cleanHtml, removeImageByUrl, sanitizeClassNames } from "../../extract/clean";
 import { formatArticleContent } from "../../extract/format";
 import { getHeaderImageRef } from "../../header/context";
 import { FirstPageStash, fetchAllPages } from "../../multipage";
-import { FullWebsiteAggregator } from "../../website";
+import { FullWebsiteAggregator, proxyYoutubeEmbeds } from "../../website";
 import { extractComments } from "./comments";
 import { buildPageUrl, detectPagination } from "./multipage";
 

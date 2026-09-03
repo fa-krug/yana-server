@@ -6,9 +6,8 @@ import {
   removeSanitizedAttributes,
 } from "../extract/clean";
 import { extractMainContentIfPresent } from "../extract/content";
-import { proxyYoutubeEmbeds } from "../embeds/youtube";
 import { YOUTUBE_IFRAME_KEEP_SELECTOR } from "../embeds/youtube-url";
-import { FullWebsiteAggregator } from "../website";
+import { FullWebsiteAggregator, proxyYoutubeEmbeds } from "../website";
 
 export class MerkurAggregator extends FullWebsiteAggregator {
   static brandSiteUrl = "https://www.merkur.de/";

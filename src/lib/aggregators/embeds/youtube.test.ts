@@ -1,14 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  youtubeIdFrom,
-  thumbnailUrlFor,
-  isYoutubeUrl,
-  detectYoutube,
-  convertYoutube,
-  localizeThumbnail,
-} from "./youtube";
-import * as cheerio from "cheerio";
-import { clearEmbedProviders } from "./registry";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { youtubeIdFrom, thumbnailUrlFor, isYoutubeUrl, localizeThumbnail } from "./youtube";
 import { storeImageRefFromUrl } from "../images/store";
 
 // Mock image store to avoid actual network calls
@@ -79,82 +70,6 @@ describe("isYoutubeUrl", () => {
   });
   it("rejects empty", () => {
     expect(isYoutubeUrl("")).toBe(false);
-  });
-});
-
-describe("detectYoutube", () => {
-  it("detects element with youtube-embed class", () => {
-    const $ = cheerio.load(
-      '<div class="youtube-embed" data-embed="https://www.youtube.com/embed/abc123"><a href="https://www.youtube.com/watch?v=abc123">Watch</a></div>',
-    );
-    const el = $("div").get(0)!;
-    expect(detectYoutube(el, $)).toBe(true);
-  });
-
-  it("detects element with data-embed YouTube URL", () => {
-    const $ = cheerio.load('<div data-embed="https://www.youtube.com/embed/abc123"></div>');
-    const el = $("div").get(0)!;
-    expect(detectYoutube(el, $)).toBe(true);
-  });
-
-  it("detects element with YouTube anchor", () => {
-    const $ = cheerio.load(
-      '<div><a href="https://www.youtube.com/watch?v=abc1234abcd">Watch</a></div>',
-    );
-    const el = $("div").get(0)!;
-    expect(detectYoutube(el, $)).toBe(true);
-  });
-
-  it("rejects element without YouTube markers", () => {
-    const $ = cheerio.load('<div><a href="https://example.com">Link</a></div>');
-    const el = $("div").get(0)!;
-    expect(detectYoutube(el, $)).toBe(false);
-  });
-});
-
-describe("convertYoutube", () => {
-  beforeEach(() => {
-    clearEmbedProviders();
-    // Re-import to re-register
-    vi.resetModules();
-  });
-
-  it("converts a YouTube embed with canonical URL", async () => {
-    const $ = cheerio.load(
-      '<div class="youtube-embed" data-embed="https://www.youtube.com/embed/dQw4w9WgXcQ"><a href="https://www.youtube.com/watch?v=dQw4w9WgXcQ">Watch</a></div>',
-    );
-    const el = $("div").get(0)!;
-    const result = await convertYoutube(el, $, {});
-    expect(result).not.toBeNull();
-    expect(result!.provider).toBe("youtube");
-    expect(result!.externalUrl).toBe("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    // Thumbnail should be localized
-    expect(result!.thumbnailRef).toMatch(/^yana-img:\/\//);
-  });
-
-  it("returns null for element without video ID", async () => {
-    const $ = cheerio.load('<div class="youtube-embed"></div>');
-    const el = $("div").get(0)!;
-    const result = await convertYoutube(el, $, {});
-    expect(result).toBeNull();
-  });
-
-  it("extracts ID from youtu.be anchor", async () => {
-    const $ = cheerio.load('<div><a href="https://youtu.be/dQw4w9WgXcQ">Watch</a></div>');
-    const el = $("div").get(0)!;
-    const result = await convertYoutube(el, $, {});
-    expect(result).not.toBeNull();
-    expect(result!.externalUrl).toBe("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-  });
-
-  it("extracts ID from iframe src", async () => {
-    const $ = cheerio.load(
-      '<div><iframe src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"></iframe></div>',
-    );
-    const el = $("div").get(0)!;
-    const result = await convertYoutube(el, $, {});
-    expect(result).not.toBeNull();
-    expect(result!.externalUrl).toBe("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
   });
 });
 

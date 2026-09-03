@@ -1,19 +1,28 @@
 /**
- * Bluesky embed provider.
+ * Bluesky post support.
  *
  * Ported from old/core/aggregators/utils/bluesky.py.
  *
- * Detects Bluesky post URLs (bsky.app), fetches post data from the
- * public API, extracts images, and produces `provider: "tweet"` blocks
- * (same provider string as Twitter — the Python does this too).
+ * `isBlueskyUrl`/`extractBlueskyPostInfo` recognise a Bluesky post URL and
+ * pull its actor/rkey apart; `buildBlueskyEmbedHtml` fetches the post from
+ * the public API and renders it as a styled blockquote. Consumed today by
+ * `sites/mein_mmo/embeds.ts`, which finds a Bluesky link in a mein_mmo
+ * article's own markup and asks this module to render the replacement HTML
+ * directly — there is no generic embed-provider registry here (one used to
+ * exist across this directory: a `detect`/`convert` pair per provider behind
+ * a first-match-wins dispatch table, but every production embed actually
+ * goes through `blocks/parser.ts`'s own `embedFacade()`/`tweetEmbed()`, so
+ * the registry and its four provider pairs — including this module's own
+ * `detectBluesky`/`convertBluesky` — had zero production callers and were
+ * deleted; see `.superpowers/sdd/2026-09-03-pipeline-review-4-cleanup-and-hardening/task-1-brief.md`).
+ * If a real multi-provider registry is ever wanted again, model it as a
+ * declaration — `defineEmbedProvider({ key, detect, convert })` returning a
+ * `{ detect, convert }` pair, in the shape `src/lib/integrations/define.ts`
+ * uses for credential providers — rather than resurrecting the
+ * import-side-effect registration this module used to do.
  */
 
-import type { CheerioAPI } from "cheerio";
-import type { Element } from "domhandler";
 import type { ChromeLabels } from "../chrome-labels";
-import type { EmbedBlock } from "../blocks/types";
-import { storeImageRefFromUrl } from "../images/store";
-import { registerEmbedProvider, type ExtractionContext } from "./registry";
 import { escapeHtml } from "../extract/format";
 import { isSafeUrl } from "../blocks/parser";
 
@@ -127,69 +136,6 @@ function extractImageUrls(post: Record<string, unknown>): string[] {
   }
   return urls;
 }
-
-/** Detect whether a cheerio element contains a Bluesky URL. */
-export function detectBluesky(element: Element, $: CheerioAPI): boolean {
-  const anchors = $(element).find("a[href]").toArray() as Element[];
-  for (const a of anchors) {
-    const href = $(a).attr("href") || "";
-    if (isBlueskyUrl(href)) return true;
-  }
-  return false;
-}
-
-/**
- * Convert a Bluesky embed element into a typed EmbedBlock.
- * Emits `provider: "tweet"` — same as the Python implementation.
- */
-export async function convertBluesky(
-  element: Element,
-  $: CheerioAPI,
-  _context: ExtractionContext,
-): Promise<EmbedBlock | null> {
-  // Find Bluesky URL
-  const anchors = $(element).find("a[href]").toArray() as Element[];
-  let blueskyUrl = "";
-  for (const a of anchors) {
-    const href = $(a).attr("href") || "";
-    if (isBlueskyUrl(href)) {
-      blueskyUrl = href.split("?")[0]!;
-      break;
-    }
-  }
-  if (!blueskyUrl) return null;
-
-  // Try to enrich via API
-  let thumbnailRef = "";
-  const postInfo = extractBlueskyPostInfo(blueskyUrl);
-  if (postInfo) {
-    const post = await fetchBlueskyPost(postInfo.actor, postInfo.rkey);
-    if (post) {
-      const imageUrls = extractImageUrls(post);
-      if (imageUrls.length > 0) {
-        const ref = await storeImageRefFromUrl(imageUrls[0]!, { isHeader: true });
-        if (ref) thumbnailRef = ref;
-      }
-    }
-  }
-
-  const title = $(element).text().replace(/\s+/g, " ").trim();
-
-  return {
-    kind: "embed",
-    provider: "tweet", // Python emits "tweet" for Bluesky too
-    externalUrl: blueskyUrl,
-    thumbnailRef,
-    title,
-  };
-}
-
-// Self-register — after Dailymotion, before Twitter
-registerEmbedProvider({
-  key: "tweet",
-  detect: detectBluesky,
-  convert: convertBluesky,
-});
 
 /** Format an engagement count for display (e.g. 1234 -> "1.2K"). */
 export function formatBlueskyCount(count: number): string {

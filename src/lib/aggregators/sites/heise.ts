@@ -11,11 +11,10 @@ import {
 } from "../extract/clean";
 import { extractMainContentIfPresent } from "../extract/content";
 import { escapeHtml, formatArticleContent } from "../extract/format";
-import { proxyYoutubeEmbeds } from "../embeds/youtube";
 import { YOUTUBE_IFRAME_KEEP_SELECTOR } from "../embeds/youtube-url";
 import { getHeaderImageRef } from "../header/context";
 import { fetchHtml } from "../http/fetcher";
-import { FullWebsiteAggregator } from "../website";
+import { FullWebsiteAggregator, proxyYoutubeEmbeds } from "../website";
 
 function commentSourceLink(url: string, labels: ChromeLabels): string {
   if (isSafeUrl(url)) {

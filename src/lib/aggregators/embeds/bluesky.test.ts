@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { buildBlueskyEmbedHtml, formatBlueskyCount, formatBlueskyPostDate } from "./bluesky";
+import {
+  buildBlueskyEmbedHtml,
+  formatBlueskyCount,
+  formatBlueskyPostDate,
+  isBlueskyUrl,
+  extractBlueskyPostInfo,
+} from "./bluesky";
 import { DEFAULT_CHROME_LABELS } from "../chrome-labels";
 import * as cheerio from "cheerio";
 
@@ -67,6 +73,37 @@ describe("formatBlueskyPostDate", () => {
 
   it("returns null for an empty string", () => {
     expect(formatBlueskyPostDate("")).toBeNull();
+  });
+});
+
+// Moved from the deleted embeds/social.test.ts (Task 1 of the pipeline-review-4
+// cleanup plan), which paired this coverage with the registry-based
+// detectBluesky/convertBluesky that were deleted alongside embeds/registry.ts.
+// isBlueskyUrl and extractBlueskyPostInfo are still real, still-imported
+// exports of this module (see mein_mmo/embeds.ts), so their tests moved here
+// rather than being deleted with the rest of that file.
+describe("isBlueskyUrl", () => {
+  it("detects bsky.app URL", () => {
+    expect(isBlueskyUrl("https://bsky.app/profile/user.bsky.social/post/abc123")).toBe(true);
+  });
+  it("rejects non-Bluesky", () => {
+    expect(isBlueskyUrl("https://example.com")).toBe(false);
+  });
+  it("rejects empty", () => {
+    expect(isBlueskyUrl("")).toBe(false);
+  });
+});
+
+describe("extractBlueskyPostInfo", () => {
+  it("extracts actor and rkey", () => {
+    const result = extractBlueskyPostInfo("https://bsky.app/profile/user.bsky.social/post/abc123");
+    expect(result).toEqual({ actor: "user.bsky.social", rkey: "abc123" });
+  });
+  it("returns null for non-post URL", () => {
+    expect(extractBlueskyPostInfo("https://bsky.app/profile/user.bsky.social")).toBeNull();
+  });
+  it("returns null for empty", () => {
+    expect(extractBlueskyPostInfo("")).toBeNull();
   });
 });
 
