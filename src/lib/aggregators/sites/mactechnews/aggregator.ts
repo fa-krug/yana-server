@@ -98,6 +98,17 @@ export class MactechnewsAggregator extends FullWebsiteAggregator {
     return "https://www.mactechnews.de";
   }
 
+  /**
+   * The article headline. Called once per page fetch (this aggregator
+   * paginates -- see `fetchArticleContent()` below); `noteSourceTitle()`'s
+   * "sticky" rule (see ../../base) keeps an earlier page's match from being
+   * blanked out by a later page that doesn't repeat the heading.
+   */
+  protected override sourceTitleFrom($: cheerio.CheerioAPI): string | null {
+    const heading = $(".MtnArticle h1, .MtnArticle h2").first().text().trim();
+    return heading || null;
+  }
+
   override async filterArticles(
     articles: RawArticle[],
     clock: () => Date = () => new Date(),

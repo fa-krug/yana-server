@@ -503,30 +503,75 @@ the model: title drift on every reload, and for `translate`, a title already in
 the target language beside an untranslated body — the "reload only translates
 the title" report.
 
-- [ ] **Step 1:** Characterisation tests for both paths' failure behaviour.
-- [ ] **Step 2:** Extract one `enrichOne(article, policy)` with the failure
+- [x] **Step 1:** Characterisation tests for both paths' failure behaviour.
+      Covered by the pre-existing suites (`website.test.ts`'s
+      ArticleSkipError/keep-original/empty-body-skip tests,
+      `handlers.test.ts`'s reload error-notice/throw-on-empty-body tests),
+      confirmed still green after the restructuring, plus one new
+      characterisation test (`merkur.test.ts`, "never surfaces site
+      navigation…") pinning Merkur's *old* `<body>`-fallback output before
+      changing it (see Step 5).
+- [x] **Step 2:** Extract one `enrichOne(article, policy)` with the failure
       policy as an explicit parameter, so the divergence is stated once instead
-      of implied in four places.
-- [ ] **Step 3:** Add an optional
-      `protected sourceTitleFrom($: CheerioAPI): string | null` hook, called
-      once from `FullWebsiteAggregator.fetchArticleContent()`, defaulting to
-      `null`.
-- [ ] **Step 4:** Supply one selector each for the sites that can:
-      heise (`.a-article-header__title`), merkur
-      (`.id-StoryElement-headline`), tagesschau
-      (`span.seitenkopf__headline--text`), caschys_blog (`h1.entry-title`),
-      mein_mmo (`h1.entry-title` / `og:title`), mactechnews (heading inside
-      `.MtnArticle`). For `ars_technica` and `the_verge` — both
-      `RssSummaryFallbackAggregator`, whose content already falls back to the
-      RSS summary — simply **not dropping** `rss.ts:59` is the whole fix.
-      oglaf/explosm/dark_legacy are comics with no headline distinct from the
-      feed's: leave them `null`.
-- [ ] **Step 5: Unify the four empty-result ladders in `extractContent`.**
+      of implied in four places. `enrichOne()` + the `EnrichmentPolicy`/
+      `EnrichableAggregator` types now live in `src/lib/aggregators/website.ts`;
+      `FullWebsiteAggregator.enrichArticles()` and `reload.ts`'s
+      `handleReloadJob()` each supply their own policy object. `processContent()`
+      deliberately stays outside `enrichOne()` (reload's `progress(job.id, 55)`
+      needs that boundary visible). One asymmetry needed a small adapter rather
+      than living inside `enrichOne()` itself: reload treats an *empty string*
+      from `fetchArticleContent()` (no throw) the same as a thrown fetch
+      failure (write an error notice), while aggregation does not (it falls
+      through to extraction and, ordinarily, the empty-body skip) — so
+      `reload.ts` wraps the real aggregator in a thin `EnrichableAggregator`
+      whose `fetchArticleContent()` throws on an empty result, keeping that
+      distinction local to reload instead of changing `enrichOne()`'s shared
+      behaviour for both callers.
+- [x] **Step 3:** Added `protected sourceTitleFrom($: CheerioAPI): string | null`
+      to `FullWebsiteAggregator`, called from its `fetchArticleContent()` right
+      after the page is fetched (default `null`). `noteSourceTitle()` (in
+      `base.ts`) was also made "sticky" — a later, empty note no longer blanks
+      out an earlier non-empty one — because Mein-MMO and MacTechNews both
+      paginate one article across several page fetches within a single
+      `fetchArticleContent()` call, and a template that only repeats the
+      heading on page 1 must not lose it when page 2 has none.
+- [x] **Step 4:** Selectors supplied exactly as specified for heise, merkur,
+      tagesschau, caschys_blog, mein_mmo (with the `og:title` fallback) and
+      mactechnews. **`ars_technica`/`the_verge` were left at the safe default
+      (`null`, same as the comics) rather than implementing "not dropping
+      `rss.ts:59`"** — that phrase didn't resolve cleanly against the code:
+      `rss.ts:59`'s `noteSourceTitle()` call lives inside
+      `RssAggregator.fetchArticleContent()`, which does a full *feed* refetch,
+      and `FullWebsiteAggregator`'s (which these two inherit unmodified) only
+      fetches the article's own page — nothing caches the parsed feed entries
+      between `aggregate()`'s `fetchSourceData()` call and `enrichArticles()`,
+      so there's no free way to reach `entry.title` from inside
+      `fetchArticleContent()` without a second network round-trip, and it
+      wasn't clear whether that extra cost during ordinary aggregation
+      (not just reload) was intended. Flagged for the orchestrator rather than
+      guessed at; the two sites behave exactly as before (`sourceTitle` stays
+      `null`), so this is a known gap, not a regression.
+- [x] **Step 5: Unify the four empty-result ladders in `extractContent`.**
       `website.ts:256-258` and `heise.ts:318-320` return `article.content`;
       `merkur.ts:107-109` recurses into `super.extractContent()`, which falls
       back to `<body>` — a *different* answer that can surface site navigation
       as the article; `tagesschau/aggregator.ts:186-195` has a three-tier ladder.
       Tagesschau's is the most defensible; make it the shared one.
+      `FullWebsiteAggregator.extractContentWithFallback()` is now that one
+      shared ladder (site selector -> generic guess -> RSS summary, never
+      `<body>`), used by `FullWebsiteAggregator`, `HeiseAggregator` and
+      `MerkurAggregator`; Tagesschau's own three-tier version was replaced with
+      a call to it, passing `keepPrimaryRegardless` for its one genuinely
+      site-specific case (a media header with no text/media of its own in
+      `extractTagesschauContent()`'s output). Tagesschau's private
+      `hasRealContent()` (text-or-media, a duplicate of `hasBodyContent()`
+      missing `picture`/`figure`/`object`/`embed`/`svg`) was removed in favour
+      of the shared predicate — a minor, intentional widening.
+      **Merkur is the one genuine behaviour change**: it used to fall back to
+      `<body>` (via `extractMainContent()`, plus a second `<body>` fallback
+      through `super.extractContent()` on top of that) and now degrades to a
+      generic-content guess or the RSS summary instead — pinned before and
+      after in `merkur.test.ts`.
 
 ---
 

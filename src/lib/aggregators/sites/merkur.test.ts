@@ -7,6 +7,11 @@ vi.mock("../images/store", () => ({
   storeImageRefFromUrl: vi.fn(async () => "yana-img://abc123hash"),
 }));
 
+vi.mock("../http/fetcher", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../http/fetcher")>()),
+  fetchHtml: vi.fn(),
+}));
+
 function aggregatorFor(): MerkurAggregator {
   const feed: FeedLike = { identifier: "https://www.merkur.de/rssfeed.rdf", dailyLimit: 20 };
   return new MerkurAggregator(feed);
@@ -81,5 +86,68 @@ describe("MerkurAggregator YouTube iframe survives extraction into a facade", ()
 
     const extracted = await agg.extractContent(html, videoArticle());
     expect(extracted).not.toContain("<iframe");
+  });
+});
+
+/**
+ * Pipeline-review-3, Task 8, Step 5: `extractContent()` used to fall back to
+ * `<body>` on a `.idjs-Story` selector miss -- twice over, in fact.
+ * `extractMainContent()` (not the `...IfPresent()` variant) already falls
+ * back to `<body>` internally, so the `!extracted || !extracted.trim()`
+ * check almost never actually ran; on the rare page where even `<body>` came
+ * back empty, `super.extractContent()` (`FullWebsiteAggregator`'s own,
+ * pre-unification implementation) fell back to `<body>` *again*. Either way,
+ * a selector miss could surface site navigation, not the article, as
+ * "content". This is pinned here before the fix, characterising exactly what
+ * today's code produces, and updated in the same change to assert the new,
+ * safer behaviour (the shared three-tier ladder in
+ * `FullWebsiteAggregator.extractContentWithFallback()`: generic guess, then
+ * the RSS summary -- never `<body>`).
+ */
+describe("MerkurAggregator extractContent selector miss", () => {
+  it("never surfaces site navigation as the article body on a selector miss", async () => {
+    const agg = aggregatorFor();
+    const html = `
+      <html><body>
+        <nav class="site-nav"><a href="/">Home</a><a href="/politik">Politik</a></nav>
+        <div class="unrelated">This is not the article, it is page chrome.</div>
+      </body></html>
+    `;
+    const article: RawArticle = {
+      name: "No Selector Match",
+      identifier: "https://www.merkur.de/no-match-1234567.html",
+      raw_content: "",
+      content: "The RSS entry's own summary.",
+      date: new Date(),
+    };
+
+    const extracted = await agg.extractContent(html, article);
+
+    // The fix: a miss degrades to the RSS summary already on the article,
+    // never to the page's own navigation/chrome.
+    expect(extracted).toBe("The RSS entry's own summary.");
+    expect(extracted).not.toContain("site-nav");
+    expect(extracted).not.toContain("Politik");
+  });
+});
+
+/**
+ * Pipeline-review-3, Task 8: same structural gap as Heise --
+ * `FullWebsiteAggregator.fetchArticleContent()` dropped `noteSourceTitle()`
+ * for the whole family. `.id-StoryElement-headline` is itself in
+ * `selectorsToRemove`, so `sourceTitleFrom()` has to read the raw page.
+ */
+describe("MerkurAggregator sourceTitle", () => {
+  it("reports the headline read off the fetched page", async () => {
+    const { fetchHtml } = await import("../http/fetcher");
+    vi.mocked(fetchHtml).mockResolvedValue(
+      `<html><body><h1 class="id-StoryElement-headline">A real Merkur headline</h1></body></html>`,
+    );
+
+    const agg = aggregatorFor();
+    expect(agg.sourceTitle).toBeNull();
+    await agg.fetchArticleContent("https://www.merkur.de/some-article-1234567.html");
+
+    expect(agg.sourceTitle).toBe("A real Merkur headline");
   });
 });

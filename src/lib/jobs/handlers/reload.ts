@@ -6,7 +6,11 @@ import { writeBlocksIn } from "@/lib/aggregators/blocks/storage";
 import type { Block } from "@/lib/aggregators/blocks/types";
 import { resolveFeedCredentials } from "@/lib/aggregators/credential-resolution";
 import { createAggregator } from "@/lib/aggregators/factory";
-import { hasBodyContent } from "@/lib/aggregators/website";
+import {
+  enrichOne,
+  type EnrichableAggregator,
+  type EnrichmentPolicy,
+} from "@/lib/aggregators/website";
 import { applyAiToBlocks } from "@/lib/ai/run";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, feeds, userSettings, type Job } from "@/lib/db/schema";
@@ -102,6 +106,19 @@ function buildErrorBlocks(message: string): Block[] {
  * than reported as a plain success. A feed configured to translate every
  * reload that silently keeps serving the original language, while every job
  * still shows green, is a failure an operator has no way to notice.
+ *
+ * **The extractHeaderElement -> fetchArticleContent -> extractContent ->
+ * hasBodyContent sequence above is not this file's own -- it's
+ * `enrichOne()` in `@/lib/aggregators/website`, the same function
+ * `FullWebsiteAggregator.enrichArticles()` calls per article during a real
+ * aggregation run.** The two callers diverge only in what happens when a
+ * step fails, and that divergence is now an explicit `EnrichmentPolicy`
+ * object each supplies (`policy` below) rather than four different
+ * try/catch shapes spread across two files -- see the doc comments on
+ * `EnrichmentPolicy` and `enrichOne()` themselves for exactly what's shared
+ * and what still isn't (the fetch step's own try/catch only, matching this
+ * file's original, narrower scope; `enrichArticles()` restores its wider one
+ * with its own outer catch).
  */
 export async function handleReloadJob(job: Job): Promise<void> {
   const articleId = Number(job.payload?.articleId);
@@ -137,14 +154,22 @@ export async function handleReloadJob(job: Job): Promise<void> {
   const aggregator = createAggregator(resolveFeedCredentials(feed, settings ?? null));
   aggregator.onLog = (message) => appendLogLine(job.id, "stdout", message);
 
-  let freshHtml: string;
-  try {
-    freshHtml = await aggregator.fetchArticleContent(article.identifier);
-    if (!freshHtml) {
-      throw new Error("fetchArticleContent returned no content");
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+  // The article's own placeholder, filled in before enrichOne() so
+  // extractHeaderElement()'s alt-text has *something* to read -- `rawArticle`
+  // is only corrected to the source's real, current title (`sourceTitle`,
+  // below) once fetchArticleContent() has actually run and had a chance to
+  // note one. Cosmetic either way: alt text is accessibility copy, not
+  // anything AI-facing or stored verbatim.
+  const rawArticle: RawArticle = {
+    name: article.name,
+    identifier: article.identifier,
+    raw_content: "",
+    content: "",
+    date: article.date,
+    author: article.author || "",
+  };
+
+  const writeErrorNotice = (message: string): void => {
     appendLogLine(job.id, "stdout", `failed to refetch original page: ${message}`);
 
     const blocks = buildErrorBlocks(
@@ -172,57 +197,94 @@ export async function handleReloadJob(job: Job): Promise<void> {
     });
 
     appendLogLine(job.id, "stdout", "wrote error article after failed refetch");
+  };
+
+  // See `EnrichmentPolicy`'s and `enrichOne()`'s doc comments in
+  // `@/lib/aggregators/website` -- this is reload's half of the shared
+  // pipeline, and the aggregation half (`FullWebsiteAggregator.enrichArticles()`)
+  // is the other. What each policy does on the *same* two failure points is
+  // deliberately different: a fetch failure here writes a short error notice
+  // and returns (job succeeds); an empty body here throws and fails the job,
+  // leaving the stored article untouched, since the page still exists and is
+  // the best copy anyone has.
+  const policy: EnrichmentPolicy = {
+    onFetchFailed: (_article, err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      writeErrorNotice(message);
+      return null;
+    },
+    onEmptyBody: () => {
+      // A fetched page with no article body in it is a failed reload, not a
+      // shorter article -- and unlike a fetch failure it must write
+      // *nothing*: the page still exists, so the stored article is the best
+      // copy anyone has, and overwriting it with `processContent()`'s output
+      // would leave the header image standing over an empty body. The
+      // stored row is therefore left exactly as it was, `contentHash`
+      // included, and the job is failed so the reason reaches the operator
+      // instead of a green "completed" that changed nothing.
+      const message =
+        "The reloaded page contained no article body, so the stored article was left unchanged.";
+      appendLogLine(job.id, "stdout", message);
+      throw new Error(message);
+    },
+  };
+
+  // `fetchArticleContent()` returning "" (the feed no longer lists this
+  // entry, or the page fetch failed silently) means "source no longer has
+  // this article" -- the same case a thrown exception covers -- and must
+  // land on `policy.onFetchFailed()` too, not fall through to extraction and
+  // land on `policy.onEmptyBody()` (fail the job) instead. `enrichOne()`'s
+  // own fetch step only catches a *throw*, so this thin wrapper is what turns
+  // "returned nothing" into one, without changing what the real aggregator
+  // instance does (`sourceTitle` is still populated by its own
+  // `fetchArticleContent()`, called from inside this wrapper). Aggregation's
+  // `enrichArticles()` deliberately does *not* get this treatment -- an empty
+  // fetch there falls through to extraction and, ordinarily, `onEmptyBody()`
+  // (skip, logged), never `onFetchFailed()` (keep original) -- so this stays
+  // local to reload rather than moving into `enrichOne()` itself.
+  const enrichable: EnrichableAggregator = {
+    extractHeaderElement: (a) => aggregator.extractHeaderElement(a),
+    fetchArticleContent: async (url) => {
+      const html = await aggregator.fetchArticleContent(url);
+      if (!html) {
+        throw new Error("fetchArticleContent returned no content");
+      }
+      return html;
+    },
+    extractContent: (html, a) => aggregator.extractContent(html, a),
+    processContent: (html, a) => aggregator.processContent(html, a),
+  };
+
+  const step = await enrichOne(enrichable, rawArticle, policy);
+  if (step.status === "resolved") {
+    // Either the error notice was already written above (fetch failed) or
+    // `policy.onEmptyBody()` already threw (empty body) -- either way there
+    // is nothing further to do. `step.article` is always `null` here: this
+    // policy never returns a kept-original article the way aggregation's does.
     return;
   }
 
-  // No progress call on the failed-refetch branch above: that branch returns
-  // normally (it is a handled outcome, not a thrown error -- see the doc
-  // comment above), so the job still finishes as a plain success. complete()
-  // (called by the worker once this handler returns) always forces progress
-  // to 100 regardless of the last value written here, so a reload that hits
-  // that branch still reports 100% done rather than getting stuck at 5.
+  // No progress call on the failed-refetch case above: it returns normally
+  // (a handled outcome, not a thrown error -- see the doc comment above), so
+  // the job still finishes as a plain success. complete() (called by the
+  // worker once this handler returns) always forces progress to 100
+  // regardless of the last value written here, so a reload that hits that
+  // branch still reports 100% done rather than getting stuck at 5.
   progress(job.id, 30);
 
-  // Prefer what the source calls this article right now -- see the note above.
-  // `null` from an aggregator that cannot know means the stored name, which is
-  // what every reload used before this.
+  // Prefer what the source calls this article right now -- see the note
+  // above. Read only now, after enrichOne() has run fetchArticleContent(),
+  // which is what populates it via noteSourceTitle(). `null` from an
+  // aggregator that cannot know means the stored name, which is what every
+  // reload used before this.
   const sourceTitle = aggregator.sourceTitle;
-
-  const rawArticle: RawArticle = {
-    name: sourceTitle ?? article.name,
-    identifier: article.identifier,
-    raw_content: freshHtml,
-    content: "",
-    date: article.date,
-    author: article.author || "",
-  };
-
-  const headerData = await aggregator.extractHeaderElement(rawArticle);
-  if (headerData) rawArticle.header_data = headerData;
-
-  rawArticle.content = await aggregator.extractContent(freshHtml, rawArticle);
-
-  // A fetched page with no article body in it is a failed reload, not a
-  // shorter article -- and unlike the failed-refetch branch above it must
-  // write *nothing*: the page still exists, so the stored article is the best
-  // copy anyone has, and overwriting it with `processContent()`'s output would
-  // leave the header image standing over an empty body. The stored row is
-  // therefore left exactly as it was, `contentHash` included, and the job is
-  // failed so the reason reaches the operator instead of a green
-  // "completed" that changed nothing. Checked here rather than after
-  // `processContent()`, so the AI stage below is never reached: there is no
-  // point spending a provider request on a body that is not there.
-  if (!hasBodyContent(rawArticle.content)) {
-    const message =
-      "The reloaded page contained no article body, so the stored article was left unchanged.";
-    appendLogLine(job.id, "stdout", message);
-    throw new Error(message);
+  if (sourceTitle) {
+    rawArticle.name = sourceTitle;
   }
 
-  // Content extraction is done *and* produced a usable body: the guard above
-  // throws otherwise, so this phase is only ever reached by a reload that
-  // still has something to write. A reload that fails that guard stays at 30,
-  // which is the honest answer -- it got the page back and nothing further.
+  // Content extraction is done *and* produced a usable body: `enrichOne()`'s
+  // `onEmptyBody()` policy throws otherwise, so this phase is only ever
+  // reached by a reload that still has something to write.
   progress(job.id, 55);
 
   // AI runs *after* processContent() now, not before it, and both call paths
@@ -231,7 +293,7 @@ export async function handleReloadJob(job: Job): Promise<void> {
   // embed and header markup processContent() splices in -- with blocks it
   // cannot, because every image, embed and code block crosses as an opaque
   // index (see `@/lib/ai/block-text`), so the reason for the asymmetry is gone.
-  const processed = await aggregator.processContent(rawArticle.content || "", rawArticle);
+  const processed = await aggregator.processContent(step.content, rawArticle);
 
   const ai = await applyAiToBlocks(
     { title: rawArticle.name || article.name, blocks: parseBlocks(processed, article.identifier) },

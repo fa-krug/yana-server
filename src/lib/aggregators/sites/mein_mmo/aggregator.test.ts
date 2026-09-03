@@ -148,6 +148,63 @@ describe("MeinMmoAggregator.extractContent - the ftwp table of contents", () => 
   });
 });
 
+/**
+ * Pipeline-review-3, Task 8: same structural gap as Heise/Merkur/Tagesschau
+ * -- `FullWebsiteAggregator.fetchArticleContent()` dropped `noteSourceTitle()`
+ * for the whole family. Mein-MMO paginates a single article across several
+ * page fetches within one `fetchArticleContent()` call, which is exactly why
+ * `noteSourceTitle()`'s "sticky" rule (see base.ts) matters here: a template
+ * that only repeats the `<h1>` on page 1 must not have page 2's miss blank
+ * out what page 1 already found.
+ */
+describe("MeinMmoAggregator sourceTitle", () => {
+  it("reports the h1.entry-title headline", async () => {
+    vi.mocked(fetchHtml).mockResolvedValueOnce(
+      '<html><body><h1 class="entry-title">A real Mein-MMO headline</h1>' +
+        '<div class="entry-content"><p>Body.</p></div></body></html>',
+    );
+
+    const agg = new MeinMmoAggregator({ ...FEED, options: { combine_pages: false } });
+    expect(agg.sourceTitle).toBeNull();
+    await agg.fetchArticleContent("https://mein-mmo.de/test-article/");
+
+    expect(agg.sourceTitle).toBe("A real Mein-MMO headline");
+  });
+
+  it("falls back to og:title when h1.entry-title is absent", async () => {
+    vi.mocked(fetchHtml).mockResolvedValueOnce(
+      '<html><head><meta property="og:title" content="An og:title headline"></head>' +
+        '<body><div class="entry-content"><p>Body.</p></div></body></html>',
+    );
+
+    const agg = new MeinMmoAggregator({ ...FEED, options: { combine_pages: false } });
+    await agg.fetchArticleContent("https://mein-mmo.de/test-article/");
+
+    expect(agg.sourceTitle).toBe("An og:title headline");
+  });
+
+  it("keeps page 1's headline even when a later paginated page has none", async () => {
+    const page1 =
+      '<html><body><h1 class="entry-title">Page 1 has the real headline</h1>' +
+      '<div class="entry-content"><p>Page 1 body.</p>' +
+      '<div class="page-links"><span class="post-page-numbers">1</span>' +
+      '<a class="post-page-numbers" href="https://mein-mmo.de/test-article/2/">2</a>' +
+      "</div></div></body></html>";
+    const page2 =
+      '<html><body><div class="entry-content"><p>Page 2 body, no headline repeated.</p></div></body></html>';
+
+    vi.mocked(fetchHtml).mockImplementation(async (url: string) => {
+      if (url.includes("/2/")) return page2;
+      return page1;
+    });
+
+    const agg = new MeinMmoAggregator({ ...FEED, options: { combine_pages: true } });
+    await agg.fetchArticleContent("https://mein-mmo.de/test-article/");
+
+    expect(agg.sourceTitle).toBe("Page 1 has the real headline");
+  });
+});
+
 describe("MeinMmoAggregator.enrichArticles", () => {
   it("attaches each article's own comments, not a sibling's, when enrichment runs concurrently", async () => {
     // Regression test for the race the final whole-branch review found:

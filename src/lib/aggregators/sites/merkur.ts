@@ -5,7 +5,7 @@ import {
   sanitizeHtmlAttributes,
   removeSanitizedAttributes,
 } from "../extract/clean";
-import { extractMainContent } from "../extract/content";
+import { extractMainContentIfPresent } from "../extract/content";
 import { proxyYoutubeEmbeds } from "../embeds/youtube";
 import { YOUTUBE_IFRAME_KEEP_SELECTOR } from "../embeds/youtube-url";
 import { FullWebsiteAggregator } from "../website";
@@ -97,19 +97,38 @@ export class MerkurAggregator extends FullWebsiteAggregator {
     return "https://www.merkur.de";
   }
 
-  override extractContent(html: string, article: RawArticle): string | Promise<string> {
-    const extracted = extractMainContent(
+  /**
+   * The article headline. `.id-StoryElement-headline` is itself in
+   * `selectorsToRemove` (stripped from the extracted body so it isn't
+   * duplicated inside the content), so it has to come from the *raw* page,
+   * before that removal runs -- same reasoning as heise.ts's override.
+   */
+  protected override sourceTitleFrom($: cheerio.CheerioAPI): string | null {
+    const title = $(".id-StoryElement-headline").first().text().trim();
+    return title || null;
+  }
+
+  /**
+   * Was `extractMainContent()` (not the `...IfPresent()` variant), which
+   * silently falls back to `<body>` on a selector miss -- and, when even that
+   * came back empty, recursed into `super.extractContent()` for a *second*
+   * `<body>` fallback. Both can surface site navigation/chrome as "the
+   * article" rather than reporting the miss. Switched to
+   * `extractMainContentIfPresent()` (which reports a miss as `null`) feeding
+   * the shared three-tier ladder every `FullWebsiteAggregator` subclass now
+   * uses -- see `extractContentWithFallback()` in ../website. This is the one
+   * genuine behaviour change in that unification: a selector miss here now
+   * degrades to a generic-content guess or the RSS summary, never to `<body>`.
+   */
+  override extractContent(html: string, article: RawArticle): string {
+    const extracted = extractMainContentIfPresent(
       html,
       this.getContentSelectors(),
       this.getIgnoreSelectors(),
       this.usesFirstContentMatch,
     );
 
-    if (!extracted || !extracted.trim()) {
-      return super.extractContent(html, article);
-    }
-
-    return extracted;
+    return this.extractContentWithFallback(html, article, extracted);
   }
 
   override async processContent(html: string, article: RawArticle): Promise<string> {

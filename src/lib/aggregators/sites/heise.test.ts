@@ -96,6 +96,43 @@ describe("HeiseAggregator.extractComments", () => {
   });
 });
 
+/**
+ * Pipeline-review-3, Task 8: `FullWebsiteAggregator.fetchArticleContent()`
+ * used to override `RssAggregator`'s without calling it, silently dropping
+ * `noteSourceTitle()` for the entire family. Heise reports the headline via
+ * `sourceTitleFrom()`, read off the raw fetched page -- `.a-article-header__title`
+ * is itself in `selectorsToRemove`, so it must come from the page before
+ * extraction strips it.
+ */
+describe("HeiseAggregator sourceTitle", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("reports the headline read off the fetched page", async () => {
+    const { fetchHtml } = await import("../http/fetcher");
+    vi.mocked(fetchHtml).mockResolvedValue(
+      `<html><body><h1 class="a-article-header__title">Wer schützt Gesundheitsdaten?</h1></body></html>`,
+    );
+
+    const agg = aggregatorFor();
+    expect(agg.sourceTitle).toBeNull();
+    await agg.fetchArticleContent("https://www.heise.de/news/x-11416941.html");
+
+    expect(agg.sourceTitle).toBe("Wer schützt Gesundheitsdaten?");
+  });
+
+  it("reports no source title when the page carries no matching headline", async () => {
+    const { fetchHtml } = await import("../http/fetcher");
+    vi.mocked(fetchHtml).mockResolvedValue(`<html><body><p>No headline here.</p></body></html>`);
+
+    const agg = aggregatorFor();
+    await agg.fetchArticleContent("https://www.heise.de/news/x-11416941.html");
+
+    expect(agg.sourceTitle).toBeNull();
+  });
+});
+
 describe("HeiseAggregator empty-body extraction", () => {
   afterEach(() => {
     vi.clearAllMocks();

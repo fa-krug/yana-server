@@ -308,13 +308,23 @@ export abstract class BaseAggregator {
    *
    * **Only meaningful after a single `fetchArticleContent()` call**, which is
    * exactly reload's shape (one article, one aggregator instance) and is the
-   * same restriction Reddit's `_lastReloaded*` stash already carries. The
-   * `FullWebsiteAggregator` family deliberately notes nothing: its
-   * `fetchArticleContent()` also runs *concurrently, per article* inside
+   * same restriction Reddit's `_lastReloaded*` stash already carries.
+   *
+   * **The `FullWebsiteAggregator` family used to note nothing at all**, on two
+   * grounds: `fetchArticleContent()` runs *concurrently, per article* inside
    * `enrichArticles()`, where one instance-level value could only be the last
-   * writer's -- and a scraped page's `<title>` is the site's headline plus its
-   * own branding, not the feed's title for the article. Those feeds keep the
-   * stored name on reload, as before.
+   * writer's; and a scraped page's `<title>` is the site's headline plus its
+   * own branding, not the feed's title for the article. The first objection
+   * does not hold on the path that matters -- `sourceTitle` has exactly one
+   * consumer, `reload.ts`, and reload's shape is a single article on a single
+   * instance, so a race between *other* articles' concurrent
+   * `fetchArticleContent()` calls during a real aggregation run is harmless:
+   * nothing reads the field there. The second objection still holds, which is
+   * why `FullWebsiteAggregator.fetchArticleContent()` does not fall back to
+   * the page's raw `<title>` -- it calls a per-site `sourceTitleFrom()` hook
+   * (default `null`) instead, so only sites with a selector distinguishing the
+   * real headline from surrounding chrome report one at all. See that hook in
+   * `./website`.
    */
   get sourceTitle(): string | null {
     return this._sourceTitle;
@@ -322,11 +332,26 @@ export abstract class BaseAggregator {
 
   /**
    * Record the source's own title for the article `fetchArticleContent()` just
-   * fetched. Empty and whitespace-only titles are `null`: a caller must be able
-   * to treat "no title" as one case, not two.
+   * fetched. Empty and whitespace-only titles are treated as "nothing new to
+   * report" and leave a previously-noted title in place, rather than
+   * resetting it to `null`.
+   *
+   * That "sticky" rule matters for the two `FullWebsiteAggregator` sites that
+   * paginate an article across several page fetches within one
+   * `fetchArticleContent()` call (Mein-MMO, MacTechNews -- see
+   * `sourceTitleFrom()` in `./website`): each page fetch calls this again, and
+   * a headline selector that matches on page 1 but not on page 2 must not
+   * blank out the title page 1 already found. A caller that has a genuine
+   * reason to *clear* a previously-noted title (there is none today) would
+   * need a separate method -- overwriting `null` silently was never a
+   * requirement any caller relied on, since every existing caller invokes
+   * `fetchArticleContent()` at most once per instance except these two.
    */
   protected noteSourceTitle(title: string | null | undefined): void {
-    this._sourceTitle = (title ?? "").trim() || null;
+    const trimmed = (title ?? "").trim();
+    if (trimmed) {
+      this._sourceTitle = trimmed;
+    }
   }
 
   fetchArticleContent(_url: string): Promise<string> {

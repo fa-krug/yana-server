@@ -287,6 +287,17 @@ export class HeiseAggregator extends FullWebsiteAggregator {
     });
   }
 
+  /**
+   * The article headline. `.a-article-header__title` is itself in
+   * `selectorsToRemove` (it is stripped from the extracted body so it isn't
+   * duplicated inside the content), so it has to be read from the *raw* page
+   * `fetchArticleContent()` hands `sourceTitleFrom()`, before any removal runs.
+   */
+  protected override sourceTitleFrom($: cheerio.CheerioAPI): string | null {
+    const title = $(".a-article-header__title").first().text().trim();
+    return title || null;
+  }
+
   override extractContent(html: string, article: RawArticle): string {
     const extracted = extractMainContentIfPresent(
       html,
@@ -295,22 +306,31 @@ export class HeiseAggregator extends FullWebsiteAggregator {
       this.usesFirstContentMatch,
     );
 
-    if (extracted === null) {
-      return article.content || "";
+    let primary: string | null = null;
+    if (extracted !== null) {
+      const $ = cheerio.load(extracted);
+      $("p, div, span").each((_, elem) => {
+        const $elem = $(elem);
+        const text = $elem.text().trim();
+        const hasImg = $elem.find("img").length > 0;
+        if (!text && !hasImg) {
+          $elem.remove();
+        }
+      });
+
+      const body = $("body");
+      primary = body.length > 0 ? body.html() || "" : $.html();
     }
 
-    const $ = cheerio.load(extracted);
-    $("p, div, span").each((_, elem) => {
-      const $elem = $(elem);
-      const text = $elem.text().trim();
-      const hasImg = $elem.find("img").length > 0;
-      if (!text && !hasImg) {
-        $elem.remove();
-      }
-    });
-
-    const body = $("body");
-    return body.length > 0 ? body.html() || "" : $.html();
+    // Was `return article.content || ""` on a selector miss -- see
+    // `extractContentWithFallback()` in ../website for the shared,
+    // three-tier ladder this now goes through instead (site selector ->
+    // generic guess -> RSS summary), which is also what recovers the
+    // "every paragraph sits inside a removed section" case below: `primary`
+    // can be a non-null but *empty* string after the emptied-element pruning
+    // above, and the ladder falls further instead of returning that emptiness
+    // as-is.
+    return this.extractContentWithFallback(html, article, primary);
   }
 
   override async processContent(html: string, article: RawArticle): Promise<string> {

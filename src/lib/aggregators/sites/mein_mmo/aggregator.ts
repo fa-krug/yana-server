@@ -23,6 +23,21 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
     return MeinMmoAggregator.MEIN_MMO_URL;
   }
 
+  /**
+   * The article headline. `h1.entry-title` is this WordPress theme's normal
+   * heading; `og:title` is the fallback for the rare template that omits it.
+   * Called once per page fetch (this aggregator paginates -- see
+   * `fetchArticleContent()` below), and `noteSourceTitle()`'s "sticky" rule
+   * (see ./base) means a later page's miss cannot blank out an earlier page's
+   * match.
+   */
+  protected override sourceTitleFrom($: cheerio.CheerioAPI): string | null {
+    const heading = $("h1.entry-title").first().text().trim();
+    if (heading) return heading;
+    const og = $('meta[property="og:title"]').attr("content");
+    return og?.trim() || null;
+  }
+
   static getDefaultIdentifier(): string {
     return "https://mein-mmo.de/feed/";
   }

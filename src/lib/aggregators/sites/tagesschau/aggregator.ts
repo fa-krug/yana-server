@@ -124,6 +124,11 @@ export class TagesschauAggregator extends FullWebsiteAggregator {
     return "https://www.tagesschau.de";
   }
 
+  protected override sourceTitleFrom($: cheerio.CheerioAPI): string | null {
+    const title = $("span.seitenkopf__headline--text").first().text().trim();
+    return title || null;
+  }
+
   override async filterArticles(
     articles: RawArticle[],
     clock: () => Date = () => new Date(),
@@ -183,27 +188,21 @@ export class TagesschauAggregator extends FullWebsiteAggregator {
     return false;
   }
 
+  /**
+   * This was the original three-tier fallback ladder (site extraction, then a
+   * generic guess, then the RSS summary) -- pipeline-review-3 Task 8 promoted
+   * it into the shared `extractContentWithFallback()` on `FullWebsiteAggregator`
+   * (see ../../website), which every subclass's `extractContent()` now goes
+   * through instead of inventing its own. `keepPrimaryRegardless` is this
+   * site's one addition: `hasBodyContent()` (the shared predicate,
+   * subsuming this class's own former `hasRealContent()` -- see its removal
+   * below) has no way to see a media header, since it isn't part of
+   * `extracted` at all; it's spliced in separately by `processContent()`.
+   */
   override extractContent(html: string, article: RawArticle): string {
     const extracted = extractTagesschauContent(html);
-
-    if (this.hasRealContent(extracted) || this.mediaHeader(html, article)) {
-      return extracted;
-    }
-
-    const generic = this.genericContentIfPresent(html, article);
-    if (generic) {
-      return generic;
-    }
-
-    return article.content || "";
-  }
-
-  private hasRealContent(html: string): boolean {
-    const $ = cheerio.load(html);
-    if ($.text().trim().length > 0) {
-      return true;
-    }
-    return $("img, iframe, video, audio").length > 0;
+    const keepPrimaryRegardless = this.mediaHeader(html, article) !== null;
+    return this.extractContentWithFallback(html, article, extracted, keepPrimaryRegardless);
   }
 
   private mediaHeader(html: string, article: RawArticle): MediaHeaderResult | null {

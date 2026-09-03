@@ -45,6 +45,11 @@ export class CaschysBlogAggregator extends FullWebsiteAggregator {
     return "https://stadt-bremerhaven.de";
   }
 
+  protected override sourceTitleFrom($: cheerio.CheerioAPI): string | null {
+    const title = $("h1.entry-title").first().text().trim();
+    return title || null;
+  }
+
   /**
    * Only the weekly link-dump digest is site-specific now.
    *
