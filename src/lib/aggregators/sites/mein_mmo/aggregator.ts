@@ -12,6 +12,25 @@ import { extractComments } from "./comments";
 import { extractMeinMmoContent } from "./content";
 import { buildPageUrl, detectPagination } from "./multipage";
 
+/**
+ * The content-container selectors the multi-page combine step
+ * (`fetchArticleContent()` below) selects by -- deliberately the same
+ * hardcoded pair `extractMeinMmoContent()` (`./content.ts`) itself matches
+ * against, and deliberately *not* `this.getContentSelectors()` (which would
+ * fold in a feed's `content_selectors` override). `extractMeinMmoContent()`
+ * has never read that override -- it hardcodes `div.entry-content,
+ * div.gp-entry-content` and returns the html untouched when neither is
+ * found -- so combining by a different selector set would hand it joined
+ * html it silently fails to recognise on any overridden feed, skipping
+ * Dailymotion-block handling, ignoreSelectors removal, embed processing and
+ * the "Weiter geht es auf Seite N" pagination-marker strip for that feed.
+ * Unifying the two sites' fetch *loop* (`../../multipage.ts`) does not
+ * require them to agree on selectors; making Mein-MMO honour
+ * `content_selectors` for real is a separate change to
+ * `extractMeinMmoContent()`, with its own tests.
+ */
+const MULTIPAGE_CONTENT_SELECTORS = ["div.entry-content", "div.gp-entry-content"];
+
 export class MeinMmoAggregator extends FullWebsiteAggregator {
   static MEIN_MMO_URL = "https://mein-mmo.de/";
   static brandSiteUrl = "https://mein-mmo.de/";
@@ -165,7 +184,7 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
     const { combined } = await fetchAllPages(
       url,
       pageNumbers,
-      this.getContentSelectors(),
+      MULTIPAGE_CONTENT_SELECTORS,
       (pageUrl) => super.fetchArticleContent(pageUrl),
       firstPageHtml,
       buildPageUrl,
