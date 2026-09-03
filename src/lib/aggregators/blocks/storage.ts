@@ -18,7 +18,13 @@ import { getDb, writeTransaction } from "@/lib/db/client";
 import { articleBlocks, articleInlineRuns, type ArticleBlock } from "@/lib/db/schema";
 import type * as schema from "@/lib/db/schema";
 
-import { EMBED_PROVIDERS, type Block, type EmbedProvider, type InlineRun } from "./types";
+import {
+  clampHeadingLevel,
+  EMBED_PROVIDERS,
+  type Block,
+  type EmbedProvider,
+  type InlineRun,
+} from "./types";
 
 /**
  * The `tx` handle `writeTransaction()` hands its callback -- the same type its
@@ -79,7 +85,7 @@ function rowForNode(
         parentId,
         position,
         kind: "heading",
-        level: Math.min(Math.max(node.level || 1, 1), 6),
+        level: clampHeadingLevel(node.level || 1),
       };
     case "list":
       return {
@@ -295,9 +301,15 @@ function blockForRow(
         runs,
       };
     case "heading":
+      // Clamped on read too, not just on write: the column carries no upper
+      // CHECK (see schema/articles.ts -- only `level >= 0`, mirroring
+      // Django's own field), so a row written before `rowForNode()` clamped
+      // could in principle still hold something outside 1-6. Trusting the
+      // write path alone here would repeat exactly the bug this task fixed --
+      // two places, only one of which actually enforces the range.
       return {
         kind: "heading",
-        level: row.level ?? 1,
+        level: clampHeadingLevel(row.level ?? 1),
         runs,
       };
     case "list": {

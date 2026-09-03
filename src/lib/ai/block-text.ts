@@ -53,6 +53,7 @@
  * serialized caption used to disagree about the same block.
  */
 
+import { clampHeadingLevel } from "@/lib/aggregators/blocks/types";
 import type {
   Block,
   CodeBlock,
@@ -149,12 +150,16 @@ function escapeLineStart(line: string): string {
  *   runs dropped, since a line's leading and trailing space cannot survive a
  *   line-oriented format and means nothing rendered.
  *
- * - **A heading's level clamped to 1-6.** The only range this notation can
- *   write (`"#".repeat(level)`) and `article_blocks.level` can be read back
- *   as. This is the single place that clamp lives -- `serializeBlocks()` below
- *   relies on `canonicalBlocks()` having already applied it rather than
- *   repeating the arithmetic, which is what used to let a `level: 7` heading
- *   round-trip to 6 while `canonicalBlocks()` alone left it at 7.
+ * - **A heading's level clamped to 1-6**, via `clampHeadingLevel()`
+ *   (`../aggregators/blocks/types` -- see its doc comment). The only range
+ *   this notation can write (`"#".repeat(level)`) and `article_blocks.level`
+ *   can be read back as; `../aggregators/blocks/storage`'s `rowForNode()` and
+ *   `blockForRow()` call the same function, so there is exactly one
+ *   implementation of this arithmetic rather than two that can drift.
+ *   `serializeBlocks()` below relies on `canonicalBlocks()` having already
+ *   applied it rather than repeating the call, which is what used to let a
+ *   `level: 7` heading round-trip to 6 while `canonicalBlocks()` alone left it
+ *   at 7.
  * - **A block that canonicalizes to nothing is dropped**, recursively --
  *   see `isEmptyBlock()`. `textToBlocks`'s line-oriented parse never records
  *   an empty paragraph, an empty heading, a quote with no surviving content or
@@ -204,14 +209,6 @@ export function canonicalBlocks(blocks: Block[]): Block[] {
       }
     })
     .filter((block) => !isEmptyBlock(block));
-}
-
-/**
- * The 1-6 heading levels this notation can write and read back. The one place
- * that math lives -- see the note on `canonicalBlocks()`'s heading case.
- */
-function clampHeadingLevel(level: number): number {
-  return Math.min(Math.max(level, 1), 6);
 }
 
 /**

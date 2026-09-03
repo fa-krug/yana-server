@@ -57,6 +57,22 @@ export interface Heading {
   runs: InlineRun[];
 }
 
+/**
+ * The 1-6 heading levels both directions of this format can actually carry:
+ * `article_blocks.level` is read back by `blockForRow()`/written by
+ * `rowForNode()` (`../blocks/storage`), and `@/lib/ai/block-text`'s notation
+ * can only write `"#".repeat(level)` in that same range. The one place this
+ * arithmetic lives -- both of those, and `canonicalBlocks()`, call this
+ * rather than each holding its own copy, which is what let a `level: 7`
+ * heading round-trip to 6 through one path while being left at 7 by another.
+ * Declared here, in the one module in this graph both of those already
+ * import and that itself imports nothing, so neither side's module graph
+ * grows to share it.
+ */
+export function clampHeadingLevel(level: number): number {
+  return Math.min(Math.max(level, 1), 6);
+}
+
 export interface ListBlock {
   kind: "list";
   ordered: boolean;
