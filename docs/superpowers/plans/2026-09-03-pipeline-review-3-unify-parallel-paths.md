@@ -537,20 +537,20 @@ the title" report.
       heading on page 1 must not lose it when page 2 has none.
 - [x] **Step 4:** Selectors supplied exactly as specified for heise, merkur,
       tagesschau, caschys_blog, mein_mmo (with the `og:title` fallback) and
-      mactechnews. **`ars_technica`/`the_verge` were left at the safe default
-      (`null`, same as the comics) rather than implementing "not dropping
-      `rss.ts:59`"** — that phrase didn't resolve cleanly against the code:
-      `rss.ts:59`'s `noteSourceTitle()` call lives inside
+      mactechnews. **`ars_technica`/`the_verge` do not use the brief's literal
+      "not dropping `rss.ts:59`" fix** — that call lives in
       `RssAggregator.fetchArticleContent()`, which does a full *feed* refetch,
       and `FullWebsiteAggregator`'s (which these two inherit unmodified) only
-      fetches the article's own page — nothing caches the parsed feed entries
-      between `aggregate()`'s `fetchSourceData()` call and `enrichArticles()`,
-      so there's no free way to reach `entry.title` from inside
-      `fetchArticleContent()` without a second network round-trip, and it
-      wasn't clear whether that extra cost during ordinary aggregation
-      (not just reload) was intended. Flagged for the orchestrator rather than
-      guessed at; the two sites behave exactly as before (`sourceTitle` stays
-      `null`), so this is a known gap, not a regression.
+      fetches the article's own page, with nothing caching the parsed feed
+      entries between `aggregate()`'s `fetchSourceData()` call and
+      `enrichArticles()` — reaching `rss.ts:59` as written would cost a second
+      network round-trip per article on every ordinary aggregation run, not
+      just on reload. Flagged for the orchestrator rather than guessed at, and
+      confirmed on review: fixed instead with a plain `og:title` selector
+      through `sourceTitleFrom()`, which reads the page already in hand (zero
+      added cost) and follows the same Open Graph convention mein_mmo's own
+      fallback tier already relies on. A miss still degrades to `null` (the
+      stored name is kept), same as every other site.
 - [x] **Step 5: Unify the four empty-result ladders in `extractContent`.**
       `website.ts:256-258` and `heise.ts:318-320` return `article.content`;
       `merkur.ts:107-109` recurses into `super.extractContent()`, which falls
