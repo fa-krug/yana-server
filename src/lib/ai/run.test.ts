@@ -1209,6 +1209,91 @@ describe("applyAiToBlocks & AIClient processing", () => {
 
         expect(result.droppedMedia).toBe(false);
       });
+
+      const CAPTIONED_LEAD =
+        '<figure><img src="yana-img://lead"><figcaption>Lead caption</figcaption></figure>';
+
+      it("does not report a caption loss on the lead media, because pinLeadMedia restores it verbatim", async () => {
+        // Regression: `pinLeadMedia()` always substitutes the *input's* own
+        // lead block (caption included), discarding whatever the model
+        // returned for that slot -- so a model that reproduces `[[M0]]` with
+        // its caption stripped ends up with a fully captioned stored article
+        // anyway. Reporting a caption loss here would be a false positive:
+        // the opposite direction of the silent losses this feature exists to
+        // report, but the same class of bug -- the log disagreeing with what
+        // was actually stored.
+        respondWith({ title: "T", document: "[[M0]]\n\nRewritten prose." });
+        const onLog = vi.fn();
+
+        const result = await applyAiToBlocks(
+          docOf(`${CAPTIONED_LEAD}${BODY}`),
+          { ai_improve_writing: true },
+          openai(),
+          onLog,
+        );
+
+        // The stored article really does keep the original caption.
+        expect(result.blocks[0]).toMatchObject({
+          kind: "image",
+          ref: "yana-img://lead",
+          caption: [expect.objectContaining({ text: "Lead caption" })],
+        });
+        expect(onLog).not.toHaveBeenCalledWith(expect.stringContaining("caption"));
+      });
+
+      it("still reports a caption loss on a non-lead image", async () => {
+        respondWith({ title: "T", document: "[[M0]]\n\nSome prose.\n\n[[M1]]" });
+        const onLog = vi.fn();
+
+        // Lead media (M0, no caption) plus a second, non-lead image (M1) that
+        // has a caption in the input but comes back caption-less.
+        const result = await applyAiToBlocks(
+          docOf(
+            `${LEAD}<p>x</p><figure><img src="yana-img://second">` +
+              `<figcaption>Second caption</figcaption></figure>`,
+          ),
+          { ai_improve_writing: true },
+          openai(),
+          onLog,
+        );
+
+        const second = result.blocks.find(
+          (b) => b.kind === "image" && b.ref === "yana-img://second",
+        );
+        expect(second).toMatchObject({ caption: [] });
+        expect(onLog).toHaveBeenCalledWith(expect.stringContaining("caption on 1 image"));
+      });
+
+      it("reports a lead media drop as droppedMedia: false but still reports a distinct non-lead caption loss", async () => {
+        // Combined case: the model drops the lead placeholder entirely
+        // (recovered by pinLeadMedia, not a real loss) *and* strips the
+        // caption off a different, non-lead image (a real loss). The two
+        // reports must not be conflated.
+        respondWith({ title: "T", document: "Some prose.\n\n[[M1]]" });
+        const onLog = vi.fn();
+
+        const result = await applyAiToBlocks(
+          docOf(
+            `${CAPTIONED_LEAD}<p>x</p><figure><img src="yana-img://second">` +
+              `<figcaption>Second caption</figcaption></figure>`,
+          ),
+          { ai_improve_writing: true },
+          openai(),
+          onLog,
+        );
+
+        expect(result.blocks[0]).toMatchObject({
+          kind: "image",
+          ref: "yana-img://lead",
+          caption: [expect.objectContaining({ text: "Lead caption" })],
+        });
+        expect(result.droppedMedia).toBe(false);
+        const second = result.blocks.find(
+          (b) => b.kind === "image" && b.ref === "yana-img://second",
+        );
+        expect(second).toMatchObject({ caption: [] });
+        expect(onLog).toHaveBeenCalledWith(expect.stringContaining("caption on 1 image"));
+      });
     });
 
     describe("the summary", () => {

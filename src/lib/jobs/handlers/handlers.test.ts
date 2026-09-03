@@ -1243,6 +1243,13 @@ describe("src/lib/jobs/handlers", () => {
       expect(stored?.contentHash).not.toBeNull();
       expect(logLines(job.id).join("\n")).toContain("degraded AI result");
       expect(logLines(job.id).join("\n")).toMatch(/upserted articles: 1 created/);
+      // The job's own summary line counts this the same way the pre-existing
+      // `aiFailed`/`skipped (AI: ...)` counter does, for parity: a run that
+      // stored a degraded article should say so in its one-line summary, not
+      // just in the per-article log line above.
+      expect(logLines(job.id)).toContain(
+        "upserted articles: 1 created, 0 updated, 0 unchanged, 1 stored degraded (AI: missingSummary)",
+      );
 
       vi.doUnmock("@/lib/ai/run");
     });

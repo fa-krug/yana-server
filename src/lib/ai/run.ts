@@ -998,23 +998,28 @@ export async function applyAiToBlocks(
           rewritten = pinLeadMedia(lead, rewritten);
         }
 
+        // **Whether the model's handling of the lead media -- dropped,
+        // duplicated or caption-cleared -- still counts as a real loss
+        // excludes the lead itself, and `droppedOpaque`/`clearedCaptions`
+        // share this one exclusion rather than each recomputing it.**
+        // `pinLeadMedia()` above unconditionally throws away whatever the
+        // model returned for the lead slot -- caption included -- and
+        // substitutes the *input's* own lead block verbatim. So a model that
+        // omits the lead placeholder entirely (which the notation spec does
+        // not forbid any more strictly than dropping any other placeholder,
+        // and is common enough in practice) or reproduces it with its
+        // caption stripped ends up with a fully correct, fully captioned
+        // document anyway: nothing the model did to that one slot survives
+        // into what is actually stored. Counting either as a real loss would
+        // be wrong in both directions -- it would withhold the content
+        // fingerprint (see `AiBlockResult.droppedMedia`) on an article that
+        // is not actually missing anything, and it would log a caption loss
+        // for a caption that is, in the stored article, fully intact. A
+        // *non*-lead placeholder has no such recovery, so it is the only
+        // thing either report still counts.
+        const leadIndex = lead ? document.opaque.findIndex((block) => sameMedia(block, lead)) : -1;
+
         if (parsed.droppedOpaque.length > 0) {
-          // **Whether this counts as "still degraded" for `droppedMedia`
-          // excludes a dropped *lead* that `pinLeadMedia()` just recovered.**
-          // That call above unconditionally puts the input's lead media back
-          // at index 0 regardless of what the model did with it, so a model
-          // that reproduces every placeholder *except* the lead one -- which
-          // the notation spec does not forbid any more strictly than dropping
-          // any other placeholder, and is common enough in practice -- ends
-          // up with a fully correct document anyway. Counting that as
-          // "degraded" would withhold the content fingerprint (see
-          // `AiBlockResult.droppedMedia`) on an article that is not actually
-          // missing anything, turning an ordinary rewrite into a recurring
-          // paid request on every cycle. A *non*-lead placeholder has no such
-          // recovery, so it is the only thing that still counts here.
-          const leadIndex = lead
-            ? document.opaque.findIndex((block) => sameMedia(block, lead))
-            : -1;
           if (parsed.droppedOpaque.some((index) => index !== leadIndex)) {
             droppedMedia = true;
           }
@@ -1041,10 +1046,13 @@ export async function applyAiToBlocks(
           onLog?.(message);
         }
 
-        if (parsed.clearedCaptions.length > 0) {
+        const reportableClearedCaptions = parsed.clearedCaptions.filter(
+          (index) => index !== leadIndex,
+        );
+        if (reportableClearedCaptions.length > 0) {
           const message =
-            `AI dropped the caption on ${parsed.clearedCaptions.length} image(s) in article ` +
-            `'${input.title}'; the image itself was kept.`;
+            `AI dropped the caption on ${reportableClearedCaptions.length} image(s) in ` +
+            `article '${input.title}'; the image itself was kept.`;
           console.warn(message);
           onLog?.(message);
         }
