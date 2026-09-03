@@ -84,8 +84,8 @@ export async function tick(): Promise<void> {
     // outlives one 60s tick whenever AI post-processing is on, so
     // status = 'pending' alone missed every job already claimed to
     // "running"; and kind = 'aggregate' alone missed "feed.update" (what
-    // updateFeedsBulk() enqueues) and "feed.restore" entirely, both of which
-    // run the same handler. See AGGREGATE_HANDLER_JOB_KINDS's doc comment.
+    // updateFeedsBulk() enqueues) entirely, which also runs the same
+    // handler. See AGGREGATE_HANDLER_JOB_KINDS's doc comment.
     const pendingAggregateJobs = db
       .select({ payload: jobs.payload })
       .from(jobs)

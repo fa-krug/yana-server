@@ -2,7 +2,6 @@ import type { Job } from "../../db/schema";
 import { handleAggregateJob } from "./aggregate";
 import { handleLogoJob } from "./logo";
 import { handleReloadJob } from "./reload";
-import { handleRestoreJob } from "./restore";
 import { handleRetentionJob } from "./retention";
 import { handleUpdateJob } from "./update";
 
@@ -26,7 +25,6 @@ export function registerDefaultHandlers(): void {
   registerHandler("aggregate", handleAggregateJob);
   registerHandler("feed.logo", handleLogoJob);
   registerHandler("feed.update", handleUpdateJob);
-  registerHandler("feed.restore", handleRestoreJob);
   registerHandler("article.reload", handleReloadJob);
   registerHandler("retention", handleRetentionJob);
 }

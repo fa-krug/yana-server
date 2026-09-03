@@ -24,19 +24,19 @@ export const PRIORITY_IMMEDIATE = 10;
 /**
  * Every job kind that ends up running `handleAggregateJob`
  * (`src/lib/jobs/handlers/aggregate.ts`) -- directly, as `"aggregate"` does,
- * or by delegating to it, as `handleUpdateJob`/`handleRestoreJob` do for
- * `"feed.update"`/`"feed.restore"` (see `src/lib/jobs/handlers/index.ts`).
- * That delegation means the registry's kind -> function mapping cannot be
- * introspected to derive this list -- `"feed.update"` maps to
- * `handleUpdateJob`, a distinct function reference that happens to call
- * `handleAggregateJob` itself, not to `handleAggregateJob` directly. This is
- * the one hand-maintained definition; `scheduler.ts`'s dedupe query is the
- * single reader of it. `handlers/index.ts`'s `registerDefaultHandlers()`
- * still restates all three kinds as literals in its own `registerHandler()`
- * calls and imports nothing from here -- nothing keeps the two lists agreed,
- * so a kind added to one and not the other will not be caught.
+ * or by delegating to it, as `handleUpdateJob` does for `"feed.update"` (see
+ * `src/lib/jobs/handlers/index.ts`). That delegation means the registry's
+ * kind -> function mapping cannot be introspected to derive this list --
+ * `"feed.update"` maps to `handleUpdateJob`, a distinct function reference
+ * that happens to call `handleAggregateJob` itself, not to
+ * `handleAggregateJob` directly. This is the one hand-maintained definition;
+ * `scheduler.ts`'s dedupe query is the single reader of it.
+ * `handlers/index.ts`'s `registerDefaultHandlers()` still restates both
+ * kinds as literals in its own `registerHandler()` calls and imports
+ * nothing from here -- nothing keeps the two lists agreed, so a kind added
+ * to one and not the other will not be caught.
  */
-export const AGGREGATE_HANDLER_JOB_KINDS = ["aggregate", "feed.update", "feed.restore"] as const;
+export const AGGREGATE_HANDLER_JOB_KINDS = ["aggregate", "feed.update"] as const;
 
 /** Every `jobs.status` that has not yet reached a terminal outcome. */
 export const NON_TERMINAL_JOB_STATUSES = ["pending", "running", "cancelling"] as const;
@@ -450,7 +450,7 @@ export function runProgressPercent(
  * applies. A job belonging to a run always notifies that run's owner; a
  * standalone `article.reload` job (phase 12's reload action, no run) notifies
  * the owner of the feed its article belongs to. Every other kind (feed.logo,
- * feed.update, feed.restore, retention) is internal maintenance the client
+ * feed.update, retention) is internal maintenance the client
  * API never triggers and never needs to hear about.
  */
 function resolveJobUserId(job: Job): string | null {

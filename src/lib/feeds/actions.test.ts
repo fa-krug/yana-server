@@ -797,21 +797,6 @@ describe("bulk job enqueue actions", () => {
       .get();
     expect(job?.userId).toBe(userId);
   });
-
-  it("records the acting user on the feed.restore job restoreFeedsBulk enqueues", async () => {
-    const feedId = seedFeed();
-
-    const result = await actions.restoreFeedsBulk([feedId]);
-    expect(result).toEqual({ ok: true, enqueued: 1 });
-
-    const job = client
-      .getDb()
-      .select({ userId: schema.jobs.userId })
-      .from(schema.jobs)
-      .where(eq(schema.jobs.kind, "feed.restore"))
-      .get();
-    expect(job?.userId).toBe(userId);
-  });
 });
 
 describe("previewOpmlImport", () => {

@@ -6,7 +6,7 @@ import type { JobLog } from "../db/schema";
  * In-process pub/sub for a job's live log lines, keyed by job id -- not by
  * user id like `src/lib/api/events.ts`'s bus. Not every job kind resolves to
  * a single owning user -- `retention` runs once per boot across every user in
- * one execution, and `feed.logo`/`feed.update`/`feed.restore` are feed-scoped
+ * one execution, and `feed.logo`/`feed.update` are feed-scoped
  * maintenance the client API never triggers -- so there is no per-user
  * channel to key these events on in the first place. Best-effort, same as
  * `events.ts`: a dropped subscriber loses nothing but a live update, since

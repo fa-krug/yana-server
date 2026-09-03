@@ -541,34 +541,6 @@ export async function updateFeedsBulk(
   return { ok: true, enqueued: validFeeds.length, runId };
 }
 
-export async function restoreFeedsBulk(ids: number[]): Promise<{ ok: boolean; enqueued: number }> {
-  if (ids.length === 0) return { ok: true, enqueued: 0 };
-
-  const userId = await currentUserId();
-
-  return writeTransaction((tx) => {
-    const validFeeds = tx
-      .select({ id: feeds.id })
-      .from(feeds)
-      .where(and(inArray(feeds.id, ids), eq(feeds.userId, userId)))
-      .all();
-
-    if (validFeeds.length > 0) {
-      tx.insert(jobs)
-        .values(
-          validFeeds.map((f) => ({
-            kind: "feed.restore",
-            payload: { feedId: f.id },
-            userId,
-          })),
-        )
-        .run();
-    }
-
-    return { ok: true, enqueued: validFeeds.length };
-  });
-}
-
 type FeedsKey = NamespaceKey<"feeds">;
 
 export type OpmlPreviewEntry = {

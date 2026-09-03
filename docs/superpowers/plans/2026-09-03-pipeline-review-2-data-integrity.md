@@ -74,6 +74,66 @@ Full context for all four plans:
 - Real-database tests only. Before pushing:
   `npm run lint && npm run format:check && npm run typecheck && npm test`.
 
+
+## Amendment (2026-09-03, owner ruling during execution)
+
+`restoreFeedsBulk()` (`src/lib/feeds/actions.ts:544`) was found to have **no
+caller anywhere** — no UI, no `/api/v1` route, no catalog key; `grep -rn
+"restoreFeeds" src` returns only the definition and one test. The `feed.restore`
+path has been dead since it was written (the 2026-08-04 and 2026-08-05 plans
+both list it among functions they did not change).
+
+**Owner decision: delete the restore path entirely** rather than gate it. It is
+the most destructive path in the codebase and nothing reaches it, so removing it
+is strictly better than hardening it.
+
+This supersedes three things in the plan text below, which are left in place for
+their evidence but must NOT be implemented as written:
+
+- **Task 0 is new** (below) and does the deletion. It runs first.
+- **Task 1 Step 4** ("Gate restore before it deletes") is **dropped** — there is
+  no restore to gate. Task 1's other six steps stand unchanged.
+- **Task 3 Step 3** (starred articles in restore) is **moot**. The owner's
+  ruling — restore should preserve starred articles, matching retention — is
+  recorded here so it binds if `feed.restore` is ever reintroduced, but there is
+  nothing to implement.
+- **Task 2's** hard-delete site list loses `handlers/restore.ts:36`; three sites
+  remain (`retention.ts:54`, `articles/actions.ts:105`, `feeds/actions.ts:496`).
+
+---
+
+### Task 0: Delete the dead `feed.restore` path
+
+**Why.** Nothing calls it, and it deletes every article of a feed before
+re-aggregating. `handleAggregateJob` covers the reachable case.
+
+**No migration is needed:** `jobs.kind` is a plain `text` column
+(`schema/jobs.ts:57`) with no CHECK constraint and no enum, and an unregistered
+kind already fails its job cleanly (`worker.ts:138-141`) rather than crashing the
+worker — so any historical `feed.restore` row in an existing database is inert.
+
+**Files:**
+- Delete: `src/lib/jobs/handlers/restore.ts`
+- Modify: `src/lib/jobs/handlers/index.ts` (drop the import and registration)
+- Modify: `src/lib/feeds/actions.ts` (drop `restoreFeedsBulk`)
+- Modify: `src/lib/jobs/queue.ts` (drop `"feed.restore"` from
+  `AGGREGATE_HANDLER_JOB_KINDS` at line 39, and its mentions at lines 28 and 453)
+- Modify comments naming the kind: `src/lib/db/schema/jobs.ts:77`,
+  `src/lib/jobs/log-bus.ts:9`, `src/lib/jobs/scheduler.ts:87`
+- Modify: `src/lib/jobs/handlers/handlers.test.ts`,
+  `src/lib/feeds/actions.test.ts` (drop the restore cases)
+
+- [x] **Step 1:** Remove the handler, its registration, and `restoreFeedsBulk`.
+- [x] **Step 2:** Narrow `AGGREGATE_HANDLER_JOB_KINDS` to
+      `["aggregate", "feed.update"]`. **Care:** plan 1 Task 3 (commit `0aeeac70`)
+      widened the scheduler's dedupe to exactly this constant — the dedupe must
+      still cover both remaining kinds. Re-read that commit before editing.
+- [x] **Step 3:** Update every comment that names `feed.restore` as a live kind.
+      Do not leave a comment describing a handler that no longer exists.
+- [x] **Step 4:** Delete the restore tests. Do not weaken a surviving test to
+      make it pass.
+- [x] **Step 5: Verify** — full four checks.
+
 ---
 
 ### Task 1: Refuse to enqueue aggregation for an AI-enabled feed with no working provider
