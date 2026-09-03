@@ -198,21 +198,21 @@ and silently omits these two.
 - Changes: `buildPostContent()` returns the comment section separately rather
   than concatenated into the body.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `content-hash.test.ts`, add two cases: build a Reddit article's content and a
 YouTube article's content with two different comment sets but identical article
 bodies, and assert `articleContentHash()` returns the **same** value for both.
 Confirm both FAIL before continuing.
 
-- [ ] **Step 2: Have `buildPostContent()` return body and comments separately**
+- [x] **Step 2: Have `buildPostContent()` return body and comments separately**
 
 Change `sites/reddit/content.ts`'s `buildPostContent()` to return
 `{ body: string; comments: string | null }` instead of one concatenated string.
 `addCommentsSection` (`content.ts:220-262`) currently pushes into
 `contentParts`; have it return its section instead.
 
-- [ ] **Step 3: Pass the comments through the proper parameter**
+- [x] **Step 3: Pass the comments through the proper parameter**
 
 At `sites/reddit/aggregator.ts:884`, pass the returned `comments` as
 `formatArticleContent`'s `commentsContent` argument instead of `null`. Note
@@ -220,13 +220,13 @@ At `sites/reddit/aggregator.ts:884`, pass the returned `comments` as
 — update that call site for the new return shape; it should concatenate as
 before, since reload re-derives everything.
 
-- [ ] **Step 4: Same for YouTube**
+- [x] **Step 4: Same for YouTube**
 
 `sites/youtube/aggregator.ts:305-321` builds `<div class="youtube-comments">`
 inline into `htmlContent`. Extract it and pass it as `formatArticleContent`'s
 `commentsContent` at `aggregator.ts:446`.
 
-- [ ] **Step 5: Add a cross-site guard**
+- [x] **Step 5: Add a cross-site guard**
 
 Add a test asserting that for **every** registered aggregator that produces a
 comment section, the section is wrapped in `ARTICLE_COMMENTS_CLASS`. If a
@@ -234,7 +234,7 @@ generic assertion is impractical, at minimum extend `content-hash.test.ts` with
 one case per commenting site (heise, mactechnews, mein_mmo, reddit, youtube), so
 a sixth site added later has an obvious pattern to copy.
 
-- [ ] **Step 6: Verify** — `npm test src/lib/aggregators` then the four CI checks.
+- [x] **Step 6: Verify** — `npm test src/lib/aggregators` then the four CI checks.
 
 ---
 

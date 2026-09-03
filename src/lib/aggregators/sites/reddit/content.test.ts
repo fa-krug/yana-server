@@ -13,10 +13,10 @@ describe("buildPostContent Giphy link handling", () => {
       is_self: false,
     });
 
-    const html = await buildPostContent(post, 0, "test", DEFAULT_CHROME_LABELS);
+    const { body } = await buildPostContent(post, 0, "test", DEFAULT_CHROME_LABELS);
 
-    expect(html).toContain('<img src="https://media.giphy.com/media/AbC123xyz/giphy.gif"');
-    expect(html).not.toContain("giphy.com/gifs");
+    expect(body).toContain('<img src="https://media.giphy.com/media/AbC123xyz/giphy.gif"');
+    expect(body).not.toContain("giphy.com/gifs");
   });
 });
 
@@ -47,8 +47,8 @@ describe("buildPostContent comment-fetch failures", () => {
     // narrow, not a blanket "let comment failures fail the article".
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("socket hang up")));
 
-    const html = await buildPostContent(post(), 10, "test", DEFAULT_CHROME_LABELS);
-    expect(html).toContain("No comments yet.");
+    const { comments } = await buildPostContent(post(), 10, "test", DEFAULT_CHROME_LABELS);
+    expect(comments).toContain("No comments yet.");
   });
 });
 
@@ -64,7 +64,7 @@ describe("buildPostContent crosspost attribution", () => {
     });
 
   it("opens the body with a notice naming the subreddit the post came from", async () => {
-    const html = await buildPostContent(
+    const { body } = await buildPostContent(
       crosspostedPost(),
       0,
       "ich_iel",
@@ -77,20 +77,27 @@ describe("buildPostContent crosspost attribution", () => {
 
     // The notice is first: a reader has to know what they are looking at
     // before the original post's own body starts.
-    expect(html.startsWith("<p><em>Crosspost: ")).toBe(true);
-    expect(html).toContain('href="https://reddit.com/r/ich_iel"');
-    expect(html).toContain(">r/ich_iel<");
+    expect(body.startsWith("<p><em>Crosspost: ")).toBe(true);
+    expect(body).toContain('href="https://reddit.com/r/ich_iel"');
+    expect(body).toContain(">r/ich_iel<");
   });
 
   it("never names the feed's own subreddit, which the reader already knows", async () => {
-    const html = await buildPostContent(crosspostedPost(), 0, "de", DEFAULT_CHROME_LABELS, null, {
-      originalSubreddit: "ich_iel",
-    });
+    const { body } = await buildPostContent(
+      crosspostedPost(),
+      0,
+      "de",
+      DEFAULT_CHROME_LABELS,
+      null,
+      {
+        originalSubreddit: "ich_iel",
+      },
+    );
 
     // "r/ich_iel -> r/de" would spend the line restating where the reader
     // already is; only the origin is news.
-    expect(html).not.toContain("r/de");
-    expect(html).not.toContain("→");
+    expect(body).not.toContain("r/de");
+    expect(body).not.toContain("→");
   });
 
   it("still suppresses the bare link a crosspost's own url would render", async () => {
@@ -111,21 +118,28 @@ describe("buildPostContent crosspost attribution", () => {
 
     // The post's `url` is not appended as a body link, exactly as before this
     // notice existed.
-    expect(withNotice).not.toContain('href="https://www.reddit.com/r/ich_iel/comments/xyz789');
+    expect(withNotice.body).not.toContain('href="https://www.reddit.com/r/ich_iel/comments/xyz789');
     // ...and a post that is *not* a crosspost still gets that link.
-    expect(withoutNotice).toContain('href="https://www.reddit.com/r/ich_iel/comments/xyz789');
-    expect(withoutNotice).not.toContain("Crosspost");
+    expect(withoutNotice.body).toContain('href="https://www.reddit.com/r/ich_iel/comments/xyz789');
+    expect(withoutNotice.body).not.toContain("Crosspost");
   });
 
   it("degrades to the bare label when no origin subreddit is known", async () => {
-    const html = await buildPostContent(crosspostedPost(), 0, "de", DEFAULT_CHROME_LABELS, null, {
-      originalSubreddit: "",
-    });
+    const { body } = await buildPostContent(
+      crosspostedPost(),
+      0,
+      "de",
+      DEFAULT_CHROME_LABELS,
+      null,
+      {
+        originalSubreddit: "",
+      },
+    );
 
     // Still recognizable as a crosspost, which is the whole point of it.
-    expect(html.startsWith("<p><em>Crosspost</em></p>")).toBe(true);
+    expect(body.startsWith("<p><em>Crosspost</em></p>")).toBe(true);
     // No subreddit is linked -- `not.toContain("r/")` would match the
     // comments section's own permalink, which is not what this asserts.
-    expect(html).not.toContain(">r/");
+    expect(body).not.toContain(">r/");
   });
 });

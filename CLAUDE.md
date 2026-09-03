@@ -1065,10 +1065,22 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   `content-hash.ts`, so the wrapper has one definition rather than being written
   in one file and restated in the other** — a test drives real
   `formatArticleContent()` output through the fingerprint, so renaming the value
-  cannot silently end the exclusion. And it **ignores the raw page**:
-  `mactechnews`, `mein_mmo` and `heise` scrape their comments out of the very
-  page they fetched, so hashing it would let a comment rewrite the article
-  through the back door. Three details:
+  cannot silently end the exclusion. **Every commenting site must thread its
+  comment markup through `formatArticleContent()`'s `commentsContent`
+  parameter rather than concatenating it into the block-source html itself** —
+  Reddit and YouTube used to do the latter, building a bare, unwrapped comment
+  section straight into `content`, so a busy Reddit thread or a YouTube
+  video's comments changing gave every active one of those articles a new
+  fingerprint on every aggregation cycle. `buildPostContent()`
+  (`sites/reddit/content.ts`) and `YouTubeAggregator.enrichArticles()`
+  (`sites/youtube/aggregator.ts`) now keep the comment section separate
+  (`RedditPostContent.comments` / `_youtube_comments_html`) until
+  `processContent()` hands it to `formatArticleContent()` as `commentsContent`
+  — five commenting sites in total now comply: heise, mactechnews, mein_mmo,
+  reddit, youtube. And it **ignores the raw page**: `mactechnews`, `mein_mmo`
+  and `heise` scrape their comments out of the very page they fetched, so
+  hashing it would let a comment rewrite the article through the back door.
+  Three details:
   - **The cut is a string operation, not a parse.** A parser would mean
     `cheerio` in this module's graph, which the aggregate handler imports before
     it has decided to do any work — the same reason `3d949a9a` kept cheerio out

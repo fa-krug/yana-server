@@ -394,7 +394,7 @@ export class RedditAggregator extends BaseAggregator {
           );
 
           const labels = await this.chromeLabels();
-          const content = await buildPostContent(
+          const postContent = await buildPostContent(
             postData,
             commentLimit,
             subreddit,
@@ -404,8 +404,16 @@ export class RedditAggregator extends BaseAggregator {
             comments,
           );
 
-          article.raw_content = content;
-          article.content = content;
+          // The comment section is kept off `article.content` -- it rides
+          // along on `_reddit_comments_html` and is stitched back in by
+          // `processContent()` via `formatArticleContent()`'s own
+          // `commentsContent` parameter, which is what lets
+          // `articleContentHash()` cut it back out. Concatenating it here, as
+          // this used to, put the comments back inside the block-source html
+          // with no marker to find them by.
+          article.raw_content = postContent.body + (postContent.comments ?? "");
+          article.content = postContent.body;
+          article._reddit_comments_html = postContent.comments;
         } catch (err) {
           if (err instanceof ArticleSkipError) {
             return null; // drop this article; it's private/removed, not empty-with-comments
@@ -450,7 +458,12 @@ export class RedditAggregator extends BaseAggregator {
       article.content = built.content;
       article.header_html = built.headerHtml;
 
-      if (article.content || built.headerHtml) {
+      // The comments-only-body case: a link post whose body is otherwise
+      // empty (a bare v.redd.it link renders nothing) still has a comments
+      // section to stitch in via processContent() below -- without this
+      // clause in the guard, such a post skipped processContent() entirely
+      // and silently dropped its comments.
+      if (article.content || built.headerHtml || article._reddit_comments_html) {
         article.content = await this.processContent(article.content, article);
       }
 
@@ -461,6 +474,7 @@ export class RedditAggregator extends BaseAggregator {
       delete article._reddit_header_image_url;
       delete article._reddit_video_url;
       delete article._reddit_video_info;
+      delete article._reddit_comments_html;
       delete article.header_html;
 
       return article;
@@ -694,7 +708,11 @@ export class RedditAggregator extends BaseAggregator {
     );
 
     const labels = await this.chromeLabels();
-    return buildPostContent(
+    // Reload never fingerprints this content -- a successful reload keeps the
+    // stored `contentHash` as-is (see the schema comment on `articles.contentHash`)
+    // -- so there is no marker to preserve here. Concatenated as one string,
+    // exactly as this returned before comments and body were split apart.
+    const postContent = await buildPostContent(
       effectivePostData,
       commentLimit,
       effectiveSubreddit,
@@ -703,6 +721,7 @@ export class RedditAggregator extends BaseAggregator {
       crosspost,
       comments,
     );
+    return postContent.body + (postContent.comments ?? "");
   }
 
   override async extractContent(html: string, _article: RawArticle): Promise<string> {
@@ -881,6 +900,12 @@ export class RedditAggregator extends BaseAggregator {
       }
     }
 
+    // Only the normal aggregation path (enrichArticles()) stashes this --
+    // reload has no marker to preserve (see fetchArticleContent() above) and
+    // leaves its comments concatenated into `content` already, so this is
+    // `undefined` there and `commentsContent` below is `null`, same as before.
+    const commentsHtml = (article._reddit_comments_html as string | null | undefined) ?? null;
+
     return formatArticleContent(
       content,
       article.name,
@@ -888,7 +913,7 @@ export class RedditAggregator extends BaseAggregator {
       labels,
       null,
       null,
-      null,
+      commentsHtml,
       headerHtml,
     );
   }

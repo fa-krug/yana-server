@@ -276,52 +276,81 @@ export class YouTubeAggregator extends BaseAggregator {
         comments = await client.fetchVideoComments(videoId, commentLimit);
       }
 
-      const contentHtml = this.buildContentHtml(
-        description,
+      // The description and the comments are kept apart here -- the comments
+      // ride along on `_youtube_comments_html` and are stitched back in by
+      // processContent() via `formatArticleContent()`'s own `commentsContent`
+      // parameter, which is what lets `articleContentHash()` cut them back
+      // out. Concatenating them into one string, as this used to, put the
+      // comments inside the block-source html with no marker to find them by.
+      const descriptionHtml = this.buildDescriptionHtml(description);
+      const commentsHtml = this.buildCommentsHtml(
         comments,
         typeof videoId === "string" ? videoId : "",
         labels,
       );
-      article.content = contentHtml;
-      article.raw_content = contentHtml;
+      article.content = descriptionHtml;
+      article.raw_content = descriptionHtml;
+      article._youtube_comments_html = commentsHtml;
     });
 
     return articles;
   }
 
+  buildDescriptionHtml(description: string): string {
+    // The description is plain text from the API and channel-owner-controlled, so it must be
+    // escaped before splicing it into HTML -- a raw `<script>`/`onerror=` payload here would be
+    // a stored XSS served verbatim through GET /api/v1/articles/[id]/content.
+    const formattedDescription = escapeHtml(description).replace(/\n/g, "<br>");
+    return `<div class="youtube-description">${formattedDescription}</div>`;
+  }
+
+  buildCommentsHtml(
+    comments: YouTubeCommentThread[],
+    videoId: string,
+    labels: ChromeLabels,
+  ): string | null {
+    if (!comments || comments.length === 0) {
+      return null;
+    }
+
+    let html = `<div class="youtube-comments"><h3>${labels.comments}</h3>`;
+    for (const comment of comments) {
+      const topLevel = comment.snippet?.topLevelComment;
+      const snippet = topLevel?.snippet;
+      const author = snippet?.authorDisplayName;
+      const channelUrl = snippet?.authorChannelUrl;
+      const body = snippet?.textDisplay || "";
+      const commentId = comment.id || "";
+
+      const commentUrl = `https://www.youtube.com/watch?v=${videoId}&lc=${escapeHtml(String(commentId))}`;
+
+      const authorHtml = safeCommentAuthorHtml(labels, author, channelUrl);
+      const sanitizedBody = sanitizeCommentBodyHtml(body);
+
+      html += `\n<blockquote>\n<p><strong>${authorHtml}</strong> | <a href="${commentUrl}" target="_blank" rel="noopener">${labels.source}</a></p>\n<div>${sanitizedBody}</div>\n</blockquote>\n`;
+    }
+    html += `</div>`;
+
+    return html;
+  }
+
+  /**
+   * The combined description + comments html this used to be built as, kept
+   * for the one caller that still wants one string: the reload path
+   * (`extractContent()` below), which never fingerprints this content -- a
+   * successful reload keeps the stored `contentHash` as-is (see the schema
+   * comment on `articles.contentHash`) -- so there is no marker to preserve.
+   */
   buildContentHtml(
     description: string,
     comments: YouTubeCommentThread[],
     videoId: string,
     labels: ChromeLabels,
   ): string {
-    // The description is plain text from the API and channel-owner-controlled, so it must be
-    // escaped before splicing it into HTML -- a raw `<script>`/`onerror=` payload here would be
-    // a stored XSS served verbatim through GET /api/v1/articles/[id]/content.
-    const formattedDescription = escapeHtml(description).replace(/\n/g, "<br>");
-    let htmlContent = `<div class="youtube-description">${formattedDescription}</div>`;
-
-    if (comments && comments.length > 0) {
-      htmlContent += `<div class="youtube-comments"><h3>${labels.comments}</h3>`;
-      for (const comment of comments) {
-        const topLevel = comment.snippet?.topLevelComment;
-        const snippet = topLevel?.snippet;
-        const author = snippet?.authorDisplayName;
-        const channelUrl = snippet?.authorChannelUrl;
-        const body = snippet?.textDisplay || "";
-        const commentId = comment.id || "";
-
-        const commentUrl = `https://www.youtube.com/watch?v=${videoId}&lc=${escapeHtml(String(commentId))}`;
-
-        const authorHtml = safeCommentAuthorHtml(labels, author, channelUrl);
-        const sanitizedBody = sanitizeCommentBodyHtml(body);
-
-        htmlContent += `\n<blockquote>\n<p><strong>${authorHtml}</strong> | <a href="${commentUrl}" target="_blank" rel="noopener">${labels.source}</a></p>\n<div>${sanitizedBody}</div>\n</blockquote>\n`;
-      }
-      htmlContent += `</div>`;
-    }
-
-    return htmlContent;
+    return (
+      this.buildDescriptionHtml(description) +
+      (this.buildCommentsHtml(comments, videoId, labels) ?? "")
+    );
   }
 
   override async finalizeArticles(articles: RawArticle[]): Promise<RawArticle[]> {
@@ -337,6 +366,7 @@ export class YouTubeAggregator extends BaseAggregator {
       // aggregated video's content.
       article.content = await this.processContent(article.content, article);
       delete article._youtube_video_id;
+      delete article._youtube_comments_html;
       finalized.push(article);
     }
 
@@ -443,7 +473,22 @@ export class YouTubeAggregator extends BaseAggregator {
       embedHtml = createYoutubeEmbedHtml(videoId, labels, "", thumbnailRef);
     }
 
-    const processed = formatArticleContent(content, article.name, article.identifier, labels);
+    // Only the normal aggregation path (enrichArticles()) stashes this --
+    // reload has no marker to preserve (see buildContentHtml()'s doc comment
+    // above) and leaves its comments concatenated into `content` already, so
+    // this is `undefined` there and `commentsContent` below is `null`, same
+    // as before.
+    const commentsHtml = (article._youtube_comments_html as string | null | undefined) ?? null;
+
+    const processed = formatArticleContent(
+      content,
+      article.name,
+      article.identifier,
+      labels,
+      null,
+      null,
+      commentsHtml,
+    );
     return embedHtml + processed;
   }
 }

@@ -58,6 +58,21 @@ export function buildCrosspostNoticeHtml(
   return `<p><em>${escapeHtml(labels.crosspost)}${origin}</em></p>`;
 }
 
+/**
+ * `buildPostContent()`'s return: the post's own body, and its comment section
+ * kept separate rather than concatenated in. Callers that fingerprint or
+ * render this content must pass `comments` through `formatArticleContent()`'s
+ * `commentsContent` parameter -- never splice it into `body` themselves -- or
+ * `articleContentHash()`'s comment exclusion
+ * (`src/lib/aggregators/content-hash.ts`) cannot find it and a busy thread
+ * rewrites the row on every aggregation cycle. See `ARTICLE_COMMENTS_CLASS` in
+ * `../../extract/format` for the one place that wrapper is written.
+ */
+export interface RedditPostContent {
+  body: string;
+  comments: string | null;
+}
+
 export async function buildPostContent(
   post: RedditPostData,
   commentLimit: number,
@@ -66,7 +81,7 @@ export async function buildPostContent(
   userId?: number | string | null,
   crosspost: CrosspostAttribution | null = null,
   commentsList?: RedditComment[],
-): Promise<string> {
+): Promise<RedditPostContent> {
   const contentParts: string[] = [];
 
   // 1. Crosspost notice -- first, so the reader knows what they are looking at
@@ -87,18 +102,18 @@ export async function buildPostContent(
   // 4. Link media
   addLinkMedia(post, contentParts, Boolean(crosspost), labels);
 
-  // 5. Comments section
-  await addCommentsSection(
+  // 5. Comments section -- built separately, not pushed into contentParts. See
+  // `RedditPostContent` above for why.
+  const comments = await buildCommentsSection(
     post,
     commentLimit,
     subreddit,
     userId,
-    contentParts,
     labels,
     commentsList,
   );
 
-  return contentParts.join("");
+  return { body: contentParts.join(""), comments };
 }
 
 function processGalleryItem(item: RedditGalleryItem, post: RedditPostData): string | null {
@@ -217,15 +232,20 @@ function processLinkMedia(
   return urlLower.includes("twitter.com") || urlLower.includes("x.com");
 }
 
-async function addCommentsSection(
+/**
+ * Builds the comment section's own inner markup -- the caller wraps it (or
+ * doesn't); this function never wraps itself in `<section>`, so the only
+ * `ARTICLE_COMMENTS_CLASS` wrapper in the whole pipeline stays the one
+ * `formatArticleContent()` writes.
+ */
+async function buildCommentsSection(
   post: RedditPostData,
   commentLimit: number,
   subreddit: string,
   userId: number | string | null | undefined,
-  contentParts: string[],
   labels: ChromeLabels,
   providedComments?: RedditComment[],
-): Promise<void> {
+): Promise<string> {
   const decodedPermalink = decodeHtmlEntitiesInUrl(post.permalink);
   const permalink = `https://reddit.com${decodedPermalink}`;
   const commentSectionParts: string[] = [`<h3>${safeLinkHtml(permalink, labels.comments)}</h3>`];
@@ -259,5 +279,5 @@ async function addCommentsSection(
     commentSectionParts.push(`<p><em>${labels.commentsDisabled}</em></p>`);
   }
 
-  contentParts.push(`<section>${commentSectionParts.join("")}</section>`);
+  return commentSectionParts.join("");
 }

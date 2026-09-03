@@ -128,7 +128,12 @@ export interface RawArticleFingerprintSource {
  * rather than being a separate idea.** `mactechnews`, `mein_mmo` and `heise`
  * scrape their comments out of the very page they fetched, so hashing the page
  * would let a new comment rewrite the article through the back door and undo
- * `withoutComments()` for exactly the feeds that have comments. Excluding it
+ * `withoutComments()` for exactly the feeds that have comments. Reddit and
+ * YouTube keep their comments out of this fingerprint too, the same way --
+ * through `formatArticleContent()`'s `commentsContent` parameter rather than
+ * by scraping a page, since both get comments from an API instead -- so the
+ * full site list for the exclusion above is five, not three; the raw-page
+ * angle here is specific to the three that actually scrape one. Excluding it
  * is also what left `articles.rawContent` with no reader at all -- see the
  * note on the `articles` table for why that column is now gone.
  */
