@@ -5,7 +5,7 @@ import type Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { articleImages } from "@/lib/db/schema/articles";
+import { articleBlocks, articleImages, articles, feeds, users } from "@/lib/db/schema";
 import { applyMigrationsAt } from "@/lib/db/test-support";
 
 describe("image store", () => {
@@ -223,5 +223,129 @@ describe("image store", () => {
     const ref = await store.storeImageRefFromUrl("https://example.com/valid.png");
     expect(ref).not.toBeNull();
     expect(ref).toContain(store.IMAGE_REF_SCHEME);
+  });
+
+  describe("sweepUnreferencedImages", () => {
+    /** Seeds a user + feed, returns the feed id. */
+    function seedFeed(): number {
+      const db = client.getDb();
+      db.insert(users).values({ id: "u1", email: "u1@example.com" }).run();
+      const feed = db
+        .insert(feeds)
+        .values({ name: "Feed", userId: "u1" })
+        .returning({ id: feeds.id })
+        .get();
+      return feed.id;
+    }
+
+    /** Seeds an article on `feedId`, returns its id. */
+    function seedArticle(feedId: number, identifier: string): number {
+      const db = client.getDb();
+      const article = db
+        .insert(articles)
+        .values({ name: "Article", identifier, feedId, date: new Date() })
+        .returning({ id: articles.id })
+        .get();
+      return article.id;
+    }
+
+    it("deletes a row and file referenced by nothing, and keeps one referenced by an article block imageRef", async () => {
+      const keptBytes = Buffer.from("kept-image-bytes");
+      const orphanBytes = Buffer.from("orphan-image-bytes");
+
+      const keptHash = await store.storeImageBytes(keptBytes, "image/png", { compress: false });
+      const orphanHash = await store.storeImageBytes(orphanBytes, "image/png", {
+        compress: false,
+      });
+      expect(keptHash).not.toBeNull();
+      expect(orphanHash).not.toBeNull();
+
+      const db = client.getDb();
+      const feedId = seedFeed();
+      const articleId = seedArticle(feedId, "a1");
+      db.insert(articleBlocks)
+        .values({
+          articleId,
+          position: 0,
+          kind: "image",
+          imageRef: store.buildImageRef(keptHash!),
+        })
+        .run();
+
+      const keptRow = db
+        .select()
+        .from(articleImages)
+        .where(eq(articleImages.contentHash, keptHash!))
+        .get();
+      const orphanRow = db
+        .select()
+        .from(articleImages)
+        .where(eq(articleImages.contentHash, orphanHash!))
+        .get();
+      const keptFile = path.join(mediaPath, keptRow!.file);
+      const orphanFile = path.join(mediaPath, orphanRow!.file);
+      expect(fs.existsSync(keptFile)).toBe(true);
+      expect(fs.existsSync(orphanFile)).toBe(true);
+
+      const beforeCount = db.select().from(articleImages).all().length;
+      expect(beforeCount).toBe(2);
+
+      const result = await store.sweepUnreferencedImages();
+
+      const afterRows = db.select().from(articleImages).all();
+      expect(afterRows.length).toBe(1);
+      expect(afterRows[0].contentHash).toBe(keptHash);
+      expect(result.sweptImages).toBe(1);
+
+      expect(fs.existsSync(keptFile)).toBe(true);
+      expect(fs.existsSync(orphanFile)).toBe(false);
+    });
+
+    it("keeps an image referenced only by an embed thumbnail ref or a feed logo hash", async () => {
+      const thumbBytes = Buffer.from("thumb-image-bytes");
+      const logoBytes = Buffer.from("logo-image-bytes");
+
+      const thumbHash = await store.storeImageBytes(thumbBytes, "image/png", { compress: false });
+      const logoHash = await store.storeImageBytes(logoBytes, "image/png", { compress: false });
+      expect(thumbHash).not.toBeNull();
+      expect(logoHash).not.toBeNull();
+
+      const db = client.getDb();
+      const feedId = seedFeed();
+      const articleId = seedArticle(feedId, "a1");
+      db.insert(articleBlocks)
+        .values({
+          articleId,
+          position: 0,
+          kind: "embed",
+          embedThumbnailRef: store.buildImageRef(thumbHash!),
+        })
+        .run();
+      db.update(feeds).set({ logoImageHash: logoHash }).where(eq(feeds.id, feedId)).run();
+
+      const result = await store.sweepUnreferencedImages();
+
+      expect(result.sweptImages).toBe(0);
+      const rows = db.select().from(articleImages).all();
+      expect(rows.map((r) => r.contentHash).sort()).toEqual([logoHash, thumbHash].sort());
+    });
+
+    it("chunks the sweep past a single batch", async () => {
+      const orphanCount = 150;
+      for (let i = 0; i < orphanCount; i++) {
+        const hash = await store.storeImageBytes(Buffer.from(`orphan-${i}`), "image/png", {
+          compress: false,
+        });
+        expect(hash).not.toBeNull();
+      }
+
+      const db = client.getDb();
+      expect(db.select().from(articleImages).all().length).toBe(orphanCount);
+
+      const result = await store.sweepUnreferencedImages();
+
+      expect(result.sweptImages).toBe(orphanCount);
+      expect(db.select().from(articleImages).all().length).toBe(0);
+    });
   });
 });

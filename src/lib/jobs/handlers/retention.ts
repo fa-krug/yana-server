@@ -1,5 +1,6 @@
 import { and, eq, inArray, lte } from "drizzle-orm";
 
+import { sweepUnreferencedImages } from "@/lib/aggregators/images/store";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articleTombstones, articles, feeds, userSettings, type Job } from "@/lib/db/schema";
 import { JobCancelledError } from "../errors";
@@ -110,4 +111,13 @@ export async function handleRetentionJob(job: Job): Promise<void> {
     return result.changes;
   });
   appendLogLine(job.id, "stdout", `pruned ${pruned} expired tombstones`);
+
+  // Mark-and-sweep GC for the content-addressed, refcount-free image store.
+  // Runs last and once per retention run (not per user): article images are
+  // shared across users, so "orphaned" only has a whole-instance answer, and
+  // this cleans up exactly what the article deletions above just orphaned.
+  // See sweepUnreferencedImages()'s doc comment for the reference roots and
+  // the two-encodings trap it guards against.
+  const { sweptImages } = await sweepUnreferencedImages();
+  appendLogLine(job.id, "stdout", `swept ${sweptImages} unreferenced images`);
 }

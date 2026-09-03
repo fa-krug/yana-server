@@ -20,18 +20,24 @@ vi.mock("@/lib/feeds/logo", () => ({
 
 describe("src/lib/jobs/handlers", () => {
   let dbPath: string;
+  let mediaPath: string;
   let client: typeof import("../../db/client");
   let schema: typeof import("../../db/schema");
   let queue: typeof import("../queue");
   let handlers: typeof import("./index");
+  let store: typeof import("../../aggregators/images/store");
 
   beforeEach(async () => {
     vi.resetModules();
-    dbPath = path.join(
-      os.tmpdir(),
-      `yana-handlers-${process.pid}-${Math.random().toString(36).slice(2)}.db`,
-    );
+    const stamp = `${process.pid}-${Math.random().toString(36).slice(2)}`;
+    dbPath = path.join(os.tmpdir(), `yana-handlers-${stamp}.db`);
+    // The retention job's image sweep (see "retention: image sweep" below)
+    // reads/writes real files -- point it at a scratch directory rather than
+    // this repo's own `./media`, which is `mediaRoot()`'s fallback when
+    // MEDIA_PATH is unset.
+    mediaPath = fs.mkdtempSync(path.join(os.tmpdir(), `yana-handlers-media-${stamp}-`));
     process.env.DATABASE_PATH = dbPath;
+    process.env.MEDIA_PATH = mediaPath;
     applyMigrationsAt(dbPath);
 
     // Re-registered every test (not a top-level `vi.mock`): `vi.resetModules()`
@@ -52,16 +58,19 @@ describe("src/lib/jobs/handlers", () => {
     schema = await import("../../db/schema");
     queue = await import("../queue");
     handlers = await import("./index");
+    store = await import("../../aggregators/images/store");
   });
 
   afterEach(() => {
     vi.clearAllMocks();
     delete process.env.DATABASE_PATH;
+    delete process.env.MEDIA_PATH;
     const connection = (client.getDb() as unknown as { $client: Database.Database }).$client;
     if (connection.open) connection.close();
     for (const suffix of ["", "-shm", "-wal"]) {
       fs.rmSync(`${dbPath}${suffix}`, { force: true });
     }
+    fs.rmSync(mediaPath, { recursive: true, force: true });
   });
 
   /** Builds a real `jobs` row (via the queue) so `appendLogLine`'s FK holds. */
@@ -363,6 +372,109 @@ describe("src/lib/jobs/handlers", () => {
       expect(lines).toContain("user retention-user-a: removed 1 expired articles");
       expect(lines.some((l) => l.startsWith("user retention-user-b:"))).toBe(false);
       expect(lines.some((l) => /^pruned \d+ expired tombstones$/.test(l))).toBe(true);
+    });
+
+    it("sweeps images the article deletions above it just orphaned, keeping ones still referenced", async () => {
+      seedUser("sweep-user", "sweep-user@example.com");
+
+      let feedId = 0;
+      client.writeTransaction((db) => {
+        db.insert(schema.userSettings)
+          .values({ userId: "sweep-user", articleRetentionDays: 60 })
+          .run();
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "Sweep Feed", userId: "sweep-user" })
+          .returning({ id: schema.feeds.id })
+          .get();
+        feedId = feed.id;
+
+        // Survives retention (fresh) -> its image stays referenced.
+        db.insert(schema.articles)
+          .values({ name: "Fresh", identifier: "fresh-1", feedId, date: new Date() })
+          .run();
+
+        // Expired, unstarred -> deleted by retention, taking its only
+        // reference to the second image with it.
+        const old = db
+          .insert(schema.articles)
+          .values({
+            name: "Old",
+            identifier: "old-1",
+            feedId,
+            date: new Date("2024-01-01"),
+            starred: false,
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        const eightyDaysAgo = Math.floor((Date.now() - 80 * 24 * 60 * 60_000) / 1000);
+        db.run(sql`UPDATE articles SET created_at = ${eightyDaysAgo} WHERE id = ${old.id}`);
+
+        const freshArticle = db
+          .select()
+          .from(schema.articles)
+          .where(eq(schema.articles.identifier, "fresh-1"))
+          .get()!;
+
+        db.insert(schema.articleBlocks)
+          .values({ articleId: freshArticle.id, position: 0, kind: "image" })
+          .run();
+      });
+
+      // Store the two images for real, then wire the "kept" one's ref onto
+      // the fresh article's block, and leave the "orphan" one referenced by
+      // nothing at all -- as if it belonged only to the article deleted above.
+      const keptHash = await store.storeImageBytes(Buffer.from("kept-bytes"), "image/png", {
+        compress: false,
+      });
+      const orphanHash = await store.storeImageBytes(Buffer.from("orphan-bytes"), "image/png", {
+        compress: false,
+      });
+      expect(keptHash).not.toBeNull();
+      expect(orphanHash).not.toBeNull();
+
+      client.writeTransaction((db) => {
+        db.update(schema.articleBlocks)
+          .set({ imageRef: store.buildImageRef(keptHash!) })
+          .where(eq(schema.articleBlocks.kind, "image"))
+          .run();
+      });
+
+      const keptFile = client
+        .getDb()
+        .select()
+        .from(schema.articleImages)
+        .where(eq(schema.articleImages.contentHash, keptHash!))
+        .get()!.file;
+      const orphanFile = client
+        .getDb()
+        .select()
+        .from(schema.articleImages)
+        .where(eq(schema.articleImages.contentHash, orphanHash!))
+        .get()!.file;
+      const keptPath = path.join(mediaPath, keptFile);
+      const orphanPath = path.join(mediaPath, orphanFile);
+      expect(fs.existsSync(keptPath)).toBe(true);
+      expect(fs.existsSync(orphanPath)).toBe(true);
+
+      const beforeCount = client.getDb().select().from(schema.articleImages).all().length;
+      expect(beforeCount).toBe(2);
+
+      const retentionHandler = handlers.getHandler("retention");
+      const job = makeJob("retention");
+
+      await retentionHandler!(job);
+
+      const afterRows = client.getDb().select().from(schema.articleImages).all();
+      expect(afterRows.length).toBe(1);
+      expect(afterRows[0].contentHash).toBe(keptHash);
+
+      expect(fs.existsSync(keptPath)).toBe(true);
+      expect(fs.existsSync(orphanPath)).toBe(false);
+
+      const lines = logLines(job.id);
+      expect(lines).toContain("swept 1 unreferenced images");
     });
   });
 
