@@ -111,13 +111,15 @@ export class PodcastAggregator extends RssAggregator {
     return `${minutes}:${pad(secs)}`;
   }
 
-  override async parseToRawArticles(sourceData: unknown): Promise<RawArticle[]> {
+  // `limit` is the caller's already-paced allowance -- see the abstract
+  // signature's doc comment in ../base. Optional only so a test can call this
+  // directly without going through `aggregate()`; never recomputed here.
+  override async parseToRawArticles(sourceData: unknown, limit?: number): Promise<RawArticle[]> {
     const feed = sourceData as ParsedFeed;
     const entries = feed?.entries || [];
     const articles: RawArticle[] = [];
-    const limit = this.getCurrentRunLimit();
 
-    const sliced = entries.slice(0, limit > 0 ? limit : entries.length);
+    const sliced = entries.slice(0, limit && limit > 0 ? limit : entries.length);
 
     for (const entry of sliced) {
       let mediaUrl = "";

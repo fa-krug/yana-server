@@ -149,4 +149,42 @@ describe("RssAggregator", () => {
       expect(content).toBe("");
     });
   });
+
+  /**
+   * `aggregate()` computes the paced `limit` from the real `collectedToday`
+   * and hands it to `fetchSourceData()` -- but `parseToRawArticles()` used to
+   * recompute its own slicing bound by calling `this.getCurrentRunLimit()`
+   * with no arguments, silently falling back to `collectedToday = 0`. That
+   * second, unpaced computation was the one that actually truncated the
+   * entry list, so the real pacing `aggregate()` worked out was discarded.
+   */
+  it("paces the entry count from the limit aggregate() computed, not a fresh collectedToday=0", async () => {
+    // maxArticleAgeDays: 0 disables the unrelated age filter, so this test
+    // isolates the pacing bug rather than incidentally passing because the
+    // fixed 2026-08-02 dates in `entries` below are older than the default
+    // 30-day cutoff (measured against the real clock, not the `clock` this
+    // test injects for pacing).
+    const feed: FeedLike = {
+      identifier: "https://example.com/rss",
+      dailyLimit: 20,
+      maxArticleAgeDays: 0,
+    };
+    const agg = new RssAggregator(feed);
+
+    const entries = Array.from({ length: 30 }, (_, i) => ({
+      title: `Entry ${i}`,
+      link: `https://example.com/${i}`,
+      summary: `<p>Content ${i}</p>`,
+      published: "Sun, 02 Aug 2026 18:00:00 GMT",
+    }));
+    vi.spyOn(agg, "fetchSourceData").mockResolvedValue({ title: "Example Feed", entries });
+
+    // dailyLimit 20, 18 already collected today, run at 18:00 -- aggregate()
+    // computes limit = 1 (see base.ts's getCurrentRunLimit()). Before the fix,
+    // parseToRawArticles() recomputed with collected = 0 and returned ~15.
+    const clock = () => new Date("2026-08-02T18:00:00Z");
+    const articles = await agg.aggregate(clock, 18);
+
+    expect(articles.length).toBeLessThanOrEqual(2);
+  });
 });

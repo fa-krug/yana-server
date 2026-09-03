@@ -139,7 +139,19 @@ export abstract class BaseAggregator {
     return this.identifier || "";
   }
 
-  getCurrentRunLimit(clock: () => Date = () => new Date(), collectedToday = 0): number {
+  /**
+   * Computes how many entries this run may collect, pacing `dailyLimit`
+   * across the day rather than spending it all on the first run. Private
+   * because it is only ever correct when fed the *real* `collectedToday` --
+   * `aggregate()` below computes it once and passes the result down as an
+   * ordinary parameter (`fetchSourceData(limit)`, `parseToRawArticles(...,
+   * limit)`), so nothing downstream can recompute it with the wrong inputs.
+   * That used to be exactly the bug: `RssAggregator.parseToRawArticles()`
+   * and `PodcastAggregator.parseToRawArticles()` both called this with no
+   * arguments, silently falling back to `collectedToday = 0` and discarding
+   * the pacing `aggregate()` had already worked out.
+   */
+  private getCurrentRunLimit(clock: () => Date = () => new Date(), collectedToday = 0): number {
     const collected = collectedToday;
     if (collected >= this.dailyLimit) {
       return 0;
@@ -170,7 +182,13 @@ export abstract class BaseAggregator {
 
   abstract fetchSourceData(limit?: number): Promise<unknown>;
 
-  abstract parseToRawArticles(sourceData: unknown): Promise<RawArticle[]>;
+  /**
+   * `limit` is the paced allowance `aggregate()` already computed via the
+   * now-private `getCurrentRunLimit()` -- an override must slice by this
+   * value and must never recompute its own via `getCurrentRunLimit()`. See
+   * that method's doc comment for the bug this signature exists to prevent.
+   */
+  abstract parseToRawArticles(sourceData: unknown, limit: number): Promise<RawArticle[]>;
 
   /**
    * Drops what this run must not store: articles older than
@@ -194,13 +212,16 @@ export abstract class BaseAggregator {
    * "(Anzeige)") and the answer that keeps a feed subscribed to *for* its deals
    * from silently losing them once the option is understood.
    */
-  async filterArticles(articles: RawArticle[]): Promise<RawArticle[]> {
+  async filterArticles(
+    articles: RawArticle[],
+    clock: () => Date = () => new Date(),
+  ): Promise<RawArticle[]> {
     const options = (this.feed.options as Record<string, unknown> | null) || {};
     const skipPromotional = options.skip_ads !== false;
     const cutoffDate =
       this.maxArticleAgeDays === 0
         ? null
-        : new Date(Date.now() - this.maxArticleAgeDays * 24 * 60 * 60 * 1000);
+        : new Date(clock().getTime() - this.maxArticleAgeDays * 24 * 60 * 60 * 1000);
 
     const filtered: RawArticle[] = [];
 
@@ -359,8 +380,8 @@ export abstract class BaseAggregator {
     }
     const sourceData = await this.fetchSourceData(limit);
     onProgress?.(10);
-    let articles = await this.parseToRawArticles(sourceData);
-    articles = await this.filterArticles(articles);
+    let articles = await this.parseToRawArticles(sourceData, limit);
+    articles = await this.filterArticles(articles, clock);
     onProgress?.(20);
     articles = await this.enrichArticles(articles);
     onProgress?.(60);

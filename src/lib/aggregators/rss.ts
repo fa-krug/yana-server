@@ -63,13 +63,16 @@ export class RssAggregator extends BaseAggregator {
     }
   }
 
-  async parseToRawArticles(sourceData: unknown): Promise<RawArticle[]> {
+  // `limit` is the caller's already-paced allowance (see the abstract
+  // signature's doc comment in ./base) -- optional only so a test can call
+  // this directly against a fixture without going through `aggregate()`, in
+  // which case it is treated as "no limit," never recomputed here.
+  async parseToRawArticles(sourceData: unknown, limit?: number): Promise<RawArticle[]> {
     const feed = sourceData as ParsedFeed;
     const entries = feed?.entries || [];
     const articles: RawArticle[] = [];
-    const limit = this.getCurrentRunLimit();
 
-    for (const entry of entries.slice(0, limit > 0 ? limit : entries.length)) {
+    for (const entry of entries.slice(0, limit && limit > 0 ? limit : entries.length)) {
       articles.push({
         name: unescapeEntities(entry.title || ""),
         identifier: entry.link || "",

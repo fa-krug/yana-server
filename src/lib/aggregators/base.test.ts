@@ -47,11 +47,20 @@ describe("BaseAggregator", () => {
     expect(() => agg.validate()).toThrow("Feed identifier is required");
   });
 
-  it("returns 0 run limit when daily limit is reached", () => {
+  // The pacing formula (`getCurrentRunLimit()`) is private -- it is only ever
+  // correct when fed the real `collectedToday`, and `aggregate()` is the one
+  // caller that has it, so these assert its output through the public
+  // pipeline: `TestAggregator.fetchSourceData()` records whatever limit it
+  // was called with, which is that computed value.
+  it("never fetches when the daily limit is already reached", async () => {
     const feed: FeedLike = { identifier: "test", dailyLimit: 5 };
     const agg = new TestAggregator(feed);
-    expect(agg.getCurrentRunLimit(() => new Date(), 5)).toBe(0);
-    expect(agg.getCurrentRunLimit(undefined, 12)).toBe(0);
+    expect(await agg.aggregate(() => new Date(), 5)).toEqual([]);
+    expect(agg.fetchedLimit).toBeUndefined();
+
+    const agg2 = new TestAggregator(feed);
+    expect(await agg2.aggregate(undefined, 12)).toEqual([]);
+    expect(agg2.fetchedLimit).toBeUndefined();
   });
 
   it("filters articles older than maxArticleAgeDays", async () => {
@@ -61,6 +70,39 @@ describe("BaseAggregator", () => {
     const filtered = await agg.filterArticles(articles);
     expect(filtered).toHaveLength(1);
     expect(filtered[0].name).toBe("Recent Article");
+  });
+
+  // `getCurrentRunLimit()` already took an injectable clock; the age cutoff
+  // hardcoded `Date.now()` instead, which made this half of the same pipeline
+  // untestable against a fixed point in time. Dates are chosen so a cutoff
+  // measured against the *real* current clock would drop both articles,
+  // proving the injected `clock` -- not the real one -- is what governs this.
+  it("computes the age cutoff from an injectable clock, not Date.now()", async () => {
+    const feed: FeedLike = { identifier: "test", dailyLimit: 20, maxArticleAgeDays: 30 };
+    const agg = new TestAggregator(feed);
+    const articles: RawArticle[] = [
+      {
+        name: "Within 30 days of the injected clock",
+        identifier: "https://example.com/a",
+        raw_content: "",
+        content: "",
+        date: new Date("2026-07-10T00:00:00Z"),
+      },
+      {
+        name: "Older than 30 days of the injected clock",
+        identifier: "https://example.com/b",
+        raw_content: "",
+        content: "",
+        date: new Date("2026-06-01T00:00:00Z"),
+      },
+    ];
+    const clock = () => new Date("2026-08-02T00:00:00Z");
+
+    const filtered = await agg.filterArticles(articles, clock);
+
+    expect(filtered.map((article) => article.name)).toEqual([
+      "Within 30 days of the injected clock",
+    ]);
   });
 
   it("filters articles older than 30 days by default", async () => {
@@ -163,24 +205,24 @@ describe("BaseAggregator", () => {
     });
   });
 
-  it("applies morning aggression before 10 AM", () => {
+  it("applies morning aggression before 10 AM", async () => {
     const feed: FeedLike = { identifier: "https://example.com/rss", dailyLimit: 20 };
     const agg = new TestAggregator(feed);
     // 8 AM clock
     const morningClock = () => new Date("2026-08-02T08:00:00Z");
-    const limit = agg.getCurrentRunLimit(morningClock, 0);
+    await agg.aggregate(morningClock, 0);
     // 40% of remaining 20 is 8
-    expect(limit).toBeGreaterThanOrEqual(8);
+    expect(agg.fetchedLimit).toBeGreaterThanOrEqual(8);
   });
 
-  it("calculates adaptive limit in afternoon", () => {
+  it("calculates adaptive limit in afternoon", async () => {
     const feed: FeedLike = { identifier: "https://example.com/rss", dailyLimit: 20 };
     const agg = new TestAggregator(feed);
     // 2 PM clock (14:00)
     const afternoonClock = () => new Date("2026-08-02T14:00:00Z");
-    const limit = agg.getCurrentRunLimit(afternoonClock, 0);
-    expect(limit).toBeGreaterThan(0);
-    expect(limit).toBeLessThanOrEqual(20);
+    await agg.aggregate(afternoonClock, 0);
+    expect(agg.fetchedLimit).toBeGreaterThan(0);
+    expect(agg.fetchedLimit).toBeLessThanOrEqual(20);
   });
 
   it("defaults maxArticleAgeDays to 30 when the feed omits it", () => {

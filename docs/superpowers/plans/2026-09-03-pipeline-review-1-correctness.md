@@ -338,13 +338,13 @@ fixed; the two call sites inside the aggregators were not, and the handler's
 - Modify: `src/lib/aggregators/sites/podcast.ts`
 - Modify: `src/lib/aggregators/base.test.ts`, `rss.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Build an `RssAggregator` over a feed with `dailyLimit: 20` and a source with 30
 entries, call `aggregate(clock, /* collectedToday */ 18)`, and assert at most 2
 articles come back. Confirm it FAILS (it will return ~15).
 
-- [ ] **Step 2: Make the limit a parameter, not a recomputation**
+- [x] **Step 2: Make the limit a parameter, not a recomputation**
 
 Change the abstract signature to
 `parseToRawArticles(sourceData: unknown, limit: number): Promise<RawArticle[]>`
@@ -357,14 +357,14 @@ This is the structural fix: with the limit arriving as an argument, it cannot be
 recomputed with the wrong inputs. Making `getCurrentRunLimit()` `private` after
 this change would enforce it — do that if no legitimate external caller remains.
 
-- [ ] **Step 3: Make the cutoff clock injectable for consistency**
+- [x] **Step 3: Make the cutoff clock injectable for consistency**
 
 `filterArticles()` (`base.ts:200-203`) hardcodes `new Date(Date.now() - …)`
 while `getCurrentRunLimit()` accepts an injectable clock. Thread the same
 `clock` through so both time-dependent decisions in one pipeline are testable
 the same way.
 
-- [ ] **Step 4: Verify** — `npm test src/lib/aggregators` then the four CI checks.
+- [x] **Step 4: Verify** — `npm test src/lib/aggregators` then the four CI checks.
 
 ---
 
