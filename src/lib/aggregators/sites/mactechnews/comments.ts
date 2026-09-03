@@ -1,56 +1,14 @@
 import * as cheerio from "cheerio";
-import type { Element } from "domhandler";
-import { isSafeUrl } from "../../blocks/parser";
-import { sanitizeUntrustedFragment } from "../../extract/clean";
-import { escapeHtml } from "../../extract/format";
 import type { ChromeLabels } from "../../chrome-labels";
+import { buildCommentsSection, type CommentSpec } from "../../comments/section";
 
-function commentLink(url: string, label: string): string {
-  if (isSafeUrl(url)) {
-    return `<a href="${escapeHtml(url)}">${label}</a>`;
-  }
-  return label;
-}
-
-function processComment(
-  commentEl: cheerio.Cheerio<Element>,
-  articleUrl: string,
-  $: cheerio.CheerioAPI,
-  labels: ChromeLabels,
-): string | null {
-  const authorEl = commentEl.find("span.MtnCommentAccountName").first();
-  const author = authorEl.length > 0 ? authorEl.text().trim() : labels.unknownAuthor;
-
-  const timeEl = commentEl.find("span.MtnCommentTime").first();
-  let timestamp = "";
-  if (timeEl.length > 0) {
-    const timeSpans = timeEl.find("span");
-    if (timeSpans.length > 0) {
-      const parts: string[] = [];
-      timeSpans.each((_, span) => {
-        parts.push($(span).text().trim());
-      });
-      timestamp = parts.join(" ");
-    }
-  }
-
-  const textEl = commentEl.find("div.MtnCommentText").first();
-  if (textEl.length === 0) {
-    return null;
-  }
-
-  const commentText = $.html(textEl);
-  const commentId = commentEl.attr("id") || "";
-  const anchorUrl = commentId ? `${articleUrl}#${commentId}` : `${articleUrl}#comments`;
-  const tsDisplay = timestamp ? ` (${escapeHtml(timestamp)})` : "";
-
-  return (
-    `<blockquote>` +
-    `<p><strong>${escapeHtml(author)}</strong>${tsDisplay} | ` +
-    `${commentLink(anchorUrl, labels.source)}</p>` +
-    `<div>${sanitizeUntrustedFragment(commentText)}</div>` +
-    `</blockquote>`
-  );
+/** One already-extracted MacTechNews comment -- see `extractComments()`'s
+ * `list()` for how these are read off the DOM. */
+interface MtnCommentItem {
+  author: string;
+  timestamp: string;
+  bodyHtml: string;
+  anchorUrl: string;
 }
 
 /**
@@ -62,6 +20,9 @@ function processComment(
  * @param html - Full article HTML
  * @param articleUrl - Article URL for building anchor links
  * @param maxComments - Maximum number of comments to extract
+ * @param onLog - Forwarded to the shared builder so a selector-extraction
+ *   failure is logged to the triggering job's own output rather than
+ *   swallowed silently -- see `buildCommentsSection()`'s doc comment.
  * @returns HTML string with formatted comments, or null if no comments found
  */
 export function extractComments(
@@ -69,42 +30,67 @@ export function extractComments(
   articleUrl: string,
   maxComments: number,
   labels: ChromeLabels,
+  onLog?: (message: string) => void,
 ): string | null {
   if (maxComments <= 0) {
     return null;
   }
 
-  const $ = cheerio.load(html);
+  const spec: CommentSpec<string, MtnCommentItem> = {
+    list: (source) => {
+      const $ = cheerio.load(source);
 
-  // Find the comments container
-  const commentScroll = $("div.MtnCommentScroll").first();
-  if (commentScroll.length === 0) {
-    return null;
-  }
+      const commentScroll = $("div.MtnCommentScroll").first();
+      if (commentScroll.length === 0) {
+        return [];
+      }
 
-  // Find individual comments
-  const comments = commentScroll.find("div.MtnComment");
-  if (comments.length === 0) {
-    return null;
-  }
+      const comments = commentScroll.find("div.MtnComment");
+      // Sliced to `maxComments` *before* filtering out comments with no body
+      // below -- matching the previous implementation, which only ever
+      // considered the first `maxComments` raw elements and could therefore
+      // end up with fewer than `maxComments` items in the output.
+      const limit = Math.min(comments.length, maxComments);
+      const items: MtnCommentItem[] = [];
 
-  const commentParts: string[] = [];
-  const limit = Math.min(comments.length, maxComments);
+      for (let i = 0; i < limit; i++) {
+        const commentEl = $(comments.get(i)!);
 
-  for (let i = 0; i < limit; i++) {
-    const commentEl = $(comments.get(i)!);
-    const commentHtml = processComment(commentEl, articleUrl, $, labels);
-    if (commentHtml) {
-      commentParts.push(commentHtml);
-    }
-  }
+        const authorEl = commentEl.find("span.MtnCommentAccountName").first();
+        const author = authorEl.length > 0 ? authorEl.text().trim() : labels.unknownAuthor;
 
-  if (commentParts.length === 0) {
-    return null;
-  }
+        const timeEl = commentEl.find("span.MtnCommentTime").first();
+        let timestamp = "";
+        if (timeEl.length > 0) {
+          const timeSpans = timeEl.find("span");
+          if (timeSpans.length > 0) {
+            const parts: string[] = [];
+            timeSpans.each((_, span) => {
+              parts.push($(span).text().trim());
+            });
+            timestamp = parts.join(" ");
+          }
+        }
 
-  // Build comments section with header
-  const commentsUrl = `${articleUrl}#comments`;
-  const header = `<h3>${commentLink(commentsUrl, labels.comments)}</h3>`;
-  return `<section>${header}${commentParts.join("")}</section>`;
+        const textEl = commentEl.find("div.MtnCommentText").first();
+        if (textEl.length === 0) {
+          continue;
+        }
+
+        const commentId = commentEl.attr("id") || "";
+        const anchorUrl = commentId ? `${articleUrl}#${commentId}` : `${articleUrl}#comments`;
+
+        items.push({ author, timestamp, bodyHtml: $.html(textEl), anchorUrl });
+      }
+
+      return items;
+    },
+    author: (c) => c.author,
+    timestamp: (c) => c.timestamp,
+    bodyHtml: (c) => c.bodyHtml,
+    anchorUrl: (c) => c.anchorUrl,
+    wrapTag: "section",
+  };
+
+  return buildCommentsSection(spec, html, `${articleUrl}#comments`, maxComments, labels, onLog);
 }

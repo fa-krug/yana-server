@@ -1,68 +1,14 @@
 import * as cheerio from "cheerio";
-import type { Element } from "domhandler";
-import { isSafeUrl } from "../../blocks/parser";
-import { sanitizeUntrustedFragment } from "../../extract/clean";
-import { escapeHtml } from "../../extract/format";
 import type { ChromeLabels } from "../../chrome-labels";
+import { buildCommentsSection, type CommentSpec } from "../../comments/section";
 
-function commentLink(url: string, label: string): string {
-  if (isSafeUrl(url)) {
-    return `<a href="${escapeHtml(url)}">${label}</a>`;
-  }
-  return label;
-}
-
-function processComment(
-  commentEl: cheerio.Cheerio<Element>,
-  articleUrl: string,
-  _$: cheerio.CheerioAPI,
-  labels: ChromeLabels,
-): string | null {
-  let author = labels.unknownAuthor;
-  const authorEl = commentEl.find("div.wpd-comment-author").first();
-  if (authorEl.length > 0) {
-    const link = authorEl.find("a").first();
-    const text = link.length > 0 ? link.text().trim() : authorEl.text().trim();
-    if (text) {
-      author = text;
-    }
-  }
-
-  let timestamp = "";
-  const dateEl = commentEl.find("div.wpd-comment-date").first();
-  if (dateEl.length > 0) {
-    const titleAttr = dateEl.attr("title");
-    timestamp = titleAttr ? titleAttr.trim() : dateEl.text().trim();
-  }
-
-  const textEl = commentEl.find("div.wpd-comment-text").first();
-  if (textEl.length === 0) {
-    return null;
-  }
-
-  const commentText = textEl.html() || "";
-  if (!commentText.trim()) {
-    return null;
-  }
-
-  let anchorUrl = `${articleUrl}#comments`;
-  const rightEl = commentEl.find("div.wpd-comment-right").first();
-  if (rightEl.length > 0) {
-    const commentId = rightEl.attr("id");
-    if (commentId) {
-      anchorUrl = `${articleUrl}#${commentId}`;
-    }
-  }
-
-  const tsDisplay = timestamp ? ` (${escapeHtml(timestamp)})` : "";
-
-  return (
-    `<blockquote>` +
-    `<p><strong>${escapeHtml(author)}</strong>${tsDisplay} | ` +
-    `${commentLink(anchorUrl, labels.source)}</p>` +
-    `<div>${sanitizeUntrustedFragment(commentText)}</div>` +
-    `</blockquote>`
-  );
+/** One already-extracted Mein-MMO comment -- see `extractComments()`'s
+ * `list()` for how these are read off the DOM. */
+interface WpdCommentItem {
+  author: string;
+  timestamp: string;
+  bodyHtml: string;
+  anchorUrl: string;
 }
 
 /**
@@ -72,6 +18,9 @@ function processComment(
  * @param articleUrl - Article URL for building anchor links
  * @param maxComments - Maximum number of comments to extract
  * @param labels - Localized chrome labels (Comments, source)
+ * @param onLog - Forwarded to the shared builder so a selector-extraction
+ *   failure is logged to the triggering job's own output rather than
+ *   swallowed silently -- see `buildCommentsSection()`'s doc comment.
  * @returns HTML string with formatted comments, or null if no comments found
  */
 export function extractComments(
@@ -79,39 +28,79 @@ export function extractComments(
   articleUrl: string,
   maxComments: number,
   labels: ChromeLabels,
+  onLog?: (message: string) => void,
 ): string | null {
   if (maxComments <= 0) {
     return null;
   }
 
-  const $ = cheerio.load(html);
+  const spec: CommentSpec<string, WpdCommentItem> = {
+    list: (source) => {
+      const $ = cheerio.load(source);
 
-  const thread = $("div.wpd-thread-list").first();
-  if (thread.length === 0) {
-    return null;
-  }
+      const thread = $("div.wpd-thread-list").first();
+      if (thread.length === 0) {
+        return [];
+      }
 
-  const comments = thread.find("div.wpd-comment");
-  if (comments.length === 0) {
-    return null;
-  }
+      const comments = thread.find("div.wpd-comment");
+      // Sliced to `maxComments` *before* filtering out comments with no body
+      // below -- matching the previous implementation, which only ever
+      // considered the first `maxComments` raw elements and could therefore
+      // end up with fewer than `maxComments` items in the output.
+      const limit = Math.min(comments.length, maxComments);
+      const items: WpdCommentItem[] = [];
 
-  const commentParts: string[] = [];
-  const limit = Math.min(comments.length, maxComments);
+      for (let i = 0; i < limit; i++) {
+        const commentEl = $(comments.get(i)!);
 
-  for (let i = 0; i < limit; i++) {
-    const commentEl = $(comments.get(i)!);
-    const commentHtml = processComment(commentEl, articleUrl, $, labels);
-    if (commentHtml) {
-      commentParts.push(commentHtml);
-    }
-  }
+        let author = labels.unknownAuthor;
+        const authorEl = commentEl.find("div.wpd-comment-author").first();
+        if (authorEl.length > 0) {
+          const link = authorEl.find("a").first();
+          const text = link.length > 0 ? link.text().trim() : authorEl.text().trim();
+          if (text) {
+            author = text;
+          }
+        }
 
-  if (commentParts.length === 0) {
-    return null;
-  }
+        let timestamp = "";
+        const dateEl = commentEl.find("div.wpd-comment-date").first();
+        if (dateEl.length > 0) {
+          const titleAttr = dateEl.attr("title");
+          timestamp = titleAttr ? titleAttr.trim() : dateEl.text().trim();
+        }
 
-  const commentsUrl = `${articleUrl}#comments`;
-  const header = `<h3>${commentLink(commentsUrl, labels.comments)}</h3>`;
-  return `<section>${header}${commentParts.join("")}</section>`;
+        const textEl = commentEl.find("div.wpd-comment-text").first();
+        if (textEl.length === 0) {
+          continue;
+        }
+
+        const bodyHtml = textEl.html() || "";
+        if (!bodyHtml.trim()) {
+          continue;
+        }
+
+        let anchorUrl = `${articleUrl}#comments`;
+        const rightEl = commentEl.find("div.wpd-comment-right").first();
+        if (rightEl.length > 0) {
+          const commentId = rightEl.attr("id");
+          if (commentId) {
+            anchorUrl = `${articleUrl}#${commentId}`;
+          }
+        }
+
+        items.push({ author, timestamp, bodyHtml, anchorUrl });
+      }
+
+      return items;
+    },
+    author: (c) => c.author,
+    timestamp: (c) => c.timestamp,
+    bodyHtml: (c) => c.bodyHtml,
+    anchorUrl: (c) => c.anchorUrl,
+    wrapTag: "section",
+  };
+
+  return buildCommentsSection(spec, html, `${articleUrl}#comments`, maxComments, labels, onLog);
 }

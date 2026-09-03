@@ -378,8 +378,16 @@ export class HeiseAggregator extends FullWebsiteAggregator {
             labels,
           );
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        // Selector-fragile: heise's forum markup changes without notice, so a
+        // failure here is logged (matching website.ts's "no body extracted"
+        // convention) rather than swallowed silently -- see the 2026-09-03
+        // pipeline-review-3 Task 2 note on this catch.
+        const message = `[heise] failed to extract comments for ${article.identifier}: ${
+          err instanceof Error ? err.message : String(err)
+        }`;
+        console.warn(message);
+        this.onLog?.(message);
       }
     }
 
@@ -436,7 +444,15 @@ export class HeiseAggregator extends FullWebsiteAggregator {
 
       const header = `<h3><a href="${escapeHtml(forumUrl)}">${labels.comments}</a></h3>`;
       return `<section>${header}${commentParts.join("")}</section>`;
-    } catch {
+    } catch (err) {
+      // Same rationale as the outer catch above: the forum page fetch or its
+      // markup can fail independently of the article page itself, and this
+      // is the one place in the pipeline that failure had no signal at all.
+      const message = `[heise] failed to fetch/parse the comment forum at ${forumUrl}: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+      console.warn(message);
+      this.onLog?.(message);
       return null;
     }
   }

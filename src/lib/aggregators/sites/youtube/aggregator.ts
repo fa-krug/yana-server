@@ -6,11 +6,11 @@
 
 import { BaseAggregator, FeedLike, RawArticle } from "../../base";
 import type { ChromeLabels } from "../../chrome-labels";
+import { buildCommentsSection, type CommentSpec } from "../../comments/section";
 import { mapWithConcurrency } from "../../concurrency";
 import type { HeaderElementData } from "../../header/context";
 import { isSafeUrl } from "../../blocks/parser";
 import { createYoutubeEmbedHtml, escapeHtml, formatArticleContent } from "../../extract/format";
-import { sanitizeUntrustedFragment } from "../../extract/clean";
 import { localizeThumbnail } from "../../embeds/youtube";
 import {
   YouTubeAPIError,
@@ -290,29 +290,37 @@ export class YouTubeAggregator extends BaseAggregator {
     videoId: string,
     labels: ChromeLabels,
   ): string | null {
-    if (!comments || comments.length === 0) {
+    if (!comments) {
       return null;
     }
 
-    let html = `<div class="youtube-comments"><h3>${labels.comments}</h3>`;
-    for (const comment of comments) {
-      const topLevel = comment.snippet?.topLevelComment;
-      const snippet = topLevel?.snippet;
-      const author = snippet?.authorDisplayName;
-      const channelUrl = snippet?.authorChannelUrl;
-      const body = snippet?.textDisplay || "";
-      const commentId = comment.id || "";
+    // YouTube's own adapter for the shared `buildCommentsSection()`
+    // (`src/lib/aggregators/comments/section.ts`): no timestamp, an author
+    // that can itself be a link to the commenter's channel
+    // (`authorIsHtml: true`), and an already-escaped comment-id-bearing href
+    // that must not be run through `escapeHtml()` a second time
+    // (`rawAnchorHref: true`) -- doing so would double-escape the literal "&"
+    // between its query parameters.
+    const spec: CommentSpec<YouTubeCommentThread[], YouTubeCommentThread> = {
+      list: (source) => source,
+      author: (c) =>
+        safeCommentAuthorHtml(
+          labels,
+          c.snippet?.topLevelComment?.snippet?.authorDisplayName,
+          c.snippet?.topLevelComment?.snippet?.authorChannelUrl,
+        ),
+      authorIsHtml: true,
+      bodyHtml: (c) => c.snippet?.topLevelComment?.snippet?.textDisplay || "",
+      anchorUrl: (c) =>
+        `https://www.youtube.com/watch?v=${videoId}&lc=${escapeHtml(String(c.id || ""))}`,
+      rawAnchorHref: true,
+      linkAttrs: 'target="_blank" rel="noopener"',
+      multiline: true,
+      wrapTag: "div",
+      wrapClass: "youtube-comments",
+    };
 
-      const commentUrl = `https://www.youtube.com/watch?v=${videoId}&lc=${escapeHtml(String(commentId))}`;
-
-      const authorHtml = safeCommentAuthorHtml(labels, author, channelUrl);
-      const sanitizedBody = sanitizeUntrustedFragment(body);
-
-      html += `\n<blockquote>\n<p><strong>${authorHtml}</strong> | <a href="${commentUrl}" target="_blank" rel="noopener">${labels.source}</a></p>\n<div>${sanitizedBody}</div>\n</blockquote>\n`;
-    }
-    html += `</div>`;
-
-    return html;
+    return buildCommentsSection(spec, comments, null, comments.length, labels, this.onLog);
   }
 
   /**

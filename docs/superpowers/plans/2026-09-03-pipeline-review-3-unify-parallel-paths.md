@@ -136,9 +136,9 @@ forget.
 **Files:** create `src/lib/aggregators/comments/section.ts`; modify the four
 sites and their tests.
 
-- [ ] **Step 1:** Characterisation tests pinning all four sites' current comment
+- [x] **Step 1:** Characterisation tests pinning all four sites' current comment
       HTML.
-- [ ] **Step 2:** Define the descriptor, in the style of
+- [x] **Step 2:** Define the descriptor, in the style of
       `src/lib/integrations/define.ts` (the precedent this repo already uses for
       "one declaration, shared sequence"):
 
@@ -154,9 +154,9 @@ interface CommentSpec<T> {
 buildCommentsSection<T>(spec, source, sectionUrl, max, labels): string | null
 ```
 
-- [ ] **Step 3:** Convert MacTechNews and Mein-MMO to ~25-line selector
+- [x] **Step 3:** Convert MacTechNews and Mein-MMO to ~25-line selector
       descriptors, Reddit and YouTube to ~15-line adapters.
-- [ ] **Step 4:** Comment-extraction failures are currently swallowed with no
+- [x] **Step 4:** Comment-extraction failures are currently swallowed with no
       log anywhere — `heise.ts:391-404,460-462`,
       `mactechnews/aggregator.ts:219-228`, `mein_mmo/aggregator.ts:208-217` all
       use `catch { /* ignore */ }`. `website.ts:216-218` was explicitly changed

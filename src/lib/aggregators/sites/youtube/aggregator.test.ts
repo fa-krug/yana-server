@@ -150,6 +150,46 @@ describe("YouTubeAggregator.buildContentHtml", () => {
 
     expect(html).toContain("<strong>Unbekannt</strong>");
   });
+
+  // Characterisation pins (2026-09-03 pipeline-review-3 Task 2): the exact
+  // byte output of today's `buildCommentsHtml()`, captured before it is
+  // converted to an adapter over the shared `buildCommentsSection()` in
+  // `src/lib/aggregators/comments/section.ts` -- so the conversion cannot
+  // silently change the `<div class="youtube-comments">` wrapper, the
+  // header's lack of a link, the `target="_blank" rel="noopener"` link
+  // attributes, or the raw (un-re-escaped) `&` in the comment permalink.
+  it("pins the exact markup for one comment whose author links to their channel", () => {
+    const agg = aggregatorFor();
+    const comments: YouTubeCommentThread[] = [
+      {
+        id: "c1",
+        snippet: {
+          topLevelComment: {
+            snippet: {
+              authorDisplayName: "Someone",
+              authorChannelUrl: "https://www.youtube.com/channel/xyz",
+              textDisplay: "nice video",
+            },
+          },
+        },
+      },
+    ];
+
+    const html = agg.buildCommentsHtml(comments, "vid1", DEFAULT_CHROME_LABELS);
+
+    expect(html).toBe(
+      '<div class="youtube-comments"><h3>Comments</h3>\n<blockquote>\n<p>' +
+        '<strong><a href="https://www.youtube.com/channel/xyz">Someone</a></strong> | ' +
+        '<a href="https://www.youtube.com/watch?v=vid1&lc=c1" target="_blank" ' +
+        'rel="noopener">source</a></p>\n<div>nice video</div>\n</blockquote>\n</div>',
+    );
+  });
+
+  it("pins null (no comments section at all) when there are no comments", () => {
+    const agg = aggregatorFor();
+
+    expect(agg.buildCommentsHtml([], "vid1", DEFAULT_CHROME_LABELS)).toBeNull();
+  });
 });
 
 describe("YouTubeAggregator.finalizeArticles", () => {

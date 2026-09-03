@@ -206,13 +206,19 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
     const maxComments = typeof options.max_comments === "number" ? options.max_comments : 5;
 
     if (includeComments) {
-      try {
-        const commentSource = firstPageHtml || article.raw_content || "";
-        if (commentSource) {
-          commentsHtml = extractComments(commentSource, article.identifier, maxComments, labels);
-        }
-      } catch {
-        // ignore comment extraction errors
+      const commentSource = firstPageHtml || article.raw_content || "";
+      if (commentSource) {
+        // extractComments() never throws -- a selector-extraction failure is
+        // caught and logged by the shared buildCommentsSection() it delegates
+        // to (see src/lib/aggregators/comments/section.ts), rather than being
+        // swallowed silently by a try/catch here.
+        commentsHtml = extractComments(
+          commentSource,
+          article.identifier,
+          maxComments,
+          labels,
+          this.onLog,
+        );
       }
     }
 
