@@ -42,9 +42,15 @@
  * *inside* a paragraph, and `parseBlocks()` does emit those (HTML source line
  * breaks, and its own table flattening), so a run serialized raw came back as
  * two paragraphs. `canonicalBlocks()` collapses whitespace (except inside a
- * `code` run, where it is content), merges adjacent identically-styled runs
- * and trims paragraph edges, and is idempotent -- which is what lets the
- * rewrite path trust a returned document it did not build.
+ * `code` run, where it is content), merges adjacent identically-styled runs,
+ * trims paragraph edges, drops any block that canonicalizes to nothing (a
+ * `textToBlocks` line-oriented parse never records one either) and clamps a
+ * heading to the 1-6 levels the notation can write -- and is idempotent, which
+ * is what lets the rewrite path trust a returned document it did not build.
+ * `blocksToText()` canonicalizes the whole tree once, up front, rather than
+ * per block: serializing a raw tree while writing a canonicalized caption or
+ * heading marker into the text is how an image's stored placeholder and its
+ * serialized caption used to disagree about the same block.
  */
 
 import type {
@@ -143,27 +149,92 @@ function escapeLineStart(line: string): string {
  *   runs dropped, since a line's leading and trailing space cannot survive a
  *   line-oriented format and means nothing rendered.
  *
+ * - **A heading's level clamped to 1-6.** The only range this notation can
+ *   write (`"#".repeat(level)`) and `article_blocks.level` can be read back
+ *   as. This is the single place that clamp lives -- `serializeBlocks()` below
+ *   relies on `canonicalBlocks()` having already applied it rather than
+ *   repeating the arithmetic, which is what used to let a `level: 7` heading
+ *   round-trip to 6 while `canonicalBlocks()` alone left it at 7.
+ * - **A block that canonicalizes to nothing is dropped**, recursively --
+ *   see `isEmptyBlock()`. `textToBlocks`'s line-oriented parse never records
+ *   an empty paragraph, an empty heading, a quote with no surviving content or
+ *   a list with no surviving items either (a blank line is skipped, and
+ *   `parseLines` only ever pushes a quote or a list when something parsed
+ *   inside it), so leaving one in `canonicalBlocks()`'s output was the source
+ *   of three distinct failures: an empty paragraph made the round trip
+ *   unstable, a `heading level:2 runs:[]` came back as the literal paragraph
+ *   `"##"` (the serialized line lost its required trailing space to `.trim()`
+ *   and stopped looking like a heading), and a list whose first item was empty
+ *   came back as a stray one-word paragraph *plus* a shorter list, because the
+ *   serialized marker line for that item was itself indistinguishable from
+ *   plain text once trimmed. Dropping it here, before anything is serialized,
+ *   is what stops all three at once.
+ *
  * Idempotent, so it is a normal form rather than a transformation: the contract
  * pinned in `block-text.test.ts` is
  * `textToBlocks(blocksToText(b)) === canonicalBlocks(b)`.
  */
 export function canonicalBlocks(blocks: Block[]): Block[] {
-  return blocks.map((block) => {
-    switch (block.kind) {
-      case "paragraph":
-      case "heading":
-        return { ...block, runs: canonicalRuns(block.runs) };
-      case "image":
-        return { ...block, caption: canonicalRuns(block.caption) };
-      case "blockquote":
-      case "summary":
-        return { ...block, blocks: canonicalBlocks(block.blocks) };
-      case "list":
-        return { ...block, items: block.items.map(canonicalBlocks) };
-      default:
-        return block;
-    }
-  });
+  return blocks
+    .map((block): Block => {
+      switch (block.kind) {
+        case "paragraph":
+          return { ...block, runs: canonicalRuns(block.runs) };
+        case "heading":
+          return {
+            ...block,
+            level: clampHeadingLevel(block.level),
+            runs: canonicalRuns(block.runs),
+          };
+        case "image":
+          return { ...block, caption: canonicalRuns(block.caption) };
+        case "blockquote":
+        case "summary":
+          return { ...block, blocks: canonicalBlocks(block.blocks) };
+        case "list":
+          // An item that canonicalizes to nothing is dropped too -- not kept
+          // as an empty `[]` entry -- for the same reason: nothing on the
+          // `textToBlocks` side ever produces a list item with zero blocks.
+          return {
+            ...block,
+            items: block.items.map(canonicalBlocks).filter((item) => item.length > 0),
+          };
+        default:
+          return block;
+      }
+    })
+    .filter((block) => !isEmptyBlock(block));
+}
+
+/**
+ * The 1-6 heading levels this notation can write and read back. The one place
+ * that math lives -- see the note on `canonicalBlocks()`'s heading case.
+ */
+function clampHeadingLevel(level: number): number {
+  return Math.min(Math.max(level, 1), 6);
+}
+
+/**
+ * Whether a block, once canonicalized, carries nothing a reader would ever
+ * see -- see `canonicalBlocks()`'s doc comment for why this has to be checked
+ * there rather than left for `textToBlocks` to disagree about later. An
+ * image, embed, code block or divider is never empty by this measure: each
+ * always carries a reference (a ref, a URL, code text) that no amount of
+ * missing prose can take away.
+ */
+function isEmptyBlock(block: Block): boolean {
+  switch (block.kind) {
+    case "paragraph":
+    case "heading":
+      return block.runs.length === 0;
+    case "blockquote":
+    case "summary":
+      return block.blocks.length === 0;
+    case "list":
+      return block.items.length === 0;
+    default:
+      return false;
+  }
 }
 
 function sameStyle(a: InlineRun, b: InlineRun): boolean {
@@ -177,25 +248,21 @@ function sameStyle(a: InlineRun, b: InlineRun): boolean {
 }
 
 function canonicalRuns(runs: InlineRun[]): InlineRun[] {
-  const collapsed = runs.map((run) =>
-    run.code
-      ? // A code run keeps its spaces and tabs -- they are content -- but **not
-        // its line breaks**, which this notation structurally cannot carry.
-        // `inlineRuns()` emits a `"\n"` run for a `<br>`, and inside `<code>`
-        // that run is `code: true`: written raw it put a bare newline *inside a
-        // line*, so `<p>Run <code>npm i<br>npm test</code> now.</p>` reached the
-        // model as an unbalanced `<code>` split across two lines -- unanswerable
-        // by construction -- and came back as two paragraphs with the literal
-        // tags stored as prose. Spaces-only code (the case the test covered)
-        // never showed it.
-        { ...run, text: run.text.replace(/[\r\n]+/g, " ") }
-      : { ...run, text: run.text.replace(/\s+/g, " ") },
-  );
-
   // Dropped *before* the merge, not after: an empty run sitting between two
   // identically-styled runs would otherwise keep them apart on the first pass
   // and let them merge on the second, which is not a normal form.
-  const merged = collapsed
+  //
+  // Merged *before* whitespace is collapsed, not after -- collapsing each run
+  // on its own first and merging the (already-collapsed) results left a
+  // boundary uncollapsed: two adjacent same-style runs each ending/starting
+  // with a single space collapsed fine individually, but concatenating them
+  // produced a run of two spaces that only the *next* `canonicalRuns()` call
+  // collapsed to one. Found by the fuzz test in `block-text.test.ts`: an
+  // italic run of trailing spaces merging with an adjacent italic run was
+  // enough to make `canonicalRuns(canonicalRuns(x))` differ from
+  // `canonicalRuns(x)`. Collapsing the merged text instead sees the true
+  // boundary, so there is nothing left for a second pass to find.
+  const merged = runs
     .filter((run) => run.text !== "")
     .reduce<InlineRun[]>((acc, run) => {
       const previous = acc[acc.length - 1];
@@ -205,16 +272,60 @@ function canonicalRuns(runs: InlineRun[]): InlineRun[] {
       }
       acc.push({ ...run });
       return acc;
-    }, []);
+    }, [])
+    .map((run) =>
+      run.code
+        ? // A code run keeps its spaces and tabs -- they are content -- but
+          // **not its line breaks**, which this notation structurally cannot
+          // carry. `inlineRuns()` emits a `"\n"` run for a `<br>`, and inside
+          // `<code>` that run is `code: true`: written raw it put a bare
+          // newline *inside a line*, so
+          // `<p>Run <code>npm i<br>npm test</code> now.</p>` reached the model
+          // as an unbalanced `<code>` split across two lines -- unanswerable
+          // by construction -- and came back as two paragraphs with the
+          // literal tags stored as prose. Spaces-only code (the case the test
+          // covered) never showed it.
+          { ...run, text: run.text.replace(/[\r\n]+/g, " ") }
+        : { ...run, text: run.text.replace(/\s+/g, " ") },
+    );
 
-  if (merged.length > 0) {
-    const first = merged[0];
-    if (!first.code) first.text = first.text.replace(/^ +/, "");
-    const last = merged[merged.length - 1];
-    if (!last.code) last.text = last.text.replace(/ +$/, "");
+  // Trimmed *after* collapsing and merging, and by a loop rather than a
+  // single pass on each edge: a run of pure whitespace sitting at the
+  // boundary (its own run, because it differs in style from its neighbour)
+  // trims to empty and has to be dropped, which exposes a *new* edge run that
+  // itself may still carry untrimmed boundary whitespace. A single
+  // trim-then-filter pass trimmed only the original edge and left that
+  // newly-exposed one untouched -- the exact non-idempotence this loop exists
+  // to close: run it once more and the now-untrimmed edge trims further, so
+  // `canonicalRuns(canonicalRuns(x))` was not `canonicalRuns(x)`.
+  trimEdge(merged, "start");
+  trimEdge(merged, "end");
+
+  return merged;
+}
+
+/**
+ * Trim leading (`"start"`) or trailing (`"end"`) whitespace off the run at the
+ * given edge of `runs`, mutating it in place, dropping the run entirely if the
+ * trim empties it and then re-checking the run newly exposed at that edge --
+ * see the comment above this call for why one trim-then-filter pass is not
+ * enough.
+ */
+function trimEdge(runs: InlineRun[], edge: "start" | "end"): void {
+  while (runs.length > 0) {
+    const index = edge === "start" ? 0 : runs.length - 1;
+    const run = runs[index];
+    if (run.code) return;
+
+    const trimmed = edge === "start" ? run.text.replace(/^ +/, "") : run.text.replace(/ +$/, "");
+    if (trimmed === run.text) return; // nothing to trim, and nothing exposed
+    if (trimmed === "") {
+      runs.splice(index, 1);
+      continue; // the run now at this edge may itself need trimming
+    }
+    runs[index] = { ...run, text: trimmed };
+    return;
   }
-
-  return merged.filter((run) => run.text !== "");
 }
 
 /**
@@ -233,7 +344,14 @@ const STYLE_TAGS = [
   ["bold", "b"],
 ] as const;
 
-function serializeRun(run: InlineRun, links: string[]): string {
+/**
+ * A link's index into `links`, resolved through `linkIndex` instead of
+ * `links.indexOf()` -- an O(1) lookup rather than an O(n) scan repeated once
+ * per run, which made a link-dense article's serialization quadratic in its
+ * link count. `linkIndex` is a side table kept in step with `links` by every
+ * caller that adds to it; there is exactly one, built in `blocksToText()`.
+ */
+function serializeRun(run: InlineRun, links: string[], linkIndex: Map<string, number>): string {
   // A code run's text is still escaped: it has to survive a `</code>` inside
   // it, and unescaping on the way back restores it exactly.
   let out = escapeText(run.text);
@@ -243,10 +361,11 @@ function serializeRun(run: InlineRun, links: string[]): string {
   }
 
   if (run.link) {
-    let index = links.indexOf(run.link);
-    if (index === -1) {
+    let index = linkIndex.get(run.link);
+    if (index === undefined) {
       index = links.length;
       links.push(run.link);
+      linkIndex.set(run.link, index);
     }
     out = `[${out}](L${index})`;
   }
@@ -254,16 +373,21 @@ function serializeRun(run: InlineRun, links: string[]): string {
   return out;
 }
 
-function serializeRuns(runs: InlineRun[], links: string[]): string {
-  // Canonicalized first: the notation cannot carry a newline inside a
-  // paragraph, so a run holding one has to be collapsed before it is written,
-  // not after it comes back wrong. See `canonicalBlocks()`.
-  return canonicalRuns(runs)
-    .map((run) => serializeRun(run, links))
-    .join("");
+function serializeRuns(runs: InlineRun[], links: string[], linkIndex: Map<string, number>): string {
+  // Not canonicalized here: `blocksToText()` canonicalizes the whole tree once,
+  // up front, so every run this function is ever handed already is. Doing it
+  // again here, per run list, is what let an image's raw block land in
+  // `doc.opaque` while its *canonicalized* caption landed in the text -- two
+  // views of the same block that had each been canonicalized on its own.
+  return runs.map((run) => serializeRun(run, links, linkIndex)).join("");
 }
 
-function serializeBlocks(blocks: Block[], doc: BlockDocument, indent: string): string[] {
+function serializeBlocks(
+  blocks: Block[],
+  doc: BlockDocument,
+  indent: string,
+  linkIndex: Map<string, number>,
+): string[] {
   const lines: string[] = [];
 
   const push = (body: string) => {
@@ -276,10 +400,13 @@ function serializeBlocks(blocks: Block[], doc: BlockDocument, indent: string): s
       const index = doc.opaque.length;
       doc.opaque.push(block);
       // An image's caption is prose and rides along; everything else is the
-      // placeholder alone.
+      // placeholder alone. `block` (and so its caption) is already the
+      // canonical form -- see the note on `serializeRuns()` -- so what lands
+      // in `doc.opaque` here and what serializes into the text below can no
+      // longer disagree about the same image.
       const caption =
         block.kind === "image" && block.caption.length > 0
-          ? " " + serializeRuns(block.caption, doc.links)
+          ? " " + serializeRuns(block.caption, doc.links, linkIndex)
           : "";
       push(`[[M${index}]]${caption}`);
       continue;
@@ -287,13 +414,14 @@ function serializeBlocks(blocks: Block[], doc: BlockDocument, indent: string): s
 
     switch (block.kind) {
       case "paragraph":
-        push(escapeLineStart(serializeRuns(block.runs, doc.links)));
+        push(escapeLineStart(serializeRuns(block.runs, doc.links, linkIndex)));
         break;
 
       case "heading":
-        push(
-          `${"#".repeat(Math.min(Math.max(block.level, 1), 6))} ${serializeRuns(block.runs, doc.links)}`,
-        );
+        // `block.level` is already clamped to 1-6 -- `blocksToText()` ran the
+        // whole tree through `canonicalBlocks()` first, and that is the one
+        // place this clamps. See the note there.
+        push(`${"#".repeat(block.level)} ${serializeRuns(block.runs, doc.links, linkIndex)}`);
         break;
 
       case "list": {
@@ -302,7 +430,7 @@ function serializeBlocks(blocks: Block[], doc: BlockDocument, indent: string): s
         if (lines.length > 0) lines.push("");
         block.items.forEach((item, i) => {
           const marker = block.ordered ? `${i + 1}. ` : "- ";
-          const inner = serializeBlocks(item, doc, "");
+          const inner = serializeBlocks(item, doc, "", linkIndex);
           // The item's first block sits on the marker line; any further block is
           // a continuation line, indented so it rejoins this item rather than
           // becoming a paragraph after the list.
@@ -346,7 +474,7 @@ function serializeBlocks(blocks: Block[], doc: BlockDocument, indent: string): s
         // summary only ever exists as *output* of a previous AI run, and the
         // input to this one is always freshly parsed from the source. Nothing
         // asks this module to preserve one.
-        for (const line of serializeBlocks(block.blocks, doc, "")) {
+        for (const line of serializeBlocks(block.blocks, doc, "", linkIndex)) {
           lines.push(indent + (line === "" ? ">" : "> " + line));
         }
         break;
@@ -366,7 +494,13 @@ function serializeBlocks(blocks: Block[], doc: BlockDocument, indent: string): s
  */
 export function blocksToText(blocks: Block[]): BlockDocument {
   const doc: BlockDocument = { text: "", opaque: [], links: [] };
-  doc.text = serializeBlocks(blocks, doc, "").join("\n");
+  // Canonicalized once, here, for the whole tree -- not per block inside
+  // `serializeBlocks()`. See `canonicalBlocks()`'s doc comment for the two
+  // things that requires: a heading's level clamped before `"#".repeat()`
+  // ever reads it, and an opaque block (an image, with its caption) pushed
+  // into `doc.opaque` in the same canonical form its caption serializes as.
+  const linkIndex = new Map<string, number>();
+  doc.text = serializeBlocks(canonicalBlocks(blocks), doc, "", linkIndex).join("\n");
   return doc;
 }
 

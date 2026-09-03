@@ -446,7 +446,7 @@ function dropImageBlocks(blocks: Block[]): Block[] {
       }
       continue;
     }
-    if (block.kind === "blockquote") {
+    if (block.kind === "blockquote" || block.kind === "summary") {
       const inner = dropImageBlocks(block.blocks);
       if (inner.length > 0) {
         kept.push({ ...block, blocks: inner });

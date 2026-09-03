@@ -396,30 +396,30 @@ rendered.
 
 **Files:** modify `src/lib/ai/block-text.ts`, `block-text.test.ts`.
 
-- [ ] **Step 1:** Add the failing idempotence test using the exact input above.
-- [ ] **Step 2:** Move the edge trim **after** the filter, or loop until stable.
-- [ ] **Step 3:** Have `canonicalBlocks` drop blocks that canonicalize to empty,
+- [x] **Step 1:** Add the failing idempotence test using the exact input above.
+- [x] **Step 2:** Move the edge trim **after** the filter, or loop until stable.
+- [x] **Step 3:** Have `canonicalBlocks` drop blocks that canonicalize to empty,
       making it agree with `textToBlocks`. Per the blocks audit this single
       change resolves the idempotence failure, the empty-block round trip and
       the `.text` half of the `blocksToText(canonicalBlocks(b)) ≠ blocksToText(b)`
       divergence at once.
-- [ ] **Step 4:** Fix the `.opaque` divergence: `serializeBlocks`
+- [x] **Step 4:** Fix the `.opaque` divergence: `serializeBlocks`
       (`block-text.ts:275-285`) pushes the **raw** block into `doc.opaque` while
       serializing a *canonicalized* caption into the text, so the two sides
       disagree about the same image. Canonicalize once, up front.
-- [ ] **Step 5:** Add a fuzz test (the audit's harness generated 20,000 trees
+- [x] **Step 5:** Add a fuzz test (the audit's harness generated 20,000 trees
       with nested lists, quotes-in-lists, summaries, and adversarial run text)
       asserting round-trip text stability and structural equality. This is the
       only way to keep this module honest.
-- [ ] **Step 6:** Clamp `heading.level` in **one** place. It is currently clamped
+- [x] **Step 6:** Clamp `heading.level` in **one** place. It is currently clamped
       at `block-text.ts:295` and `storage.ts:70`, and **not** in
       `canonicalBlocks` or `blockForRow` (`storage.ts:232`), so a `level: 7`
       heading round-trips to 6 while `canonicalBlocks` leaves it at 7.
-- [ ] **Step 7:** `dropImageBlocks` (`parser.ts:425-454`) recurses into
+- [x] **Step 7:** `dropImageBlocks` (`parser.ts:425-454`) recurses into
       `blockquote` and `list` but not `summary`, unlike every other tree walk in
       the codebase (`block-text.ts:158`, `plain-text.ts:35`, `storage.ts:30`,
       `storage.ts:257`). Add it.
-- [ ] **Step 8:** `serializeRun` does `links.indexOf(run.link)` per run
+- [x] **Step 8:** `serializeRun` does `links.indexOf(run.link)` per run
       (`block-text.ts:246`) — O(n²) on link-dense articles. Use a `Map`.
 
 ---
