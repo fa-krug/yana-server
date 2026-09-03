@@ -1062,14 +1062,44 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   (which is why the update branch writes `rawDate ?? existing.date` rather than
   re-stamping `new Date()` — the column and the hash have to agree); **a
   comment is not the article, so neither the rendered comment section nor the
-  raw page is an input** (next paragraph); and it is written **last**, in its
-  own transaction after `writeBlocks()`, so a stored hash means the row _and_
-  its block tree are current, and a crash anywhere above leaves it null so the
-  next run redoes the work. The payoff is not only local I/O:
+  raw page is an input** (next paragraph); and it is written **last, inside the
+  one `writeTransaction()` that also writes the row and the block tree**, so a
+  stored hash means the row _and_ its block tree are current for that content.
+  That last ordering used to be enforced by hand and is now structural:
+  `aggregate.ts` wrote the row, then the blocks, then the hash as three separate
+  top-level transactions, and `reload.ts` did the same work in the opposite
+  order — so an article became visible in stages, and a crash between two of
+  them could leave a row with zero blocks and no hash, self-healing only while
+  the feed still lists that entry, and reachable through `/api/v1` sync's `new`
+  stream bodyless while that cursor advanced past it.
+  `writeBlocksIn(tx, …)` (`src/lib/aggregators/blocks/storage.ts`) is the
+  transaction-less body both handlers fold into their own single transaction;
+  `writeBlocks()` is the thin wrapper for a caller with no row write of its own
+  to join. The payoff is not only local I/O:
   `articles.updatedAt` carries `$onUpdate`, so an unconditional rewrite put
   every unchanged article back into `/api/v1`'s sync `updated` stream on every
   aggregation cycle. A `null` hash means "changed" — every row predating the
   column settles after one pass, and no backfill exists.
+
+  **Both sides of the block store chunk on the same constant, and the inserted
+  ids are paired by key rather than by position.** `SQL_VARIABLE_BATCH_SIZE`
+  (100, in `blocks/storage.ts`) bounds every bulk insert _and_ every
+  `inArray(...)` read-back against `SQLITE_MAX_VARIABLE_NUMBER` — 32766 by
+  default, but as low as 999 on a differently-compiled SQLite. Only the writes
+  were chunked at first, so on exactly the build that made batching necessary a
+  long-form article could be written successfully and then throw "too many SQL
+  variables" reading itself back; one constant in both directions is what keeps
+  the two halves from disagreeing about the limit. And within a level's insert,
+  each node is matched to its new id through a `(parentId, position)` lookup
+  built from `RETURNING`, never through `insertedRows[i]`: SQLite documents
+  RETURNING row order as **undefined**, and a positional pairing that was ever
+  reordered would scramble the block tree with no error anywhere, so
+  "simplifying" that map back into an array index reintroduces a
+  silent-corruption path rather than removing a lookup. `writeBlocks`,
+  `loadBlocksForArticles` and `readBlocks` are all synchronous and must stay
+  so — better-sqlite3 has no async driver, and an `async` here is precisely
+  what would stop a block write from being folded into a `writeTransaction()`
+  callback (the case `NotPromise<T>` rejects).
 
   **The fingerprint is computed from the article _as fetched_, and the ordering
   that makes that true is load-bearing.** `rawArticleContentHash()` (same
@@ -1125,8 +1155,10 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   (`RedditPostContent.comments` / `_youtube_comments_html`) until
   `processContent()` hands it to `formatArticleContent()` as `commentsContent`
   — five commenting sites in total now comply: heise, mactechnews, mein_mmo,
-  reddit, youtube. And it **ignores the raw page**: `mactechnews`, `mein_mmo`
-  and `heise` scrape their comments out of the very page they fetched, so
+  reddit, youtube (four of which build the section itself through the one
+  `buildCommentsSection()` declaration — see its own bullet below). And it
+  **ignores the raw page**: `mactechnews`, `mein_mmo` and `heise` scrape their
+  comments out of the very page they fetched, so
   hashing it would let a comment rewrite the article through the back door.
   Three details:
   - **The cut is a string operation, not a parse.** A parser would mean
@@ -1154,9 +1186,15 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   code concatenates comments straight into the body, unmarked, exactly as
   aggregation itself used to before this fix. The stored block tree is
   therefore not the same shape depending on whether an article arrived via
-  aggregation or a manual reload, on the same feed, for the same post. This is
-  a known gap for plan 3 ("unify parallel paths") to close, not something this
-  fix attempted.
+  aggregation or a manual reload, on the same feed, for the same post. **The
+  2026-09-03 "unify the parallel paths" plan did not close this**, so read it as
+  an open gap rather than a closed one: that plan unified the scraped sites'
+  enrichment (`enrichOne()`) and the comment-section builder, but `reload.ts`
+  still never runs `enrichArticles()`, which is the only thing that sets those
+  two fields. It is Reddit and YouTube alone — the scraped commenting sites
+  (heise, mactechnews, mein_mmo) extract their comments inside
+  `processContent()`, which both paths run, so their section is marked either
+  way.
 
   **Excluding the raw page is what left `articles.raw_content` with no reader,
   and it is now gone.** It held the whole fetched page, justified as "the
@@ -1183,6 +1221,26 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   job's summary line (`N skipped (AI: reason)`) so a run that stored fewer
   articles than the feed listed says why rather than looking like a quiet feed.
 
+  **A _degraded_ result is the one exception to skipping whole, and it is a
+  fourth arm rather than a footnote on `failed`.** `ApplyAiOutcome`
+  (`src/lib/ai/run.ts`) is `skipped` / `applied` / `degraded` / `failed`:
+  `failed` means `blocks` and `title` are the input verbatim and nothing should
+  be written, where `degraded` means the rewrite genuinely came back and only a
+  secondary part of the request did not — today only `missingSummary`, and only
+  when a rewrite was asked for as well (a summarize-only request has nothing to
+  keep, so that case still reports `failed`). That distinction used to live only
+  in a comment, which is exactly how both callers came to disagree with it and
+  with each other: `handleAggregateJob()` discarded `ai.blocks` on _any_
+  non-applied outcome, throwing away the "a missing summary keeps the rewrite"
+  asymmetry this file documents, while `reload.ts` wrote blocks, title and
+  `plainText` _before_ inspecting the outcome and then threw — so a missing
+  summary over a good rewrite stored correctly, marked the job **failed**, and
+  mailed its owner a failure notice (`notifyJobFailure()`) for a run that was
+  ninety per cent a success. Both branch on the arm now: aggregation stores it
+  and counts it, adding `, N stored degraded (AI: reasons)` beside the skip
+  count on the summary line, and reload stores it, logs the caveat and leaves
+  the job green.
+
   **A successful manual reload and `updateArticle()` both keep the fingerprint,
   so a deliberate local change stands.** Both used to null it, which made every
   manual action provisional until the next cycle discarded what an operator had
@@ -1199,16 +1257,31 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   feed's own article rather than the page reload fetched, so such a row is
   reprocessed once and settles.
 
+  **There is one exception to "a successful reload keeps the fingerprint", and
+  it is the AI stage dropping media.** "Leave it" rests on the stored blocks
+  being the best available version of the article; a rewrite that lost a
+  media/code placeholder is not that. So when `applyAiToBlocks()` reports
+  `droppedMedia`, `reload.ts` nulls the hash explicitly and
+  `handleAggregateJob()` withholds its own hash write — the same decision from
+  the two ends: leaving a still-matching hash in place would let the next
+  aggregation run compare against the (unchanged) source, match, skip, and lose
+  the dropped image for the life of that source article. See "What the model
+  dropped is counted and reported" in the `applyAiToBlocks()` bullet for the
+  cost this accepts in exchange.
+
   **The invariant binds every writer, not just the aggregator: anything that
   changes an article's content must set `contentHash` to null** (or recompute
   it). A stale hash does not merely go out of date — it makes the aggregate
   handler skip that row _forever_, because the hash it computes from the
   unchanged feed item keeps matching. One writer learned this in review and now
-  nulls it explicitly: `src/lib/jobs/handlers/reload.ts` in **both** branches — a
-  _failed_ reload writes an error notice, which without this would have been
-  permanent, where it used to be replaced by the real article on the very next
-  cycle. `updateArticle()` in `src/lib/articles/actions.ts` writes `name` and
-  `date` (both fingerprint inputs) _without_ nulling anything — see "A
+  nulls it explicitly: `src/lib/jobs/handlers/reload.ts`, where a _failed_
+  refetch writes an error notice that without this would have been permanent,
+  and where a successful reload whose AI stage dropped media nulls it for the
+  reason the exception above gives. (Its third failure mode, an empty body,
+  writes nothing at all and therefore has nothing to null — see the
+  `hasBodyContent()` bullet.) `updateArticle()` in `src/lib/articles/actions.ts`
+  writes `name` and `date` (both fingerprint inputs) _without_ nulling
+  anything — see "A
   successful manual reload and `updateArticle()` both keep the fingerprint"
   above — and forbids changing `feedId` (half the key the handler looks a row
   up by) outright, returning a catalog `errorKey`, rather than nulling the hash
@@ -1268,9 +1341,11 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   the header image unconditionally, and what reached the database was a header
   image above an empty `<section>`: a real, shipped article, and it survived a
   week before anyone noticed. Four things about the rule:
-  - **The check is in `FullWebsiteAggregator.enrichArticles()`**, between
-    `extractContent()` and `processContent()`, and reuses the existing
-    `return null` skip path — so the article never reaches `aggregate.ts` at
+  - **The check is in `enrichOne()`** (`src/lib/aggregators/website.ts`),
+    between `extractContent()` and `processContent()`, and answers through the
+    caller's `EnrichmentPolicy` rather than deciding for itself — for
+    `FullWebsiteAggregator.enrichArticles()` that answer is the existing
+    `return null` skip path, so the article never reaches `aggregate.ts` at
     all. It therefore covers that class and its subclasses (heise, merkur,
     caschys, mein_mmo, mactechnews, tagesschau, the three comics, plus
     `RssSummaryFallbackAggregator`'s verge and ars). YouTube, Reddit, Podcast
@@ -1295,8 +1370,25 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
     Silence at ingestion is half of why the original case went unnoticed; the
     other half was that `reload.ts` logged the empty case and wrote it anyway.
 
-  **`reload.ts` answers the same condition the opposite way, and the asymmetry
-  is the decision.** Its two failure modes are not variants of one branch:
+  **`reload.ts` answers the same condition the opposite way, the asymmetry is
+  the decision, and it is now _stated_ rather than implied.** Both paths run one
+  `enrichOne(article, policy)` — extractHeaderElement → fetchArticleContent →
+  extractContent → `hasBodyContent()` — and each supplies its own
+  `EnrichmentPolicy`: two named hooks, `onFetchFailed` and `onEmptyBody`, whose
+  return value is "keep this article as it is", `null` ("dropped or handled, the
+  side effect is already done") or a throw ("fail the job"). Reload used to
+  reimplement those five steps with four different failure policies spread
+  across two files, so the divergence had to be reconstructed from the shape of
+  four try/catch blocks; the divergence itself is unchanged and is a decision,
+  not drift. `processContent()` is deliberately _outside_ the shared function,
+  because reload reports job progress between "content extracted" and "content
+  processed" and that boundary has to stay visible to the caller. So does the
+  outer catch: `enrichOne()` wraps only `fetchArticleContent()`, and
+  `enrichArticles()` restores its own wider "anything in these four steps
+  counts" catch around its call, routing it to the same `onFetchFailed` hook —
+  reload adds no such wrapper and still lets those exceptions propagate,
+  exactly as each did before. Reload's two failure modes are not variants of one
+  branch:
   - **The page will not fetch** → the content is replaced with a short error
     notice and `contentHash` nulled. Unchanged, and correct — the page is gone,
     so the stored copy is worthless.
@@ -1314,6 +1406,162 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
     AI-failure throw at the bottom of that handler already follows. The check
     sits ahead of `processContent()`, so the AI stage below it is never reached:
     there is no point spending a provider request on a body that is not there.
+  - **A fetch that _returns_ nothing is a fetch failure, not an empty body**,
+    and only reload says so: it wraps its aggregator so a `""` from
+    `fetchArticleContent()` throws, landing on `onFetchFailed` (write the error
+    notice) instead of falling through to `onEmptyBody` (fail the job). "The
+    feed no longer lists this entry" is the same condition as "the page would
+    not load". Aggregation deliberately does not get that treatment — there, an
+    empty fetch should fall through to extraction and, ordinarily, to the skip —
+    which is why the wrapper lives at reload's call site rather than inside
+    `enrichOne()`.
+
+  **"The selector found nothing" also has one answer now, and one site's
+  behaviour changed with it.** `extractContentWithFallback()` is the three-tier
+  ladder every `FullWebsiteAggregator` subclass shares — the site's own
+  selector when it has real body content, then a generic content guess gated on
+  a minimum text length so a sidebar snippet cannot win, then the RSS entry's
+  own summary — replacing four sites' separate answers. **Never `<body>`:**
+  `MerkurAggregator` used to recurse into `super.extractContent()`, which fell
+  back to the whole document, so a selector miss there could surface site
+  navigation, cookie banners and related-article rails _as the article_. A miss
+  now degrades to _less_ content rather than _wrong_ content.
+  `keepPrimaryRegardless` is the one escape hatch, for `TagesschauAggregator`,
+  whose primary extraction can legitimately carry no text or media of its own
+  (an audio/video report whose body is a media header `processContent()`
+  splices in later, which `hasBodyContent()` cannot see because it is not in
+  the extraction at all).
+
+- **There is one sanitizer for untrusted HTML that gets stored:
+  `sanitizeUntrustedFragment()` in `src/lib/aggregators/extract/clean.ts`.**
+  Scraped comment markup, a Reddit post's converted Markdown and a podcast's
+  show notes all pass through it on the way to the database, and
+  `GET /api/v1/articles/[id]/content` serves what was stored — so this is the
+  last line of defence, not tidying. It strips HTML comments, removes
+  `script`/`object`/`embed`/`style`/`iframe` outright, deletes every `on*`
+  attribute, and refuses any `href`/`src` whose scheme `isSafeUrl()` rejects
+  (an unsafe link loses its `href` and keeps its text; an unsafe `<img>` is
+  removed, because an image has no safe fallback rendering). Two things about
+  it are worth knowing before changing it:
+  - **The rename-then-delete of `class`/`style`/`id`/`data-*` is not
+    redundant.** `sanitizeHtmlAttributes()` converts them to
+    `data-sanitized-*` and `removeSanitizedAttributes()` then strips those, and
+    that two-step is what stops a fragment carrying a literal
+    `class="article-comments"` from forging the marker
+    `formatArticleContent()` wraps the real comment section in — the marker
+    `content-hash.ts` cuts on by `lastIndexOf` (see the comment exclusion in
+    the `contentHash` bullet above). A forged second marker _inside_ the real
+    wrapper would make that `lastIndexOf` find the wrong one and defeat the
+    comment exclusion permanently for that article.
+  - **It existed six times, byte-identical, before it existed once**
+    (`sites/mactechnews/comments.ts`, `sites/mein_mmo/comments.ts`,
+    `sites/heise.ts`, `sites/youtube/aggregator.ts`,
+    `sites/reddit/markdown.ts`, `sites/podcast.ts`), which is why it
+    deliberately takes **no options and no site parameter**: every call site's
+    needs turned out identical, and a parameter nothing uses is the seam the
+    next divergence drifts back through. A hardening applied here now reaches
+    all six at once instead of whichever one someone remembered.
+    `selectAllIncludingSelf()` in the same module is the other half of that
+    de-duplication — the `.addBack("*")` "walk every element including the
+    selection itself" ternary that four functions in that file each wrote out.
+
+- **A comments section is a _declaration_, never a fourth copy of "emit a
+  heading and N blockquotes": `CommentSpec` + `buildCommentsSection()` in
+  `src/lib/aggregators/comments/section.ts`**, in the shape
+  `defineIntegration()` already established for credentials. The builder owns
+  the sequence — list, slice to `max`, render each comment, wrap, empty state —
+  and every comment body goes through `sanitizeUntrustedFragment()` **inside
+  the builder**, which is the structural point of the extraction: a fifth
+  comment source cannot forget it. (Reddit's markdown converter already
+  sanitizes on the way to HTML, so that pass runs twice for Reddit; it is
+  idempotent, and an unconditional call is worth more than a saved pass.) What
+  survives as descriptor _data_ is real, observed per-site difference, kept
+  rather than normalised away: mactechnews and mein_mmo wrap the section in a
+  bare `<section>`, YouTube in a `div.youtube-comments`, and Reddit in
+  **nothing at all** — its heading rides bare inside
+  `formatArticleContent()`'s own `ARTICLE_COMMENTS_CLASS` wrapper, so a
+  wrapper here would be a second nesting level nobody asked for. The four
+  empty states are one optional field: `emptyLabel` unset means drop the whole
+  section, heading included (mactechnews, mein_mmo, YouTube), against Reddit's
+  three status messages, which is a real difference in what an empty thread
+  means on each site. The author and timestamp reads, and whether the source
+  link carries `target="_blank" rel="noopener"`, differ the same way.
+  **`heise.ts` is not
+  on the builder**, and that is an exception rather than an oversight: its
+  per-comment body is the posting's _subject line_ rather than markup, so it
+  renders its own blockquotes — four sites on the builder, five commenting
+  sites in total. **And the failures log now.** This is the most
+  selector-fragile code in the tree, and every implementation of it used to end
+  in `catch { /* ignore */ }` — heise had two — so a site that quietly stopped
+  yielding comments looked exactly like a site whose readers had stopped
+  commenting. A failure inside `spec.list()` or one comment's render is caught,
+  logged through `onLog` (so it reaches `/jobs/<id>`) and degrades to `null`:
+  the same "skip rather than break the article" behaviour, minus the silence.
+
+- **A paginated article is fetched by one function, and it hands back _two_
+  things because one of them is the page a comment extractor needs.**
+  `fetchAllPages()` in `src/lib/aggregators/multipage.ts` returns
+  `{ combined, firstPage }` — `combined` being every page's matched content
+  container joined in page order, which is what the site's own
+  `extractContent()` selector runs against next, and `firstPage` being page 1
+  raw and un-truncated. Both are needed because a comment section can live
+  _outside_ the content selectors: MacTechNews' `div.MtnCommentScroll` is a
+  sibling of the `.MtnArticle` containers `combined` is built from, so a
+  comment extractor handed `combined` finds nothing — and found nothing.
+  **Every multi-page MacTechNews article lost all of its comments**, on
+  aggregation and on reload, for as long as that site replaced its fetched page
+  with the combined output. Mein-MMO had already hit this and carried a private
+  `firstPageHtmlByUrl` workaround; the fix was one shared `FirstPageStash` used
+  identically by both sites rather than a second copy, and Mein-MMO's map was
+  deleted. **The stash is keyed by URL and `take()` deletes on read**, and it
+  cannot be collapsed into a single instance field:
+  `fetchArticleContent(url)` is handed no article to attach state to, and
+  `FullWebsiteAggregator.enrichArticles()` runs it for up to
+  `this.concurrency` articles _concurrently_ on one aggregator instance, so one
+  field would hold a sibling article's page while this article's own
+  `processContent()` was still awaiting — exactly the race Mein-MMO's original
+  field hit. `detectPagination()` stays per-site, because how a pagination
+  widget looks in the DOM legitimately differs where the fetch loop did not.
+
+- **Every "is this YouTube, and which video is it" question is answered by one
+  module: `src/lib/aggregators/embeds/youtube-url.ts`** — `youtubeIdFrom()`,
+  `isYoutubeUrl()`, the domain list and the thumbnail builder. **It imports
+  nothing, and must stay that way**, for the same reason `src/lib/secrets.ts`
+  does: `src/components/articles/block-node.tsx` is a **client component** and
+  needs `youtubeIdFrom()` to turn a stored embed's `externalUrl` back into an
+  iframe `src`, while `embeds/youtube.ts` — the rest of that provider — imports
+  `storeImageRefFromUrl` (node `fs`) and re-exports from `website.ts`, so a
+  client component structurally cannot import from it. The URL half is split
+  out for the browser and `embeds/youtube.ts` re-exports it unchanged, so every
+  server-side caller is untouched; it carries the same specifier tripwire test
+  as the other dependency-free modules (see that list under `/integrations`).
+
+  **Six copies disagreed about which URL forms count, and the disagreement was
+  a live bug rather than untidiness.** `website.ts` gated on `isYoutubeUrl()`,
+  which accepts `youtube-nocookie.com`, and then called an extractor with no
+  nocookie pattern — so a privacy-embedded video yielded `null`, was left
+  untouched, and heise/merkur/mein_mmo's `selectorsToRemove` then **deleted it
+  outright**. `youtube.com/live/<id>` went the same way. Fixing it took two
+  halves and the second is the non-obvious one: the deletion happens inside
+  `extractContent()`, one stage _before_ `processContent()` proxies embeds, so
+  a complete extractor is not enough on its own. The three sites' literal
+  `iframe:not([src*='youtube.com']):not([src*='youtu.be'])` copies are now one
+  shared `YOUTUBE_IFRAME_KEEP_SELECTOR` in the same module, which does name the
+  nocookie domain — so **a new URL form has to be added to the patterns _and_
+  be survivable by that selector**, or it is recognised one stage too late to
+  matter. Two inline extractors stay deliberately separate —
+  `blocks/parser.ts`'s `YOUTUBE_PATTERNS` and `sites/mein_mmo/embeds.ts`, each
+  applying its own tighter constraint on the captured id's length — but both
+  read `YOUTUBE_EMBED_DOMAIN_ALTERNATION` from here instead of hand-maintaining
+  a domain list, which is how one of them fell behind in the first place.
+
+  `isTwitterUrl()` had the same shape of bug and is only **partly** unified.
+  `extract/format.ts` now parses the hostname and `images/strategies.ts`
+  imports it, because the `url.includes(domain)` version they shared read
+  `https://evil.example.com/?ref=twitter.com` as Twitter. `embeds/twitter.ts`
+  still carries its own substring copy, used only inside that module: a third
+  copy with the original bug still in it, left alone rather than quietly
+  widened into, and worth knowing about before anything new starts calling it.
 
 - **The article-image store is content-addressed and refcount-free, so nothing
   ever deletes "one article's images" — the only thing that removes a row is
@@ -1947,17 +2195,24 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
     rule below. `src/lib/secrets.ts` **imports nothing**, like `auth/roles.ts`
     and `avatar.ts`, and is pinned by a specifier tripwire rather than a comment.
     **That is the standard for every dependency-free module here**, and the list
-    is five: those three plus `src/lib/ai/providers.ts` and
-    `src/lib/ai/bounds.ts`, each with the same regex test beside it — one that
-    catches a static `from`, a dynamic `import()` and a `require()`, after
-    stripping comments. A comment saying so is not the rule being kept:
-    `bounds.ts` had only the comment until phase 7's fix wave, while feeding both
-    the browser's `min`/`max` and the server's zod schema, and `avatar.ts` had
-    only the comment for two phases after that — while **this list already
-    claimed a test was beside it**. Adding the fifth is what made the sentence
-    true. Check the list rather than trusting it:
+    is six: those three plus `src/lib/ai/providers.ts`, `src/lib/ai/bounds.ts`
+    and `src/lib/aggregators/embeds/youtube-url.ts` (whose client-component
+    consumer is named in its own bullet above), each with the same regex test
+    beside it — one that catches a static `from`, a dynamic `import()` and a
+    `require()`, after stripping comments. A comment saying so is not the rule
+    being kept: `bounds.ts` had only the comment until phase 7's fix wave,
+    while feeding both the browser's `min`/`max` and the server's zod schema,
+    and `avatar.ts` had only the comment for two phases after that — while
+    **this list already claimed a test was beside it**. Adding the fifth is
+    what made the sentence true. Check the list rather than trusting it:
     `grep -rl "imports nothing at all" src/` must return one test per module
-    named here.
+    named here — plus exactly two files that mention the convention without
+    being one of its tests (`src/app/server-component-props.test.ts` and
+    `src/lib/aggregators/specs.ts`, both of which name it in a comment), so
+    subtract those two before counting. Other modules in the tree happen to
+    import nothing — `src/lib/aggregators/blocks/types.ts` is one — but they
+    are not on this list, because a module is only on it once the tripwire
+    exists.
 - **A probe never rejects, and its `detail` is log-only prose built from
   constants.** `ProbeResult` (`src/lib/integrations/probe.ts`) is the shape both
   live probes report and all seven AI providers report; every
@@ -2179,16 +2434,17 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   - **`callOpenaiCompatible()`** is a private method on `AIClient`
     (`src/lib/ai/run.ts`) — the same `/chat/completions` request/response
     shape on the runtime-call side, taking a resolved base URL, key, model,
-    prompt and JSON-mode flag. `callOpenai()` and the three new provider
-    branches (`callMistral`, `callQwen`, `callDeepseek`) all call it rather
-    than repeating the request-building and response-parsing block four
-    times.
+    prompt and JSON-mode flag. It replaced four copies of the
+    request-building and response-parsing block, and the per-provider
+    `callOpenai()`/`callMistral()`/`callQwen()`/`callDeepseek()` methods that
+    used to call it are themselves gone: dispatch is a table now, keyed by
+    provider — see the `PROVIDER_REQUESTS` bullet below.
 
   **OpenRouter was added afterward, independently of the 2026-08-04 plan and
   of yana-ios parity — it has no yana-ios equivalent at all.** It reuses both
-  helpers above (`openaiCompatibleChatProbe()` for its probe, a `callOpenrouter()`
-  branch calling `callOpenaiCompatible()` for the runtime call) and is, like
-  Mistral/Qwen/DeepSeek, a fixed, non-configurable endpoint
+  helpers above (`openaiCompatibleChatProbe()` for its probe, and an
+  `openai-compatible` row in `PROVIDER_REQUESTS` for the runtime call) and is,
+  like Mistral/Qwen/DeepSeek, a fixed, non-configurable endpoint
   (`OPENROUTER_API_URL` in `src/lib/ai/providers.ts`) — but its
   `quotaMeansVerified` is **`false`, not `true`**, the one place it does not
   follow those three's pattern. The three's `true` rests on "a fixed endpoint
@@ -2325,6 +2581,65 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   advice, and a native client polling this reason can tell someone to fix
   their OpenRouter key rather than just retry.
 
+- **`run.ts` dispatches on a table, not a chain of seven branches:
+  `PROVIDER_REQUESTS` in `src/lib/ai/run.ts` is one `{ url, shape }` row per
+  provider, keyed by `AiProviderKey` so an eighth provider is a compile error**
+  — the same shape `AI_COLUMNS` (`src/lib/ai/columns.ts`) and
+  `src/lib/ai/probes.ts` already have, for the same reason: the registry and
+  the runtime path cannot disagree about a provider if neither is allowed to
+  omit one. Five of the seven `callXxx()` methods it replaced were the same
+  twelve lines — read the enabled flag, read the key, warn and return, read the
+  model, read the timeout, call `callOpenaiCompatible()` with a base URL —
+  differing only in which columns and which constant they named. `url` is a
+  function for OpenAI alone, whose base URL is the one operator-configurable
+  endpoint, and it reads `?.trim() || DEFAULT` to match the probe: `??` alone
+  does not catch an _emptied_ `openaiApiUrl`, which would send every request to
+  a bare `https://`. Anthropic and Gemini keep request envelopes of their own —
+  neither speaks `/chat/completions` — but read their columns and base URL out
+  of this same table, so a provider cannot end up with its enabled flag checked
+  against one column and its API key read from another's. Four more things
+  landed with it, each its own defect:
+  - **Which provider is active is decided in one place, `activeProvider()`**,
+    which moved from `ai/queries.ts` to `ai/columns.ts` (re-exported from
+    `queries.ts`, so `/ai` and `POST /api/v1/ai/prompt` were untouched)
+    precisely so `run.ts` could share that decision _without_ importing
+    `getSettings()` and dragging `getDb()` into its graph. Before that, `run.ts`
+    read the raw `activeAiProvider` column: with `activeAiProvider = "openai"`
+    and `openaiEnabled = false` — the state a re-probe classifying the key as
+    unauthorized, or a Remove, deliberately leaves behind — `/ai` correctly
+    reported no active provider while `applyAiToBlocks()` passed its guard,
+    dispatched, hit the provider's own `!enabled` check and reported
+    `providerError`: "the provider failed" for a request that was never sent.
+  - **The timeout is `AbortSignal.timeout()`, and it now covers the body.** The
+    hand-rolled `AbortController` + `setTimeout` pair it replaced skipped
+    `clearTimeout` whenever `fetch` threw, leaving an armed timer behind on
+    every failed attempt, and cleared it the moment `fetch()` resolved — before
+    any of the three shapes reads `response.json()` — so a provider that sent
+    headers and then stalled the body hung the job indefinitely. A
+    self-expiring signal fixes both halves at once.
+  - **`MAX_RETRY_TIME_SECONDS = 60` is a named constant, not a knob.**
+    `aiMaxRetryTime` was read from settings in two spellings and had a column
+    in neither, so the default was the only value it ever took. It is a fixed
+    safety budget on 429 back-off; promoting it to a tuning value would reverse
+    the owner's instruction that AI runs without knobs that refuse work (see
+    the no-request-cap bullet above).
+  - **The seven "not enabled or configured" warnings go through
+    `this.warn()`**, so they reach the triggering job's own log instead of only
+    the server console — the same reason every failure arm in this file logs.
+
+  Two removals worth knowing about, because both looked load-bearing.
+  `AiRuntimeSettings` carried a parallel **snake_case** surface — 29 fields,
+  read through 38 `?? this.settings.xxx_yyy` fallbacks — for settings objects
+  that never existed: all three production callers pass a Drizzle row. And the
+  `catch`'s 429 branch is gone because it was unreachable: a `fetch()` rejection
+  is a `TypeError` (undici's `"fetch failed"`) or a `DOMException` from the
+  timeout signal, and neither carries a `.status`, which only exists on a
+  `Response` — that branch was a literal port of Python `requests`'
+  `raise_for_status()` idiom, where a non-2xx response _is_ a raised exception.
+  `GEMINI_API_BASE_URL` also moved into `providers.ts` beside the other base
+  URLs, so `callGemini()`, the table and `ai/gemini.ts`'s probe read one
+  constant rather than each carrying the host string.
+
 - **`plainTextOf()` lives in `src/lib/aggregators/blocks/plain-text.ts`, not in
   `parser.ts`** — and `parser.ts` re-exports it, so the callers that already have
   cheerio in their graph keep one import. It is a pure walk over the block tree
@@ -2390,8 +2705,38 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
     flattening). Serialized raw, such a run came back as two paragraphs — found
     by running the round trip over live pages, where a 7-block article read back
     as 9. `canonicalBlocks()` collapses whitespace (except inside a `code` run,
-    where it is content), merges adjacent identically-styled runs and trims
-    paragraph edges, and is idempotent.
+    where it is content), merges adjacent identically-styled runs, trims
+    paragraph edges, clamps a heading to 1–6 (see `clampHeadingLevel()` below)
+    and **drops a block that canonicalizes to nothing**. That last one agrees
+    with `textToBlocks()`,
+    whose line-oriented parse never records an empty paragraph, an empty
+    heading, a quote with nothing left in it or a list with no items — so
+    leaving one in destabilised the round trip three different ways (an empty
+    heading came back as the literal paragraph `"##"`, having lost the trailing
+    space that made the line a heading; a list whose first item was empty came
+    back as a stray paragraph _plus_ a shorter list). `isEmptyBlock()` cannot
+    reach an image, embed, code block or divider, each of which always carries
+    a reference no amount of missing prose can take away, so **no media block
+    is ever dropped by this rule**. `blocksToText()` canonicalizes once, up
+    front, and `serializeBlocks()` relies on that rather than repeating it,
+    which is also what keeps the side table's `opaque` entries and the
+    serialized `text` from describing two different versions of the same image.
+
+    **And it is idempotent now, which it was not while this file and that
+    module's own doc comment both said it was.** `canonicalRuns()` trimmed
+    before dropping empty runs, so an empty run between two identically-styled
+    ones kept them apart on the first pass and let them merge on the second:
+    329 of 20,000 fuzzed trees changed under a second application. That is not
+    cosmetic — `run.ts`'s echo detection (`documentUnchanged`, below) compares
+    serialized forms and rests on this being a normal form, so a
+    non-idempotent canonicalization is a wrong answer about whether the model
+    rewrote anything. The fix is ordering (drop empties, then merge, then
+    collapse the merged text) plus a second, subtler cross-run whitespace case
+    that the new test found on its own — a **seeded fuzz** (mulberry32, seed
+    20260903, 3,000 random trees) asserting round-trip text stability and
+    structural equality, which fails when either bug is reintroduced.
+    Hand-written cases had already failed to catch it twice.
+
   - **The parser is total.** An unrecognised sequence stays literal text rather
     than throwing, so a mangled answer degrades to plain prose instead of
     failing the article — and a truncated one cannot produce "unparseable
@@ -2420,10 +2765,36 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   article completely untouched while a summarize-plus-rewrite one keeps the
   rewrite.
 
-  **A dropped placeholder is reported, not swallowed.** `textToBlocks()` returns
-  `droppedOpaque`, and the stage logs it to the triggering job's own output:
-  silently losing an article's image looks exactly like an article that never
-  had one.
+  **What the model dropped is counted and reported, not swallowed.**
+  `textToBlocks()` returns `droppedOpaque`, `duplicatedOpaque` and
+  `clearedCaptions`, and the stage logs each to the triggering job's own
+  output: silently losing an article's image looks exactly like an article that
+  never had one. Three failures made the counting necessary rather than nice,
+  and all three came from `OPAQUE_LINE` having required the `[[M<n>]]`
+  placeholder to be the whole line while `state.seen` was a Set with no count —
+  a `[[M0]]` returned with its caption omitted **deleted the caption**
+  silently; `As shown in [[M0]] …` lost the image _and_ stored the literal
+  placeholder as prose; and a repeated `[[M0]]` stored one image twice while
+  losing another. A placeholder that survives into prose is now stripped rather
+  than thrown on, because the parser has to stay total (above), and every case
+  is counted.
+
+  **A real media loss withholds the content fingerprint, in both handlers.**
+  `AiBlockResult.droppedMedia` is what `handleAggregateJob()` reads to store the
+  article and its (possibly degraded) blocks while skipping the `contentHash`
+  write, and what `reload.ts` reads to null a stored one. Without it the loss
+  was permanent: the stage logged the drop and reported `applied`, so the hash
+  was written — and being a fingerprint of the unchanged _source_ it kept
+  matching, so the dropped image was gone for the life of that source article.
+  The accepted cost is its mirror image, and it is a decision rather than an
+  oversight: an article whose model reliably drops the same placeholder is
+  re-sent to the provider on every cycle, indefinitely. **The lead media counts
+  as neither a drop nor a caption loss**, because `pinLeadMedia()`
+  unconditionally throws away whatever came back for that slot and substitutes
+  the input's own block verbatim, caption included — nothing the model did to it
+  survives into what is stored. One `leadIndex`, computed once, is excluded from
+  both reports; counting it would withhold the fingerprint for an article that
+  is not missing anything and log a caption loss for a caption that is intact.
 
   **Superseded by this, and gone:** `stripUnparsedAttributes()`/`PARSED_ATTRS`
   (the attribute strip that made the HTML prompt cheaper — moot once no HTML is
@@ -2462,9 +2833,13 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
     `parseBlocks()` to recognise. (The parser still recognises that class — it is
     how stored HTML from before this encoded a summary — so removing it from the
     parser would strand those articles.) A requested summary that does not come
-    back is `{ status: "failed", reason: "missingSummary" }`, with a rewrite that
-    _did_ come back still applied, because a silent no-summary is
-    indistinguishable from AI never having run.
+    back is reported rather than swallowed, because a silent no-summary is
+    indistinguishable from AI never having run — as
+    `{ status: "degraded", reason: "missingSummary" }` when a rewrite was also
+    asked for and _did_ come back (the tree is that applied rewrite, so it is
+    stored; see the `degraded` paragraph in the `contentHash` bullet), and as
+    `{ status: "failed", reason: "missingSummary" }` for a summarize-only
+    request, which has nothing else to keep and is returned untouched.
   - **A requested rewrite whose document comes back _unchanged_ is caught
     too, and for a translation that is a failure**
     (`{ status: "failed", reason: "documentUnchanged" }`). The check is
@@ -2548,20 +2923,46 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   the source's own title while refetching says so, and `reload.ts` prefers it
   over the stored name — for the AI request _and_ for the `name` it writes, so a
   reload with AI off now also picks up a title the source has changed, the same
-  thing an aggregation run does with every content change. Three report one:
-  Reddit (the post's title, off `effectivePostData`, so a crosspost reports the
-  original's — exactly what `parseToRawArticles()` stores), YouTube (the video's
-  title) and plain RSS (the entry's, `unescapeEntities()`'d the same way
-  `parseToRawArticles()` does it). **The `FullWebsiteAggregator` family
-  deliberately reports none**, and both halves of that reason matter: its
-  `fetchArticleContent()` also runs _concurrently, per article_ inside
+  thing an aggregation run does with every content change. Three report it from
+  data they already hold: Reddit (the post's title, off `effectivePostData`, so
+  a crosspost reports the original's — exactly what `parseToRawArticles()`
+  stores), YouTube (the video's title) and plain RSS (the entry's,
+  `unescapeEntities()`'d the same way `parseToRawArticles()` does it). The
+  `FullWebsiteAggregator` family reports it through **`sourceTitleFrom($)`, a
+  `protected` hook on that class** (`src/lib/aggregators/website.ts`, default
+  `null`), called once from its own `fetchArticleContent()` on the page it has
+  just fetched — free, since the parse is thrown away and the page is parsed
+  again downstream regardless.
+
+  **Only four of fifteen aggregators noted a title at first, and the cause was
+  one line rather than eleven decisions.**
+  `FullWebsiteAggregator.fetchArticleContent()` overrode `RssAggregator`'s
+  **without calling it**, so the noting was silently dropped for every site
+  built on that class — which is most of them. Selectors are supplied for
+  heise, merkur, tagesschau, caschys_blog, mein_mmo and mactechnews;
+  ars_technica and the_verge read `og:title` off the already-fetched page,
+  because they are `RssSummaryFallbackAggregator`s and never reach
+  `RssAggregator.fetchArticleContent()` (which refetches the whole _feed_ and
+  looks the entry up by link), so "just stop dropping the noting" was not
+  available to them and `og:title` costs no extra request. The three comics
+  stay `null`: they have no headline distinct from the feed's. **A selector
+  miss returns `null` and the stored name stands**, so a wrong selector
+  degrades to the old behaviour instead of storing a site's branding as the
+  article's title — which is the half of the original objection that still
+  holds: a page's raw `<title>` is the headline _plus_ the site's branding, so
+  there is no generic fallback here, only per-site selectors. The other half,
+  concurrency, never applied on the path that matters. It is true that
+  `fetchArticleContent()` runs _concurrently, per article_ inside
   `enrichArticles()`, where one instance-level value could only be the last
-  writer's — and a scraped page's `<title>` is the site's headline plus its own
-  branding, not the feed's title for the article. Those feeds keep the stored
-  name on reload, as before. The same "only meaningful after a single
-  `fetchArticleContent()` call" restriction Reddit's `_lastReloaded*` stash
-  already carried applies here, and reload is exactly that shape: one article,
-  one aggregator instance.
+  writer's — but `sourceTitle` has exactly one consumer, `reload.ts`, whose
+  shape is a single article on a single instance, and nothing reads the field
+  during an aggregation run at all. That is the same "only meaningful after a
+  single `fetchArticleContent()` call" restriction Reddit's `_lastReloaded*`
+  stash already carried. `noteSourceTitle()` is additionally **sticky** — an
+  empty or whitespace title leaves a previously-noted one in place rather than
+  resetting it — because Mein-MMO and MacTechNews fetch several pages inside
+  one `fetchArticleContent()` call, and a headline selector that matches on
+  page 1 but not on page 2 must not blank out what page 1 found.
 
   **`aiMaxPromptLength` bounds none of this, and its name invites the assumption
   that it does.** It is read in exactly one place — `POST /api/v1/ai/prompt`, to
@@ -2596,6 +2997,23 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   is no second pass through `parseBlocks()` to pin any more: the stage is handed
   a tree and returns a tree, so the parser is upstream of it rather than on
   both sides.
+
+  **The 1–6 heading bound is computed in one place as well:
+  `clampHeadingLevel()` in `src/lib/aggregators/blocks/types.ts`**, the
+  plain-data module every consumer of the block format already imports. Four
+  paths reach it and each needs it for its own reason — the codec
+  (`ai/block-text.ts`, because `"#".repeat(level)` is the only range the
+  notation can write), the storage **write** path, the storage **read** path,
+  and the wire decode (`blocks/schema.ts`'s `clampLevel`, which keeps its own
+  unknown/NaN coercion and delegates only the bound). The read path is the
+  addition worth naming: `article_blocks.level` carries only a `level >= 0`
+  CHECK, so a row written before any of this can legitimately hold a 7, and a
+  clamp applied on the way in alone would not catch it. The other thing four
+  hand-written copies of `Math.min(6, Math.max(1, …))` cost was a missing
+  fifth: `serializeBlocks()` relies on `canonicalBlocks()` having applied the
+  bound rather than repeating it, which is what let a `level: 7` heading
+  round-trip to 6 while `canonicalBlocks()` alone left it at 7 — a round trip
+  that therefore was not a normal form.
 
   **Adding the kind was additive on the wire and `FORMAT_VERSION` stays 1.**
   The format's own extensibility rule is that an unknown block type is skipped,

@@ -42,10 +42,14 @@ export const articles = sqliteTable(
      * article out of `/api/v1`'s sync `updated` stream.
      *
      * Nullable, and written *last* on purpose: a stored hash means "row and
-     * blocks are both up to date for this content", so a crash mid-write
-     * leaves it null or stale and the next run redoes the work. Every row
-     * that predates this column is null, is therefore treated as changed,
-     * and settles after one aggregation pass -- no backfill needed.
+     * blocks are both up to date for this content". Both handlers write the
+     * row, the block tree and this column inside one `writeTransaction()`
+     * (see `writeBlocksIn()` in `@/lib/aggregators/blocks/storage`), so that
+     * ordering is now atomic rather than three separate commits -- a crash
+     * anywhere in it leaves the article exactly as it was, and the next run
+     * redoes the work. Every row that predates this column is null, is
+     * therefore treated as changed, and settles after one aggregation pass
+     * -- no backfill needed.
      *
      * THE INVARIANT, and it binds every writer, not just the aggregator:
      * **anything that changes an article's content must set `contentHash` to
