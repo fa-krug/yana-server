@@ -905,7 +905,7 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
 
 - **`jobs.userId` is the ownership model for background jobs, and it is
   nullable on purpose.** Most jobs belong to the user who triggered them
-  (`aggregate`, `feed.logo`, `feed.restore`, `article.reload`), but `retention`
+  (`aggregate`, `feed.logo`, `feed.update`, `article.reload`), but `retention`
   runs once per boot across every user in a single execution and owns none of
   them individually — for that kind, and that kind alone, `userId` is `null`.
   `/jobs`, `/jobs/[id]` and `src/app/api/jobs/[id]/log-stream/route.ts` all
