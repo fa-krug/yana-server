@@ -112,14 +112,16 @@ export class PodcastAggregator extends RssAggregator {
   }
 
   // `limit` is the caller's already-paced allowance -- see the abstract
-  // signature's doc comment in ../base. Optional only so a test can call this
-  // directly without going through `aggregate()`; never recomputed here.
-  override async parseToRawArticles(sourceData: unknown, limit?: number): Promise<RawArticle[]> {
+  // signature's doc comment in ../base, including what `limit === 0` must
+  // mean. Required, not optional, for the same reason as
+  // `RssAggregator.parseToRawArticles()`: a direct call must state its bound
+  // explicitly rather than getting "no limit" by omitting the argument.
+  override async parseToRawArticles(sourceData: unknown, limit: number): Promise<RawArticle[]> {
     const feed = sourceData as ParsedFeed;
     const entries = feed?.entries || [];
     const articles: RawArticle[] = [];
 
-    const sliced = entries.slice(0, limit && limit > 0 ? limit : entries.length);
+    const sliced = entries.slice(0, limit);
 
     for (const entry of sliced) {
       let mediaUrl = "";

@@ -187,6 +187,14 @@ export abstract class BaseAggregator {
    * now-private `getCurrentRunLimit()` -- an override must slice by this
    * value and must never recompute its own via `getCurrentRunLimit()`. See
    * that method's doc comment for the bug this signature exists to prevent.
+   *
+   * **`limit === 0` means zero articles, never "unbounded."** `aggregate()`
+   * already short-circuits before this is ever called with `0` (see below),
+   * but an override must not rely on that as its only guard: slicing by the
+   * value *as given* -- `entries.slice(0, limit)`, not
+   * `limit > 0 ? limit : entries.length` -- is what keeps "the daily limit
+   * was already reached" from silently reading as "take everything" if that
+   * guard is ever moved, removed, or bypassed by a future caller.
    */
   abstract parseToRawArticles(sourceData: unknown, limit: number): Promise<RawArticle[]>;
 
@@ -375,6 +383,11 @@ export abstract class BaseAggregator {
   ): Promise<RawArticle[]> {
     this.validate();
     const limit = this.getCurrentRunLimit(clock, collectedToday);
+    // Kept as a fast path -- avoids a network fetch when the daily limit is
+    // already spent -- but it is not the only thing standing between "0" and
+    // "take everything": `parseToRawArticles()`'s own contract (see its doc
+    // comment above) requires every override to treat `limit === 0` as zero
+    // articles on its own, independent of this short-circuit ever running.
     if (limit === 0) {
       return [];
     }

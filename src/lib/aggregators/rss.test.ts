@@ -22,13 +22,40 @@ describe("RssAggregator", () => {
       ],
     };
 
-    const articles = await agg.parseToRawArticles(sourceData);
+    // `limit` is required (see the abstract signature's doc comment in
+    // ./base) -- an explicit bound covering every fixture entry, not
+    // `undefined` read as "unbounded".
+    const articles = await agg.parseToRawArticles(sourceData, sourceData.entries.length);
     expect(articles).toHaveLength(1);
     expect(articles[0].name).toBe("Apple’s New M4 Chip");
     expect(articles[0].author).toBe("Jane & John Doe");
     expect(articles[0].identifier).toBe("https://example.com/m4");
     expect(articles[0].content).toBe("<p>Article summary</p>");
     expect(articles[0].date).toBeInstanceOf(Date);
+  });
+
+  /**
+   * Pins the other half of the abstract signature's contract: `limit === 0`
+   * must mean zero articles, never "unbounded". Called directly, bypassing
+   * `aggregate()`'s own `limit === 0` short-circuit entirely, so this is the
+   * guard that survives if that short-circuit is ever moved, removed, or a
+   * future caller reaches `parseToRawArticles()` some other way.
+   */
+  it("treats a limit of 0 as zero articles, never unbounded", async () => {
+    const feed: FeedLike = { identifier: "https://example.com/rss", dailyLimit: 20 };
+    const agg = new RssAggregator(feed);
+
+    const sourceData: ParsedFeed = {
+      title: "Example Feed",
+      entries: [
+        { title: "A", link: "https://example.com/a", summary: "<p>A</p>" },
+        { title: "B", link: "https://example.com/b", summary: "<p>B</p>" },
+      ],
+    };
+
+    const articles = await agg.parseToRawArticles(sourceData, 0);
+
+    expect(articles).toEqual([]);
   });
 
   /**
