@@ -598,6 +598,8 @@
     "content": "Content",
     "name": "Title",
     "feed": "Feed",
+    "feedNote": "An article's feed cannot be changed after it is added.",
+    "feedChangeForbidden": "The article's feed cannot be changed.",
     "date": "Date",
     "createdAt": "Added date",
     "createdAtNote": "Added date is displayed for information only and cannot be edited.",

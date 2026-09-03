@@ -1173,13 +1173,18 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   changes an article's content must set `contentHash` to null** (or recompute
   it). A stale hash does not merely go out of date — it makes the aggregate
   handler skip that row _forever_, because the hash it computes from the
-  unchanged feed item keeps matching. Two writers learned this in review and now
-  null it explicitly: `src/lib/jobs/handlers/reload.ts` in **both** branches — a
+  unchanged feed item keeps matching. One writer learned this in review and now
+  nulls it explicitly: `src/lib/jobs/handlers/reload.ts` in **both** branches — a
   _failed_ reload writes an error notice, which without this would have been
   permanent, where it used to be replaced by the real article on the very next
-  cycle — and `updateArticle()` in `src/lib/articles/actions.ts`, which writes
-  `name` and `date` (both fingerprint inputs) and `feedId` (half the key the
-  handler looks a row up by). Writers that only flip `read`/`starred` must leave
+  cycle. `updateArticle()` in `src/lib/articles/actions.ts` writes `name` and
+  `date` (both fingerprint inputs) _without_ nulling anything — see "A
+  successful manual reload and `updateArticle()` both keep the fingerprint"
+  above — and forbids changing `feedId` (half the key the handler looks a row
+  up by) outright, returning a catalog `errorKey`, rather than nulling the hash
+  on every move: `feedId` is a lookup key, not a fingerprint input, so no hash
+  value could stand in for the original feed simply forgetting the row exists.
+  Writers that only flip `read`/`starred` must leave
   it alone: nothing about the content changed, and nulling it would force a
   pointless full rewrite on the next cycle. The same trap waits for **any future
   change to `parseBlocks`/`plainTextOf`** — existing articles would never be

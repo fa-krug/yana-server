@@ -58,13 +58,18 @@ export const articles = sqliteTable(
      * `read`/`starred` must leave it alone: nothing about the content changed,
      * and nulling it would force a pointless full rewrite on the next cycle.
      *
-     * Two writers learned this the hard way and now null it explicitly:
+     * One writer learned this the hard way and nulls it explicitly:
      * `src/lib/jobs/handlers/reload.ts` (both branches -- a *failed* reload
-     * writes an error notice, which without this would have been permanent)
-     * and `updateArticle()` in `src/lib/articles/actions.ts`. The same trap
-     * waits for any future change to `parseBlocks`/`plainTextOf`: existing
-     * articles would never be re-parsed, where they used to be re-derived
-     * every cycle.
+     * writes an error notice, which without this would have been permanent).
+     * `updateArticle()` in `src/lib/articles/actions.ts` writes `name` and
+     * `date` (both fingerprint inputs) *without* nulling anything -- correct
+     * because the hash is taken over the article as fetched from source, not
+     * the stored bytes, so a local edit to either does not move it. `feedId`
+     * is the one field it could not leave unlinked this way, so it forbids
+     * changing it at all rather than nulling the hash on every move. The same
+     * trap waits for any future change to `parseBlocks`/`plainTextOf`:
+     * existing articles would never be re-parsed, where they used to be
+     * re-derived every cycle.
      */
     contentHash: text("content_hash"),
     /**

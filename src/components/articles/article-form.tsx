@@ -133,7 +133,12 @@ export function ArticleForm({
   }
 
   const [name, setName] = useState(article?.name ?? "");
-  const [feedId, setFeedId] = useState<number | undefined>(article?.feedId);
+  // Not editable state: `feedId` is half the key the aggregate handler looks
+  // an article up by (`(feedId, identifier)`), so `updateArticle()` forbids
+  // changing it -- see the guard in `@/lib/articles/actions`. The picker below
+  // renders the current feed disabled, for the same reason `createdAt` is
+  // shown but not editable.
+  const feedId = article?.feedId;
   const [date, setDate] = useState(() => {
     if (!article) return "";
     const d = new Date(article.date);
@@ -151,15 +156,23 @@ export function ArticleForm({
 
     startTransition(async () => {
       const parsedDate = date ? new Date(date) : new Date(article.date);
+      // `feedId` is deliberately not part of this payload -- the picker below
+      // is disabled and never changes it, and `updateArticle()` would refuse
+      // it anyway (see the note beside the `feedId` state above).
       const res = await updateArticle(article.id, {
         name,
-        feedId,
         date: parsedDate,
       });
 
       if (!res.ok) {
-        setError(res.error || t("saveFailed"));
-        toast.error(res.error || t("saveFailed"));
+        // `errorKey` is a catalog key under this component's own `articles`
+        // namespace (see `UpdateArticleErrorKey` in `@/lib/articles/actions`)
+        // and always wins over `error`, which is either zod's own English
+        // validation message or a plain "not found" -- never something to
+        // render verbatim into a UI that might be showing German.
+        const message = res.errorKey ? t(res.errorKey) : t("saveFailed");
+        setError(message);
+        toast.error(message);
         return;
       }
 
@@ -213,8 +226,11 @@ export function ArticleForm({
           // `undefined` rather than `String(feedId)` is what keeps this from
           // ever passing a stringified `"undefined"`.
           value={feedId === undefined ? undefined : String(feedId)}
-          onValueChange={(val) => val && setFeedId(Number(val))}
-          disabled={busy}
+          // Always disabled, not just while `busy`: `updateArticle()` forbids
+          // changing `feedId` (see the note above), so this control has
+          // nothing to submit -- offering it enabled would be a control that
+          // always errors. `feedNote` below says why.
+          disabled
         >
           <SelectTrigger id="article-feed" className="w-full">
             <SelectValue />
@@ -227,6 +243,7 @@ export function ArticleForm({
             ))}
           </SelectContent>
         </Select>
+        <p className="text-xs text-muted-foreground">{t("feedNote")}</p>
       </div>
 
       <div className="space-y-2">

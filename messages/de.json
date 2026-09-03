@@ -598,6 +598,8 @@
     "content": "Inhalt",
     "name": "Titel",
     "feed": "Feed",
+    "feedNote": "Der Feed eines Artikels kann nach dem Hinzufügen nicht mehr geändert werden.",
+    "feedChangeForbidden": "Der Feed des Artikels kann nicht geändert werden.",
     "date": "Datum",
     "createdAt": "Hinzugefügt am",
     "createdAtNote": "Das Hinzufügedatum dient nur zur Information und kann nicht bearbeitet werden.",

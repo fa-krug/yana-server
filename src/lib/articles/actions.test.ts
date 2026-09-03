@@ -12,6 +12,11 @@ import { PRIORITY_IMMEDIATE } from "@/lib/jobs/queue";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
+// Only the "does not duplicate ... after a rejected move" test below drives a
+// real aggregation run; every other aggregator dependency in that path is
+// exercised for real against this file's own database.
+vi.mock("@/lib/aggregators/factory", () => ({ createAggregator: vi.fn() }));
+
 const { requestHeaders, cookieJar } = vi.hoisted(() => ({
   requestHeaders: { current: new Headers() },
   cookieJar: new Map<string, string>(),
@@ -131,17 +136,15 @@ describe("articles actions", () => {
   });
 
   describe("updateArticle", () => {
-    it("updates name, feedId, date but NOT createdAt", async () => {
+    it("updates name and date but NOT createdAt", async () => {
       await currentUserId();
       const feed1 = seedFeed("Feed 1");
-      const feed2 = seedFeed("Feed 2");
       const art = seedArticle(feed1);
       const originalCreatedAt = art.createdAt;
 
       const newDate = new Date(1710000000000);
       const res = await actions.updateArticle(art.id, {
         name: "New Name",
-        feedId: feed2,
         date: newDate,
         createdAt: new Date(1800000000000), // Should be ignored by schema / action
       });
@@ -150,9 +153,98 @@ describe("articles actions", () => {
 
       const updated = await queries.getArticle(art.id);
       expect(updated?.name).toBe("New Name");
-      expect(updated?.feedId).toBe(feed2);
+      expect(updated?.feedId).toBe(feed1);
       expect(updated?.date.getTime()).toBe(newDate.getTime());
       expect(updated?.createdAt.getTime()).toBe(originalCreatedAt.getTime());
+    });
+
+    /**
+     * **`feedId` is half the key the aggregate handler looks a row up by
+     * (`(feedId, identifier)` -- see `aggregate.ts`), so letting it change
+     * here is not an ordinary edit: the original feed's next run would find
+     * no row for the moved article's identifier and insert a fresh
+     * duplicate.** Forbidding the move is the fix (see the controller ruling
+     * in the task-4 brief); a catalog `errorKey`, never a raw string, is what
+     * the form reports it with.
+     */
+    it("forbids changing feedId, reporting a catalog errorKey", async () => {
+      await currentUserId();
+      const feed1 = seedFeed("Feed 1");
+      const feed2 = seedFeed("Feed 2");
+      const art = seedArticle(feed1);
+
+      const res = await actions.updateArticle(art.id, { feedId: feed2 });
+
+      expect(res.ok).toBe(false);
+      expect(res.field).toBe("feedId");
+      expect(res.errorKey).toBe("feedChangeForbidden");
+
+      const row = await queries.getArticle(art.id);
+      expect(row?.feedId).toBe(feed1);
+    });
+
+    it("forbids changing feedId even when the submitted value equals the current one", async () => {
+      await currentUserId();
+      const feed1 = seedFeed("Feed 1");
+      const art = seedArticle(feed1);
+
+      // Same feedId round-tripped -- not a move, so it must not be refused.
+      const res = await actions.updateArticle(art.id, { feedId: feed1, name: "Renamed" });
+      expect(res.ok).toBe(true);
+    });
+
+    /**
+     * The bug this whole task exists to close, reproduced end-to-end: without
+     * the guard above, moving the article to feed2 would succeed, and feed1's
+     * next aggregation run -- listing the very same source entry again --
+     * would find no row at `(feed1, identifier)` and insert a duplicate.
+     * Confirmed red before the guard was added: with the move allowed, this
+     * assertion failed with two rows on feed1 (see task-4-report.md).
+     */
+    it("does not duplicate an article on its original feed after a rejected move, when that feed re-aggregates the same entry", async () => {
+      await currentUserId();
+      const feed1 = seedFeed("Feed 1");
+      const feed2 = seedFeed("Feed 2");
+      const art = seedArticle(feed1, { identifier: "https://example.com/post" });
+
+      // A caller attempts to move the article to feed2 -- refused.
+      const moveResult = await actions.updateArticle(art.id, { feedId: feed2 });
+      expect(moveResult.ok).toBe(false);
+
+      // feed1 re-aggregates and lists the same source entry again.
+      const factory = await import("@/lib/aggregators/factory");
+      vi.mocked(factory.createAggregator).mockReturnValue({
+        aggregate: async () => [
+          {
+            name: "Original Name",
+            identifier: "https://example.com/post",
+            raw_content: "<p>content</p>",
+            content: "<p>content</p>",
+            date: new Date(1700000000000),
+          },
+        ],
+      } as unknown as ReturnType<typeof factory.createAggregator>);
+
+      const handlers = await import("@/lib/jobs/handlers");
+      const queue = await import("@/lib/jobs/queue");
+      const jobId = queue.enqueue("aggregate", { feedId: feed1 });
+      const job = queue.getJob(jobId)!;
+      const aggregateHandler = handlers.getHandler("aggregate");
+      await aggregateHandler!(job);
+
+      // Count by identifier across the whole table, not by feedId: a
+      // successful move followed by a re-aggregation of the original feed
+      // produces exactly one row *per feed* (the moved original on feed2,
+      // a freshly inserted duplicate on feed1) -- filtering by feedId alone
+      // would hide the duplication this test exists to catch.
+      const rowsForIdentifier = client
+        .getDb()
+        .select()
+        .from(schema.articles)
+        .where(eq(schema.articles.identifier, "https://example.com/post"))
+        .all();
+      expect(rowsForIdentifier).toHaveLength(1);
+      expect(rowsForIdentifier[0]?.feedId).toBe(feed1);
     });
 
     /**
@@ -196,7 +288,7 @@ describe("articles actions", () => {
       expect(res.error).toBe("Article not found");
     });
 
-    it("rejects moving article to another user's feed", async () => {
+    it("rejects moving article to another user's feed (the feedId guard fires before any ownership check)", async () => {
       const user1Id = await currentUserId();
       const feed1 = seedFeed();
       const art = seedArticle(feed1);
@@ -211,7 +303,8 @@ describe("articles actions", () => {
 
       const res = await actions.updateArticle(art.id, { feedId: foreignFeed });
       expect(res.ok).toBe(false);
-      expect(res.error).toBe("Target feed not found or not owned");
+      expect(res.field).toBe("feedId");
+      expect(res.errorKey).toBe("feedChangeForbidden");
     });
   });
 

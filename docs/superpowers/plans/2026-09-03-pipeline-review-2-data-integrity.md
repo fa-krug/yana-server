@@ -366,18 +366,18 @@ article now); `feedId` is not, because it is a lookup key.
 - Modify: `src/lib/db/schema/articles.ts` (doc drift, below)
 - Modify: `src/lib/articles/actions.test.ts`
 
-- [ ] **Step 1:** Write a failing test: move an article to another feed, re-run
+- [x] **Step 1:** Write a failing test: move an article to another feed, re-run
       aggregation on the original feed, assert no duplicate appears.
-- [ ] **Step 2:** Decide and implement. Either forbid changing `feedId` here, or
+- [x] **Step 2:** Decide and implement. Either forbid changing `feedId` here, or
       write a tombstone for the old `(feedId, identifier)` pair so the original
       feed treats it as deliberately removed. Forbidding is simpler and is the
       recommended default — surface a catalog `errorKey`.
-- [ ] **Step 3: Fix the doc drift.** `schema/articles.ts:62-65` **and** the
+- [x] **Step 3: Fix the doc drift.** `schema/articles.ts:62-65` **and** the
       `contentHash` bullet in `CLAUDE.md` both still assert that
       `updateArticle()` nulls `contentHash`. It has not since the source-hash
       change. A future writer reading the invariant is actively misled about
       which writers comply. Correct both.
-- [ ] **Step 4: Verify.**
+- [x] **Step 4: Verify.**
 
 ---
 
