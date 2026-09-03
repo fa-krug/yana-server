@@ -181,14 +181,24 @@ export const ENDPOINT_REGISTRY: EndpointDoc[] = [
     tag: "Runs",
     summary: "Trigger aggregation now",
     description:
-      "Enqueues one `aggregate` job per caller-owned enabled feed, grouped under a single " +
-      "run. A caller with zero enabled feeds still gets a run back, already completed with " +
-      "`totalJobs: 0` -- `runId` is always a real, non-null id.",
+      "Enqueues one `aggregate` job per caller-owned enabled feed that is ready to run, " +
+      "grouped under a single run. A feed whose AI options are on but whose owner has no " +
+      "working AI provider is excluded from the run rather than enqueued -- it is listed in " +
+      "`skippedFeeds` instead, with `reason: \"ai_no_provider\"`, since enqueueing it would " +
+      "silently lose every one of its articles rather than fail visibly. A caller with zero " +
+      "ready feeds (whether it owns none, or every enabled one was skipped) still gets a run " +
+      "back, already completed with `totalJobs: 0` -- `runId` is always a real, non-null id.",
     auth: "bearer-or-cookie",
     response: {
       status: 202,
-      schema: z.object({ runId: z.number().int() }),
-      description: "The id of the created run.",
+      schema: z.object({
+        runId: z.number().int(),
+        skippedFeeds: z.array(
+          z.object({ feedId: z.number().int(), reason: z.literal("ai_no_provider") }),
+        ),
+      }),
+      description:
+        "The id of the created run, and any caller-owned enabled feeds excluded from it.",
     },
     errors: [{ status: 401, code: "unauthorized", when: "no valid Bearer token or session." }],
   }),

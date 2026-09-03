@@ -1294,13 +1294,13 @@
     "/api/v1/aggregate": {
       "post": {
         "summary": "Trigger aggregation now",
-        "description": "Enqueues one `aggregate` job per caller-owned enabled feed, grouped under a single run. A caller with zero enabled feeds still gets a run back, already completed with `totalJobs: 0` -- `runId` is always a real, non-null id.",
+        "description": "Enqueues one `aggregate` job per caller-owned enabled feed that is ready to run, grouped under a single run. A feed whose AI options are on but whose owner has no working AI provider is excluded from the run rather than enqueued -- it is listed in `skippedFeeds` instead, with `reason: \"ai_no_provider\"`, since enqueueing it would silently lose every one of its articles rather than fail visibly. A caller with zero ready feeds (whether it owns none, or every enabled one was skipped) still gets a run back, already completed with `totalJobs: 0` -- `runId` is always a real, non-null id.",
         "tags": [
           "Runs"
         ],
         "responses": {
           "202": {
-            "description": "The id of the created run.",
+            "description": "The id of the created run, and any caller-owned enabled feeds excluded from it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1310,10 +1310,35 @@
                       "type": "integer",
                       "minimum": -9007199254740991,
                       "maximum": 9007199254740991
+                    },
+                    "skippedFeeds": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "feedId": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "reason": {
+                            "type": "string",
+                            "enum": [
+                              "ai_no_provider"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "feedId",
+                          "reason"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [
-                    "runId"
+                    "runId",
+                    "skippedFeeds"
                   ],
                   "additionalProperties": false
                 }
