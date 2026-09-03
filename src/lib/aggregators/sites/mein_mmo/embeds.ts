@@ -3,7 +3,16 @@ import type { Element } from "domhandler";
 import type { ChromeLabels } from "../../chrome-labels";
 import { buildBlueskyEmbedHtml, isBlueskyUrl } from "../../embeds/bluesky";
 import { localizeThumbnail } from "../../embeds/youtube";
+import { YOUTUBE_EMBED_DOMAIN_ALTERNATION } from "../../embeds/youtube-url";
 import { buildYoutubeFacadeHtml } from "../../extract/format";
+
+// Shares its domain list with embeds/youtube-url.ts's youtubeIdFrom() -- see
+// that constant's doc comment for why the {11} length constraint here stays
+// a separate, tighter pattern rather than folding into the shared extractor.
+const YOUTUBE_EMBED_ID_PATTERN = new RegExp(
+  `(?:${YOUTUBE_EMBED_DOMAIN_ALTERNATION})\\/embed\\/([a-zA-Z0-9_-]{11})`,
+);
+const YOUTUBE_WATCH_ID_PATTERN = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
 
 export interface EmbedProcessorStrategy {
   canHandle(figure: cheerio.Cheerio<Element>, $: cheerio.CheerioAPI): boolean;
@@ -57,16 +66,14 @@ export class YouTubeEmbedProcessor implements EmbedProcessorStrategy {
   private extractVideoId(figure: cheerio.Cheerio<Element>, $: cheerio.CheerioAPI): string | null {
     const embedContent = figure.attr("data-sanitized-data-embed-content") || "";
     if (embedContent) {
-      const match = embedContent.match(
-        /(?:youtube\.com\/embed\/|youtube-nocookie\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
-      );
+      const match = embedContent.match(YOUTUBE_EMBED_ID_PATTERN);
       if (match) return match[1]!;
     }
 
     const anchors = figure.find("a[href]").toArray();
     for (const a of anchors) {
       const href = $(a).attr("href") || "";
-      const match = href.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+      const match = href.match(YOUTUBE_WATCH_ID_PATTERN);
       if (match) return match[1]!;
     }
 

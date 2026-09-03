@@ -11,12 +11,9 @@ import {
   extractMainContent,
   extractMainContentIfPresent,
 } from "./extract/content";
-import {
-  createYoutubeEmbedHtml,
-  extractYoutubeVideoId,
-  formatArticleContent,
-} from "./extract/format";
+import { createYoutubeEmbedHtml, formatArticleContent } from "./extract/format";
 import { localizeThumbnail } from "./embeds/youtube";
+import { isYoutubeUrl, youtubeIdFrom } from "./embeds/youtube-url";
 import { getHeaderImageRef } from "./header/context";
 import { fetchHtml } from "./http/fetcher";
 import { RssAggregator } from "./rss";
@@ -54,12 +51,6 @@ export function hasBodyContent(html: string): boolean {
   return $(BODY_MEDIA_SELECTOR).length > 0;
 }
 
-export function isYoutubeUrl(url: string): boolean {
-  if (!url) return false;
-  const youtubeDomains = ["youtube.com", "youtu.be", "m.youtube.com", "youtube-nocookie.com"];
-  return youtubeDomains.some((domain) => url.includes(domain));
-}
-
 /**
  * Replace every raw YouTube iframe (and privacy-wrapper placeholder) with a
  * click-through facade -- localizing each video's thumbnail first, so the
@@ -74,7 +65,7 @@ export async function proxyYoutubeEmbeds(
     const $container = $(container);
     const link = $container.find(".embed-privacy-url a[href]").first();
     const href = link.attr("href");
-    const videoId = href ? extractYoutubeVideoId(href) : null;
+    const videoId = href ? youtubeIdFrom(href) : null;
     if (videoId) {
       $container.replaceWith(`<iframe src="https://www.youtube.com/embed/${videoId}"></iframe>`);
     } else {
@@ -87,7 +78,7 @@ export async function proxyYoutubeEmbeds(
     const $iframe = $(iframe);
     const src = $iframe.attr("src") || "";
     if (isYoutubeUrl(src)) {
-      const videoId = extractYoutubeVideoId(src);
+      const videoId = youtubeIdFrom(src);
       if (videoId) {
         const thumbnailRef = await localizeThumbnail(videoId);
         $iframe.replaceWith(createYoutubeEmbedHtml(videoId, labels, "", thumbnailRef));

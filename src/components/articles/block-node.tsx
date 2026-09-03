@@ -2,21 +2,23 @@ import React from "react";
 
 import type { BlockNode as BlockNodeType } from "@/lib/blocks/tree";
 import type { ArticleInlineRun } from "@/lib/db/schema/articles";
+import { youtubeIdFrom } from "@/lib/aggregators/embeds/youtube-url";
 
 /**
- * Video id extraction mirrors the patterns in
- * `@/lib/aggregators/blocks/parser.ts`, kept standalone rather than imported
- * from there: that module (and the rest of `@/lib/aggregators/**`) pulls in
- * cheerio and other server-only dependencies that must not reach the browser
- * bundle.
+ * `youtubeIdFrom` is the one YouTube id extractor for the whole codebase --
+ * this is the only place that needs it client-side, which is exactly why it
+ * lives in its own dependency-free module rather than in
+ * `@/lib/aggregators/embeds/youtube.ts` (which imports the image store and
+ * re-exports from `../website`, both server-only) or in
+ * `@/lib/aggregators/blocks/parser.ts` (cheerio). See that module's doc
+ * comment for the rest of the dependency contract, and its test for the
+ * tripwire that pins it.
  */
-const YOUTUBE_VIDEO_ID_PATTERN =
-  /(?:youtube\.com\/watch\?(?:.*&)?v=|youtu\.be\/|(?:youtube\.com|youtube-nocookie\.com)\/embed\/)([A-Za-z0-9_-]{6,})/;
 const DAILYMOTION_VIDEO_ID_PATTERN = /dailymotion\.com\/(?:video|embed\/video)\/([A-Za-z0-9]+)/;
 
 function youtubeEmbedSrc(externalUrl: string): string {
-  const match = YOUTUBE_VIDEO_ID_PATTERN.exec(externalUrl);
-  return match ? `https://www.youtube.com/embed/${match[1]}` : "";
+  const videoId = youtubeIdFrom(externalUrl);
+  return videoId ? `https://www.youtube.com/embed/${videoId}` : "";
 }
 
 function dailymotionEmbedSrc(externalUrl: string): string {

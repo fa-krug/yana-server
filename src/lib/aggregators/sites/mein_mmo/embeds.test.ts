@@ -74,6 +74,20 @@ describe("processEmbeds - other processors still run under the async loop", () =
     );
   });
 
+  it("still converts a privacy-embedded (youtube-nocookie.com) figure to a facade", async () => {
+    const $ = cheerio.load(
+      '<div class="entry-content"><figure class="wp-block-embed-youtube" ' +
+        'data-sanitized-data-embed-content="https://www.youtube-nocookie.com/embed/abcdefghijk">' +
+        "</figure></div>",
+    );
+    const $content = $(".entry-content");
+
+    await processEmbeds($content, $, DEFAULT_CHROME_LABELS);
+
+    expect($content.find("figure").length).toBe(0);
+    expect($content.find('div[data-sanitized-class="youtube-embed"]').length).toBe(1);
+  });
+
   it("still converts a Reddit figure with a thumbnail image", async () => {
     const $ = cheerio.load(
       '<div class="entry-content"><figure class="wp-block-embed embed-reddit">' +

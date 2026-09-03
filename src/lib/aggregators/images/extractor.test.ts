@@ -1,11 +1,11 @@
 import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { extractImages, getOverrideImageUrl, ImageExtractor } from "./extractor";
+import { youtubeIdFrom } from "../embeds/youtube-url";
+import { isTwitterUrl } from "../extract/format";
 import {
   DirectImageStrategy,
   extractTweetId,
-  extractYoutubeVideoId,
-  isTwitterUrl,
   TwitterImageStrategy,
   YouTubeThumbnailStrategy,
 } from "./strategies";
@@ -26,11 +26,9 @@ describe("Image Extraction Strategies", () => {
 
   describe("YouTubeThumbnailStrategy", () => {
     it("extracts YouTube video IDs and handles YouTube URLs", () => {
-      expect(extractYoutubeVideoId("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).toBe(
-        "dQw4w9WgXcQ",
-      );
-      expect(extractYoutubeVideoId("https://youtu.be/dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
-      expect(extractYoutubeVideoId("https://youtube.com/embed/dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
+      expect(youtubeIdFrom("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
+      expect(youtubeIdFrom("https://youtu.be/dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
+      expect(youtubeIdFrom("https://youtube.com/embed/dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
 
       const strategy = new YouTubeThumbnailStrategy();
       expect(strategy.canHandle({ url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" })).toBe(true);

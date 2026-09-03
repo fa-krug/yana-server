@@ -13,62 +13,24 @@ import type { Element } from "domhandler";
 import type { EmbedBlock } from "../blocks/types";
 import { storeImageRefFromUrl } from "../images/store";
 import { registerEmbedProvider, type ExtractionContext } from "./registry";
+import { isYoutubeUrl, thumbnailUrlFor, youtubeIdFrom } from "./youtube-url";
 export { proxyYoutubeEmbeds } from "../website";
+// Re-exported so every existing server-side importer of this module (which
+// pulls in cheerio and the image store below) keeps working unchanged. See
+// ./youtube-url.ts for why the id extractor, the domain check and the
+// thumbnail builder now live in their own dependency-free module.
+export {
+  isYoutubeUrl,
+  thumbnailUrlFor,
+  youtubeIdFrom,
+  YOUTUBE_EMBED_DOMAIN_ALTERNATION,
+} from "./youtube-url";
 
 /**
  * YouTube thumbnail quality fallback order.
  * maxresdefault (1280x720) is not always available; hqdefault (480x360) always is.
  */
 const THUMBNAIL_QUALITIES = ["maxresdefault", "hqdefault"] as const;
-
-/** Patterns for extracting YouTube video IDs from various URL formats. */
-const YOUTUBE_ID_PATTERNS: RegExp[] = [
-  /youtu\.be\/([A-Za-z0-9_-]+)/,
-  /youtube\.com\/watch\?.*v=([A-Za-z0-9_-]+)/,
-  /youtube\.com\/embed\/([A-Za-z0-9_-]+)/,
-  /youtube-nocookie\.com\/embed\/([A-Za-z0-9_-]+)/,
-  /youtube\.com\/v\/([A-Za-z0-9_-]+)/,
-  /youtube\.com\/shorts\/([A-Za-z0-9_-]+)/,
-  /youtube\.com\/live\/([A-Za-z0-9_-]+)/,
-];
-
-/** YouTube domain fragments used for URL detection. */
-const YOUTUBE_DOMAINS = ["youtube.com", "youtu.be", "m.youtube.com", "youtube-nocookie.com"];
-
-/**
- * Extract a YouTube video ID from a URL string.
- *
- * Handles: `watch?v=`, `youtu.be/`, `/embed/`, `/v/`, `/shorts/`, `/live/`,
- * and iframe `src` attributes (including youtube-nocookie.com).
- *
- * @returns The video ID or null if not a valid YouTube URL.
- */
-export function youtubeIdFrom(url: string): string | null {
-  if (!url) return null;
-
-  for (const pattern of YOUTUBE_ID_PATTERNS) {
-    const match = pattern.exec(url);
-    if (match) {
-      const id = match[1]!;
-      // Accept IDs that are valid base64url characters
-      if (/^[A-Za-z0-9_-]+$/.test(id)) {
-        return id;
-      }
-    }
-  }
-  return null;
-}
-
-/** Build a thumbnail URL for a given video ID and quality level. */
-export function thumbnailUrlFor(id: string, quality: string = "maxresdefault"): string {
-  return `https://img.youtube.com/vi/${id}/${quality}.jpg`;
-}
-
-/** Check if a URL is a YouTube URL. */
-export function isYoutubeUrl(url: string): boolean {
-  if (!url) return false;
-  return YOUTUBE_DOMAINS.some((domain) => url.includes(domain));
-}
 
 /** Class markers that identify a YouTube embed container. */
 const YOUTUBE_CLASS_MARKERS = [

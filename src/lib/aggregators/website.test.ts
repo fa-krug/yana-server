@@ -95,6 +95,55 @@ describe("FullWebsiteAggregator", () => {
     // button on black -- see localizeThumbnail() in ./embeds/youtube.ts.
     expect(processed).toContain('<img src="yana-img://abc123hash"');
   });
+
+  /**
+   * The live bug this task fixes: isYoutubeUrl() (in embeds/youtube-url.ts)
+   * already accepted youtube-nocookie.com, but the extractor it fed used to
+   * disagree and return null -- so the iframe was left untouched here, and
+   * Heise/Merkur/Mein-MMO's `selectorsToRemove` (which only excludes
+   * `youtube.com`/`youtu.be`) then deleted it outright. A privacy-embedded
+   * video vanished from the article with no facade, no thumbnail and no log
+   * line. Before the fix this iframe survived proxyYoutubeEmbeds() unchanged;
+   * now it becomes a facade like any other YouTube embed.
+   */
+  it("replaces a youtube-nocookie.com (privacy-embed) iframe with a facade", async () => {
+    const feed: FeedLike = { identifier: "https://example.com", dailyLimit: 20 };
+    const agg = new FullWebsiteAggregator(feed);
+
+    const html = `<article><iframe src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"></iframe></article>`;
+    const article: RawArticle = {
+      name: "Privacy-Embedded Video Post",
+      identifier: "https://example.com/video-privacy",
+      raw_content: "",
+      content: "",
+      date: new Date(),
+    };
+
+    const processed = await agg.processContent(html, article);
+    expect(processed).toContain("youtube-embed-container");
+    expect(processed).toContain("dQw4w9WgXcQ");
+    expect(processed).not.toContain("<iframe");
+  });
+
+  /** Same bug, same fix, for the livestream URL form (`youtube.com/live/<id>`). */
+  it("replaces a youtube.com/live/ iframe with a facade", async () => {
+    const feed: FeedLike = { identifier: "https://example.com", dailyLimit: 20 };
+    const agg = new FullWebsiteAggregator(feed);
+
+    const html = `<article><iframe src="https://www.youtube.com/live/dQw4w9WgXcQ"></iframe></article>`;
+    const article: RawArticle = {
+      name: "Livestream Post",
+      identifier: "https://example.com/video-live",
+      raw_content: "",
+      content: "",
+      date: new Date(),
+    };
+
+    const processed = await agg.processContent(html, article);
+    expect(processed).toContain("youtube-embed-container");
+    expect(processed).toContain("dQw4w9WgXcQ");
+    expect(processed).not.toContain("<iframe");
+  });
 });
 
 describe("RssSummaryFallbackAggregator", () => {

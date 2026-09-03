@@ -1,4 +1,6 @@
 import type * as cheerio from "cheerio";
+import { isTwitterUrl } from "../extract/format";
+import { thumbnailUrlFor, youtubeIdFrom } from "../embeds/youtube-url";
 import { fetchSingleImage, type FetchedImageResult } from "./fetcher";
 
 export interface ImageExtractionContext {
@@ -14,34 +16,6 @@ export interface FetchedImageResultWithUrl extends FetchedImageResult {
 export interface ImageStrategy {
   canHandle(context: ImageExtractionContext): boolean;
   extract(context: ImageExtractionContext): Promise<FetchedImageResultWithUrl | null>;
-}
-
-export function extractYoutubeVideoId(url: string): string | null {
-  if (!url) return null;
-  const patterns = [
-    /youtu\.be\/([A-Za-z0-9_-]+)/,
-    /youtube\.com\/watch\?.*v=([A-Za-z0-9_-]+)/,
-    /youtube\.com\/embed\/([A-Za-z0-9_-]+)/,
-    /youtube\.com\/v\/([A-Za-z0-9_-]+)/,
-    /youtube\.com\/shorts\/([A-Za-z0-9_-]+)/,
-  ];
-  for (const pattern of patterns) {
-    const match = pattern.exec(url);
-    if (match && match[1]) {
-      return match[1];
-    }
-  }
-  return null;
-}
-
-export function getYoutubeThumbnailUrl(videoId: string, quality = "maxresdefault"): string {
-  return `https://img.youtube.com/vi/${videoId}/${quality}.jpg`;
-}
-
-export function isTwitterUrl(url: string): boolean {
-  if (!url) return false;
-  const twitterDomains = ["twitter.com", "x.com", "mobile.twitter.com"];
-  return twitterDomains.some((domain) => url.includes(domain));
 }
 
 export function extractTweetId(url: string): string | null {
@@ -146,15 +120,15 @@ export class DirectImageStrategy implements ImageStrategy {
 
 export class YouTubeThumbnailStrategy implements ImageStrategy {
   canHandle(context: ImageExtractionContext): boolean {
-    return extractYoutubeVideoId(context.url) !== null;
+    return youtubeIdFrom(context.url) !== null;
   }
 
   async extract(context: ImageExtractionContext): Promise<FetchedImageResultWithUrl | null> {
-    const videoId = extractYoutubeVideoId(context.url);
+    const videoId = youtubeIdFrom(context.url);
     if (!videoId) return null;
 
     for (const quality of ["maxresdefault", "hqdefault"]) {
-      const thumbnailUrl = getYoutubeThumbnailUrl(videoId, quality);
+      const thumbnailUrl = thumbnailUrlFor(videoId, quality);
       const res = await fetchSingleImage(thumbnailUrl);
       if (res) {
         return { ...res, imageUrl: thumbnailUrl };

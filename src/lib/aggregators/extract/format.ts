@@ -3,6 +3,7 @@
  */
 
 import type { ChromeLabels } from "../chrome-labels";
+import { youtubeIdFrom } from "../embeds/youtube-url";
 
 export function escapeHtml(str: string): string {
   return str
@@ -11,32 +12,6 @@ export function escapeHtml(str: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
-}
-
-export function extractYoutubeVideoId(url: string): string | null {
-  if (!url) {
-    return null;
-  }
-
-  const patterns = [
-    /youtu\.be\/([A-Za-z0-9_-]+)/,
-    /youtube\.com\/watch\?.*v=([A-Za-z0-9_-]+)/,
-    /youtube\.com\/embed\/([A-Za-z0-9_-]+)/,
-    /youtube\.com\/v\/([A-Za-z0-9_-]+)/,
-    /youtube\.com\/shorts\/([A-Za-z0-9_-]+)/,
-  ];
-
-  for (const pattern of patterns) {
-    const match = url.match(pattern);
-    if (match && match[1]) {
-      const videoId = match[1];
-      if (/^[A-Za-z0-9_-]+$/.test(videoId)) {
-        return videoId;
-      }
-    }
-  }
-
-  return null;
 }
 
 export function buildYoutubeFacadeHtml(
@@ -71,12 +46,31 @@ export function createYoutubeEmbedHtml(
   return facade.replace("</div>", `${caption}</div>`);
 }
 
+/**
+ * Check whether a URL's *hostname* is a Twitter/X domain.
+ *
+ * Deliberately hostname-based, not `url.includes(domain)`: the substring
+ * check that used to live here (and in `images/strategies.ts`) read
+ * `https://evil.example.com/?ref=twitter.com` as a Twitter URL, because the
+ * domain appeared somewhere in the string. `blocks/parser.ts`'s `tweetEmbed()`
+ * already parsed the hostname correctly; this is that same approach, factored
+ * out so both callers share it instead of one carrying the bug.
+ */
 export function isTwitterUrl(url: string): boolean {
   if (!url) {
     return false;
   }
   const twitterDomains = ["twitter.com", "x.com", "mobile.twitter.com"];
-  return twitterDomains.some((domain) => url.includes(domain));
+  let host = "";
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (!host) {
+    return false;
+  }
+  return twitterDomains.some((domain) => host === domain || host.endsWith(`.${domain}`));
 }
 
 export function extractTweetId(url: string): string | null {
@@ -120,7 +114,7 @@ export function buildHeaderHtml(
     return null;
   }
 
-  const youtubeVideoId = extractYoutubeVideoId(headerImageUrl);
+  const youtubeVideoId = youtubeIdFrom(headerImageUrl);
   if (youtubeVideoId) {
     const youtubeEmbed = createYoutubeEmbedHtml(
       youtubeVideoId,

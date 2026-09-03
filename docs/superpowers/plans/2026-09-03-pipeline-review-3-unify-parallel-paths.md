@@ -195,20 +195,26 @@ line. Heise, Merkur and Mein-MMO then carry
 **deleted outright**. A privacy-embedded YouTube video vanishes silently. Same
 for `youtube.com/live/ID`.
 
-**Files:** consolidate into `src/lib/aggregators/embeds/youtube.ts`; modify
-`extract/format.ts`, `images/strategies.ts`, `website.ts`,
-`components/articles/block-node.tsx`; modify tests.
+**Files:** consolidate into a new, dependency-free
+`src/lib/aggregators/embeds/youtube-url.ts` (not `embeds/youtube.ts` itself —
+that module imports `storeImageRefFromUrl` and re-exports from `../website`,
+both server-only, so `block-node.tsx` cannot import it directly;
+`embeds/youtube.ts` re-exports everything from the new module unchanged);
+modify `extract/format.ts`, `images/strategies.ts`, `website.ts`,
+`components/articles/block-node.tsx`, `blocks/parser.ts`,
+`sites/mein_mmo/embeds.ts`, `header/strategies.ts`, `sites/reddit/images.ts`,
+`sites/reddit/aggregator.ts`; modify tests.
 
-- [ ] **Step 1:** Failing test — a nocookie iframe and a `/live/` URL both
+- [x] **Step 1:** Failing test — a nocookie iframe and a `/live/` URL both
       produce a facade rather than being dropped.
-- [ ] **Step 2:** Make `youtubeIdFrom` (the only complete one) the single export.
+- [x] **Step 2:** Make `youtubeIdFrom` (the only complete one) the single export.
       Delete copies 1, 2 and the `isYoutubeUrl`/thumbnail twins.
-- [ ] **Step 3:** Copies 4 and 5 have tighter `{6,}`/`{11}` length constraints
+- [x] **Step 3:** Copies 4 and 5 have tighter `{6,}`/`{11}` length constraints
       and are defensible as separate inline patterns — but they must at minimum
       share the domain alternation. Export it as a constant.
-- [ ] **Step 4:** Copy 6 is a client component; check the import does not drag
+- [x] **Step 4:** Copy 6 is a client component; check the import does not drag
       server-only code into the browser bundle before wiring it up.
-- [ ] **Step 5:** Same treatment for `isTwitterUrl`, which exists at
+- [x] **Step 5:** Same treatment for `isTwitterUrl`, which exists at
       `extract/format.ts:74-80` and `images/strategies.ts:41-45`. Note the
       `format.ts` one uses `url.includes(domain)`, so
       `https://evil.example.com/?ref=twitter.com` is "a Twitter URL"; the

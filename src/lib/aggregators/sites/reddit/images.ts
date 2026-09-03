@@ -4,7 +4,8 @@
  * Ported from old/core/aggregators/reddit/images.py.
  */
 
-import { extractYoutubeVideoId, isTwitterUrl } from "../../extract/format";
+import { isTwitterUrl } from "../../extract/format";
+import { youtubeIdFrom } from "../../embeds/youtube-url";
 import { extractImages, getOverrideImageUrl } from "../../images/extractor";
 import { RedditPostData } from "./types";
 import { decodeHtmlEntitiesInUrl, extractUrlsFromText, fixRedditMediaUrl } from "./urls";
@@ -217,7 +218,7 @@ function extractVideoEmbedUrl(post: RedditPostData): string | null {
       return `https://vxreddit.com${normalizedPermalink}`;
     }
 
-    if (extractYoutubeVideoId(decodedUrl)) {
+    if (youtubeIdFrom(decodedUrl)) {
       return decodedUrl;
     }
   }
@@ -230,7 +231,7 @@ function extractVideoEmbedUrl(post: RedditPostData): string | null {
         const normalizedPermalink = decodedPermalink.replace(/\/$/, "");
         return `https://vxreddit.com${normalizedPermalink}`;
       }
-      if (extractYoutubeVideoId(url)) {
+      if (youtubeIdFrom(url)) {
         return url;
       }
     }

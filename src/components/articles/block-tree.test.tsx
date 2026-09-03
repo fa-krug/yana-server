@@ -397,6 +397,32 @@ describe("BlockNode", () => {
     expect(container.querySelector("a")).toBeNull();
   });
 
+  it("renders a youtube-nocookie (privacy-embed) embed as a real iframe", () => {
+    const embedNode = makeBlock({
+      kind: "embed",
+      embedProvider: "youtube",
+      embedExternalUrl: "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
+    });
+
+    const { container } = render(<BlockNodeComponent node={embedNode} />);
+    const iframe = container.querySelector("iframe");
+    expect(iframe?.getAttribute("src")).toBe("https://www.youtube.com/embed/dQw4w9WgXcQ");
+    expect(container.querySelector("a")).toBeNull();
+  });
+
+  it("renders a youtube.com/live/ embed as a real iframe", () => {
+    const embedNode = makeBlock({
+      kind: "embed",
+      embedProvider: "youtube",
+      embedExternalUrl: "https://www.youtube.com/live/dQw4w9WgXcQ",
+    });
+
+    const { container } = render(<BlockNodeComponent node={embedNode} />);
+    const iframe = container.querySelector("iframe");
+    expect(iframe?.getAttribute("src")).toBe("https://www.youtube.com/embed/dQw4w9WgXcQ");
+    expect(container.querySelector("a")).toBeNull();
+  });
+
   it("renders a dailymotion embed as a real iframe, not a link card", () => {
     const embedNode = makeBlock({
       kind: "embed",

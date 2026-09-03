@@ -9,13 +9,9 @@ import { BaseAggregator, FeedLike, RawArticle } from "../../base";
 import { mapWithConcurrency } from "../../concurrency";
 import { AggregatorError, ArticleSkipError } from "../../errors";
 import { getHeaderImageRef, HeaderElementData } from "../../header/context";
-import {
-  buildHeaderHtml,
-  extractYoutubeVideoId,
-  formatArticleContent,
-  isTwitterUrl,
-} from "../../extract/format";
+import { buildHeaderHtml, formatArticleContent, isTwitterUrl } from "../../extract/format";
 import { localizeThumbnail } from "../../embeds/youtube";
+import { youtubeIdFrom } from "../../embeds/youtube-url";
 import { storeImageRefFromUrl } from "../../images/store";
 
 import { getRedditAccessToken, getRedditUserSettings } from "./auth";
@@ -532,7 +528,7 @@ export class RedditAggregator extends BaseAggregator {
       }
     } else if (headerSourceUrl) {
       const labels = await this.chromeLabels();
-      const isYoutubeHeader = Boolean(extractYoutubeVideoId(headerSourceUrl));
+      const isYoutubeHeader = Boolean(youtubeIdFrom(headerSourceUrl));
       const isTwitterHeader = isTwitterUrl(headerSourceUrl);
 
       let renderUrl = headerSourceUrl;
@@ -552,7 +548,7 @@ export class RedditAggregator extends BaseAggregator {
       // uses for its own embeds (src/lib/aggregators/embeds/youtube.ts).
       let youtubeThumbnailRef: string | null = null;
       if (isYoutubeHeader) {
-        const youtubeVideoId = extractYoutubeVideoId(headerSourceUrl);
+        const youtubeVideoId = youtubeIdFrom(headerSourceUrl);
         if (youtubeVideoId) {
           youtubeThumbnailRef = (await localizeThumbnail(youtubeVideoId)) || null;
         }
@@ -627,7 +623,7 @@ export class RedditAggregator extends BaseAggregator {
   protected _stripYoutubeLinkFromContent(content: string, youtubeUrl: string): string {
     if (!content || !youtubeUrl) return content;
     try {
-      const videoId = extractYoutubeVideoId(youtubeUrl);
+      const videoId = youtubeIdFrom(youtubeUrl);
       if (!videoId) return content;
 
       const $ = cheerio.load(content);
@@ -636,7 +632,7 @@ export class RedditAggregator extends BaseAggregator {
       $("a").each((_, link) => {
         const href = $(link).attr("href");
         if (!href) return;
-        const linkVideoId = extractYoutubeVideoId(href);
+        const linkVideoId = youtubeIdFrom(href);
         if (linkVideoId === videoId) {
           const parent = $(link).parent();
           $(link).remove();

@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import type { AnyNode, Element, Text } from "domhandler";
+import { YOUTUBE_EMBED_DOMAIN_ALTERNATION } from "../embeds/youtube-url";
 import type { Block, EmbedBlock, ImageBlock, InlineRun, ListBlock } from "./types";
 
 // Re-exported so the callers that already have cheerio in their graph (both job
@@ -70,8 +71,12 @@ const HEADING_TAGS: Record<string, number> = {
 
 const TABLE_CELL_SEPARATOR = " — ";
 
+// The `/embed/<id>` alternative shares its domain list with
+// embeds/youtube-url.ts's youtubeIdFrom() -- see that constant's doc comment
+// for why the length constraint here ({6,}) stays separate rather than
+// folding into the shared extractor.
 const YOUTUBE_PATTERNS = [
-  /(?:youtube\.com|youtube-nocookie\.com)\/embed\/([A-Za-z0-9_-]{6,})/,
+  new RegExp(`(?:${YOUTUBE_EMBED_DOMAIN_ALTERNATION})/embed/([A-Za-z0-9_-]{6,})`),
   /(?:youtube\.com\/watch\?(?:.*&)?v=|youtu\.be\/)([A-Za-z0-9_-]{6,})/,
 ];
 

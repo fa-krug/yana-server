@@ -2,7 +2,7 @@ import { ArticleSkipError } from "../errors";
 import { ImageExtractor } from "../images/extractor";
 import { fetchSingleImage } from "../images/fetcher";
 import { storeImageBytes } from "../images/store";
-import { extractYoutubeVideoId, getYoutubeThumbnailUrl } from "../images/strategies";
+import { thumbnailUrlFor, youtubeIdFrom } from "../embeds/youtube-url";
 import type { HeaderElementContext, HeaderElementData } from "./context";
 
 export interface HeaderElementStrategy {
@@ -108,19 +108,19 @@ export class RedditPostStrategy implements HeaderElementStrategy {
 
 export class YouTubeStrategy implements HeaderElementStrategy {
   canHandle(url: string): boolean {
-    return extractYoutubeVideoId(url) !== null;
+    return youtubeIdFrom(url) !== null;
   }
 
   async create(context: HeaderElementContext): Promise<HeaderElementData | null> {
     try {
-      const videoId = extractYoutubeVideoId(context.url);
+      const videoId = youtubeIdFrom(context.url);
       if (!videoId) return null;
 
-      let thumbnailUrl = getYoutubeThumbnailUrl(videoId, "maxresdefault");
+      let thumbnailUrl = thumbnailUrlFor(videoId, "maxresdefault");
       let imageResult = await fetchSingleImage(thumbnailUrl);
 
       if (!imageResult) {
-        thumbnailUrl = getYoutubeThumbnailUrl(videoId, "hqdefault");
+        thumbnailUrl = thumbnailUrlFor(videoId, "hqdefault");
         imageResult = await fetchSingleImage(thumbnailUrl);
       }
 
