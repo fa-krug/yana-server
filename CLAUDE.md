@@ -2543,8 +2543,12 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   more damaging of the two.** `0020_drop_ai_max_tokens` drops the column; the
   `maxTokens` bound, the `advanced.maxTokens*` catalog keys and the field's
   place in `AI_ADVANCED_FIELDS` went with it, taking the tuning values from
-  seven to **six**. A request cap only ever refused work; this one _corrupted_
-  it. Its default of 2000 was below what a rewritten article needs, so a longer
+  seven to six. (A later removal took it to **five**: `aiMaxPromptLength` —
+  the last Yana-imposed AI limit, enforced only by `POST /api/v1/ai/prompt` —
+  went with the request caps for the same reason, along with that route's
+  `prompt_too_long` code; see the `aiMaxPromptLength` bullet below for what it
+  bounded while it existed.) A request cap only ever refused work; this one
+  _corrupted_ it. Its default of 2000 was below what a rewritten article needs, so a longer
   one came back truncated mid-JSON, failed to parse, and spent the whole paid
   request on an `invalidJson` failure — and no correct value exists to set it
   to, because it is the length of an answer nobody has seen yet. So
@@ -3366,7 +3370,7 @@ whose verdict derives the `*Enabled` flags), phase 7 (the AI tab at `/ai` —
 `src/lib/ai/` and `src/components/ai/`: a client-safe provider registry, three
 live probes reusing phase 6's `defineIntegration()` descriptor, the
 `active_ai_provider` preference and the then-nine global tuning values, now
-six — see the no-request-cap bullet above), phases 8–10
+five — see the no-request-cap bullet above), phases 8–10
 (the tags, feeds and articles CRUD tabs, built on phase 5's kit), phase 11
 (a–c: extraction core, embeds/media, and the per-site aggregators), phase 12
 (scheduling and the `jobs` table's in-process worker), phase 13 (the
