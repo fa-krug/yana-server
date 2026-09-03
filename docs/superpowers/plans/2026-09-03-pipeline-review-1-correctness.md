@@ -105,7 +105,7 @@ reintroduces it for every row written before it.
 - Consumes: `resolveModel(provider, stored)` from `@/lib/ai/columns`,
   `AI_PROVIDERS` from `@/lib/ai/providers`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `src/lib/ai/run.test.ts`, add a case that builds settings with
 `activeAiProvider: "gemini"`, `geminiEnabled: true`, `geminiApiKey: "k"` and
@@ -114,7 +114,7 @@ stubs `fetch`, calls `generateResponse("hi")`, and asserts the request URL
 contains `AI_PROVIDERS.find(p => p.key === "gemini")!.defaultModel` rather than
 `gemini-1.5-flash`. Confirm it FAILS before continuing.
 
-- [ ] **Step 2: Resolve the model in each provider branch**
+- [x] **Step 2: Resolve the model in each provider branch**
 
 In each of the seven `callXxx()` methods, replace the raw column read plus
 hardcoded literal with a `resolveModel()` call against the provider's registry
@@ -126,7 +126,7 @@ correctly (a non-empty stored value is trusted outright, because its `models`
 array is only a 2-entry fallback, not the valid set). Do not special-case it
 here.
 
-- [ ] **Step 3: Delete the seven hardcoded default-model literals**
+- [x] **Step 3: Delete the seven hardcoded default-model literals**
 
 Once `resolveModel()` supplies the fallback, the `?? "gpt-4o-mini"`-style tails
 at `run.ts:344,366,403,451,463,476,489` are dead. Remove them. Three of the
@@ -136,13 +136,13 @@ vs `gemini-3.5-flash-lite`. The Gemini one is the sharpest: `providers.ts:238`
 explicitly *excludes* `gemini-3-flash-preview` from the registry, in a comment
 about previews being withdrawn out from under a stored setting.
 
-- [ ] **Step 4: Fix the reported model in the prompt endpoint**
+- [x] **Step 4: Fix the reported model in the prompt endpoint**
 
 `src/app/api/v1/ai/prompt/route.ts:80` reports the raw column as the model that
 answered. Route it through `resolveModel()` so the reported value matches the
 value actually sent.
 
-- [ ] **Step 5: Add a drift guard**
+- [x] **Step 5: Add a drift guard**
 
 `src/lib/ai/defaults.test.ts` already compares the *column* defaults against
 `providers.ts`. Extend it (or add beside it) a test asserting that `run.ts`
@@ -151,7 +151,7 @@ of `src/lib/avatar.test.ts`, matching e.g. `/"(gpt|claude|gemini|mistral|qwen|de
 against the file's source. Without this, step 3 is undone by the next person who
 adds a provider.
 
-- [ ] **Step 6: Verify** — `npm test src/lib/ai` then the four CI checks.
+- [x] **Step 6: Verify** — `npm test src/lib/ai` then the four CI checks.
 
 ---
 

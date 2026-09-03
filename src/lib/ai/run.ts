@@ -3,8 +3,14 @@ import type { Block } from "@/lib/aggregators/blocks/types";
 import type { UserSettings } from "@/lib/db/schema";
 
 import { blocksToText, canonicalBlocks, textToBlocks } from "./block-text";
-
-import { DEEPSEEK_API_URL, MISTRAL_API_URL, OPENROUTER_API_URL, QWEN_API_URL } from "./providers";
+import { resolveModel } from "./columns";
+import {
+  DEEPSEEK_API_URL,
+  MISTRAL_API_URL,
+  OPENROUTER_API_URL,
+  QWEN_API_URL,
+  providerByKey,
+} from "./providers";
 
 /**
  * What `AIClient` and `applyAiToBlocks` accept for a user's AI configuration.
@@ -341,7 +347,10 @@ export class AIClient {
 
     const baseUrl =
       this.settings.openaiApiUrl ?? this.settings.openai_api_url ?? "https://api.openai.com/v1";
-    const model = this.settings.openaiModel ?? this.settings.openai_model ?? "gpt-4o-mini";
+    const model = resolveModel(
+      providerByKey("openai")!,
+      this.settings.openaiModel ?? this.settings.openai_model ?? "",
+    );
     const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
 
     return this.callOpenaiCompatible(baseUrl, apiKey, model, prompt, jsonMode, timeout);
@@ -362,8 +371,10 @@ export class AIClient {
       "Content-Type": "application/json",
     };
 
-    const model =
-      this.settings.anthropicModel ?? this.settings.anthropic_model ?? "claude-sonnet-4-20250514";
+    const model = resolveModel(
+      providerByKey("anthropic")!,
+      this.settings.anthropicModel ?? this.settings.anthropic_model ?? "",
+    );
     const temperature = this.settings.aiTemperature ?? this.settings.ai_temperature ?? 0.7;
     const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
 
@@ -399,8 +410,10 @@ export class AIClient {
       return null;
     }
 
-    const model =
-      this.settings.geminiModel ?? this.settings.gemini_model ?? "gemini-3-flash-preview";
+    const model = resolveModel(
+      providerByKey("gemini")!,
+      this.settings.geminiModel ?? this.settings.gemini_model ?? "",
+    );
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
     const headers = {
       "Content-Type": "application/json",
@@ -447,8 +460,10 @@ export class AIClient {
       console.warn("Mistral is not enabled or configured.");
       return null;
     }
-    const model =
-      this.settings.mistralModel ?? this.settings.mistral_model ?? "mistral-small-latest";
+    const model = resolveModel(
+      providerByKey("mistral")!,
+      this.settings.mistralModel ?? this.settings.mistral_model ?? "",
+    );
     const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
     return this.callOpenaiCompatible(MISTRAL_API_URL, apiKey, model, prompt, jsonMode, timeout);
   }
@@ -460,7 +475,10 @@ export class AIClient {
       console.warn("Qwen is not enabled or configured.");
       return null;
     }
-    const model = this.settings.qwenModel ?? this.settings.qwen_model ?? "qwen3.5-flash";
+    const model = resolveModel(
+      providerByKey("qwen")!,
+      this.settings.qwenModel ?? this.settings.qwen_model ?? "",
+    );
     const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
     return this.callOpenaiCompatible(QWEN_API_URL, apiKey, model, prompt, jsonMode, timeout);
   }
@@ -472,8 +490,10 @@ export class AIClient {
       console.warn("DeepSeek is not enabled or configured.");
       return null;
     }
-    const model =
-      this.settings.deepseekModel ?? this.settings.deepseek_model ?? "deepseek-v4-flash";
+    const model = resolveModel(
+      providerByKey("deepseek")!,
+      this.settings.deepseekModel ?? this.settings.deepseek_model ?? "",
+    );
     const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
     return this.callOpenaiCompatible(DEEPSEEK_API_URL, apiKey, model, prompt, jsonMode, timeout);
   }
@@ -485,8 +505,10 @@ export class AIClient {
       console.warn("OpenRouter is not enabled or configured.");
       return null;
     }
-    const model =
-      this.settings.openrouterModel ?? this.settings.openrouter_model ?? "openrouter/free";
+    const model = resolveModel(
+      providerByKey("openrouter")!,
+      this.settings.openrouterModel ?? this.settings.openrouter_model ?? "",
+    );
     const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
     return this.callOpenaiCompatible(OPENROUTER_API_URL, apiKey, model, prompt, jsonMode, timeout);
   }

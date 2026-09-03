@@ -459,6 +459,46 @@ describe("applyAiToBlocks & AIClient processing", () => {
     });
   });
 
+  describe("a stale stored model id falls back to the registry default", () => {
+    /**
+     * `getAiStatus()` already runs every stored model id through
+     * `resolveModel()` before rendering it, so `/ai` shows the *substituted*
+     * current model for a row written before a registry refresh retired the
+     * id it holds. `run.ts` must resolve the same way, or the actual
+     * provider request goes out on the retired id -- a 404 from the
+     * provider on every aggregation cycle, invisible anywhere but a job log.
+     *
+     * `gemini-1.5-flash` is a real case, not a hypothetical: migration
+     * `0003_ai_model_defaults` changed only the column *default*, so every
+     * `user_settings` row created before it still holds this phase-2 id,
+     * which `providers.ts` no longer lists at all.
+     */
+    it("sends the registry's current default model, not a retired stored one", async () => {
+      const provider = AI_PROVIDERS.find((p) => p.key === "gemini")!;
+      const settings = makeSettings({
+        activeAiProvider: "gemini",
+        geminiEnabled: true,
+        geminiApiKey: "k",
+        geminiModel: "gemini-1.5-flash",
+      });
+
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: "ok" }] } }] }),
+      } as Response);
+      globalThis.fetch = fetchMock;
+
+      const client = new AIClient(settings);
+      const result = await client.generateResponse("hi");
+
+      expect(result).toEqual({ ok: true, text: "ok" });
+      const calledUrl = fetchMock.mock.calls[0]?.[0] as string;
+      expect(calledUrl).toContain(provider.defaultModel);
+      expect(calledUrl).not.toContain("gemini-1.5-flash");
+    });
+  });
+
   /**
    * **Every one of the seven registered providers, actually exercised.**
    *

@@ -1,8 +1,9 @@
 import { eq } from "drizzle-orm";
 
 import { ApiError, apiErrorResponse, requireApiUser } from "@/lib/api/auth";
-import { AI_COLUMNS } from "@/lib/ai/columns";
+import { AI_COLUMNS, resolveModel } from "@/lib/ai/columns";
 import { activeProvider } from "@/lib/ai/queries";
+import { providerByKey } from "@/lib/ai/providers";
 import { AIClient } from "@/lib/ai/run";
 import { getDb } from "@/lib/db/client";
 import { userSettings } from "@/lib/db/schema";
@@ -77,7 +78,11 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({
       response: result.text,
       provider: providerKey,
-      model: settings[AI_COLUMNS[providerKey].model],
+      // Routed through the same `resolveModel()` the actual request went
+      // out on (inside `AIClient`), so a stale stored id is reported as the
+      // model that really answered rather than the retired one the column
+      // still holds.
+      model: resolveModel(providerByKey(providerKey)!, settings[AI_COLUMNS[providerKey].model]),
     });
   } catch (error) {
     if (error instanceof ApiError) return apiErrorResponse(error);
