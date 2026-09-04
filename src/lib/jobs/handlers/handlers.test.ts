@@ -805,6 +805,15 @@ describe("src/lib/jobs/handlers", () => {
           .run();
       });
 
+      // Captured so the assertion below can be about the *id*, not just the
+      // row count -- see the comment on that assertion.
+      const originalId = client
+        .getDb()
+        .select({ id: schema.articles.id })
+        .from(schema.articles)
+        .where(eq(schema.articles.feedId, feedId))
+        .get()!.id;
+
       const rawArticles = [
         {
           name: "Article One Updated",
@@ -833,6 +842,18 @@ describe("src/lib/jobs/handlers", () => {
         .all();
       expect(stillOne).toHaveLength(1);
       expect(stillOne[0].name).toBe("Article One Updated");
+      // **The id survives a content change, and that is a client contract,
+      // not an implementation detail.** A changed article is an UPDATE keyed
+      // on `(feedId, identifier)`, never a delete-and-reinsert, so every id a
+      // client has stored stays valid across an edit at the source. The row
+      // count above cannot prove that on its own -- it would read exactly the
+      // same if the handler had dropped the row and inserted a fresh one,
+      // which would hand every synced client a new id for an article it
+      // already had and, on a timeline sorted by recency, surface it as
+      // brand new. `articles.id` is `autoincrement`, so a reinsert cannot
+      // reuse the old value and this assertion really does distinguish the
+      // two.
+      expect(stillOne[0].id).toBe(originalId);
 
       const lines = logLines(job.id);
       expect(lines).toContain('aggregating feed "Active Feed" (full_website)');
