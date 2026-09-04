@@ -268,13 +268,17 @@ Note the abstraction already exists and works: `extract/content.ts`'s
 `extractMainContent(html, contentSelectors, removeSelectors, firstMatchOnly)`.
 The problem is that it is expressed as class inheritance rather than data.
 
-- [ ] **Step 1:** Introduce `defineSite({ base, siteUrl, defaultFeed, feeds,
+- [x] **Step 1:** Introduce `defineSite({ base, siteUrl, defaultFeed, feeds,
       content, remove, firstMatchOnly })`, deriving the constructor default from
       `defaultFeed`, `getSourceUrl()` from `siteUrl`, and both selector pairs
       from one list.
-- [ ] **Step 2:** Convert the two pure-declaration sites first as the proof.
-- [ ] **Step 3:** Convert the rest, keeping their genuine behaviour overrides.
-- [ ] **Step 4:** Resolve the trailing-slash divergence one way and record it.
+- [x] **Step 2:** Convert the two pure-declaration sites first as the proof.
+- [x] **Step 3:** Convert the rest, keeping their genuine behaviour overrides.
+- [x] **Step 4:** Resolve the trailing-slash divergence one way and record it.
+      *Moot: Task 2 deleted `brandSiteUrl` (and `getDefaultIdentifier()`) as dead
+      code, so the divergence was resolved by deletion rather than by a choice
+      made here. `getSourceUrl()` is the only survivor and each site's string is
+      carried verbatim — normalising it would be a behaviour change.*
 
 ---
 
