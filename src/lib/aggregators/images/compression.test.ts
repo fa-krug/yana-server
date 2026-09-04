@@ -1,6 +1,8 @@
+import fs from "node:fs";
+import path from "node:path";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { compressImage } from "./compression";
+import { compressImage, MAX_INPUT_PIXELS, SHARP_TIMEOUT_SECONDS } from "./compression";
 
 describe("compressImage", () => {
   it("skips compression for small images (<5KB) while measuring dimensions", async () => {
@@ -115,5 +117,51 @@ describe("compressImage", () => {
     const invalid = Buffer.alloc(6000, 65); // 6KB of ASCII 'A'
     const result = await compressImage(invalid, "image/png", false);
     expect(result).toBeNull();
+  });
+
+  // 7c: a decompression bomb -- tiny on the wire, enormous in memory. These
+  // bytes come from an arbitrary remote host by way of a source article's
+  // markup, so the byte cap the fetcher applies bounds neither the decoded
+  // raster nor the time spent producing it.
+  it("refuses an image whose pixel count exceeds the input limit", async () => {
+    // 36 MP of flat colour: ~1 MB of PNG, ~108 MB decoded. Well past
+    // MAX_INPUT_PIXELS, and well under any byte cap on the fetch.
+    const bomb = await sharp({
+      create: {
+        width: 6000,
+        height: 6000,
+        channels: 3,
+        background: { r: 1, g: 2, b: 3 },
+      },
+    })
+      .png({ compressionLevel: 1 })
+      .toBuffer();
+
+    expect(6000 * 6000).toBeGreaterThan(MAX_INPUT_PIXELS);
+    expect(bomb.length).toBeGreaterThan(5000);
+    expect(bomb.length).toBeLessThan(64 * 1024 * 1024);
+
+    // Without `limitInputPixels` sharp resizes this happily -- that is exactly
+    // what makes it a bomb, and what this assertion is the absence of.
+    expect(await compressImage(bomb, "image/png", false)).toBeNull();
+  });
+
+  // The wall-clock half of the same pair cannot be exercised in-process (it
+  // would take a genuinely pathological image and ten real seconds), so it is
+  // pinned to the source instead: both limits must be applied to every sharp
+  // pipeline fed caller-supplied bytes, inside this module rather than at a
+  // call site that can forget them -- the rule `processAvatar()` states.
+  it("applies both sharp resource limits inside the module", () => {
+    const source = fs.readFileSync(
+      path.join(process.cwd(), "src/lib/aggregators/images/compression.ts"),
+      "utf8",
+    );
+    const inputCalls = source.match(/sharp\(imageData[^)]*\)/g) ?? [];
+    expect(inputCalls.length).toBeGreaterThan(0);
+    for (const call of inputCalls) {
+      expect(call).toContain("limitInputPixels: MAX_INPUT_PIXELS");
+    }
+    expect(source).toMatch(/\.timeout\(\{\s*seconds: SHARP_TIMEOUT_SECONDS,?\s*\}\)/);
+    expect(SHARP_TIMEOUT_SECONDS).toBe(10);
   });
 });
