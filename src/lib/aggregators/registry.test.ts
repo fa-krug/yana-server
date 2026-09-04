@@ -89,6 +89,47 @@ describe("IMPLEMENTED_AGGREGATORS & createAggregator", () => {
     const agg = createAggregator(feed);
     expect(agg).toBeInstanceOf(FullWebsiteAggregator);
   });
+
+  // `defineSite()` reads a site's *default identifier* out of `specs.ts`
+  // through the `key` it is handed, which is the only join between an
+  // aggregator class and its spec -- and nothing else checks that the key a
+  // site declares is the key `IMPLEMENTED_AGGREGATORS` files it under. A
+  // copy-pasted `key:` typechecks (both are valid `AggregatorKey`s) and gives
+  // one site another site's default feed URL, silently. "Every none/choice
+  // spec has a non-empty default identifier" does not catch it either: that
+  // proves a default is *present*, never that it is the right site's.
+  //
+  // The join is observable because `defineSite()` renames its mixin class to
+  // `${key}Site` for `scripts/aggregator.ts --info`, so walking each
+  // registered class's constructor chain and comparing that layer's name back
+  // against the registry key pins the key and the rename together.
+  it("files each defineSite() class under the same key it declares", () => {
+    const siteLayers = new Map<string, string>();
+
+    for (const [key, Class] of Object.entries(IMPLEMENTED_AGGREGATORS)) {
+      if (!Class) continue;
+      let ctor: unknown = Class;
+      while (typeof ctor === "function") {
+        const name = (ctor as { name: string }).name;
+        if (name.endsWith("Site")) {
+          siteLayers.set(key, name);
+          break;
+        }
+        ctor = Object.getPrototypeOf(ctor);
+      }
+    }
+
+    // The eleven sites on the helper, and a floor so a scan that found none
+    // cannot read as green. `rss` is an alias of `feed_content`, and neither
+    // it nor full_website/podcast/youtube/reddit is a `defineSite()` class.
+    expect(siteLayers.size).toBe(11);
+
+    for (const [key, layer] of siteLayers) {
+      expect(layer, `${key} is registered under a key its defineSite() call does not declare`).toBe(
+        `${key}Site`,
+      );
+    }
+  });
 });
 
 describe("visibleOptionsFor", () => {
