@@ -142,20 +142,52 @@ export async function storeImageBytes(
   await fs.mkdir(path.dirname(absoluteFile), { recursive: true });
   await fs.writeFile(absoluteFile, data);
 
+  // Inside `writeTransaction()` like every other write here -- the ratified
+  // exception to that rule covers Better Auth's own tables and nothing else.
+  // This used to be a raw autocommit insert behind a bare `catch {}`, which
+  // was wrong twice over. It absorbed the unique-index race it was written
+  // for *and every other insert failure alike*, and then returned
+  // `contentHash` regardless: a reference to a file with no row, which
+  // `GET /api/v1/images/[hash]` cannot serve and no later run repairs, since
+  // the caller stores that ref in a block and the article's `contentHash`
+  // makes the next aggregation skip the row.
+  //
+  // The race itself no longer needs catching: the read at the top of this
+  // function is advisory, but the one below runs inside the same
+  // `BEGIN IMMEDIATE` as the insert, and that lock serializes writers, so the
+  // check and the act are atomic. A duplicate is then simply a row that is
+  // already there.
+  //
+  // A genuine failure returns `null` -- the caller drops the image rather
+  // than referencing something unservable. The file already on disk is left
+  // where it is: it is content-addressed, so a later successful store of the
+  // same bytes writes the identical path and adopts it. (The sweep cannot
+  // collect it -- it walks rows, and there is none -- so this leaks one file
+  // per failure, the same "prefer leaking to breaking" trade-off the sweep's
+  // own row-then-file ordering makes.)
   try {
-    getDb()
-      .insert(articleImages)
-      .values({
-        contentHash,
-        file: relativeFile,
-        contentType: outputType,
-        width,
-        height,
-        byteSize: data.length,
-      })
-      .run();
-  } catch {
-    // Concurrent insert; keep existing row
+    writeTransaction((tx) => {
+      const recorded = tx
+        .select({ contentHash: articleImages.contentHash })
+        .from(articleImages)
+        .where(eq(articleImages.contentHash, contentHash))
+        .get();
+      if (recorded) return;
+
+      tx.insert(articleImages)
+        .values({
+          contentHash,
+          file: relativeFile,
+          contentType: outputType,
+          width,
+          height,
+          byteSize: data.length,
+        })
+        .run();
+    });
+  } catch (err) {
+    console.error(`[images] could not record ${contentHash}:`, err);
+    return null;
   }
 
   return contentHash;

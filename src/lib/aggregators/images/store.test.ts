@@ -81,6 +81,53 @@ describe("image store", () => {
     expect(fs.existsSync(diskFile)).toBe(true);
   });
 
+  // 7g: the insert was a raw autocommit write whose `catch {}` absorbed the
+  // unique-index race *and every other insert failure alike*, after which the
+  // function still returned a hash -- a reference to a file with no row, which
+  // `GET /api/v1/images/[hash]` cannot serve and never will.
+  it("returns null rather than an unservable hash when the row cannot be written", async () => {
+    const rawPixels = Buffer.alloc(200 * 200 * 3, 40);
+    const imagePng = await sharp(rawPixels, {
+      raw: { width: 200, height: 200, channels: 3 },
+    })
+      .png({ compressionLevel: 0 })
+      .toBuffer();
+
+    // Any insert failure that is not the race the old catch was written for.
+    raw(client.getDb()).exec(
+      "CREATE TRIGGER refuse_image BEFORE INSERT ON article_images " +
+        "BEGIN SELECT RAISE(ABORT, 'no'); END",
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const hash = await store.storeImageBytes(imagePng, "image/png", { compress: false });
+    expect(hash).toBeNull();
+    expect(console.error).toHaveBeenCalled();
+
+    raw(client.getDb()).exec("DROP TRIGGER refuse_image");
+  });
+
+  it("writes the row inside a transaction, so a concurrent duplicate is not a failure", async () => {
+    const rawPixels = Buffer.alloc(200 * 200 * 3, 41);
+    const imagePng = await sharp(rawPixels, {
+      raw: { width: 200, height: 200, channels: 3 },
+    })
+      .png({ compressionLevel: 0 })
+      .toBuffer();
+
+    const [first, second] = await Promise.all([
+      store.storeImageBytes(imagePng, "image/png", { compress: false }),
+      store.storeImageBytes(imagePng, "image/png", { compress: false }),
+    ]);
+
+    expect(first).not.toBeNull();
+    expect(second).toBe(first);
+    expect(
+      client.getDb().select().from(articleImages).where(eq(articleImages.contentHash, first!)).all()
+        .length,
+    ).toBe(1);
+  });
+
   it("deduplicates identical image bytes", async () => {
     const rawPixels = Buffer.alloc(200 * 200 * 3, 150);
     const imagePng = await sharp(rawPixels, {
