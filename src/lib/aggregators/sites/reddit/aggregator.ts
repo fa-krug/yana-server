@@ -711,5 +711,4 @@ export class RedditAggregator extends BaseAggregator {
       headerHtml,
     );
   }
-
 }
