@@ -28,7 +28,9 @@ behavior ever needs to be reconstructed.
 │   │   ├── global-error.tsx       # last-resort boundary — no providers, English only
 │   │   ├── health/route.ts        # GET /health — SELECT 1 against the database
 │   │   ├── api/auth/[...all]/     # route.ts — every Better Auth endpoint
-│   │   ├── media/avatars/[userId]/ # route.ts — the only thing that serves media/
+│   │   ├── media/avatars/[userId]/ # route.ts — serves media/avatars/
+│   │   ├── media/images/[hash]/  # route.ts — serves media/images/ to the web UI;
+│   │   │                         #   shares ownsImageHash() with /api/v1/images
 │   │   ├── login/page.tsx         # /login — outside (app): no sidebar, no requireUser()
 │   │   └── (app)/                 # sidebar + breadcrumb chrome for every real page
 │   │       ├── layout.tsx         # sidebar, content frame; awaits requireUser()
@@ -1566,13 +1568,26 @@ markup}</div></blockquote>` shape the builder's non-`multiline` branch
   read `YOUTUBE_EMBED_DOMAIN_ALTERNATION` from here instead of hand-maintaining
   a domain list, which is how one of them fell behind in the first place.
 
-  `isTwitterUrl()` had the same shape of bug and is only **partly** unified.
-  `extract/format.ts` now parses the hostname and `images/strategies.ts`
-  imports it, because the `url.includes(domain)` version they shared read
-  `https://evil.example.com/?ref=twitter.com` as Twitter. `embeds/twitter.ts`
-  still carries its own substring copy, used only inside that module: a third
-  copy with the original bug still in it, left alone rather than quietly
-  widened into, and worth knowing about before anything new starts calling it.
+  `isTwitterUrl()` had the same shape of bug, and there is now exactly one
+  implementation of it. `extract/format.ts` parses the hostname —
+  `images/strategies.ts`, `sites/reddit/aggregator.ts` and
+  `sites/reddit/images.ts` all import that one — because the
+  `url.includes(domain)` version they used to share read
+  `https://evil.example.com/?ref=twitter.com` as Twitter. **The third copy this
+  file used to warn about is gone**: `embeds/twitter.ts` carried its own
+  substring version with the original bug still in it, and it was deleted whole
+  along with the dead embed-provider registry, so nothing in the tree carries
+  the buggy spelling of `isTwitterUrl()` any more. What is left is narrower and
+  worth knowing before reusing any of it: three site modules still ask "is this
+  a tweet" with an ad-hoc `includes("twitter.com") || includes("x.com")` inside
+  their own extractors — `sites/caschys_blog.ts`, `sites/mein_mmo/embeds.ts`
+  and `sites/reddit/content.ts`. Same bug shape, far smaller blast radius: each
+  decides only whether one element on one site's own page is a tweet embed,
+  where the shared helper decided it for every caller, which is why they were
+  left in place rather than pulled in. `blocks/parser.ts` is a fourth site of
+  the same question and is already correct — its `TWEET_HOST_SUFFIXES` is
+  matched against a parsed `new URL(href).hostname`, not against the raw
+  string.
 
 - **The article-image store is content-addressed and refcount-free, so nothing
   ever deletes "one article's images" — the only thing that removes a row is
@@ -1582,7 +1597,9 @@ retention.ts`) runs once per run, after that run's own article deletions,
   never per user.** There are exactly three reference roots —
   `articleBlocks.imageRef`, `articleBlocks.embedThumbnailRef` and
   `feeds.logoImageHash` — verified against the schema rather than assumed, and
-  they are the same three `GET /api/v1/images/[hash]`'s `ownsHash()` checks.
+  they are the same three `ownsImageHash()`
+  (`src/lib/aggregators/images/ownership.ts`) checks on behalf of **both**
+  routes that serve image bytes (see the image-route bullet below).
   **Adding a fourth place a `yana-img://` hash can live obliges you to add it
   to this sweep's reference scan** — an image root the sweep doesn't know
   about is an image root it will happily delete out from under, silently,
@@ -1625,6 +1642,113 @@ retention.ts`) runs once per run, after that run's own article deletions,
     at the cost of one extra day of leaked storage, the same "prefer leaking
     to breaking" trade-off the row-then-file ordering above already makes. Do
     not tune it toward zero.
+
+- **Two routes serve the same image bytes, and there is one ownership answer
+  between them: `ownsImageHash()` in
+  `src/lib/aggregators/images/ownership.ts`.** `GET /api/v1/images/<hash>` is
+  the native client's, `GET /media/images/<hash>` is the web UI's own — every
+  stored `yana-img://` ref is rewritten into the latter by
+  `src/components/articles/block-node.tsx`, so that is how every article image
+  in a browser renders. Neither has a layout above it and `src/proxy.ts` only
+  checks that _a_ session cookie exists, so each route both authenticates
+  (`requireUser()` / `requireApiUser()`) and authorizes itself. **Being signed
+  in is not permission to read someone else's article image**, and until this
+  function was shared the media route did not know that: it called
+  `requireUser()` and stopped, so any signed-in user who could read a hash out
+  of a shared article's blocks could fetch any other user's image. That is the
+  whole argument for one function rather than two checks — two routes serving
+  identical bytes with independently written authorization is exactly what
+  drifted, and the drift was invisible because each route's own tests passed.
+  Four things about it:
+  - **The three reference roots and their _two_ encodings are restated here
+    because getting them backwards fails silently.** They are the same three
+    roots `sweepUnreferencedImages()` scans (bullet above): the two
+    `articleBlocks` columns (`imageRef`, `embedThumbnailRef`) hold the **full**
+    `yana-img://<hash>` ref, so those comparisons go through
+    `buildImageRef()`; `feeds.logoImageHash` holds the **bare** hash, the
+    encoding `articleImages.contentHash` itself uses, so that one compares
+    directly. Mismatch the encodings and the query matches nothing — which in
+    the sweep deletes every image on the instance, and here reads as "not
+    yours" and 404s every feed logo. Adding a fourth place a hash can live
+    obliges you to add it to **both**.
+  - **`Cache-Control: private, max-age=31536000, immutable`, and `private` is
+    the load-bearing word.** The response is per-caller access-controlled now,
+    so `public` would license a shared cache or intermediary to hand one user's
+    article image to a caller these routes would have 404'd. The long lifetime
+    is still right, unlike the avatar route's `no-store`: that URL carries no
+    version token and would serve a stale picture after a re-upload, where
+    **this URL _is_ the content hash** and so cannot go stale.
+  - **`Content-Security-Policy: default-src 'none'; sandbox` on both routes,
+    and the stored bytes stay verbatim.** `compressImage()` skips re-encoding
+    entirely below `MIN_IMAGE_SIZE` (5 kB,
+    `src/lib/aggregators/images/compression.ts`), so a small SVG pulled from a
+    source article's `og:image` — attacker-supplied remote content — is stored
+    and served as `image/svg+xml`, which is an _active document_ and which
+    `nosniff` cannot help with, because the declared type is the truth. The
+    reasoning that makes a header sufficient: **an SVG referenced from an
+    `<img>` never runs its script in any browser** (script in SVG runs only on
+    direct navigation or through `<object>`/`<iframe>`, and the `sandbox`
+    directive is ignored for a subresource load), so the only real vector is a
+    user navigating straight to the URL — which the CSP closes while leaving
+    inline `<img>` rendering, SVG feed logos and vector sharpness untouched.
+    **Both alternatives were considered and rejected**: refusing SVG at storage
+    time would silently drop legitimate feed logos, and rasterizing it would
+    add librsvg parsing of untrusted input as a **new** attack surface in order
+    to remove one a response header already neutralizes. Not
+    `Content-Disposition: attachment` either — that breaks the inline rendering
+    the route exists for.
+  - **The accepted residual: a browser cache can hold these bytes past
+    logout.** On a shared profile the next person can re-request a cached hash
+    and get it out of the cache rather than out of the route. That is inherent
+    to caching a content-addressed URL at all, and it is unchanged from what
+    `/api/v1/images` always did — recorded so a later reader does not read the
+    `private` above as more than it is.
+
+- **Every `fetch()` under `src/lib/aggregators/**` must pass an `AbortSignal`
+  whose deadline covers the _body_, not just the headers.** In practice that
+  means `clearTimeout` below the body read, never above it — or, better, not
+  holding the timer at all: `withDeadline()`
+  (`src/lib/aggregators/http/fetcher.ts`) owns it for its caller, so a caller
+  that never holds it cannot disarm it early. **The reason this is a rule and
+  not a nicety is the failure mode.** A server that sends headers and then
+  stalls the body holds such a call open _forever_, because the only thing that
+  could interrupt the drain is that signal and it has already been cleared —
+  and `worker.ts`'s budget timer only **requests** cooperative cancellation,
+  with no checkpoint inside a fetch, so it cannot recover the loop. Four such
+  feeds at the default `WORKER_CONCURRENCY` of `4` therefore deadlock every
+  background job on the instance with no way back. The same mistake was made at
+  four separate call sites, twice with no signal at all.
+  - **`readCapped()` (same module, with `readCappedText()`/`readCappedJson()`
+    over it) is the size half**, and it streams: it refuses a body both as
+    declared (`content-length`) and as delivered, aborting mid-drain rather
+    than buffering the whole thing and measuring afterwards, which is a memory
+    hazard dressed as a size check. `res.text()`/`res.json()` do not check at
+    all.
+  - **`MAX_REDIRECTS` (5) bounds the hop chain**, and a redirect-following
+    fetch must reuse **one** deadline across every hop — a fresh timer per hop
+    makes the real ceiling `(MAX_REDIRECTS + 1) x timeout`.
+  - **`src/lib/aggregators/http/fetch-deadline.test.ts` is the tripwire, and it
+    checks less than it looks like it does.** It asserts only that every
+    `fetch(` call site under that directory passes a `signal` **token** in its
+    own init object; `signal: new AbortController().signal` with nothing ever
+    aborting it satisfies it, and no textual check can tell otherwise. (It
+    reads a comment/string-blanked copy of the source, because read raw a
+    `// no signal needed` inside an init turned the check green — worse than no
+    check.) The size half is deliberately **not** asserted: the read that needs
+    capping can be any distance from the `fetch()`, behind a helper, or
+    legitimately absent, so a regex would pass a file where only one of two
+    fetches is capped. That half is a review obligation, stated at
+    `readCapped()`.
+  - **Uncapped body reads survive, and they are not the deadlock hazard.**
+    `search.ts` (three), `sites/reddit/` (five — `auth`, `posts`, `urls`,
+    `comments`, `aggregator`), `embeds/bluesky.ts` (two) and
+    `src/lib/feeds/logo.ts` (three, outside the tripwire's scan directory) all
+    read a body without a cap. Every one of them has an honest body-covering
+    deadline — `AbortSignal.timeout(...)`, never disarmed, or a `finally`
+    below the read — so the worker cannot hang on them; the residual is
+    **memory** on hosts that are fixed and known, which is why they were
+    recorded rather than fixed. Do not read the tripwire as a claim that they
+    are capped.
 
 - **Article search goes through the `articles_fts` FTS5 external-content table,
   via `toFtsQuery()`** (`src/lib/articles/search-query.ts`). It replaced a
@@ -2042,8 +2166,11 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
     proxy test instead of only failing in production.
 - **A route handler serving `media/` authenticates itself — nothing above it
   does.** `src/app/media/avatars/[userId]/route.ts` is the first one and the
-  pattern for phases 9/11's article images, which are numerous, per-user and may
-  be paywalled. The proxy _runs_ for these paths (`media/` is not exempted and
+  pattern the article-image route followed — those are numerous, per-user and
+  may be paywalled, and `src/app/media/images/[hash]/route.ts` now serves them
+  (see the `ownsImageHash()` bullet above for the authorization half, which is
+  where this pattern turned out to need a second, sharper rule: authenticating
+  is not authorizing). The proxy _runs_ for these paths (`media/` is not exempted and
   the raster extensions are off the matcher's list) but only checks that _a_
   session cookie exists, and **a route handler has no layout above it**, so no
   `requireUser()` is otherwise in its path. Six rules:
