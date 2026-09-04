@@ -15,24 +15,16 @@ import { youtubeIdFrom } from "../../embeds/youtube-url";
 import { storeImageRefFromUrl } from "../../images/store";
 
 import { getRedditAccessToken, getRedditUserSettings } from "./auth";
-import { fetchPostComments, formatCommentHtml, isValidComment } from "./comments";
-import { buildCrosspostNoticeHtml, buildPostContent, CrosspostAttribution } from "./content";
-import { extractAnimatedGifUrl, extractHeaderImageUrl, extractThumbnailUrl } from "./images";
-import { convertRedditMarkdown, escapeHtml, safeImgHtml, safeLinkHtml } from "./markdown";
+import { fetchPostComments } from "./comments";
+import { buildPostContent, CrosspostAttribution } from "./content";
+import { extractHeaderImageUrl, extractThumbnailUrl } from "./images";
+import { safeLinkHtml } from "./markdown";
 import { fetchRedditPost } from "./posts";
 import { buildVideoHeaderHtml, extractRedditVideo } from "./video";
+import { RedditListing, RedditPostData, RedditPostDataDict, RedditPostRaw } from "./types";
 import {
-  RedditComment,
-  RedditListing,
-  RedditPostData,
-  RedditPostDataDict,
-  RedditPostRaw,
-} from "./types";
-import {
-  decodeHtmlEntitiesInUrl,
   extractPostInfoFromUrl,
   fetchSubredditInfo,
-  fixRedditMediaUrl,
   normalizeSubreddit,
   validateSubreddit,
 } from "./urls";
@@ -658,150 +650,6 @@ export class RedditAggregator extends BaseAggregator {
       comments,
     );
     return postContent.body + (postContent.comments ?? "");
-  }
-
-  override async extractContent(html: string, _article: RawArticle): Promise<string> {
-    if (!html) return "";
-
-    const trimmed = html.trim();
-    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-      try {
-        const data = JSON.parse(trimmed);
-        let postDict: RedditPostRaw | null = null;
-        let commentsList: RedditComment[] | undefined = undefined;
-
-        if (Array.isArray(data)) {
-          if (data.length > 0 && data[0]?.data?.children?.[0]?.data) {
-            postDict = data[0].data.children[0].data;
-          }
-          if (data.length > 1 && data[1]?.data?.children) {
-            const commentItems = data[1].data.children;
-            commentsList = [];
-            for (const item of commentItems) {
-              if (item.kind === "t1" && item.data) {
-                const comment = new RedditComment(item.data);
-                if (isValidComment(comment)) {
-                  commentsList.push(comment);
-                }
-              }
-            }
-            commentsList.sort((a, b) => (b.score || 0) - (a.score || 0));
-          }
-        } else if (data?.data?.children?.[0]?.data) {
-          postDict = data.data.children[0].data;
-        } else if (data?.id && data?.title) {
-          postDict = data;
-        }
-
-        if (postDict) {
-          const postData = new RedditPostData(postDict);
-          const includeComments = (this.feed.options?.include_comments as boolean) ?? true;
-          const commentLimit = includeComments
-            ? ((this.feed.options?.comment_limit as number) ?? 10)
-            : 0;
-          const subreddit = postDict.subreddit || normalizeSubreddit(this.identifier);
-          const parentPost = postData.crosspost_parent_list?.[0];
-          const isCrossPost = Boolean(parentPost);
-          const labels = await this.chromeLabels();
-
-          const contentParts: string[] = [];
-
-          // Unlike the two paths above, this branch builds the body from the
-          // crosspost itself rather than the original -- the notice's origin
-          // comes off the parent entry either way.
-          if (parentPost) {
-            contentParts.push(
-              buildCrosspostNoticeHtml({ originalSubreddit: parentPost.subreddit || "" }, labels),
-            );
-          }
-
-          if (postData.selftext) {
-            const selftextHtml = convertRedditMarkdown(postData.selftext);
-            contentParts.push(`<div>${selftextHtml}</div>`);
-          }
-
-          if (postData.is_gallery && postData.media_metadata && postData.gallery_data) {
-            const items = postData.gallery_data.items || [];
-            for (const item of items) {
-              const mediaId = item.media_id;
-              if (mediaId && postData.media_metadata[mediaId]) {
-                const mediaInfo = postData.media_metadata[mediaId];
-                const isAnimated = mediaInfo.e === "AnimatedImage";
-                const mediaUrl = isAnimated ? mediaInfo.s?.gif || mediaInfo.s?.mp4 : mediaInfo.s?.u;
-                if (mediaUrl) {
-                  const fixedUrl = fixRedditMediaUrl(decodeHtmlEntitiesInUrl(mediaUrl));
-                  const caption = item.caption || "";
-                  const alt = caption || (isAnimated ? "Animated GIF" : "Gallery image");
-                  const imgHtml = safeImgHtml(fixedUrl, alt);
-                  if (imgHtml) {
-                    if (caption) {
-                      contentParts.push(
-                        `<figure>${imgHtml}<figcaption>${escapeHtml(alt)}</figcaption></figure>`,
-                      );
-                    } else {
-                      contentParts.push(`<p>${imgHtml}</p>`);
-                    }
-                  }
-                }
-              }
-            }
-          } else if (postData.url) {
-            const url = decodeHtmlEntitiesInUrl(postData.url);
-            const urlLower = url.toLowerCase();
-
-            if (urlLower.endsWith(".gif") || urlLower.endsWith(".gifv")) {
-              const gifUrl =
-                extractAnimatedGifUrl(postData) ||
-                (urlLower.endsWith(".gifv") ? url.slice(0, -1) : url);
-              const fixedUrl = fixRedditMediaUrl(gifUrl);
-              const imgHtml = safeImgHtml(fixedUrl, "Animated GIF");
-              if (imgHtml) contentParts.push(`<p>${imgHtml}</p>`);
-            } else if (
-              [".jpg", ".jpeg", ".png", ".webp"].some((ext) => urlLower.includes(ext)) ||
-              urlLower.includes("i.redd.it")
-            ) {
-              const fixedUrl = fixRedditMediaUrl(url);
-              if (fixedUrl) contentParts.push(`<p>${safeLinkHtml(fixedUrl, fixedUrl)}</p>`);
-            } else if (urlLower.includes("youtube.com") || urlLower.includes("youtu.be")) {
-              contentParts.push(`<p>${safeLinkHtml(url, labels.viewVideoOnYoutube)}</p>`);
-            } else if (
-              !isCrossPost &&
-              !postData.is_self &&
-              !urlLower.includes("v.redd.it") &&
-              !urlLower.includes("twitter.com") &&
-              !urlLower.includes("x.com")
-            ) {
-              contentParts.push(`<p>${safeLinkHtml(url, url)}</p>`);
-            }
-          }
-
-          const decodedPermalink = decodeHtmlEntitiesInUrl(postData.permalink);
-          const permalink = `https://reddit.com${decodedPermalink}`;
-          const commentSectionParts: string[] = [
-            `<h3>${safeLinkHtml(permalink, labels.comments)}</h3>`,
-          ];
-
-          if (commentLimit > 0) {
-            if (commentsList && commentsList.length > 0) {
-              const sliced = commentsList.slice(0, commentLimit);
-              const commentHtmls = sliced.map((c: RedditComment) => formatCommentHtml(c, labels));
-              commentSectionParts.push(commentHtmls.join(""));
-            } else {
-              commentSectionParts.push(`<p><em>${labels.noCommentsYet}</em></p>`);
-            }
-          } else {
-            commentSectionParts.push(`<p><em>${labels.commentsDisabled}</em></p>`);
-          }
-
-          contentParts.push(`<section>${commentSectionParts.join("")}</section>`);
-          return contentParts.join("");
-        }
-      } catch (err) {
-        console.error("[Reddit extractContent error]", err);
-      }
-    }
-
-    return html;
   }
 
   override async processContent(content: string, article: RawArticle): Promise<string> {

@@ -53,10 +53,7 @@ export interface CrosspostAttribution {
 
 /**
  * The one-line "Crosspost: r/from" notice that opens a crosspost's body, the
- * subreddit name linking to that subreddit. Exported because
- * `extractContent()`'s JSON branch in `./aggregator.ts` builds its content
- * without going through `buildPostContent()` and has to emit the same notice
- * rather than a second version of it.
+ * subreddit name linking to that subreddit.
  *
  * With no origin known the notice degrades to the bare word, which still
  * answers the question the whole notice exists for -- is this a crosspost.

@@ -194,11 +194,11 @@ short-circuit — which is the argument for deleting rather than keeping it.
 so `trimmed.startsWith("{")` is unreachable. The reload path is served entirely
 by the `_last_reloaded_video` branch above it (`:382-394`).
 
-- [ ] **Step 1:** Confirm unreachability by instrumenting both branches and
+- [x] **Step 1:** Confirm unreachability by instrumenting both branches and
       running the full suite plus a real aggregation and reload against each
       site. **Do not delete on the argument alone** — these are the two largest
       deletions in the plan.
-- [ ] **Step 2:** Delete both branches and their tests.
+- [x] **Step 2:** Delete both branches and their tests.
 
 ---
 

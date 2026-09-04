@@ -355,7 +355,7 @@ export class YouTubeAggregator extends BaseAggregator {
     }
   }
 
-  override async extractContent(html: string, article: RawArticle): Promise<string> {
+  override async extractContent(html: string, _article: RawArticle): Promise<string> {
     if (this._last_reloaded_video) {
       const video = this._last_reloaded_video;
       const comments = this._last_reloaded_comments;
@@ -367,34 +367,6 @@ export class YouTubeAggregator extends BaseAggregator {
       if (typeof videoId === "string") {
         const labels = await this.chromeLabels();
         return this.buildContentHtml(description, comments, videoId, labels);
-      }
-    }
-
-    if (html) {
-      try {
-        const trimmed = html.trim();
-        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-          const data = JSON.parse(trimmed);
-          const video = Array.isArray(data.items) ? data.items[0] : null;
-          if (video) {
-            let videoId = video.id;
-            if (typeof videoId === "object" && videoId !== null && "videoId" in videoId) {
-              videoId = (videoId as { videoId: string }).videoId;
-            }
-            if (!videoId && article.identifier) {
-              const match = article.identifier.match(/v=([A-Za-z0-9_-]+)/);
-              if (match) videoId = match[1];
-            }
-            const description = video.snippet?.description || "";
-            const comments = Array.isArray(data.comments) ? data.comments : [];
-            if (typeof videoId === "string" && videoId) {
-              const labels = await this.chromeLabels();
-              return this.buildContentHtml(description, comments, videoId, labels);
-            }
-          }
-        }
-      } catch {
-        // Ignore non-JSON
       }
     }
 
