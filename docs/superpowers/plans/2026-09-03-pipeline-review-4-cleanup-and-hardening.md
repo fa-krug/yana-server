@@ -540,13 +540,13 @@ Ticking 7e as done while it stands invites the reading that the class is closed.
 
 ## Done criteria
 
-- [ ] Every deletion's dead-ness proven by grep and recorded in its commit
+- [x] Every deletion's dead-ness proven by grep and recorded in its commit
       message.
-- [ ] Task 3's two branches confirmed unreachable by instrumentation, not
+- [x] Task 3's two branches confirmed unreachable by instrumentation, not
       argument.
-- [ ] Task 7's behaviour changes each covered by a test.
-- [ ] Four CI checks green; the 35 pre-existing lint warnings reduced, not
+- [x] Task 7's behaviour changes each covered by a test.
+- [x] Four CI checks green; the 35 pre-existing lint warnings reduced, not
       increased.
-- [ ] `CLAUDE.md` updated: remove the bullets describing the deleted aggregator
+- [x] `CLAUDE.md` updated: remove the bullets describing the deleted aggregator
       configuration API and the embed registry, and add the image-route and
       SVG decisions from Task 7.
