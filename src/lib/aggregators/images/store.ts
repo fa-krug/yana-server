@@ -6,7 +6,12 @@ import { getDb, writeTransaction } from "@/lib/db/client";
 import { mediaRoot } from "@/lib/avatar-storage";
 import { articleBlocks, articleImages, feeds } from "@/lib/db/schema";
 import { compressImage } from "./compression";
-import { fetchImageOutcome, fetchSingleImage, NON_IMAGE_RESPONSE } from "./fetcher";
+import {
+  fetchImageOutcome,
+  fetchSingleImage,
+  NON_IMAGE_RESPONSE,
+  validateImageDataWithSharp,
+} from "./fetcher";
 
 export const IMAGE_REF_SCHEME = "yana-img://";
 export const TRACKING_PIXEL_MAX_DIMENSION = 1;
@@ -40,14 +45,17 @@ export function buildImageRef(contentHash: string): string {
  */
 export function findImageRefs(text: string): Set<string> {
   if (!text) return new Set();
+  // `matchAll` rather than a `while (regex.exec(...))` loop over a per-call
+  // `new RegExp(IMAGE_REF_PATTERN)` clone. The clone was correct -- a shared
+  // `/g` regex carries `lastIndex` between calls, so reusing the module-level
+  // one would make each call resume where the previous one stopped and miss
+  // refs -- but its comment said "reset regex lastIndex" while the code
+  // cloned, which is a different mechanism. `matchAll` needs neither: it
+  // clones internally and is required to be given a `/g` regex, which
+  // IMAGE_REF_PATTERN is.
   const hashes = new Set<string>();
-  let match: RegExpExecArray | null;
-  // Reset regex lastIndex for global regex execution
-  const regex = new RegExp(IMAGE_REF_PATTERN);
-  while ((match = regex.exec(text)) !== null) {
-    if (match[1]) {
-      hashes.add(match[1]);
-    }
+  for (const match of text.matchAll(IMAGE_REF_PATTERN)) {
+    if (match[1]) hashes.add(match[1]);
   }
   return hashes;
 }
@@ -91,7 +99,25 @@ export async function storeImageBytes(
     }
   }
 
-  // Tracking pixel check
+  // **The tracking-pixel refusal must not depend on compression having
+  // run.** `width`/`height` are only set by `compressImage()`, so with
+  // `compress: false` -- no production caller passes it today, which is the
+  // only reason this stayed latent -- or after a sharp failure they are both
+  // null, and the `width !== null` guard below turned the check off entirely:
+  // the 1x1 pixel this exists to refuse was stored instead. Probing the bytes
+  // directly closes that, using the same `validateImageDataWithSharp()` the
+  // fetch path already runs (so the same `MAX_INPUT_PIXELS`/timeout limits
+  // apply, and on the fetch path the header parse is one the bytes have
+  // already survived once).
+  if (width === null || height === null) {
+    const probed = await validateImageDataWithSharp(data);
+    width = probed?.width ?? null;
+    height = probed?.height ?? null;
+  }
+
+  // Still null means sharp could not measure these bytes at all. That is not
+  // evidence of a tracking pixel, so they are stored, exactly as undecodable
+  // bytes always were.
   if (
     width !== null &&
     height !== null &&

@@ -53,8 +53,37 @@ export function thumbnailUrlFor(id: string): string {
 /**
  * Localize a Dailymotion thumbnail. Returns a `yana-img://<hash>` ref, or an
  * empty string on failure.
+ *
+ * **`isHeader: true` is deliberate, and it is the only thing that flag does:**
+ * `compressImage()` resizes to `MAX_HEADER_IMAGE_*` (1200x1200) instead of
+ * `MAX_IMAGE_*` (600x600) -- see `../images/compression.ts`. A video
+ * thumbnail is the poster of a click-through facade, which every client
+ * renders at the article's full width, and when the embed is the article's
+ * lead media it *is* the lead image (`ArticleBlockView` hoists block 0), so
+ * the 600px body cap would visibly soften exactly the image an article is
+ * most often recognised by. The cost is bounded: `fit: "inside"` with
+ * `withoutEnlargement: true` makes 1200 a ceiling, not a target, so a
+ * smaller source is stored at its own size and only a genuinely large
+ * thumbnail pays anything. `youtube.ts`'s `localizeThumbnail` and Reddit's
+ * video poster (`sites/reddit/video.ts`) set the same flag for the same kind
+ * of asset. (Two other call sites the review flagged -- the Twitter and
+ * Bluesky *photo* embeds, where "a header-resolution copy of every tweet's
+ * first photo" was the real question -- no longer exist: both lived in the
+ * dead embed-provider registry Task 1 deleted.)
  */
 export async function localizeThumbnail(videoId: string): Promise<string> {
   const ref = await storeImageRefFromUrl(thumbnailUrlFor(videoId), { isHeader: true });
-  return ref ?? "";
+  if (!ref) {
+    // Matches `youtube.ts`'s `localizeThumbnail`, which is the same function
+    // for the same failure and already explains why silence was the bug:
+    // every call site treats "" as "render the facade with no image" and
+    // moves on, so without this line a persistently imageless facade (this
+    // video's thumbnail genuinely being unreachable from this host) is
+    // indistinguishable from the aggregator having done nothing.
+    console.warn(
+      `[dailymotion] localizeThumbnail(${videoId}): thumbnail fetch failed or was rejected`,
+    );
+    return "";
+  }
+  return ref;
 }

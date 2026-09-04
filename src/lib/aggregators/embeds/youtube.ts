@@ -52,6 +52,9 @@ const THUMBNAIL_QUALITIES = ["maxresdefault", "hqdefault"] as const;
 export async function localizeThumbnail(videoId: string): Promise<string> {
   for (const quality of THUMBNAIL_QUALITIES) {
     const url = thumbnailUrlFor(videoId, quality);
+    // `isHeader: true` -- why a video thumbnail is sized to the 1200px header
+    // cap rather than the 600px body one is written out on
+    // `./dailymotion.ts`'s twin of this function.
     const ref = await storeImageRefFromUrl(url, { isHeader: true });
     if (ref) return ref;
   }

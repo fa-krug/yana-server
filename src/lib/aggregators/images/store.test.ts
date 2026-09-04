@@ -192,6 +192,29 @@ describe("image store", () => {
     expect(hash).toBeNull();
   });
 
+  it("rejects a 1x1 tracking pixel even with compression switched off", async () => {
+    // The refusal used to be gated on `width`/`height` being non-null, which
+    // only `compressImage()` sets -- so `compress: false` (and a sharp
+    // failure) stored the pixel. The dimensions are probed directly now.
+    const pixel1x1 = await sharp({
+      create: { width: 1, height: 1, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+    })
+      .png()
+      .toBuffer();
+
+    const hash = await store.storeImageBytes(pixel1x1, "image/png", { compress: false });
+    expect(hash).toBeNull();
+  });
+
+  it("still stores bytes sharp cannot measure at all", async () => {
+    // "Dimensions unknown" is not evidence of a tracking pixel, and several
+    // existing tests rely on arbitrary non-image bytes being storable.
+    const hash = await store.storeImageBytes(Buffer.from("not really an image"), "image/png", {
+      compress: false,
+    });
+    expect(hash).not.toBeNull();
+  });
+
   it("storeBodyImageRefFromUrl returns NON_CONTENT_IMAGE for non-image responses or tracking pixels", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response("<html>Html</html>", {
