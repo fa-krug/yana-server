@@ -54,8 +54,27 @@ import { describe, expect, it } from "vitest";
  * offender -- all three of `logo.ts`'s fetches already pass a signal -- which
  * is precisely why it had to be widened by inspection rather than by waiting
  * for a failure.
+ *
+ * `src/lib/ai` is the third root, and it belongs here for the same reason
+ * `feeds/` does: `run.ts`'s provider call is made by `applyAiToBlocks()`,
+ * which runs *inside* `handleAggregateJob()` and `reload.ts` -- squarely on a
+ * worker loop, once per article, behind no checkpoint the budget timer can
+ * reach. It is the single longest-blocking fetch the worker makes, so a
+ * provider that sent headers and then stalled its body is exactly the
+ * deadlock this test exists to prevent. Widening turned up no new offender
+ * again (all four `ai/` fetches already pass a signal, and `run.ts`'s is a
+ * never-disarmed `AbortSignal.timeout()`), which is the outcome to expect
+ * from widening by inspection.
+ *
+ * **The roots that are deliberately *out*.** `src/lib/integrations` and the
+ * per-provider probes are request-scoped -- an operator clicking Test, not a
+ * worker loop -- so a stalled body there ties up one request, not the job
+ * queue. `attempt.ts`'s session probe runs in the *browser*. Neither is
+ * unimportant, but neither can deadlock the worker, which is the specific
+ * failure this scan is shaped around. Do not read a directory's absence as a
+ * claim that its fetches are unbounded.
  */
-const SCAN_ROOTS = ["src/lib/aggregators", "src/lib/feeds"].map((dir) =>
+const SCAN_ROOTS = ["src/lib/aggregators", "src/lib/feeds", "src/lib/ai"].map((dir) =>
   path.join(process.cwd(), dir),
 );
 
@@ -215,13 +234,13 @@ function undeadlinedIn(source: string, label: string): string[] {
 describe("every fetch() a worker loop can reach carries a deadline", () => {
   it("finds the call sites at all, so a silent zero cannot pass", () => {
     const sites = SCAN_ROOTS.flatMap(tsFilesUnder).flatMap(fetchCallSites);
-    // Twenty at the time of writing: seventeen under `aggregators/` plus
-    // `feeds/logo.ts`'s three. Counted by running this scanner and reading
-    // what it returned, not by adding three to the previous comment -- which
-    // is how "sixteen" survived here after that number had stopped being
-    // true. A floor rather than an exact count, so a new bounded fetch need
-    // not edit this test; it stays at 19 rather than tracking 20 for the same
-    // reason.
+    // Twenty-four at the time of writing: seventeen under `aggregators/`,
+    // `feeds/logo.ts`'s three, and four under `ai/`. Counted by *running*
+    // this scanner and reading what it returned, never by adding to the
+    // previous comment -- which is how "sixteen" survived here after that
+    // number had stopped being true. A floor rather than an exact count, so a
+    // new bounded fetch need not edit this test; it stays at 19 rather than
+    // tracking 24 for the same reason.
     //
     // A drop below it means *look*, not necessarily "the scanner broke":
     // consolidating the five `sites/reddit/` fetches behind one helper would

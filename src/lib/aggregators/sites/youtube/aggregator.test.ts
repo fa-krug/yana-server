@@ -5,7 +5,7 @@ import { DEFAULT_CHROME_LABELS } from "../../chrome-labels";
 import { sanitizeUntrustedFragment } from "../../extract/clean";
 import { ARTICLE_COMMENTS_CLASS } from "../../extract/format";
 import { YouTubeAggregator } from "./aggregator";
-import type { YouTubeClient, YouTubeCommentThread } from "./client";
+import type { YouTubeClient, YouTubeCommentThread, YouTubeVideoItem } from "./client";
 
 // finalizeArticles() embeds a localized thumbnail via storeImageRefFromUrl,
 // which otherwise fetches a real YouTube thumbnail and writes to the real
@@ -457,6 +457,57 @@ describe("YouTubeAggregator comments wrapper wiring", () => {
       `<section data-sanitized-class="${ARTICLE_COMMENTS_CLASS}">`,
     );
     expect(finalized!.content).toContain("a real comment");
+  });
+
+  it("wraps it the same way on the reload path, which never runs enrichArticles()", async () => {
+    // The divergence this pins closed: reload calls fetchArticleContent() ->
+    // extractContent() -> processContent() and never enrichArticles(), so the
+    // `_youtube_comments_html` stash the assertion above relies on was never
+    // set and the comment section went into the stored block tree *unmarked*.
+    // The same video therefore had two block-tree shapes depending on which
+    // path produced it. extractContent() stashes the rendered section on the
+    // instance now and processContent() splits it back off the end of the
+    // description -- see splitTrailingComments() in ../../comments/section.
+    const feed: FeedLike = { identifier: "UCtest", dailyLimit: 20, options: {} };
+
+    class FakeClientAggregator extends YouTubeAggregator {
+      protected getClient(): YouTubeClient {
+        return {
+          fetchVideoDetails: async (): Promise<YouTubeVideoItem[]> => [
+            {
+              id: "abc123",
+              snippet: { title: "A video", description: "the description" },
+            } as unknown as YouTubeVideoItem,
+          ],
+          fetchVideoComments: async (): Promise<YouTubeCommentThread[]> => [
+            {
+              id: "c1",
+              snippet: {
+                topLevelComment: {
+                  snippet: { authorDisplayName: "Someone", textDisplay: "a real comment" },
+                },
+              },
+            },
+          ],
+        } as unknown as YouTubeClient;
+      }
+    }
+
+    const agg = new FakeClientAggregator(feed);
+    const article = enrichmentArticle("abc123");
+
+    // Exactly reload.ts's sequence, through enrichOne()'s three stages.
+    const raw = await agg.fetchArticleContent(article.identifier);
+    const extracted = await agg.extractContent(raw, article);
+    const processed = await agg.processContent(extracted, article);
+
+    expect(processed).toContain(`<section data-sanitized-class="${ARTICLE_COMMENTS_CLASS}">`);
+    expect(processed).toContain("a real comment");
+    // And exactly one marker -- the split removed the unmarked copy rather
+    // than leaving the section in the body *and* wrapping a second one.
+    expect(
+      processed.split(`<section data-sanitized-class="${ARTICLE_COMMENTS_CLASS}">`).length - 1,
+    ).toBe(1);
   });
 });
 

@@ -433,6 +433,58 @@ describe("RedditAggregator reload facade parity", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("marks the comment section on reload, the same as the enrich+finalize path does", async () => {
+    // The divergence this pins closed: reload never runs enrichArticles(), so
+    // the `_reddit_comments_html` stash the "comments wrapper wiring" test
+    // below relies on was never set, and fetchArticleContent()'s concatenated
+    // `body + comments` string went into the stored block tree with the
+    // section *unmarked*. The same post therefore had two block-tree shapes
+    // depending on which path produced it. The concatenation stays -- it is
+    // what enrichOne()'s hasBodyContent() measures, and a bare link post has
+    // only its comments -- and processContent() splits it back off instead.
+    vi.mocked(fetchPostComments).mockResolvedValue([
+      {
+        id: "c1",
+        body: "a real comment",
+        body_html: null,
+        author: "someone",
+        score: 1,
+        permalink: "/r/test/comments/abc123/post/c1/",
+        created_utc: 0,
+        replies: null,
+      },
+    ]);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => [
+          { data: { children: [{ kind: "t3", data: postData("abc123") }] } },
+          { data: { children: [] } },
+        ],
+      }),
+    );
+
+    const agg = new RedditAggregator({ identifier: "test", dailyLimit: 20, options: {} });
+    const identifier = "https://reddit.com/r/test/comments/abc123/a_post/";
+
+    const freshHtml = await agg.fetchArticleContent(identifier);
+    const rawArticle: RawArticle = article({ identifier, raw_content: freshHtml, content: "" });
+    rawArticle.content = await agg.extractContent(freshHtml, rawArticle);
+    const processed = await agg.processContent(rawArticle.content || "", rawArticle);
+
+    const marker = `<section data-sanitized-class="${ARTICLE_COMMENTS_CLASS}">`;
+    expect(processed).toContain(marker);
+    expect(processed).toContain("a real comment");
+    // Exactly one: the split removed the unmarked copy rather than leaving
+    // the section in the body *and* wrapping a second one around it.
+    expect(processed.split(marker).length - 1).toBe(1);
+
+    vi.unstubAllGlobals();
+  });
 });
 
 describe("RedditAggregator crosspost recognition", () => {

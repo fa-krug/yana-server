@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_CHROME_LABELS } from "../chrome-labels";
-import { buildCommentsSection, type CommentSpec } from "./section";
+import { buildCommentsSection, splitTrailingComments, type CommentSpec } from "./section";
 
 interface Item {
   author: string;
@@ -156,5 +156,42 @@ describe("buildCommentsSection", () => {
     expect(html).toBeNull();
     expect(onLog).toHaveBeenCalledTimes(1);
     warnSpy.mockRestore();
+  });
+});
+
+describe("splitTrailingComments", () => {
+  it("separates an exactly-matching comment suffix from the body", () => {
+    const body = "<p>the article</p>";
+    const comments = "<section><h3>Comments</h3><blockquote>hi</blockquote></section>";
+    expect(splitTrailingComments(body + comments, comments)).toEqual({ body, comments });
+  });
+
+  it("keeps a body that only *contains* the section, never one that ends with it", () => {
+    // The whole safety argument: the suffix is the identical string the
+    // builder produced, so a match is exact. Anything else falls back to
+    // today's concatenated behaviour rather than slicing prose off the end.
+    const comments = "<section>c</section>";
+    const content = `${comments}<p>trailing prose the split must not eat</p>`;
+    expect(splitTrailingComments(content, comments)).toEqual({ body: content, comments: null });
+  });
+
+  it("is a no-op for a post with no comments at all", () => {
+    expect(splitTrailingComments("<p>body</p>", null)).toEqual({
+      body: "<p>body</p>",
+      comments: null,
+    });
+    expect(splitTrailingComments("<p>body</p>", "")).toEqual({
+      body: "<p>body</p>",
+      comments: null,
+    });
+  });
+
+  it("returns an empty body for a comments-only post rather than dropping the section", () => {
+    // A bare Reddit link post renders nothing of its own. The body goes empty
+    // and the section survives -- the opposite of what returning the body
+    // alone from fetchArticleContent() would have done, which is fail the
+    // reload job as "no body" before processContent() ever ran.
+    const comments = "<section>c</section>";
+    expect(splitTrailingComments(comments, comments)).toEqual({ body: "", comments });
   });
 });

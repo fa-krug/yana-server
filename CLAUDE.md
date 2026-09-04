@@ -1179,24 +1179,44 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
     article's own content does change, the current comment section rides along
     into the row as before.
 
-  **Reddit and YouTube now store comments differently depending on which path
-  produced the article, and that divergence is new.** `processContent()` on
-  both aggregators only wraps `commentsContent` in the `ARTICLE_COMMENTS_CLASS`
-  section when `_reddit_comments_html`/`_youtube_comments_html` is set —
-  which only `enrichArticles()` (the aggregation path) does. `reload.ts` never
-  runs `enrichArticles()`, so on that path the two sites' own content-building
-  code concatenates comments straight into the body, unmarked, exactly as
-  aggregation itself used to before this fix. The stored block tree is
-  therefore not the same shape depending on whether an article arrived via
-  aggregation or a manual reload, on the same feed, for the same post. **The
-  2026-09-03 "unify the parallel paths" plan did not close this**, so read it as
-  an open gap rather than a closed one: that plan unified the scraped sites'
-  enrichment (`enrichOne()`) and the comment-section builder, but `reload.ts`
-  still never runs `enrichArticles()`, which is the only thing that sets those
-  two fields. It is Reddit and YouTube alone — the scraped commenting sites
-  (heise, mactechnews, mein_mmo) extract their comments inside
-  `processContent()`, which both paths run, so their section is marked either
-  way.
+  **Reddit and YouTube used to store comments differently depending on which
+  path produced the article; they no longer do, and how that gap was closed is
+  the part worth keeping.** `processContent()` on both aggregators wraps
+  `commentsContent` in the `ARTICLE_COMMENTS_CLASS` section, and the stash it
+  reads — `_reddit_comments_html`/`_youtube_comments_html` — is set only by
+  `enrichArticles()`, which is the aggregation path. `reload.ts` never runs
+  `enrichArticles()`, so on that path the two sites' own content-building code
+  concatenated comments straight into the body, **unmarked**, and the same post
+  had two different block-tree shapes depending on which path produced it —
+  self-healing only when the source next changed. (The 2026-09-03 "unify the
+  parallel paths" plan did not close it: that plan unified the scraped sites'
+  enrichment and the comment-section builder, neither of which is what sets
+  those two fields.)
+
+  **The fix is a split one stage later, not an earlier one, and the reason is
+  `hasBodyContent()`.** The obvious repair — have reload's
+  `fetchArticleContent()`/`extractContent()` return the body alone and pass the
+  comments separately — is not available: the string those return is exactly
+  what `enrichOne()` measures, and a bare Reddit link post or a
+  description-less YouTube video legitimately has **no body of its own, only
+  comments**. Returning the body alone would fail every such reload as "the
+  page fetches but has no body", which is a far worse answer than an unmarked
+  section. So the concatenation stays — the emptiness check sees byte-for-byte
+  what it saw before — each site stashes the rendered section on the instance
+  (`_lastReloadedCommentsHtml`, beside Reddit's existing `_lastReloaded*`
+  stashes), and `processContent()` separates the two halves again with
+  **`splitTrailingComments()`** (`src/lib/aggregators/comments/section.ts`).
+  That helper's whole safety argument is `endsWith`: the suffix is the
+  identical string the builder produced moments earlier, so a match is exact,
+  and anything that rewrote the content in between simply fails the match and
+  falls back to today's concatenated form rather than slicing prose off the end
+  of an article. Both sites' reload sequences are pinned end-to-end
+  (`aggregator.test.ts`'s "marks the comment section on reload" / "wraps it the
+  same way on the reload path"), each asserting **exactly one** marker so a
+  future change cannot leave the section in the body _and_ wrap a second one.
+  The scraped commenting sites (heise, mactechnews, mein_mmo) were never part
+  of this — they extract their comments inside `processContent()`, which both
+  paths run, so their section was always marked either way.
 
   **Excluding the raw page is what left `articles.raw_content` with no reader,
   and it is now gone.** It held the whole fetched page, justified as "the
@@ -2366,18 +2386,39 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   site-declared icon bytes, on the worker-executed `feed.logo` path, at sharp's
   268 MP default. `fetch-deadline.test.ts` had the same blind spot and the same
   fix (`SCAN_ROOTS`, now `aggregators/` **and** `feeds/`). **A tripwire is only
-  ever as wide as its file list, so the file list is the part to distrust** —
-  adding a sharp call or a worker-reachable `fetch()` outside those roots means
-  adding the root, because nothing else will tell you.
-  **And know what the sharp one does not prove: it accepts _either_ named pixel
-  limit, so it checks that two limits are applied, never that they are the
-  _right_ two.** A new call that genuinely decodes but was written with
-  `MAX_MEASURE_PIXELS` passes it silently, at 1 GP — which is 40x the memory
-  budget the decode limit exists to hold. Tightening it (accept
-  `MAX_MEASURE_PIXELS` only where the call's tail is `.metadata()`) is a known
-  follow-up, deliberately not built; until it is, which limit a new pipeline
-  reads is a review obligation, and the two constants' own doc comments are
-  what decides it.
+  ever as wide as its file list, so the file list is the part to distrust.**
+
+  **The sharp one no longer has a file list to distrust — it derives its own,
+  and that closed the last two recorded residuals.** It walks every non-test
+  `.ts`/`.tsx` under `src/` and checks whichever ones import sharp (four
+  today: `images/compression.ts`, `images/fetcher.ts`, `feeds/logo.ts` and
+  `avatar-storage.ts`, which the hand-written list had never covered because
+  it guards its own pipeline with module-private constant names). A fifth
+  sharp module cannot escape the scan by not being remembered — which is
+  exactly how `storeLogo()` shipped unguarded. A discovery that finds nothing
+  fails rather than passing vacuously. And the two-limit rule is now enforced
+  rather than left to review: `MAX_MEASURE_PIXELS` is legal **only** when the
+  matched call's tail is `.metadata()`, the one shape that provably parses
+  headers rather than pixels, so a decoding call written with the 1 GP measure
+  budget — 40x what the decode limit exists to hold — fails the test instead
+  of passing silently. Both properties were mutation-verified, not assumed.
+  What every file must show is _some_ named pixel limit and _some_ named
+  timeout; the three modules sharing
+  `MAX_DECODE_PIXELS`/`MAX_MEASURE_PIXELS`/`SHARP_TIMEOUT_SECONDS` are held to
+  those spellings on top, which is what keeps the measure/decode rule from
+  being sidestepped by a third, laxer constant next to them.
+  **`fetch-deadline.test.ts` still has a hand-written `SCAN_ROOTS`**, so the
+  distrust sentence above continues to apply to it in full — it is now three
+  roots, `aggregators/` and `feeds/` plus **`ai/`**, which was added for the
+  same reason `feeds/` was: `run.ts`'s provider call is made by
+  `applyAiToBlocks()` from inside `handleAggregateJob()`/`reload.ts`, squarely
+  on a worker loop and behind no checkpoint the budget timer can reach, which
+  makes it the single longest-blocking fetch the worker makes. Widening turned
+  up no new offender (24 call sites, all deadlined). `integrations/` and the
+  probes stay out deliberately — request-scoped, so a stalled body there ties
+  up one request rather than the job queue — and so does `attempt.ts`, which
+  fetches in the browser. **A directory's absence from that list is not a claim
+  that its fetches are unbounded**, only that it cannot deadlock the worker.
 
 - **An avatar upload is size-checked in three places, and none of them is
   redundant.** In order: the client (`profile-section.tsx`) refuses by

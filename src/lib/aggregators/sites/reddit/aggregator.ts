@@ -6,6 +6,7 @@
 
 import * as cheerio from "cheerio";
 import { BaseAggregator, FeedLike, RawArticle } from "../../base";
+import { splitTrailingComments } from "../../comments/section";
 import { mapWithConcurrency } from "../../concurrency";
 import { AggregatorError, ArticleSkipError } from "../../errors";
 import { getHeaderImageRef } from "../../header/context";
@@ -54,6 +55,12 @@ export class RedditAggregator extends BaseAggregator {
   private _lastReloadedHeaderImageUrl?: string | null;
   private _lastReloadedVideoUrl?: string | null;
   private _lastReloadedVideoInfo?: { hlsUrl?: string; fallbackUrl?: string } | null;
+  // The comment section fetchArticleContent() concatenated onto the body it
+  // returned, kept so processContent() can separate the two again and mark the
+  // section the way the aggregation path does -- see splitTrailingComments()
+  // in ../../comments/section for why the split has to happen here rather than
+  // one stage earlier.
+  private _lastReloadedCommentsHtml?: string | null;
 
   constructor(feed: FeedLike) {
     super(feed);
@@ -643,10 +650,12 @@ export class RedditAggregator extends BaseAggregator {
     );
 
     const labels = await this.chromeLabels();
-    // Reload never fingerprints this content -- a successful reload keeps the
-    // stored `contentHash` as-is (see the schema comment on `articles.contentHash`)
-    // -- so there is no marker to preserve here. Concatenated as one string,
-    // exactly as this returned before comments and body were split apart.
+    // Returned as one concatenated string, deliberately: what this function
+    // returns is what `enrichOne()` measures with `hasBodyContent()`, and a
+    // bare link post's body renders nothing at all -- only its comments do.
+    // Return the body alone and every such reload fails as "no body". The two
+    // halves are separated again in processContent() below, one stage later,
+    // so the stored block tree still gets a marked comment section.
     const postContent = await buildPostContent(
       effectivePostData,
       commentLimit,
@@ -656,6 +665,7 @@ export class RedditAggregator extends BaseAggregator {
       crosspost,
       comments,
     );
+    this._lastReloadedCommentsHtml = postContent.comments ?? null;
     return postContent.body + (postContent.comments ?? "");
   }
 
@@ -692,11 +702,21 @@ export class RedditAggregator extends BaseAggregator {
       }
     }
 
-    // Only the normal aggregation path (enrichArticles()) stashes this --
-    // reload has no marker to preserve (see fetchArticleContent() above) and
-    // leaves its comments concatenated into `content` already, so this is
-    // `undefined` there and `commentsContent` below is `null`, same as before.
-    const commentsHtml = (article._reddit_comments_html as string | null | undefined) ?? null;
+    // Aggregation (enrichArticles()) stashes the section on the article;
+    // reload has it on the instance instead, concatenated onto the end of
+    // `content` by fetchArticleContent() above. Either way it reaches
+    // formatArticleContent() as `commentsContent` and is wrapped in
+    // ARTICLE_COMMENTS_CLASS, so the same post produces the same block-tree
+    // shape whichever path built it -- which it did not until this split
+    // existed. splitTrailingComments() is a no-op unless the suffix matches
+    // exactly, so a stale stash or a rewritten body simply falls back to the
+    // concatenated form rather than slicing prose off the article.
+    let commentsHtml = (article._reddit_comments_html as string | null | undefined) ?? null;
+    if (commentsHtml === null && this._lastReloadedCommentsHtml) {
+      const split = splitTrailingComments(content, this._lastReloadedCommentsHtml);
+      content = split.body;
+      commentsHtml = split.comments;
+    }
 
     return formatArticleContent(
       content,

@@ -6,7 +6,11 @@
 
 import { BaseAggregator, FeedLike, RawArticle } from "../../base";
 import type { ChromeLabels } from "../../chrome-labels";
-import { buildCommentsSection, type CommentSpec } from "../../comments/section";
+import {
+  buildCommentsSection,
+  splitTrailingComments,
+  type CommentSpec,
+} from "../../comments/section";
 import { mapWithConcurrency } from "../../concurrency";
 import { isSafeUrl } from "../../blocks/parser";
 import { createYoutubeEmbedHtml, escapeHtml, formatArticleContent } from "../../extract/format";
@@ -56,6 +60,11 @@ export class YouTubeAggregator extends BaseAggregator {
   private _channel_id: string | null = null;
   private _last_reloaded_video: YouTubeVideoItem | null = null;
   private _last_reloaded_comments: YouTubeCommentThread[] = [];
+  // The rendered comment section extractContent() concatenated onto the
+  // description it returned, kept so processContent() can separate the two
+  // again and mark the section the way the aggregation path does. See
+  // splitTrailingComments() in ../../comments/section.
+  private _lastReloadedCommentsHtml: string | null = null;
 
   constructor(feed: FeedLike) {
     super(feed);
@@ -292,11 +301,22 @@ export class YouTubeAggregator extends BaseAggregator {
   }
 
   /**
-   * The combined description + comments html this used to be built as, kept
-   * for the one caller that still wants one string: the reload path
-   * (`extractContent()` below), which never fingerprints this content -- a
-   * successful reload keeps the stored `contentHash` as-is (see the schema
-   * comment on `articles.contentHash`) -- so there is no marker to preserve.
+   * The combined description + comments html, for its one caller: the reload
+   * path (`extractContent()` below), which needs a single string because that
+   * is what `enrichOne()` hands to `hasBodyContent()` -- and a video with an
+   * empty description has nothing but its comments to pass that check.
+   *
+   * **It stashes the comment section on the way past, and that is not a
+   * side effect bolted on -- it is why the composition lives in one method
+   * rather than at the call site.** `processContent()` has to be able to
+   * separate the two halves again so the stored block tree gets a comment
+   * section marked with `ARTICLE_COMMENTS_CLASS`, the same shape the
+   * aggregation path produces; without the stash it could not, and the two
+   * paths stored the same video two different ways. Rendering the section
+   * here once and remembering it is what keeps the concatenated string and
+   * the remembered suffix provably identical -- which is precisely the
+   * property `splitTrailingComments()` (`../../comments/section`) relies on,
+   * since its `endsWith` guard is what makes the split safe.
    */
   buildContentHtml(
     description: string,
@@ -304,10 +324,9 @@ export class YouTubeAggregator extends BaseAggregator {
     videoId: string,
     labels: ChromeLabels,
   ): string {
-    return (
-      this.buildDescriptionHtml(description) +
-      (this.buildCommentsHtml(comments, videoId, labels) ?? "")
-    );
+    const commentsSection = this.buildCommentsHtml(comments, videoId, labels);
+    this._lastReloadedCommentsHtml = commentsSection;
+    return this.buildDescriptionHtml(description) + (commentsSection ?? "");
   }
 
   override async finalizeArticles(articles: RawArticle[]): Promise<RawArticle[]> {
@@ -365,6 +384,10 @@ export class YouTubeAggregator extends BaseAggregator {
       const description = video.snippet?.description || "";
       if (typeof videoId === "string") {
         const labels = await this.chromeLabels();
+        // One concatenated string, and buildContentHtml() stashes the comment
+        // half on the way past so processContent() can separate them again --
+        // see that method's doc comment for why the split has to happen there
+        // rather than here.
         return this.buildContentHtml(description, comments, videoId, labels);
       }
     }
@@ -391,12 +414,21 @@ export class YouTubeAggregator extends BaseAggregator {
       embedHtml = createYoutubeEmbedHtml(videoId, labels, "", thumbnailRef);
     }
 
-    // Only the normal aggregation path (enrichArticles()) stashes this --
-    // reload has no marker to preserve (see buildContentHtml()'s doc comment
-    // above) and leaves its comments concatenated into `content` already, so
-    // this is `undefined` there and `commentsContent` below is `null`, same
-    // as before.
-    const commentsHtml = (article._youtube_comments_html as string | null | undefined) ?? null;
+    // The aggregation path (enrichArticles()) stashes the section on the
+    // article; reload has it on the instance instead, concatenated onto the end of
+    // `content` by extractContent() above. Either way it reaches
+    // formatArticleContent() as `commentsContent` and is wrapped in
+    // ARTICLE_COMMENTS_CLASS, so the same video produces the same block-tree
+    // shape whichever path built it -- which it did not until this split
+    // existed. splitTrailingComments() is a no-op unless the suffix matches
+    // exactly, so a stale stash or a rewritten body falls back to the
+    // concatenated form rather than slicing prose off the description.
+    let commentsHtml = (article._youtube_comments_html as string | null | undefined) ?? null;
+    if (commentsHtml === null && this._lastReloadedCommentsHtml) {
+      const split = splitTrailingComments(content, this._lastReloadedCommentsHtml);
+      content = split.body;
+      commentsHtml = split.comments;
+    }
 
     const processed = formatArticleContent(
       content,

@@ -173,44 +173,105 @@ describe("compressImage", () => {
   //
   // It accepts *either* named pixel limit, because there are two: a call that
   // only measures reads `MAX_MEASURE_PIXELS` and one that decodes reads
-  // `MAX_DECODE_PIXELS` (see both constants). What is enforced is that a
-  // pixel limit and a timeout are applied at all, never which number -- the
-  // numbers themselves are pinned separately at the bottom of this test.
+  // `MAX_DECODE_PIXELS` (see both constants). Which one is legal is no longer
+  // a review obligation, though -- the measure limit is 1 GP, forty times the
+  // memory budget the decode limit exists to hold, so a decoding call written
+  // with it would have passed this test silently. The rule below is the
+  // tightening that used to be recorded here as "known and deliberately not
+  // built": a call may read `MAX_MEASURE_PIXELS` **only** when its tail is
+  // `.metadata()`, the one shape that provably parses headers rather than
+  // pixels. Anything else must read `MAX_DECODE_PIXELS`.
   //
-  // **That is a recorded residual, not a property.** A new call that genuinely
-  // decodes but was written with `MAX_MEASURE_PIXELS` passes this test
-  // silently, at 1 GP -- forty times the memory budget `MAX_DECODE_PIXELS`
-  // exists to hold, on a path where sixteen can run at once. The tightening is
-  // known and deliberately not built: accept `MAX_MEASURE_PIXELS` only when
-  // the matched call's tail is `.metadata()`, which is the one shape that
-  // provably does not decode. Until then, which limit a new pipeline reads is
-  // a review obligation.
+  // And the file list is no longer hand-written. Twice now a real unguarded
+  // call sat outside it, so the scan derives its own list: every non-test file
+  // under `src/` that imports sharp. Adding a fifth sharp module cannot
+  // silently escape this test any more -- which was the last thing "a tripwire
+  // is only ever as wide as its file list" was warning about.
+  //
+  // The constant *names* are checked only where the shared pair is in scope.
+  // `src/lib/avatar-storage.ts` guards its own pipeline just as hard with
+  // module-private `MAX_INPUT_PIXELS`/`TIMEOUT_SECONDS` (sized for avatars, a
+  // different budget), so what is required of every file is that *some* named
+  // pixel limit and *some* named timeout are applied; the three files sharing
+  // `MAX_DECODE_PIXELS`/`MAX_MEASURE_PIXELS`/`SHARP_TIMEOUT_SECONDS` are held
+  // to those spellings on top, which is what keeps the measure/decode rule
+  // meaningful.
   it("applies both sharp resource limits to every call fed caller-supplied bytes", () => {
     /** Comments name these calls in prose; only real code counts. */
     function stripComments(source: string): string {
       return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
     }
 
-    const files = [
-      "src/lib/aggregators/images/compression.ts",
-      "src/lib/aggregators/images/fetcher.ts",
-      "src/lib/feeds/logo.ts",
-    ];
+    /** Every non-test `.ts` under `src/`, so nothing is discovered by memory. */
+    function sourceFiles(dir: string, found: string[] = []): string[] {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) sourceFiles(full, found);
+        else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) found.push(full);
+      }
+      return found;
+    }
+
+    const root = path.join(process.cwd(), "src");
+    const files = sourceFiles(root).filter((file) =>
+      /^\s*import\s+sharp\s+from\s+"sharp"/m.test(stripComments(fs.readFileSync(file, "utf8"))),
+    );
+
+    // Four today: images/compression.ts, images/fetcher.ts, feeds/logo.ts and
+    // avatar-storage.ts. Asserted as a floor rather than an equality so adding
+    // a fifth guarded module is not a test failure -- but a discovery that
+    // finds *nothing* (a broken walk, a moved tree) must never read as green.
+    expect(files.length, "no sharp importer found -- the scan is broken").toBeGreaterThanOrEqual(4);
+
     for (const file of files) {
-      const code = stripComments(fs.readFileSync(path.join(process.cwd(), file), "utf8"));
+      const rel = path.relative(process.cwd(), file);
+      const code = stripComments(fs.readFileSync(file, "utf8"));
 
       // Any `sharp(<identifier>` -- a buffer, whatever it is called. A
       // `sharp({ create: ... })` literal builds an image from scratch and has
       // no caller-supplied bytes to bound, so it is not matched.
       const calls = [...code.matchAll(/\bsharp\(\s*[A-Za-z_$][\w$]*[^)]*\)/g)];
-      expect(calls.length, `${file} has no sharp() call to check`).toBeGreaterThan(0);
+      expect(calls.length, `${rel} has no sharp() call to check`).toBeGreaterThan(0);
 
       for (const call of calls) {
-        expect(call[0], `unguarded sharp() call in ${file}`).toMatch(
+        expect(call[0], `unguarded sharp() call in ${rel}`).toMatch(
+          /limitInputPixels: [A-Z][A-Z0-9_]*/,
+        );
+        const tail = code.slice(call.index + call[0].length, call.index + call[0].length + 200);
+        expect(tail, `sharp() call in ${rel} without a timeout`).toMatch(
+          /^\s*\.timeout\(\{\s*seconds: [A-Z][A-Z0-9_]*,?\s*\}\)/,
+        );
+
+        // The measure limit is only ever legal in front of a `.metadata()`
+        // read. Anything that goes on to decode must take the decode budget.
+        if (/limitInputPixels: MAX_MEASURE_PIXELS/.test(call[0])) {
+          expect(
+            tail,
+            `${rel} reads MAX_MEASURE_PIXELS on a call that does not end in .metadata()`,
+          ).toMatch(/^\s*\.timeout\(\{[^}]*\}\)\s*\.metadata\(\)/);
+        }
+      }
+    }
+
+    // The three modules that share the pair are additionally held to its
+    // spellings, so the measure/decode rule above cannot be sidestepped by
+    // introducing a third, laxer constant next to them.
+    for (const rel of [
+      "src/lib/aggregators/images/compression.ts",
+      "src/lib/aggregators/images/fetcher.ts",
+      "src/lib/feeds/logo.ts",
+    ]) {
+      expect(
+        files.map((f) => path.relative(process.cwd(), f)),
+        `${rel} was not discovered`,
+      ).toContain(rel);
+      const code = stripComments(fs.readFileSync(path.join(process.cwd(), rel), "utf8"));
+      for (const call of code.matchAll(/\bsharp\(\s*[A-Za-z_$][\w$]*[^)]*\)/g)) {
+        expect(call[0], `${rel} uses a pixel limit outside the shared pair`).toMatch(
           /limitInputPixels: MAX_(DECODE|MEASURE)_PIXELS/,
         );
-        const tail = code.slice(call.index + call[0].length, call.index + call[0].length + 120);
-        expect(tail, `sharp() call in ${file} without a timeout`).toMatch(
+        const tail = code.slice(call.index + call[0].length, call.index + call[0].length + 200);
+        expect(tail, `${rel} uses a timeout outside the shared constant`).toMatch(
           /^\s*\.timeout\(\{\s*seconds: SHARP_TIMEOUT_SECONDS,?\s*\}\)/,
         );
       }

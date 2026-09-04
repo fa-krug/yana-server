@@ -399,14 +399,19 @@ export async function sweepUnreferencedImages(): Promise<ImageSweepResult> {
     // atomically (better-sqlite3 has no async driver, so the file removal
     // cannot live inside the same synchronous writeTransaction() callback as
     // the delete), so a crash between them is possible and the two orderings
-    // fail differently. Delete-then-unlink means a crash here leaves an
-    // orphaned file nothing points at any more -- merely leaked, harmless,
-    // and exactly the state a later sweep would have produced anyway had this
-    // batch run one cycle later. Unlink-then-delete would instead risk a
-    // `article_images` row surviving with no file behind it -- unservable,
-    // since `GET /api/v1/images/[hash]` would `fs.readFile()` a path that no
-    // longer exists and throw. Same ordering `removeAvatar()` in
-    // `@/lib/account/actions.ts` already uses, for the identical reason.
+    // fail differently. Delete-then-unlink leaves a file on disk that no row
+    // and no article points at -- unreachable, unservable, and invisible to
+    // every future sweep, since this scan starts from `article_images` rows
+    // and that file no longer has one. So it leaks *permanently*, not until
+    // the next nightly run; what makes that the right trade is that it is
+    // only wasted bytes. Unlink-then-delete would instead leave a surviving
+    // `article_images` row with no file behind it, which
+    // `GET /api/v1/images/[hash]` and `GET /media/images/[hash]` both answer
+    // by `fs.readFile()`ing a path that is gone -- a broken image and a
+    // thrown request, on a row the sweep will never revisit either, because
+    // it is referenced. Prefer leaking to breaking, the same trade the 24 h
+    // grace window above already makes, and the same ordering `removeAvatar()`
+    // in `@/lib/account/actions.ts` uses for the identical reason.
     writeTransaction((tx) => {
       tx.delete(articleImages).where(inArray(articleImages.contentHash, hashes)).run();
     });

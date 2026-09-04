@@ -218,3 +218,49 @@ export function buildCommentsSection<S, T>(
   const heading = renderHeading(sectionUrl, spec, labels);
   return wrap(spec, `${heading}${parts}`);
 }
+
+/**
+ * Split a `body + comments` string back into its two halves, for the one
+ * caller shape that has to concatenate them before it can split them:
+ * **reload**.
+ *
+ * Aggregation keeps the two apart from the start -- Reddit's
+ * `enrichArticles()` stashes `_reddit_comments_html`, YouTube's stashes
+ * `_youtube_comments_html`, and `processContent()` hands that to
+ * `formatArticleContent()`'s `commentsContent` parameter so the section is
+ * wrapped in `ARTICLE_COMMENTS_CLASS`. That wrapper is what `content-hash.ts`
+ * cuts on, and it is what a client uses to tell an article's prose from its
+ * comment thread.
+ *
+ * Reload could not do the same, because `enrichArticles()` never runs on that
+ * path: its `fetchArticleContent()`/`extractContent()` returned one
+ * concatenated string, and the comments went into the stored block tree
+ * unmarked. The *same post* therefore had two different block-tree shapes
+ * depending on which path produced it, self-healing only when the source next
+ * changed.
+ *
+ * Splitting inside `fetchArticleContent()` instead is not available: the
+ * string it returns is what `enrichOne()` measures with `hasBodyContent()`,
+ * and a Reddit link post or a description-less YouTube video legitimately has
+ * no body of its own -- only comments. Returning the body alone would fail
+ * those reload jobs outright ("the page fetches but has no body"), which is a
+ * far worse answer than an unmarked comment section. So the concatenation
+ * stays, the emptiness check sees exactly what it saw before, and the two
+ * halves are separated again here, one stage later.
+ *
+ * **`endsWith` is the whole safety argument.** The suffix is the identical
+ * string object the builder produced moments earlier, so a match is exact. If
+ * anything between the two stages rewrote the content -- a site override, a
+ * future extraction step -- the match simply fails and the caller falls back
+ * to today's concatenated behaviour rather than slicing prose off the end of
+ * an article.
+ */
+export function splitTrailingComments(
+  content: string,
+  comments: string | null | undefined,
+): { body: string; comments: string | null } {
+  if (!comments || !content.endsWith(comments)) {
+    return { body: content, comments: null };
+  }
+  return { body: content.slice(0, -comments.length), comments };
+}

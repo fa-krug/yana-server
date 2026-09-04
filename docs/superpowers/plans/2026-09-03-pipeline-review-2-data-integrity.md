@@ -353,7 +353,7 @@ were deleted. They stay in the client's local store indefinitely;
 - [x] **Step 2:** Insert the tombstones **inside the same `writeTransaction`** as
       the delete. Copy the shape from `retention.ts:36-44`; do not invent a
       variant.
-- [ ] **Step 3:** (moot — `restore.ts` was deleted earlier in this plan per the
+- [x] **Step 3:** (moot — `restore.ts` was deleted earlier in this plan per the
       Amendment above; there is no restore path left to compare against.)
 - [x] **Step 4: Verify.**
 
@@ -504,13 +504,36 @@ renders `null` at `count === 0` — is held open with it.
 
 ## Done criteria
 
-- [ ] All seven tasks complete, each with a regression test verified to fail
-      first.
-- [ ] The image sweep has been run against a database with real orphans and the
-      before/after counts recorded in the PR description.
-- [ ] The reference-root list in Task 2 Step 2 was verified against the schema,
-      not assumed.
-- [ ] Four CI checks green.
-- [ ] `CLAUDE.md` updated: the `contentHash` invariant (Task 4), the new
+- [x] All seven tasks complete, each with a regression test verified to fail
+      first. (All 39 task steps ticked; see `git log --oneline | grep review-2`.)
+- [x] The image sweep has been run against a database with real orphans and the
+      before/after counts recorded below.
+
+      Run against a scratch database migrated by the real `applyMigrationsAt()`,
+      seeded with eight `article_images` rows and eight files: one referenced by
+      `feeds.logoImageHash` (bare hash), one by `articleBlocks.imageRef` and one
+      by `articleBlocks.embedThumbnailRef` (both full `yana-img://` refs), one
+      unreferenced row stamped inside the 24 h grace window, and four
+      unreferenced rows stamped 48 h old.
+
+      | | rows | files |
+      |---|---|---|
+      | before | 8 | 8 |
+      | after | 4 | 4 |
+
+      `sweptImages: 4`. The four survivors are exactly the three reference roots
+      plus the within-grace row — so both encodings joined correctly (a
+      mismatch there would have swept all eight) and the grace window held. The
+      file count dropping with the row count is the half a row-only assertion
+      would miss.
+- [x] The reference-root list in Task 2 Step 2 was verified against the schema,
+      not assumed. `grep` over `src/lib/db/schema/*.ts` finds exactly three
+      columns that can hold an image reference — `articleBlocks.imageRef`,
+      `articleBlocks.embedThumbnailRef` (`schema/articles.ts`) and
+      `feeds.logoImageHash` (`schema/feeds.ts`) — and no other column stores a
+      reference inside prose, so there is no fourth root to extract.
+- [x] Four CI checks green. `lint`, `format:check`, `typecheck` and
+      `npm test` (230 files, 2630 tests) all pass.
+- [x] `CLAUDE.md` updated: the `contentHash` invariant (Task 4), the new
       `lastAggregationStartedAt` column and what it means versus `updatedAt`
       (Task 6), and a new bullet on media GC (Task 2).
