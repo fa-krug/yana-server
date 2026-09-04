@@ -80,6 +80,12 @@ const ANTHROPIC_MAX_TOKENS = 16000;
  * also the only value this has ever had in production: the Django original
  * this was ported from read it as `getattr(self.settings, "ai_max_retry_time",
  * 60)`, always falling through to the default.
+ *
+ * **It does not bound `aiMaxRetries` on its own.** The check below is
+ * `waitSeconds > 0 && elapsed + waitSeconds > maxRetryTime`, so with
+ * `aiRetryDelay = 0` (a legal setting) this budget is never consulted and
+ * every configured retry runs. That is why `./bounds`' ceiling of 10 on
+ * `maxRetries` is load-bearing rather than redundant -- see its own note.
  */
 const MAX_RETRY_TIME_SECONDS = 60;
 

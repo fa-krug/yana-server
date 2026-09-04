@@ -416,7 +416,7 @@ These are **not** cleanup. Each changes behaviour on purpose.
 
 ### Task 8: Small verified bugs found adjacent to the above
 
-- [ ] **8a. Scraped HTML used as a `String.replace` replacement.**
+- [x] **8a. Scraped HTML used as a `String.replace` replacement.**
       `extract/format.ts:71`:
       `return facade.replace("</div>", `${caption}</div>`)`. `caption` is
       `headerCaptionHtml`, scraped from the page, and `$&`, `` $` ``, `$'`, `$1`
@@ -424,40 +424,40 @@ These are **not** cleanup. Each changes behaviour on purpose.
       `caption = "<p>Cost: $100 &amp; $& more</p>"` produces
       `<div …>x<p>Cost: $100 &amp; </div> more</p></div>` — structure destroyed.
       Use a function replacement or plain concatenation.
-- [ ] **8b. `youtube/aggregator.ts:314`** emits `&lc=` unescaped inside an `href`
+- [x] **8b. `youtube/aggregator.ts:314`** emits `&lc=` unescaped inside an `href`
       attribute; should be `&amp;lc=`.
-- [ ] **8c. `heise.ts:268-278`** — a `try/catch` wrapping only
+- [x] **8c. `heise.ts:268-278`** — a `try/catch` wrapping only
       `String.prototype.includes` and template concatenation. Unreachable catch,
       misleading.
-- [ ] **8d. `dailymotion.ts:122-125`'s `localizeThumbnail` warns on nothing**,
+- [x] **8d. `dailymotion.ts:122-125`'s `localizeThumbnail` warns on nothing**,
       where `youtube.ts:170-173` emits an explicit warning for the identical
       failure and explains why silence was the bug. Same name, same module
       family, opposite behaviour.
-- [ ] **8e. Tracking-pixel rejection is conditional on compression having run.**
+- [x] **8e. Tracking-pixel rejection is conditional on compression having run.**
       `store.ts:102-109` only fires when `width`/`height` are non-null, which
       requires `compressImage` to have succeeded. With `compress: false` or a
       sharp failure, a 1×1 pixel is stored. Latent — no current caller passes
       `compress: false`.
-- [ ] **8f. `{ isHeader: true }` on embed thumbnails** (`dailymotion.ts:123`,
+- [x] **8f. `{ isHeader: true }` on embed thumbnails** (`dailymotion.ts:123`,
       `twitter.ts:135`, `bluesky.ts:170`) sizes them 1200×1200 rather than the
       600×600 body limit, so every tweet's first photo is stored at header
       resolution. Probably deliberate; confirm and document, or fix.
-- [ ] **8g. `scheduler.ts:37-55`** — two verbatim copies of the same
+- [x] **8g. `scheduler.ts:37-55`** — two verbatim copies of the same
       `console.error` + `notifyAdmins` block. Hoist.
-- [ ] **8h. Three hand-rolled `tx.insert(jobs)` sites** in
+- [x] **8h. Three hand-rolled `tx.insert(jobs)` sites** in
       `src/lib/feeds/actions.ts:309-315,557-566,795-797` bypass `enqueue()` and
       will not pick up any future enqueue-side logic. They are already the reason
       `feed.update` drifted from `aggregate` (plan 1, Task 3).
-- [ ] **8i. `handlers/update.ts`** is a 6-line file whose entire body is
+- [x] **8i. `handlers/update.ts`** is a 6-line file whose entire body is
       `await handleAggregateJob(job)`. Register `handleAggregateJob` under
       `"feed.update"` directly and delete the file — and reconsider whether the
       alias kind should exist at all.
-- [ ] **8j. `worker.ts:137-141`** retries an unregistered job kind three times.
+- [x] **8j. `worker.ts:137-141`** retries an unregistered job kind three times.
       A missing handler is deterministic; fail it immediately.
-- [ ] **8k. `store.ts:53`** builds `new RegExp(IMAGE_REF_PATTERN)` per call to
+- [x] **8k. `store.ts:53`** builds `new RegExp(IMAGE_REF_PATTERN)` per call to
       dodge shared `lastIndex`. Correct, but the comment says "reset regex
       lastIndex" while the code clones. `matchAll` is 3 lines instead of 10.
-- [ ] **8l. `bounds.ts:55-56`** justifies a `maxRetries` ceiling of 10 as
+- [x] **8l. `bounds.ts:55-56`** justifies a `maxRetries` ceiling of 10 as
       "already an hour of `retryDelay`", but the un-configurable 60 s
       `maxRetryTime` (`run.ts:132`) cuts every schedule off well before that.
       The stated reason does not describe shipped behaviour. Fix the bound or
