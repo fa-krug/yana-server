@@ -10,50 +10,6 @@ import { YOUTUBE_IFRAME_KEEP_SELECTOR } from "../embeds/youtube-url";
 import { FullWebsiteAggregator, proxyYoutubeEmbeds } from "../website";
 
 export class MerkurAggregator extends FullWebsiteAggregator {
-  static brandSiteUrl = "https://www.merkur.de/";
-
-  static getDefaultIdentifier(): string {
-    return "https://www.merkur.de/rssfeed.rdf";
-  }
-
-  static getIdentifierChoices(): Array<[string, string]> {
-    return [
-      ["https://www.merkur.de/rssfeed.rdf", "Main Feed"],
-      [
-        "https://www.merkur.de/lokales/garmisch-partenkirchen/rssfeed.rdf",
-        "Garmisch-Partenkirchen",
-      ],
-      ["https://www.merkur.de/lokales/wuermtal/rssfeed.rdf", "Würmtal"],
-      ["https://www.merkur.de/lokales/starnberg/rssfeed.rdf", "Starnberg"],
-      ["https://www.merkur.de/lokales/fuerstenfeldbruck/rssfeed.rdf", "Fürstenfeldbruck"],
-      ["https://www.merkur.de/lokales/dachau/rssfeed.rdf", "Dachau"],
-      ["https://www.merkur.de/lokales/freising/rssfeed.rdf", "Freising"],
-      ["https://www.merkur.de/lokales/erding/rssfeed.rdf", "Erding"],
-      ["https://www.merkur.de/lokales/ebersberg/rssfeed.rdf", "Ebersberg"],
-      ["https://www.merkur.de/lokales/muenchen/rssfeed.rdf", "München"],
-      ["https://www.merkur.de/lokales/muenchen-lk/rssfeed.rdf", "München Landkreis"],
-      ["https://www.merkur.de/lokales/holzkirchen/rssfeed.rdf", "Holzkirchen"],
-      ["https://www.merkur.de/lokales/miesbach/rssfeed.rdf", "Miesbach"],
-      ["https://www.merkur.de/lokales/region-tegernsee/rssfeed.rdf", "Region Tegernsee"],
-      ["https://www.merkur.de/lokales/bad-toelz/rssfeed.rdf", "Bad Tölz"],
-      ["https://www.merkur.de/lokales/wolfratshausen/rssfeed.rdf", "Wolfratshausen"],
-      ["https://www.merkur.de/lokales/weilheim/rssfeed.rdf", "Weilheim"],
-      ["https://www.merkur.de/lokales/schongau/rssfeed.rdf", "Schongau"],
-    ];
-  }
-
-  static getConfigurationFields(): Record<string, unknown> {
-    return {
-      remove_empty_elements: {
-        type: "boolean",
-        initial: true,
-        label: "Remove Empty Elements",
-        help_text: "Cleanup empty paragraphs and divs from the article content.",
-        required: false,
-      },
-    };
-  }
-
   static contentSelectors = [".idjs-Story"];
   protected contentSelectors = [...MerkurAggregator.contentSelectors];
 

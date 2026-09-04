@@ -159,42 +159,6 @@ function processFullViewComment(
 }
 
 export class HeiseAggregator extends FullWebsiteAggregator {
-  static brandSiteUrl = "https://www.heise.de/";
-
-  static getDefaultIdentifier(): string {
-    return "https://www.heise.de/rss/heise.rdf";
-  }
-
-  static getIdentifierChoices(): Array<[string, string]> {
-    return [
-      ["https://www.heise.de/rss/heise.rdf", "Main Feed"],
-      ["https://www.heise.de/rss/heise-security.rdf", "Security"],
-      ["https://www.heise.de/rss/heise-developer.rdf", "Developer"],
-      ["https://www.heise.de/rss/heise-top.rdf", "Top News"],
-    ];
-  }
-
-  static getConfigurationFields(): Record<string, unknown> {
-    return {
-      include_comments: {
-        type: "boolean",
-        initial: true,
-        label: "Include Forum Comments",
-        help_text: "Extract top comments from the Heise forum.",
-        required: false,
-      },
-      max_comments: {
-        type: "integer",
-        initial: 5,
-        label: "Max Comments",
-        help_text: "Number of comments to extract if enabled.",
-        required: false,
-        min: 0,
-        max: 20,
-      },
-    };
-  }
-
   static contentSelectors = ["#meldung", ".StoryContent"];
   protected contentSelectors = [...HeiseAggregator.contentSelectors];
 

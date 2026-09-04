@@ -13,42 +13,6 @@ function safeUrlAttr(url?: string | null): string | null {
 }
 
 export class PodcastAggregator extends RssAggregator {
-  static getIdentifierChoices(): Array<[string, string]> {
-    return [];
-  }
-
-  static getDefaultIdentifier(): string {
-    return "";
-  }
-
-  static getConfigurationFields(): Record<string, unknown> {
-    return {
-      include_player: {
-        type: "boolean",
-        initial: true,
-        label: "Include Audio Player",
-        help_text: "Include an HTML5 audio player in the article.",
-        required: false,
-      },
-      include_download_link: {
-        type: "boolean",
-        initial: true,
-        label: "Include Download Link",
-        help_text: "Include a direct download link for the audio file.",
-        required: false,
-      },
-      artwork_size: {
-        type: "integer",
-        initial: 300,
-        label: "Artwork Max Width",
-        help_text: "Maximum width of the podcast artwork in pixels.",
-        required: false,
-        min_value: 50,
-        max_value: 1000,
-      },
-    };
-  }
-
   protected parseDurationToSeconds(durationStr: string): number | null {
     if (!durationStr) return null;
     const str = durationStr.trim();

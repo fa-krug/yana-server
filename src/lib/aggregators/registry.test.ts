@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { AGGREGATOR_KEYS } from "@/lib/db/schema";
+import type { Feed } from "@/lib/db/schema";
 
-import { BaseAggregator } from "./base";
-import { AggregatorRegistry, getAggregator, IMPLEMENTED_AGGREGATORS } from "./registry";
+import { createAggregator } from "./factory";
+import { IMPLEMENTED_AGGREGATORS } from "./registry";
 import {
   AGGREGATOR_SPECS,
   defaultIdentifierFor,
@@ -15,17 +16,6 @@ import {
 } from "./specs";
 import { RssAggregator } from "./rss";
 import { FullWebsiteAggregator } from "./website";
-import { ArsTechnicaAggregator } from "./sites/ars_technica";
-import { CaschysBlogAggregator } from "./sites/caschys_blog";
-import { DarkLegacyAggregator } from "./sites/dark_legacy";
-import { ExplosmAggregator } from "./sites/explosm";
-import { HeiseAggregator } from "./sites/heise";
-import { MactechnewsAggregator } from "./sites/mactechnews/aggregator";
-import { MeinMmoAggregator } from "./sites/mein_mmo/aggregator";
-import { MerkurAggregator } from "./sites/merkur";
-import { OglafAggregator } from "./sites/oglaf";
-import { TagesschauAggregator } from "./sites/tagesschau/aggregator";
-import { TheVergeAggregator } from "./sites/the_verge";
 
 const ALL = { youtube: true, reddit: true, ai: true };
 const NONE = { youtube: false, reddit: false, ai: false };
@@ -66,39 +56,38 @@ describe("AGGREGATOR_SPECS", () => {
   });
 });
 
-describe("IMPLEMENTED_AGGREGATORS & AggregatorRegistry", () => {
+describe("IMPLEMENTED_AGGREGATORS & createAggregator", () => {
   it("maps implemented keys to class implementations", () => {
     expect(IMPLEMENTED_AGGREGATORS.feed_content).toBe(RssAggregator);
     expect(IMPLEMENTED_AGGREGATORS.full_website).toBe(FullWebsiteAggregator);
   });
 
-  it("AggregatorRegistry.get returns class for known type and throws for unknown", () => {
-    expect(AggregatorRegistry.get("feed_content")).toBe(RssAggregator);
-    expect(AggregatorRegistry.get("full_website")).toBe(FullWebsiteAggregator);
-    expect(() => AggregatorRegistry.get("unknown_type")).toThrow("Unknown aggregator type");
-  });
-
-  it("AggregatorRegistry.getAll returns all registered aggregators", () => {
-    const all = AggregatorRegistry.getAll();
-    expect(all.feed_content).toBe(RssAggregator);
-    expect(all.full_website).toBe(FullWebsiteAggregator);
-  });
-
-  it("getAggregator instantiates an aggregator from feed object", () => {
+  it("createAggregator instantiates an aggregator from feed object", () => {
     const feed = {
       aggregator: "feed_content",
       identifier: "http://example.com/rss",
       dailyLimit: 20,
-    };
-    const agg = getAggregator(feed);
+    } as unknown as Feed;
+    const agg = createAggregator(feed);
     expect(agg).toBeInstanceOf(RssAggregator);
     expect(agg.identifier).toBe("http://example.com/rss");
   });
 
-  it("preserves identifierField and getIdentifierFromRelated behaviour", () => {
-    expect(BaseAggregator.identifierField).toBe("identifier");
-    expect(BaseAggregator.getIdentifierFromRelated({ id: 123 })).toBe("[object Object]");
-    expect(BaseAggregator.getIdentifierFromRelated("my-id")).toBe("my-id");
+  // `createAggregator()` is the sole surviving entry point (see the module
+  // comment at the top of ./registry): an unknown `aggregator` value falls
+  // back to `FullWebsiteAggregator` rather than throwing. That is a real
+  // semantics choice, not an accident of the deletion -- the registry's own
+  // `AggregatorRegistry.get()` used to throw on the same input, and every
+  // production caller (aggregate.ts, reload.ts, logo.ts) already depends on
+  // the fallback, not the throw.
+  it("falls back to FullWebsiteAggregator for an unrecognised aggregator key", () => {
+    const feed = {
+      aggregator: "not_a_real_aggregator",
+      identifier: "https://example.com/",
+      dailyLimit: 20,
+    } as unknown as Feed;
+    const agg = createAggregator(feed);
+    expect(agg).toBeInstanceOf(FullWebsiteAggregator);
   });
 });
 
@@ -198,43 +187,40 @@ describe("identifierModeFor", () => {
   });
 });
 
-describe("identifierChoices parity with the ported aggregator classes", () => {
-  const classesWithChoices: [string, typeof BaseAggregator][] = [
-    ["heise", HeiseAggregator],
-    ["merkur", MerkurAggregator],
-    ["tagesschau", TagesschauAggregator],
-    ["ars_technica", ArsTechnicaAggregator],
-    ["mactechnews", MactechnewsAggregator],
-    ["explosm", ExplosmAggregator],
-    ["dark_legacy", DarkLegacyAggregator],
-    ["caschys_blog", CaschysBlogAggregator],
-    ["oglaf", OglafAggregator],
-    ["mein_mmo", MeinMmoAggregator],
-    ["the_verge", TheVergeAggregator],
-  ];
+describe("AGGREGATOR_SPECS identifier and option data", () => {
+  // Until the 2026-09-03 pipeline-review-4 cleanup (Task 2), `specs.ts` and
+  // each site class's `getConfigurationFields()`/`getIdentifierChoices()`
+  // were hand-kept duplicates of each other, and this describe block's job
+  // was to byte-compare the two copies -- which enforced the duplication
+  // rather than catching drift in what actually matters. Those class-level
+  // methods are gone now (`BaseAggregator.saveOptions()`, their sole reader,
+  // had no caller anywhere), so `specs.ts` is the single source of truth for
+  // both identifier choices and option defaults. These assertions pin the
+  // real values directly instead of comparing one copy against another.
 
-  // specs.ts and the site classes' getConfigurationFields() are hand-kept
-  // duplicates of each other. Only mein_mmo's include_videos is pinned here,
-  // because it is the one option whose default is off: a spec that drifted to
-  // `true` would put the CMS's auto-inserted videos back into every newly
-  // created feed while extractContent() still read them as off.
-  it("agrees with MeinMmoAggregator on include_videos defaulting to off", () => {
-    const fields = MeinMmoAggregator.getConfigurationFields() as Record<
-      string,
-      { initial: unknown }
-    >;
+  // mein_mmo's include_videos is the one option whose default is off: a spec
+  // that drifted to `true` would put the CMS's auto-inserted videos back into
+  // every newly created feed while extractContent() still reads them as off.
+  it("defaults mein_mmo's include_videos option to off", () => {
     const option = AGGREGATOR_SPECS.mein_mmo.options.find((o) => o.key === "include_videos");
-
     expect(option?.default).toBe(false);
-    expect(fields.include_videos?.initial).toBe(false);
   });
 
-  it("matches each site class's getIdentifierChoices() byte-for-byte", () => {
-    for (const [key, cls] of classesWithChoices) {
-      const fromClass = cls.getIdentifierChoices().map(([value, label]) => ({ value, label }));
-      expect(AGGREGATOR_SPECS[key as keyof typeof AGGREGATOR_SPECS].identifierChoices, key).toEqual(
-        fromClass,
-      );
+  it("gives every choice-mode aggregator at least two identifier choices", () => {
+    for (const key of AGGREGATOR_KEYS) {
+      const spec = AGGREGATOR_SPECS[key];
+      if (identifierModeFor(spec) === "choice") {
+        expect(spec.identifierChoices.length, key).toBeGreaterThanOrEqual(2);
+      }
+    }
+  });
+
+  it("gives every identifier choice a non-empty value and label", () => {
+    for (const key of AGGREGATOR_KEYS) {
+      for (const choice of AGGREGATOR_SPECS[key].identifierChoices) {
+        expect(choice.value, key).not.toBe("");
+        expect(choice.label, key).not.toBe("");
+      }
     }
   });
 });

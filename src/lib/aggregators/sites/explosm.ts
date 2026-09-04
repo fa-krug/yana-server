@@ -7,28 +7,6 @@ import { storeImageRefFromUrl } from "../images/store";
 import { FullWebsiteAggregator } from "../website";
 
 export class ExplosmAggregator extends FullWebsiteAggregator {
-  static brandSiteUrl = "https://explosm.net/";
-
-  static getDefaultIdentifier(): string {
-    return "https://explosm.net/rss.xml";
-  }
-
-  static getIdentifierChoices(): Array<[string, string]> {
-    return [["https://explosm.net/rss.xml", "Cyanide & Happiness (Main RSS)"]];
-  }
-
-  static getConfigurationFields(): Record<string, unknown> {
-    return {
-      show_alt_text: {
-        type: "boolean",
-        initial: true,
-        label: "Show Alt Text",
-        help_text: "Display the comic's alt text below the image.",
-        required: false,
-      },
-    };
-  }
-
   static contentSelectors = ["#comic"];
   protected contentSelectors = [...ExplosmAggregator.contentSelectors];
 

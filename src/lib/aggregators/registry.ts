@@ -2,8 +2,17 @@
  * SERVER-ONLY: every class below reaches `@/lib/db/client` (and therefore
  * `better-sqlite3`) through the image store. The option *descriptions* a form
  * needs live in `./specs`, which imports none of this — see the comment there.
+ *
+ * `IMPLEMENTED_AGGREGATORS` is the one map from an `AggregatorKey` to its
+ * class. `./factory`'s `createAggregator()` is the only thing that reads it
+ * to instantiate an aggregator -- there used to be a second entry point here
+ * too (`AggregatorRegistry.get`/`getAll` + `getAggregator()`), but nothing
+ * called it outside this module's own tests, and it disagreed with
+ * `createAggregator()` on an unknown key (`.get` threw; `createAggregator`
+ * falls back to `FullWebsiteAggregator`, which is the behaviour every real
+ * caller depends on). Removed rather than reconciled, per the 2026-09-03
+ * pipeline-review-4 cleanup plan's Task 2.
  */
-import type { AggregatorKey } from "@/lib/db/schema/enums";
 import type { FeedLike } from "./base";
 import { BaseAggregator } from "./base";
 import { RssAggregator } from "./rss";
@@ -25,8 +34,6 @@ import { FullWebsiteAggregator } from "./website";
 
 export type AggregatorClass = (new (feed: FeedLike) => BaseAggregator) & {
   identifierField?: string;
-  getIdentifierFromRelated?: (relatedObj: unknown) => string;
-  getDefaultIdentifier?: () => string;
   selectorsToRemove?: string[];
   contentSelectors?: string[];
 };
@@ -50,23 +57,3 @@ export const IMPLEMENTED_AGGREGATORS: Record<string, AggregatorClass | undefined
   youtube: YouTubeAggregator as unknown as AggregatorClass,
   reddit: RedditAggregator as unknown as AggregatorClass,
 };
-
-export class AggregatorRegistry {
-  static get(aggregatorType: string): AggregatorClass {
-    const cls = IMPLEMENTED_AGGREGATORS[aggregatorType as AggregatorKey];
-    if (!cls) {
-      throw new Error(`Unknown aggregator type: ${aggregatorType}`);
-    }
-    return cls;
-  }
-
-  static getAll(): Partial<Record<AggregatorKey, AggregatorClass>> {
-    return { ...IMPLEMENTED_AGGREGATORS };
-  }
-}
-
-export function getAggregator(feed: FeedLike): BaseAggregator {
-  const aggregatorType = feed.aggregator || "full_website";
-  const AggregatorClass = AggregatorRegistry.get(aggregatorType);
-  return new AggregatorClass(feed);
-}

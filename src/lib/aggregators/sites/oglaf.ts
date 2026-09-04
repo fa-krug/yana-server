@@ -13,33 +13,6 @@ import { FullWebsiteAggregator } from "../website";
 const COMIC_MAX_DIMENSIONS = { width: 1600, height: 4800 };
 
 export class OglafAggregator extends FullWebsiteAggregator {
-  static brandSiteUrl = "https://www.oglaf.com/";
-
-  static getDefaultIdentifier(): string {
-    return "https://www.oglaf.com/feeds/rss/";
-  }
-
-  static getIdentifierChoices(): Array<[string, string]> {
-    return [["https://www.oglaf.com/feeds/rss/", "Oglaf (Main Feed)"]];
-  }
-
-  static resolvesFeedUrl(): boolean {
-    return false;
-  }
-
-  static getConfigurationFields(): Record<string, unknown> {
-    return {
-      show_alt_text: {
-        type: "boolean",
-        initial: true,
-        label: "Show Alt Text",
-        help_text:
-          "Display the comic's 'title' text (often containing a second joke) below the image.",
-        required: false,
-      },
-    };
-  }
-
   static contentSelectors = ["div.content"];
   protected contentSelectors = [...OglafAggregator.contentSelectors];
 

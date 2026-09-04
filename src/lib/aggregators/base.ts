@@ -37,31 +37,6 @@ export interface RawArticle {
 
 export abstract class BaseAggregator {
   static identifierField = "identifier";
-  static supportsIdentifierSearch = false;
-  static brandSiteUrl: string | null = null;
-
-  static getIdentifierFromRelated(relatedObj: unknown): string {
-    return String(relatedObj);
-  }
-
-  static resolvesFeedUrl(): boolean {
-    if (this.identifierField !== "identifier") {
-      return false;
-    }
-    return !this.getIdentifierChoices().length;
-  }
-
-  static getIdentifierChoices(_query?: string, _user?: unknown): Array<[string, string]> {
-    return [];
-  }
-
-  static getConfigurationFields(): Record<string, unknown> {
-    return {};
-  }
-
-  static getDefaultIdentifier(): string {
-    return "";
-  }
 
   public identifier: string;
   public dailyLimit: number;
@@ -108,31 +83,6 @@ export abstract class BaseAggregator {
     if (!this.identifier) {
       throw new Error("Feed identifier is required");
     }
-  }
-
-  normalizeIdentifier(identifier: string): string {
-    const normalized = identifier.trim();
-    const choices = (this.constructor as typeof BaseAggregator).getIdentifierChoices();
-    for (const [val, label] of choices) {
-      if (normalized === label) {
-        return String(val);
-      }
-    }
-    return normalized;
-  }
-
-  getIdentifierLabel(identifier: string): string {
-    const choices = (this.constructor as typeof BaseAggregator).getIdentifierChoices();
-    for (const [val, label] of choices) {
-      if (String(identifier) === String(val)) {
-        return String(label);
-      }
-    }
-    return identifier;
-  }
-
-  getAggregatorType(): string {
-    return this.constructor.name.replace(/Aggregator$/i, "").toLowerCase();
   }
 
   getSourceUrl(): string {
@@ -364,21 +314,6 @@ export abstract class BaseAggregator {
 
   processContent(content: string, _article: RawArticle): string | Promise<string> {
     return content;
-  }
-
-  saveOptions(formCleanedData: Record<string, unknown>): void {
-    const configFields = (this.constructor as typeof BaseAggregator).getConfigurationFields();
-    const options = (this.feed.options as Record<string, unknown>) || {};
-    for (const fieldName of Object.keys(configFields)) {
-      if (!(fieldName in formCleanedData)) continue;
-      const val = formCleanedData[fieldName];
-      if (val === null || val === undefined) {
-        delete options[fieldName];
-      } else {
-        options[fieldName] = val;
-      }
-    }
-    this.feed.options = options;
   }
 
   /**

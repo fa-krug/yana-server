@@ -45,69 +45,6 @@ interface RedditSourceData {
 
 export class RedditAggregator extends BaseAggregator {
   static identifierField = "subreddit";
-  static supportsIdentifierSearch = true;
-  static brandSiteUrl = "https://www.reddit.com";
-
-  static getIdentifierFromRelated(relatedObj: unknown): string {
-    if (typeof relatedObj === "object" && relatedObj !== null) {
-      if ("display_name" in relatedObj) {
-        return String((relatedObj as Record<string, unknown>).display_name);
-      }
-    }
-    return String(relatedObj);
-  }
-
-  static getConfigurationFields(): Record<string, unknown> {
-    return {
-      min_comments: {
-        type: "number",
-        initial: 5,
-        label: "Minimum Comments",
-        help_text: "Skip posts with fewer comments than this.",
-        required: false,
-        min_value: 0,
-      },
-      comment_limit: {
-        type: "number",
-        initial: 10,
-        label: "Comment Limit",
-        help_text: "Number of top comments to include in the article body.",
-        required: false,
-        min_value: 0,
-        max_value: 50,
-      },
-      include_header_image: {
-        type: "boolean",
-        initial: true,
-        label: "Include Header Image",
-        help_text: "Include the post image/thumbnail at the top of the article.",
-        required: false,
-      },
-      subreddit_sort: {
-        type: "select",
-        choices: [
-          ["hot", "Hot"],
-          ["new", "New"],
-          ["top", "Top"],
-          ["rising", "Rising"],
-        ],
-        initial: "hot",
-        label: "Sort Order",
-        help_text: "Which posts to fetch (Hot, New, Top, Rising).",
-        required: false,
-      },
-      min_age_hours: {
-        type: "number",
-        initial: 48,
-        label: "Minimum Post Age (hours)",
-        help_text:
-          "Only import posts older than this many hours. Helps filter out posts that get removed by moderators shortly after posting. Set to 0 to disable.",
-        required: false,
-        min_value: 0,
-        max_value: 168,
-      },
-    };
-  }
 
   // Populated by fetchArticleContent() (the reload path only -- a normal
   // aggregation run gets the same information from parseToRawArticles()
@@ -121,10 +58,6 @@ export class RedditAggregator extends BaseAggregator {
 
   constructor(feed: FeedLike) {
     super(feed);
-  }
-
-  override getAggregatorType(): string {
-    return "reddit";
   }
 
   override getSourceUrl(): string {
@@ -162,25 +95,6 @@ export class RedditAggregator extends BaseAggregator {
     if (!validation.valid) {
       throw new Error(validation.error || "Invalid subreddit");
     }
-  }
-
-  override normalizeIdentifier(identifier: string): string {
-    const iden = identifier.trim();
-    if (iden.includes(":")) {
-      const part = iden.split(":")[0]!.trim();
-      if (part.startsWith("r/")) {
-        return part.slice(2);
-      }
-      return part;
-    }
-    return normalizeSubreddit(iden) || iden;
-  }
-
-  override getIdentifierLabel(identifier: string): string {
-    if (this.feed && this.feed.name) {
-      return `${this.feed.name} (r/${identifier})`;
-    }
-    return identifier;
   }
 
   async fetchSourceData(limit?: number): Promise<RedditSourceData> {

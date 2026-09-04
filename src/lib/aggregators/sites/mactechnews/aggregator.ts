@@ -23,52 +23,6 @@ export function extractMtnImageId(url: string): string | null {
 }
 
 export class MactechnewsAggregator extends FullWebsiteAggregator {
-  static brandSiteUrl = "https://www.mactechnews.de/";
-
-  static getDefaultIdentifier(): string {
-    return "https://www.mactechnews.de/Rss/News.x";
-  }
-
-  static getIdentifierChoices(): Array<[string, string]> {
-    return [
-      ["https://www.mactechnews.de/Rss/News.x", "News"],
-      ["https://www.mactechnews.de/Rss/Rewind.x", "Rewind"],
-      ["https://www.mactechnews.de/Rss/Journals.x", "Journals"],
-    ];
-  }
-
-  static resolvesFeedUrl(): boolean {
-    return false;
-  }
-
-  static getConfigurationFields(): Record<string, unknown> {
-    return {
-      combine_pages: {
-        type: "boolean",
-        initial: true,
-        label: "Combine Multi-page Articles",
-        help_text: "Automatically fetch and combine all pages of a multi-page article.",
-        required: false,
-      },
-      include_comments: {
-        type: "boolean",
-        initial: true,
-        label: "Include Comments",
-        help_text: "Extract user comments from article pages.",
-        required: false,
-      },
-      max_comments: {
-        type: "number",
-        initial: 5,
-        label: "Max Comments",
-        help_text: "Maximum number of comments to extract per article.",
-        required: false,
-        min_value: 0,
-        max_value: 20,
-      },
-    };
-  }
-
   static contentSelectors = [".MtnArticle"];
   protected contentSelectors = [...MactechnewsAggregator.contentSelectors];
 

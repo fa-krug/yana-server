@@ -46,28 +46,6 @@ export function safeCommentAvatarHtml(): string {
 
 export class YouTubeAggregator extends BaseAggregator {
   static identifierField = "youtube_channel";
-  static supportsIdentifierSearch = true;
-
-  static getIdentifierFromRelated(relatedObj: unknown): string {
-    if (typeof relatedObj === "object" && relatedObj !== null && "channel_id" in relatedObj) {
-      return String((relatedObj as Record<string, unknown>).channel_id);
-    }
-    return String(relatedObj);
-  }
-
-  static getConfigurationFields(): Record<string, unknown> {
-    return {
-      comment_limit: {
-        type: "number",
-        initial: 10,
-        label: "Comment Limit",
-        help_text: "Number of top comments to include below the video.",
-        required: false,
-        min_value: 0,
-        max_value: 50,
-      },
-    };
-  }
 
   private _client: YouTubeClient | null = null;
   private _channel_id: string | null = null;
@@ -76,10 +54,6 @@ export class YouTubeAggregator extends BaseAggregator {
 
   constructor(feed: FeedLike) {
     super(feed);
-  }
-
-  override getAggregatorType(): string {
-    return "youtube";
   }
 
   override getSourceUrl(): string {
@@ -138,22 +112,6 @@ export class YouTubeAggregator extends BaseAggregator {
 
   override validate(): void {
     super.validate();
-  }
-
-  override normalizeIdentifier(identifier: string): string {
-    const iden = identifier.trim();
-    if (iden.includes("(") && iden.endsWith(")")) {
-      const start = iden.lastIndexOf("(") + 1;
-      return iden.slice(start, -1).trim();
-    }
-    return iden;
-  }
-
-  override getIdentifierLabel(identifier: string): string {
-    if (this.feed && this.feed.name) {
-      return `${this.feed.name} (${identifier})`;
-    }
-    return identifier;
   }
 
   async fetchSourceData(limit?: number): Promise<YouTubeSourceData> {

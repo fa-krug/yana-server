@@ -12,28 +12,6 @@ import { FullWebsiteAggregator } from "../website";
 const COMIC_MAX_DIMENSIONS = { width: 1600, height: 4800 };
 
 export class DarkLegacyAggregator extends FullWebsiteAggregator {
-  static brandSiteUrl = "https://darklegacycomics.com/";
-
-  static getDefaultIdentifier(): string {
-    return "https://darklegacycomics.com/feed.xml";
-  }
-
-  static getIdentifierChoices(): Array<[string, string]> {
-    return [["https://darklegacycomics.com/feed.xml", "Dark Legacy Comics (Main Feed)"]];
-  }
-
-  static getConfigurationFields(): Record<string, unknown> {
-    return {
-      show_alt_text: {
-        type: "boolean",
-        initial: true,
-        label: "Show Alt Text",
-        help_text: "Display the comic's alt text below the image.",
-        required: false,
-      },
-    };
-  }
-
   static contentSelectors = ["#gallery"];
   protected contentSelectors = [...DarkLegacyAggregator.contentSelectors];
 

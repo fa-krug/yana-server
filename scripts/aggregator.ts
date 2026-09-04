@@ -3,12 +3,9 @@ import { and, eq } from "drizzle-orm";
 import { BaseAggregator, type RawArticle } from "@/lib/aggregators/base";
 import { parseBlocks, plainTextOf } from "@/lib/aggregators/blocks/parser";
 import { writeBlocks } from "@/lib/aggregators/blocks/storage";
-import {
-  AggregatorRegistry,
-  getAggregator,
-  IMPLEMENTED_AGGREGATORS,
-  type AggregatorClass,
-} from "@/lib/aggregators/registry";
+import { createAggregator } from "@/lib/aggregators/factory";
+import type { AggregatorClass } from "@/lib/aggregators/registry";
+import { AGGREGATOR_SPECS, defaultIdentifierFor } from "@/lib/aggregators/specs";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, feeds, users, type Feed } from "@/lib/db/schema";
 import type { AggregatorKey } from "@/lib/db/schema/enums";
@@ -46,14 +43,10 @@ function printField(label: string, value: unknown): void {
 }
 
 function getDefaultIdentifier(target: string): string | undefined {
-  try {
-    const cls = AggregatorRegistry.get(target);
-    if (cls && typeof cls.getDefaultIdentifier === "function") {
-      const defaultId = cls.getDefaultIdentifier();
-      if (defaultId) return defaultId;
-    }
-  } catch {
-    // Ignore if not in registry
+  const spec = AGGREGATOR_SPECS[target as AggregatorKey];
+  if (spec) {
+    const defaultId = defaultIdentifierFor(spec);
+    if (defaultId) return defaultId;
   }
   return DEFAULT_IDENTIFIERS[target];
 }
@@ -290,7 +283,7 @@ async function main(): Promise<void> {
   printField("Feed ID", feed!.id ? feed!.id : "(not saved)");
 
   printSection("AGGREGATOR CLASS INFO");
-  const aggregator = getAggregator(feed!);
+  const aggregator = createAggregator(feed!);
   const aggregatorClass = aggregator.constructor as unknown as AggregatorCtor;
 
   printField("Class", aggregatorClass.name);

@@ -4,28 +4,6 @@ import { FeedLike, RawArticle } from "../base";
 import { FullWebsiteAggregator } from "../website";
 
 export class CaschysBlogAggregator extends FullWebsiteAggregator {
-  static brandSiteUrl = "https://stadt-bremerhaven.de/";
-
-  static getDefaultIdentifier(): string {
-    return "https://stadt-bremerhaven.de/feed/";
-  }
-
-  static getIdentifierChoices(): Array<[string, string]> {
-    return [["https://stadt-bremerhaven.de/feed/", "Caschy's Blog (Main Feed)"]];
-  }
-
-  static getConfigurationFields(): Record<string, unknown> {
-    return {
-      skip_ads: {
-        type: "boolean",
-        initial: true,
-        label: "Skip Advertisements",
-        help_text: "Filter out articles the source labels as advertising.",
-        required: false,
-      },
-    };
-  }
-
   static contentSelectors = [".entry-inner"];
   protected contentSelectors = [...CaschysBlogAggregator.contentSelectors];
 

@@ -156,14 +156,14 @@ equivalents already exist and are what the UI uses: `identifierModeFor`,
 `defaultIdentifierFor`, `identifierChoices` in `specs.ts`, and
 `src/lib/feeds/actions.ts:67`'s own spec-driven `normalizeIdentifier(spec, …)`.
 
-- [ ] **Step 1:** Grep and record every member above.
-- [ ] **Step 2:** Delete `saveOptions()` and all 11+ `getConfigurationFields()`
+- [x] **Step 1:** Grep and record every member above.
+- [x] **Step 2:** Delete `saveOptions()` and all 11+ `getConfigurationFields()`
       overrides.
-- [ ] **Step 3:** Delete the identifier cluster and its overrides. Keep
+- [x] **Step 3:** Delete the identifier cluster and its overrides. Keep
       `getSourceUrl()`.
-- [ ] **Step 4:** Rewrite `registry.test.ts:215-217` so it no longer enforces a
+- [x] **Step 4:** Rewrite `registry.test.ts:215-217` so it no longer enforces a
       duplication that no longer exists. `specs.ts` becomes the single source.
-- [ ] **Step 5: Collapse the two factories.** `registry.ts:54-72` exposes
+- [x] **Step 5: Collapse the two factories.** `registry.ts:54-72` exposes
       `AggregatorRegistry.get/getAll` and `getAggregator(feed)`; `factory.ts:7-13`
       exposes `createAggregator()` and is the **only** one anything calls
       (`aggregate.ts:55`, `reload.ts:137`, `logo.ts:25`). They also disagree on

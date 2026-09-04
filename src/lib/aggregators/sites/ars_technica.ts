@@ -3,21 +3,6 @@ import { FeedLike } from "../base";
 import { IFRAME_SANITIZE_SELECTOR, RssSummaryFallbackAggregator } from "../website";
 
 export class ArsTechnicaAggregator extends RssSummaryFallbackAggregator {
-  static brandSiteUrl = "https://arstechnica.com/";
-
-  static getDefaultIdentifier(): string {
-    return "https://arstechnica.com/feed/";
-  }
-
-  static getIdentifierChoices(): Array<[string, string]> {
-    return [
-      ["https://arstechnica.com/feed/", "Main Feed"],
-      ["https://arstechnica.com/gadgets/feed/", "Gadgets"],
-      ["https://arstechnica.com/science/feed/", "Science"],
-      ["https://arstechnica.com/gaming/feed/", "Gaming"],
-    ];
-  }
-
   static contentSelectors = [".post-content"];
   protected contentSelectors = [...ArsTechnicaAggregator.contentSelectors];
 

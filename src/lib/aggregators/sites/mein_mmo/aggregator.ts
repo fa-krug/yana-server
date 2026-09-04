@@ -28,7 +28,6 @@ import { buildPageUrl, detectPagination } from "./multipage";
 
 export class MeinMmoAggregator extends FullWebsiteAggregator {
   static MEIN_MMO_URL = "https://mein-mmo.de/";
-  static brandSiteUrl = "https://mein-mmo.de/";
 
   static getSourceUrl(): string {
     return MeinMmoAggregator.MEIN_MMO_URL;
@@ -51,52 +50,6 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
     if (heading) return heading;
     const og = $('meta[property="og:title"]').attr("content");
     return og?.trim() || null;
-  }
-
-  static getDefaultIdentifier(): string {
-    return "https://mein-mmo.de/feed/";
-  }
-
-  static getIdentifierChoices(): Array<[string, string]> {
-    return [["https://mein-mmo.de/feed/", "Main Feed (All Articles)"]];
-  }
-
-  static getConfigurationFields(): Record<string, unknown> {
-    return {
-      combine_pages: {
-        type: "boolean",
-        initial: true,
-        label: "Combine Multi-page Articles",
-        help_text: "Automatically fetch and combine all pages of a multi-page article into one.",
-        required: false,
-      },
-      include_comments: {
-        type: "boolean",
-        initial: true,
-        label: "Include Comments",
-        help_text: "Extract wpDiscuz reader comments from the article page.",
-        required: false,
-      },
-      max_comments: {
-        type: "number",
-        initial: 5,
-        label: "Max Comments",
-        help_text: "Maximum number of comments to extract per article.",
-        required: false,
-        min_value: 0,
-        max_value: 20,
-      },
-      include_videos: {
-        type: "boolean",
-        initial: false,
-        label: "Include Auto-Inserted Videos",
-        help_text:
-          "Keep the Dailymotion player Mein-MMO's CMS drops into article bodies. " +
-          "Off by default: the video it plays is chosen by the CMS, not the author, " +
-          "and is often unrelated to the article.",
-        required: false,
-      },
-    };
   }
 
   usesFirstContentMatch = true;
