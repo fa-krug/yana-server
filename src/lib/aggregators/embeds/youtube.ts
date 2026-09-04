@@ -7,9 +7,9 @@
  * `./youtube-url.ts`, a dependency-free module a client component
  * (`src/components/articles/block-node.tsx`) imports directly — see that
  * module's own doc comment. This module re-exports them for every existing
- * server-side importer (which already pulls in cheerio and the image store
- * below), and adds `localizeThumbnail`, which fetches a video's thumbnail
- * through the image store and returns a `yana-img://` ref.
+ * server-side importer (which already pulls in the image store below), and
+ * adds `localizeThumbnail`, which fetches a video's thumbnail through the
+ * image store and returns a `yana-img://` ref.
  *
  * There is no generic embed-provider registry here (one used to exist
  * across this directory: a `detect`/`convert` pair per provider behind a
@@ -29,7 +29,7 @@
 import { storeImageRefFromUrl } from "../images/store";
 import { thumbnailUrlFor } from "./youtube-url";
 // Re-exported so every existing server-side importer of this module (which
-// pulls in cheerio and the image store below) keeps working unchanged. See
+// pulls in the image store below) keeps working unchanged. See
 // ./youtube-url.ts for why the id extractor, the domain check and the
 // thumbnail builder now live in their own dependency-free module.
 export {

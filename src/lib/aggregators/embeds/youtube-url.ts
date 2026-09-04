@@ -8,12 +8,11 @@
  * **client component** and needs `youtubeIdFrom()` to turn a stored embed's
  * `externalUrl` back into an iframe `src`. `embeds/youtube.ts` -- the rest of
  * the YouTube provider -- imports `storeImageRefFromUrl` (node fs, the image
- * store) and re-exports `proxyYoutubeEmbeds` from `../website`, so it drags
- * server-only code into any bundle that imports it; a client component
- * structurally cannot import from it. This module is the part with none of
- * that, split out so `block-node.tsx` can import it directly while every
- * server-side caller keeps importing from `embeds/youtube.ts`, which
- * re-exports everything here unchanged.
+ * store), so it drags server-only code into any bundle that imports it; a
+ * client component structurally cannot import from it. This module is the
+ * part with none of that, split out so `block-node.tsx` can import it
+ * directly while every server-side caller keeps importing from
+ * `embeds/youtube.ts`, which re-exports everything here unchanged.
  *
  * Before this module existed, six places extracted a YouTube video id from a
  * URL and disagreed on which forms they accepted -- see this module's test
