@@ -1,12 +1,12 @@
 import * as cheerio from "cheerio";
-import { FeedLike } from "../base";
+import { defineSite } from "../define-site";
 import { IFRAME_SANITIZE_SELECTOR, RssSummaryFallbackAggregator } from "../website";
 
-export class ArsTechnicaAggregator extends RssSummaryFallbackAggregator {
-  static contentSelectors = [".post-content"];
-  protected contentSelectors = [...ArsTechnicaAggregator.contentSelectors];
-
-  static selectorsToRemove = [
+export class ArsTechnicaAggregator extends defineSite(RssSummaryFallbackAggregator, {
+  key: "ars_technica",
+  siteUrl: "https://arstechnica.com",
+  content: [".post-content"],
+  remove: [
     IFRAME_SANITIZE_SELECTOR,
     ".ad",
     "[class*='ad-wrapper']",
@@ -18,18 +18,9 @@ export class ArsTechnicaAggregator extends RssSummaryFallbackAggregator {
     "style",
     "noscript",
     "svg",
-  ];
-  protected selectorsToRemove = [...ArsTechnicaAggregator.selectorsToRemove];
-
-  usesFirstContentMatch = false;
-
-  constructor(feed: FeedLike) {
-    super(feed);
-    if (!this.identifier) {
-      this.identifier = "https://arstechnica.com/feed/";
-    }
-  }
-
+  ],
+  firstMatchOnly: false,
+}) {
   /**
    * The article headline, read via Open Graph off the raw fetched page.
    * This CMS's `og:title` convention carries the article's own headline
@@ -41,9 +32,5 @@ export class ArsTechnicaAggregator extends RssSummaryFallbackAggregator {
   protected override sourceTitleFrom($: cheerio.CheerioAPI): string | null {
     const title = $('meta[property="og:title"]').attr("content");
     return title?.trim() || null;
-  }
-
-  override getSourceUrl(): string {
-    return "https://arstechnica.com";
   }
 }

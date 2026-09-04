@@ -1,12 +1,12 @@
 import * as cheerio from "cheerio";
-import { FeedLike } from "../base";
+import { defineSite } from "../define-site";
 import { IFRAME_SANITIZE_SELECTOR, RssSummaryFallbackAggregator } from "../website";
 
-export class TheVergeAggregator extends RssSummaryFallbackAggregator {
-  static contentSelectors = [".duet--layout--entry-body .duet--article--article-body-component"];
-  protected contentSelectors = [...TheVergeAggregator.contentSelectors];
-
-  static selectorsToRemove = [
+export class TheVergeAggregator extends defineSite(RssSummaryFallbackAggregator, {
+  key: "the_verge",
+  siteUrl: "https://www.theverge.com",
+  content: [".duet--layout--entry-body .duet--article--article-body-component"],
+  remove: [
     IFRAME_SANITIZE_SELECTOR,
     "aside",
     "[class*='duet--recirculation']",
@@ -16,18 +16,9 @@ export class TheVergeAggregator extends RssSummaryFallbackAggregator {
     "style",
     "noscript",
     "svg",
-  ];
-  protected selectorsToRemove = [...TheVergeAggregator.selectorsToRemove];
-
-  usesFirstContentMatch = false;
-
-  constructor(feed: FeedLike) {
-    super(feed);
-    if (!this.identifier) {
-      this.identifier = "https://www.theverge.com/rss/index.xml";
-    }
-  }
-
+  ],
+  firstMatchOnly: false,
+}) {
   /**
    * The article headline, read via Open Graph off the raw fetched page.
    * This CMS's `og:title` convention carries the article's own headline
@@ -39,9 +30,5 @@ export class TheVergeAggregator extends RssSummaryFallbackAggregator {
   protected override sourceTitleFrom($: cheerio.CheerioAPI): string | null {
     const title = $('meta[property="og:title"]').attr("content");
     return title?.trim() || null;
-  }
-
-  override getSourceUrl(): string {
-    return "https://www.theverge.com";
   }
 }
