@@ -1,6 +1,7 @@
 import * as cheerio from "cheerio";
 import type { AnyNode, Element, Text } from "domhandler";
 import { YOUTUBE_EMBED_DOMAIN_ALTERNATION } from "../embeds/youtube-url";
+import { NEVER_CONTENT_TAGS } from "../extract/tags";
 import type { Block, EmbedBlock, ImageBlock, InlineRun, ListBlock } from "./types";
 
 // Re-exported so the callers that already have cheerio in their graph (both job
@@ -45,14 +46,19 @@ const INLINE_TAGS = new Set([
   "kbd",
 ]);
 
+// See `../extract/tags`'s doc comment for why this only shares
+// NEVER_CONTENT_TAGS with content.ts's and clean.ts's own drop lists: iframe
+// and audio are only dropped here as a fallback for when embeds are
+// disallowed (`allowMediaEmbeds` false) -- when they're allowed, the same
+// tags become real embed blocks instead (see iframeEmbed()/audioEmbed()
+// above and their call sites below).
 const DROPPED_TAGS = new Set([
+  ...NEVER_CONTENT_TAGS,
   "form",
   "input",
   "button",
   "select",
   "textarea",
-  "script",
-  "style",
   "noscript",
   "iframe",
   "audio",
@@ -271,6 +277,23 @@ function recoverableMedia($: cheerio.CheerioAPI, scanned: Element): Element[] {
 }
 
 /**
+ * `recoverableMedia()` -> `mediaBlock()` -> collect, for every element it is
+ * called on -- the table-cell, inline-tag and `<p>` branches below all did
+ * this same three-line loop, differing only in which array the result landed
+ * in.
+ */
+function recoverableMediaBlocks($: cheerio.CheerioAPI, scanned: Element, baseUrl: string): Block[] {
+  const blocks: Block[] = [];
+  for (const media of recoverableMedia($, scanned)) {
+    const block = mediaBlock($, media, baseUrl);
+    if (block !== null) {
+      blocks.push(block);
+    }
+  }
+  return blocks;
+}
+
+/**
  * An embed's preview image, taken from the element's `poster`.
  *
  * On `<video>` that is the standard attribute. On `<audio>` and `<iframe>` it
@@ -301,54 +324,43 @@ function posterRef(element: Element): string {
   return isSafeUrl(poster) ? poster : "";
 }
 
-function videoEmbed($: cheerio.CheerioAPI, element: Element): EmbedBlock | null {
+/**
+ * `<video>`/`<audio>` carry their real source either as their own `src` or
+ * on a nested `<source>` -- the nested one wins when present.
+ */
+function nestedOrOwnSrc($: cheerio.CheerioAPI, element: Element): string {
   const sourceEl = $(element).find("source").get(0) as Element | undefined;
-  let src = sourceEl ? getAttr(sourceEl, "src") : "";
-  if (!src) {
-    src = getAttr(element, "src");
-  }
+  return (sourceEl ? getAttr(sourceEl, "src") : "") || getAttr(element, "src");
+}
+
+/** The embed builder every media tag shares once it has resolved a `src`. */
+function sourceBasedEmbed(
+  element: Element,
+  provider: EmbedBlock["provider"],
+  src: string,
+): EmbedBlock | null {
   if (!src || !isSafeUrl(src)) {
     return null;
   }
   return {
     kind: "embed",
-    provider: "video",
+    provider,
     externalUrl: src,
     thumbnailRef: posterRef(element),
     title: "",
   };
+}
+
+function videoEmbed($: cheerio.CheerioAPI, element: Element): EmbedBlock | null {
+  return sourceBasedEmbed(element, "video", nestedOrOwnSrc($, element));
 }
 
 function audioEmbed($: cheerio.CheerioAPI, element: Element): EmbedBlock | null {
-  const sourceEl = $(element).find("source").get(0) as Element | undefined;
-  let src = sourceEl ? getAttr(sourceEl, "src") : "";
-  if (!src) {
-    src = getAttr(element, "src");
-  }
-  if (!src || !isSafeUrl(src)) {
-    return null;
-  }
-  return {
-    kind: "embed",
-    provider: "generic",
-    externalUrl: src,
-    thumbnailRef: posterRef(element),
-    title: "",
-  };
+  return sourceBasedEmbed(element, "generic", nestedOrOwnSrc($, element));
 }
 
 function iframeEmbed(element: Element): EmbedBlock | null {
-  const src = getAttr(element, "src");
-  if (!src || !isSafeUrl(src)) {
-    return null;
-  }
-  return {
-    kind: "embed",
-    provider: "generic",
-    externalUrl: src,
-    thumbnailRef: posterRef(element),
-    title: "",
-  };
+  return sourceBasedEmbed(element, "generic", getAttr(element, "src"));
 }
 
 function mediaBlock($: cheerio.CheerioAPI, element: Element, baseUrl: string): Block | null {
@@ -504,12 +516,7 @@ function tableRowBlocks($: cheerio.CheerioAPI, tr: Element, baseUrl: string): Bl
       cellRuns.push(runs);
     }
 
-    for (const media of recoverableMedia($, cell)) {
-      const block = mediaBlock($, media, baseUrl);
-      if (block !== null) {
-        mediaBlocks.push(block);
-      }
-    }
+    mediaBlocks.push(...recoverableMediaBlocks($, cell, baseUrl));
   }
 
   const combined: InlineRun[] = [];
@@ -828,13 +835,7 @@ function convert(
       // styling and, for an `<a>`, its href. See `inlineContext()`.
       const own = inlineContext(node as Element, tag, baseUrl, new Set(), "");
       inline.push(...inlineRuns($, node as Element, baseUrl, own.styles, own.link));
-      const mediaList = recoverableMedia($, node as Element);
-      for (const media of mediaList) {
-        const block = mediaBlock($, media, baseUrl);
-        if (block !== null) {
-          pendingMedia.push(block);
-        }
-      }
+      pendingMedia.push(...recoverableMediaBlocks($, node as Element, baseUrl));
       continue;
     }
 
@@ -849,13 +850,7 @@ function convert(
       if (runs.length > 0) {
         blocks.push({ kind: "paragraph", runs });
       }
-      const mediaList = recoverableMedia($, node as Element);
-      for (const media of mediaList) {
-        const block = mediaBlock($, media, baseUrl);
-        if (block !== null) {
-          blocks.push(block);
-        }
-      }
+      blocks.push(...recoverableMediaBlocks($, node as Element, baseUrl));
       continue;
     }
 

@@ -1,11 +1,14 @@
 import * as cheerio from "cheerio";
 import type { Element } from "domhandler";
+import { NEVER_CONTENT_TAGS } from "./tags";
 
 /**
  * Selectors always removed before content selection.
  * Emptying ignore_selectors must never disable sanitization of these elements.
+ * See `./tags`'s doc comment for why this list, `clean.ts`'s and
+ * `blocks/parser.ts`'s only share `NEVER_CONTENT_TAGS` and no more.
  */
-export const MANDATORY_REMOVE_SELECTORS: string[] = ["script", "style", "noscript", "template"];
+export const MANDATORY_REMOVE_SELECTORS: string[] = [...NEVER_CONTENT_TAGS, "noscript", "template"];
 
 /**
  * Defaults mirrored from the iOS client's shipped AggregatorOptions.swift.

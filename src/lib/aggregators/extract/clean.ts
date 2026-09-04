@@ -1,6 +1,7 @@
 import * as cheerio from "cheerio";
 import type { Element } from "domhandler";
 import { isSafeUrl } from "../blocks/parser";
+import { NEVER_CONTENT_TAGS } from "./tags";
 
 type SoupOrSelection = cheerio.CheerioAPI | cheerio.Cheerio<Element>;
 
@@ -288,9 +289,11 @@ export function sanitizeClassNames(soup: SoupOrSelection): void {
 /**
  * Sanitize HTML by removing script, object, embed, style, iframe, on* attributes,
  * and converting class, style, id, and other data-* attributes to data-sanitized-*.
+ * See `./tags`'s doc comment for why this list only shares `NEVER_CONTENT_TAGS`
+ * with `content.ts`'s and `blocks/parser.ts`'s own drop lists.
  */
 export function sanitizeHtmlAttributes(soup: SoupOrSelection): void {
-  removeSelectors(soup, ["script", "object", "embed", "style", "iframe"]);
+  removeSelectors(soup, [...NEVER_CONTENT_TAGS, "object", "embed", "iframe"]);
 
   const elems = selectAllIncludingSelf(soup);
   elems.each((_, elem) => {
