@@ -1,9 +1,10 @@
 import * as cheerio from "cheerio";
-import { FeedLike, RawArticle } from "../base";
+import { RawArticle } from "../base";
 import { isSafeUrl } from "../blocks/parser";
 import { escapeHtml, formatArticleContent } from "../extract/format";
 import { HeaderElementData } from "../header/context";
 import { storeImageRefFromUrl } from "../images/store";
+import { defineSite } from "../define-site";
 import { FullWebsiteAggregator } from "../website";
 
 // A comic panel is the whole article; the default 600x600 body-image cap
@@ -12,35 +13,13 @@ import { FullWebsiteAggregator } from "../website";
 // dark_legacy.ts, which is here for the same reason.
 const COMIC_MAX_DIMENSIONS = { width: 1600, height: 4800 };
 
-export class OglafAggregator extends FullWebsiteAggregator {
-  static contentSelectors = ["div.content"];
-  protected contentSelectors = [...OglafAggregator.contentSelectors];
-
-  static selectorsToRemove = [
-    "#nav",
-    "#tt",
-    ".align",
-    "#ll",
-    "script",
-    "style",
-    "div.clear",
-    "#ad_btm",
-  ];
-  protected selectorsToRemove = [...OglafAggregator.selectorsToRemove];
-
-  usesFirstContentMatch = true;
-
-  constructor(feed: FeedLike) {
-    super(feed);
-    if (!this.identifier) {
-      this.identifier = "https://www.oglaf.com/feeds/rss/";
-    }
-  }
-
-  override getSourceUrl(): string {
-    return "https://www.oglaf.com";
-  }
-
+export class OglafAggregator extends defineSite(FullWebsiteAggregator, {
+  key: "oglaf",
+  siteUrl: "https://www.oglaf.com",
+  content: ["div.content"],
+  remove: ["#nav", "#tt", ".align", "#ll", "script", "style", "div.clear", "#ad_btm"],
+  firstMatchOnly: true,
+}) {
   override async extractHeaderElement(_article: RawArticle): Promise<HeaderElementData | null> {
     return null;
   }

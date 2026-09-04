@@ -1,16 +1,17 @@
 import * as cheerio from "cheerio";
-import { FeedLike, RawArticle } from "../base";
+import { RawArticle } from "../base";
 import { isSafeUrl } from "../blocks/parser";
 import { escapeHtml } from "../extract/format";
 import { HeaderElementData } from "../header/context";
 import { storeImageRefFromUrl } from "../images/store";
+import { defineSite } from "../define-site";
 import { FullWebsiteAggregator } from "../website";
 
-export class ExplosmAggregator extends FullWebsiteAggregator {
-  static contentSelectors = ["#comic"];
-  protected contentSelectors = [...ExplosmAggregator.contentSelectors];
-
-  static selectorsToRemove = [
+export class ExplosmAggregator extends defineSite(FullWebsiteAggregator, {
+  key: "explosm",
+  siteUrl: "https://explosm.net",
+  content: ["#comic"],
+  remove: [
     "script",
     "style",
     "iframe",
@@ -21,22 +22,9 @@ export class ExplosmAggregator extends FullWebsiteAggregator {
     'div[class*="ComicSelector__Container"]',
     'div[class*="ComicShare__Container"]',
     'img[loading~="lazy"]',
-  ];
-  protected selectorsToRemove = [...ExplosmAggregator.selectorsToRemove];
-
-  usesFirstContentMatch = true;
-
-  constructor(feed: FeedLike) {
-    super(feed);
-    if (!this.identifier) {
-      this.identifier = "https://explosm.net/rss.xml";
-    }
-  }
-
-  override getSourceUrl(): string {
-    return "https://explosm.net";
-  }
-
+  ],
+  firstMatchOnly: true,
+}) {
   override async extractHeaderElement(_article: RawArticle): Promise<HeaderElementData | null> {
     return null;
   }

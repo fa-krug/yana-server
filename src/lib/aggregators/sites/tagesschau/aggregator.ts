@@ -1,14 +1,22 @@
 import * as cheerio from "cheerio";
-import { FeedLike, RawArticle } from "../../base";
+import { RawArticle } from "../../base";
 import { escapeHtml } from "../../extract/format";
 import { storeImageRefFromUrl } from "../../images/store";
-import { FullWebsiteAggregator } from "../../website";
+import { defineSite } from "../../define-site";
+import { IFRAME_SANITIZE_SELECTOR, FullWebsiteAggregator } from "../../website";
 import { extractTagesschauContent } from "./extraction";
 import { extractMediaHeader, type MediaHeaderResult } from "./media";
 
-export class TagesschauAggregator extends FullWebsiteAggregator {
-  static selectorsToRemove = [
-    ...FullWebsiteAggregator.selectorsToRemove,
+export class TagesschauAggregator extends defineSite(FullWebsiteAggregator, {
+  key: "tagesschau",
+  siteUrl: "https://www.tagesschau.de",
+  // No `content`: this site's body comes out of its own `extractContent()`
+  // override below, so the base class's DEFAULT_CONTENT_SELECTORS stand.
+  remove: [
+    // Named outright rather than spread off a base-class static (there is no
+    // such static any more -- see ../../define-site), the same way every other
+    // site that wants it names it.
+    IFRAME_SANITIZE_SELECTOR,
     "div.teaser",
     "div.socialbuttons",
     "aside",
@@ -18,22 +26,9 @@ export class TagesschauAggregator extends FullWebsiteAggregator {
     "div.metatextline",
     "noscript",
     "svg",
-  ];
-  protected selectorsToRemove = [...TagesschauAggregator.selectorsToRemove];
-
-  usesFirstContentMatch = true;
-
-  constructor(feed: FeedLike) {
-    super(feed);
-    if (!this.identifier) {
-      this.identifier = "https://www.tagesschau.de/infoservices/alle-meldungen-100~rss2.xml";
-    }
-  }
-
-  override getSourceUrl(): string {
-    return "https://www.tagesschau.de";
-  }
-
+  ],
+  firstMatchOnly: true,
+}) {
   protected override sourceTitleFrom($: cheerio.CheerioAPI): string | null {
     const title = $("span.seitenkopf__headline--text").first().text().trim();
     return title || null;

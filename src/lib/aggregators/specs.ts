@@ -72,6 +72,11 @@ export type AggregatorSpec = {
    * `getConfigurationFields()`/`getIdentifierChoices()` and the rest of that
    * configuration API had no production caller). `specs.ts` is the single
    * source for this data now, with nothing left to cross-check it against.
+   * It is also read at *runtime* now, not only by the feed form:
+   * `defineSite()` (`./define-site`) resolves a site class's default
+   * identifier -- the URL each constructor used to repeat as a literal --
+   * through `defaultIdentifierFor()` below, so the constructor default and
+   * this list cannot drift apart.
    * `registry.test.ts` asserts one invariant about this field directly --
    * every choice has a non-empty value and label -- and covers "a
    * choice-mode aggregator has at least two choices" only *indirectly*,
@@ -115,6 +120,11 @@ export function identifierModeFor(spec: AggregatorSpec): IdentifierMode {
  * The identifier value a `none`/`choice`-mode aggregator starts with (its
  * first — for `none`, only — choice), or `""` for `url`/`search` modes,
  * where there's nothing to default to.
+ *
+ * Two consumers: the feed form pre-fills with it, and `defineSite()`
+ * (`./define-site`) uses it as the identifier a site aggregator falls back to
+ * when the feed carries none — which is why this module has a server-side
+ * reader despite being the client-safe half of the registry.
  */
 export function defaultIdentifierFor(spec: AggregatorSpec): string {
   return spec.identifierChoices[0]?.value ?? "";

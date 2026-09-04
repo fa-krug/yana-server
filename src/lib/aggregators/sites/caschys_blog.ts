@@ -1,28 +1,16 @@
 import * as cheerio from "cheerio";
 import type { Element } from "domhandler";
-import { FeedLike, RawArticle } from "../base";
+import { RawArticle } from "../base";
+import { defineSite } from "../define-site";
 import { FullWebsiteAggregator } from "../website";
 
-export class CaschysBlogAggregator extends FullWebsiteAggregator {
-  static contentSelectors = [".entry-inner"];
-  protected contentSelectors = [...CaschysBlogAggregator.contentSelectors];
-
-  static selectorsToRemove = [".aawp", ".aawp-disclaimer", "script", "style", "noscript", "svg"];
-  protected selectorsToRemove = [...CaschysBlogAggregator.selectorsToRemove];
-
-  usesFirstContentMatch = true;
-
-  constructor(feed: FeedLike) {
-    super(feed);
-    if (!this.identifier) {
-      this.identifier = "https://stadt-bremerhaven.de/feed/";
-    }
-  }
-
-  override getSourceUrl(): string {
-    return "https://stadt-bremerhaven.de";
-  }
-
+export class CaschysBlogAggregator extends defineSite(FullWebsiteAggregator, {
+  key: "caschys_blog",
+  siteUrl: "https://stadt-bremerhaven.de",
+  content: [".entry-inner"],
+  remove: [".aawp", ".aawp-disclaimer", "script", "style", "noscript", "svg"],
+  firstMatchOnly: true,
+}) {
   protected override sourceTitleFrom($: cheerio.CheerioAPI): string | null {
     const title = $("h1.entry-title").first().text().trim();
     return title || null;

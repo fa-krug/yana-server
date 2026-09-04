@@ -1,8 +1,9 @@
 import * as cheerio from "cheerio";
-import { FeedLike, RawArticle } from "../../base";
+import { RawArticle } from "../../base";
 import { cleanHtml, removeImageByUrl, sanitizeClassNames } from "../../extract/clean";
 import { formatArticleContent } from "../../extract/format";
 import { getHeaderImageRef } from "../../header/context";
+import { defineSite } from "../../define-site";
 import { FirstPageStash, fetchAllPages } from "../../multipage";
 import { FullWebsiteAggregator, proxyYoutubeEmbeds } from "../../website";
 import { extractComments } from "./comments";
@@ -22,11 +23,11 @@ export function extractMtnImageId(url: string): string | null {
   return match ? match[1] : null;
 }
 
-export class MactechnewsAggregator extends FullWebsiteAggregator {
-  static contentSelectors = [".MtnArticle"];
-  protected contentSelectors = [...MactechnewsAggregator.contentSelectors];
-
-  static selectorsToRemove = [
+export class MactechnewsAggregator extends defineSite(FullWebsiteAggregator, {
+  key: "mactechnews",
+  siteUrl: "https://www.mactechnews.de",
+  content: [".MtnArticle"],
+  remove: [
     ".NewsPictureMobile",
     "aside",
     "script",
@@ -36,27 +37,14 @@ export class MactechnewsAggregator extends FullWebsiteAggregator {
     "svg",
     "header",
     ".TexticonBox.Right",
-  ];
-  protected selectorsToRemove = [...MactechnewsAggregator.selectorsToRemove];
-
-  usesFirstContentMatch = false;
-
+  ],
+  firstMatchOnly: false,
+}) {
   // Keyed by article URL, not a single field -- see `FirstPageStash`'s doc
   // comment in `../../multipage` for why: `enrichArticles()` runs
   // `fetchArticleContent()` for up to `this.concurrency` articles
   // concurrently on one aggregator instance.
   private firstPages = new FirstPageStash();
-
-  constructor(feed: FeedLike) {
-    super(feed);
-    if (!this.identifier) {
-      this.identifier = "https://www.mactechnews.de/Rss/News.x";
-    }
-  }
-
-  override getSourceUrl(): string {
-    return "https://www.mactechnews.de";
-  }
 
   /**
    * The article headline. Called once per page fetch (this aggregator

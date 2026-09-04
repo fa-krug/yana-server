@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio";
-import { RawArticle, FeedLike } from "../base";
+import { RawArticle } from "../base";
 import {
   removeEmptyElements,
   sanitizeHtmlAttributes,
@@ -7,13 +7,14 @@ import {
 } from "../extract/clean";
 import { extractMainContentIfPresent } from "../extract/content";
 import { YOUTUBE_IFRAME_KEEP_SELECTOR } from "../embeds/youtube-url";
+import { defineSite } from "../define-site";
 import { FullWebsiteAggregator, proxyYoutubeEmbeds } from "../website";
 
-export class MerkurAggregator extends FullWebsiteAggregator {
-  static contentSelectors = [".idjs-Story"];
-  protected contentSelectors = [...MerkurAggregator.contentSelectors];
-
-  static selectorsToRemove = [
+export class MerkurAggregator extends defineSite(FullWebsiteAggregator, {
+  key: "merkur",
+  siteUrl: "https://www.merkur.de",
+  content: [".idjs-Story"],
+  remove: [
     ".id-DonaldBreadcrumb--default",
     ".id-StoryElement-headline",
     ".id-StoryElement-image",
@@ -36,22 +37,9 @@ export class MerkurAggregator extends FullWebsiteAggregator {
     "svg",
     ".id-StoryElement-intestitialLink",
     ".id-StoryElement-embed--fanq",
-  ];
-  protected selectorsToRemove = [...MerkurAggregator.selectorsToRemove];
-
-  usesFirstContentMatch = true;
-
-  constructor(feed: FeedLike) {
-    super(feed);
-    if (!this.identifier) {
-      this.identifier = "https://www.merkur.de/rssfeed.rdf";
-    }
-  }
-
-  override getSourceUrl(): string {
-    return "https://www.merkur.de";
-  }
-
+  ],
+  firstMatchOnly: true,
+}) {
   /**
    * The article headline. `.id-StoryElement-headline` is itself in
    * `selectorsToRemove` (stripped from the extracted body so it isn't

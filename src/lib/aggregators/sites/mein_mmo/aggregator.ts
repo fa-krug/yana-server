@@ -1,10 +1,11 @@
 import * as cheerio from "cheerio";
-import { FeedLike, RawArticle } from "../../base";
+import { RawArticle } from "../../base";
 import { isSafeUrl } from "../../blocks/parser";
 import { cleanHtml, removeImageByUrl } from "../../extract/clean";
 import { formatArticleContent } from "../../extract/format";
 import { getHeaderImageRef } from "../../header/context";
 import { storeImageRefFromUrl } from "../../images/store";
+import { defineSite } from "../../define-site";
 import { FirstPageStash, fetchAllPages } from "../../multipage";
 import { FullWebsiteAggregator, proxyYoutubeEmbeds } from "../../website";
 import { YOUTUBE_IFRAME_KEEP_SELECTOR } from "../../embeds/youtube-url";
@@ -26,17 +27,50 @@ import { buildPageUrl, detectPagination } from "./multipage";
 // `content_selectors` for real is a separate change to
 // `extractMeinMmoContent()`, with its own tests.
 
-export class MeinMmoAggregator extends FullWebsiteAggregator {
-  static MEIN_MMO_URL = "https://mein-mmo.de/";
+const MEIN_MMO_SELECTORS_TO_REMOVE = [
+  "div.wp-block-mmo-recirculation-box",
+  "div.wp-block-mmo-hub-box",
+  // The "Inhalt" table of contents. Mein-MMO generates it with the Fixed TOC
+  // (`ftwp`) WordPress plugin, which injects the whole widget -- header,
+  // trigger button and the nested <ol> of anchors -- inside an otherwise
+  // empty `<p class="wp-block-paragraph">` in the article body, so it is
+  // extracted as article content and rendered as a stray numbered list.
+  // It is navigation for the website's own page, not text: on a multi-page
+  // article most of its entries are absolute links to /2/, /3/ and so on,
+  // which do not exist in the aggregated article at all.
+  //
+  // Matched by id, and *only* this one: `div#ftwp-postcontent` is the same
+  // plugin's wrapper around the ENTIRE article body, so a broader
+  // `[id^='ftwp']` here would delete the article. The `<p>` left empty by
+  // the removal is cleaned up by extractMeinMmoContent()'s
+  // removeEmptyElements() pass.
+  "div#ftwp-container-outer",
+  "div.reading-position-indicator-end",
+  "label.toggle",
+  "a.wp-block-mmo-content-box",
+  "div.page-links",
+  "div.sources-wrapper",
+  "div.feedback-box",
+  "div.wp-block-wbd-affiliate-widget",
+  "script",
+  "style",
+  YOUTUBE_IFRAME_KEEP_SELECTOR,
+  "noscript",
+  // Do NOT add ".dailymotion-embed-container" here! That is the facade
+  // extractMeinMmoContent() builds for an author-inserted Dailymotion embed,
+  // which is real article content. The CMS's own auto-inserted
+  // "div.wp-block-mmo-video" blocks are a separate thing, and are dropped by
+  // processDailymotionBlocks() when the feed's include_videos option is off
+  // -- not from this list, so the removal can skip their thumbnail fetch too.
+];
 
-  static getSourceUrl(): string {
-    return MeinMmoAggregator.MEIN_MMO_URL;
-  }
-
-  override getSourceUrl(): string {
-    return MeinMmoAggregator.MEIN_MMO_URL;
-  }
-
+export class MeinMmoAggregator extends defineSite(FullWebsiteAggregator, {
+  key: "mein_mmo",
+  siteUrl: "https://mein-mmo.de/",
+  content: [...MEIN_MMO_CONTENT_SELECTORS],
+  remove: MEIN_MMO_SELECTORS_TO_REMOVE,
+  firstMatchOnly: true,
+}) {
   /**
    * The article headline. `h1.entry-title` is this WordPress theme's normal
    * heading; `og:title` is the fallback for the rare template that omits it.
@@ -52,49 +86,6 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
     return og?.trim() || null;
   }
 
-  usesFirstContentMatch = true;
-
-  static contentSelectors = [...MEIN_MMO_CONTENT_SELECTORS];
-  protected contentSelectors = [...MeinMmoAggregator.contentSelectors];
-
-  static selectorsToRemove = [
-    "div.wp-block-mmo-recirculation-box",
-    "div.wp-block-mmo-hub-box",
-    // The "Inhalt" table of contents. Mein-MMO generates it with the Fixed TOC
-    // (`ftwp`) WordPress plugin, which injects the whole widget -- header,
-    // trigger button and the nested <ol> of anchors -- inside an otherwise
-    // empty `<p class="wp-block-paragraph">` in the article body, so it is
-    // extracted as article content and rendered as a stray numbered list.
-    // It is navigation for the website's own page, not text: on a multi-page
-    // article most of its entries are absolute links to /2/, /3/ and so on,
-    // which do not exist in the aggregated article at all.
-    //
-    // Matched by id, and *only* this one: `div#ftwp-postcontent` is the same
-    // plugin's wrapper around the ENTIRE article body, so a broader
-    // `[id^='ftwp']` here would delete the article. The `<p>` left empty by
-    // the removal is cleaned up by extractMeinMmoContent()'s
-    // removeEmptyElements() pass.
-    "div#ftwp-container-outer",
-    "div.reading-position-indicator-end",
-    "label.toggle",
-    "a.wp-block-mmo-content-box",
-    "div.page-links",
-    "div.sources-wrapper",
-    "div.feedback-box",
-    "div.wp-block-wbd-affiliate-widget",
-    "script",
-    "style",
-    YOUTUBE_IFRAME_KEEP_SELECTOR,
-    "noscript",
-    // Do NOT add ".dailymotion-embed-container" here! That is the facade
-    // extractMeinMmoContent() builds for an author-inserted Dailymotion embed,
-    // which is real article content. The CMS's own auto-inserted
-    // "div.wp-block-mmo-video" blocks are a separate thing, and are dropped by
-    // processDailymotionBlocks() when the feed's include_videos option is off
-    // -- not from this list, so the removal can skip their thumbnail fetch too.
-  ];
-  protected selectorsToRemove = [...MeinMmoAggregator.selectorsToRemove];
-
   // Keyed by article URL, not a single field -- see `FirstPageStash`'s doc
   // comment in `../../multipage` for why: `enrichArticles()` runs
   // `fetchArticleContent()` for up to `this.concurrency` articles
@@ -105,13 +96,6 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
   // ../mactechnews/aggregator.ts -- rather than a second, hand-rolled copy
   // of this same map.)
   private firstPages = new FirstPageStash();
-
-  constructor(feed: FeedLike) {
-    super(feed);
-    if (!this.identifier) {
-      this.identifier = "https://mein-mmo.de/feed/";
-    }
-  }
 
   override async fetchArticleContent(url: string): Promise<string> {
     const options = (this.feed.options as Record<string, unknown> | null) || {};

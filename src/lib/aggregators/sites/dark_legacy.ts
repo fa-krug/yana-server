@@ -1,9 +1,10 @@
 import * as cheerio from "cheerio";
-import { FeedLike, RawArticle } from "../base";
+import { RawArticle } from "../base";
 import { isSafeUrl } from "../blocks/parser";
 import { escapeHtml } from "../extract/format";
 import { HeaderElementData } from "../header/context";
 import { storeImageRefFromUrl } from "../images/store";
+import { defineSite } from "../define-site";
 import { FullWebsiteAggregator } from "../website";
 
 // Comics here are tall vertical strips; the default 600x600 body-image cap
@@ -11,26 +12,13 @@ import { FullWebsiteAggregator } from "../website";
 // unreadable width. This aggregator alone gets a taller ceiling.
 const COMIC_MAX_DIMENSIONS = { width: 1600, height: 4800 };
 
-export class DarkLegacyAggregator extends FullWebsiteAggregator {
-  static contentSelectors = ["#gallery"];
-  protected contentSelectors = [...DarkLegacyAggregator.contentSelectors];
-
-  static selectorsToRemove = ["script", "style", "iframe", "noscript"];
-  protected selectorsToRemove = [...DarkLegacyAggregator.selectorsToRemove];
-
-  usesFirstContentMatch = true;
-
-  constructor(feed: FeedLike) {
-    super(feed);
-    if (!this.identifier) {
-      this.identifier = "https://darklegacycomics.com/feed.xml";
-    }
-  }
-
-  override getSourceUrl(): string {
-    return "https://darklegacycomics.com";
-  }
-
+export class DarkLegacyAggregator extends defineSite(FullWebsiteAggregator, {
+  key: "dark_legacy",
+  siteUrl: "https://darklegacycomics.com",
+  content: ["#gallery"],
+  remove: ["script", "style", "iframe", "noscript"],
+  firstMatchOnly: true,
+}) {
   override async extractHeaderElement(_article: RawArticle): Promise<HeaderElementData | null> {
     return null;
   }

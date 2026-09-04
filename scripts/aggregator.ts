@@ -302,16 +302,18 @@ async function main(): Promise<void> {
 
   if (selectorDebug) {
     const selectorAggregator = aggregator as SelectorAggregator;
+    // No static fallback any more: the `static contentSelectors` /
+    // `static selectorsToRemove` half of every site class's declaration is
+    // gone (see `defineSite()` in src/lib/aggregators/define-site.ts), and
+    // those branches were unreachable regardless -- every aggregator that
+    // ever declared the statics is a `FullWebsiteAggregator`, which always
+    // has both accessors.
     if (typeof selectorAggregator.getContentSelectors === "function") {
       printField("Content selectors", selectorAggregator.getContentSelectors().join(", "));
-    } else if (aggregatorClass.contentSelectors) {
-      printField("Content selectors", aggregatorClass.contentSelectors.join(", "));
     }
 
     if (typeof selectorAggregator.getIgnoreSelectors === "function") {
       printField("Selectors to remove", selectorAggregator.getIgnoreSelectors().join(", "));
-    } else if (aggregatorClass.selectorsToRemove) {
-      printField("Selectors to remove", aggregatorClass.selectorsToRemove.join(", "));
     }
   }
 

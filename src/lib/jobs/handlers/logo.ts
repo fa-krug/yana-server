@@ -37,8 +37,9 @@ export async function handleLogoJob(job: Job): Promise<void> {
     }
   }
 
-  // The aggregator's getSourceUrl() is the site's homepage (e.g. Heise overrides it to
-  // "https://www.heise.de/"); feed.identifier is frequently the RSS/feed URL itself, which has
+  // The aggregator's getSourceUrl() is the site's homepage (e.g. Heise declares it as
+  // "https://www.heise.de/" -- see `siteUrl` in src/lib/aggregators/define-site.ts, which is
+  // what a site class states it through); feed.identifier is frequently the RSS/feed URL itself, which has
   // no <link rel="icon"> tags to discover and pushes discoverLogo onto the bare "/favicon.ico"
   // fallback -- a classic .ico that sharp/libvips cannot decode.
   const targetUrl = feed.logoSourceUrl || aggregator.getSourceUrl();

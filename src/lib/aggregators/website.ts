@@ -181,11 +181,16 @@ export async function enrichOne(
 }
 
 export class FullWebsiteAggregator extends RssAggregator {
-  static selectorsToRemove: string[] = [IFRAME_SANITIZE_SELECTOR];
-  static contentSelectors: string[] = [...DEFAULT_CONTENT_SELECTORS];
-
-  protected selectorsToRemove: string[] = [...FullWebsiteAggregator.selectorsToRemove];
-  protected contentSelectors: string[] = [...FullWebsiteAggregator.contentSelectors];
+  /**
+   * The defaults a site can replace through `defineSite()`'s `content` /
+   * `remove` (see ./define-site). These used to be a `static`/`protected`
+   * pair here and in all eleven site classes, with the static half read by
+   * nothing outside the class that declared it -- a second copy free to drift
+   * from the field `getContentSelectors()`/`getIgnoreSelectors()` actually
+   * read. Only the instance fields survive.
+   */
+  protected selectorsToRemove: string[] = [IFRAME_SANITIZE_SELECTOR];
+  protected contentSelectors: string[] = [...DEFAULT_CONTENT_SELECTORS];
 
   getContentSelectors(): string[] {
     const options = this.feed.options || {};

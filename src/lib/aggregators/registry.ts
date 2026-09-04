@@ -34,8 +34,6 @@ import { FullWebsiteAggregator } from "./website";
 
 export type AggregatorClass = (new (feed: FeedLike) => BaseAggregator) & {
   identifierField?: string;
-  selectorsToRemove?: string[];
-  contentSelectors?: string[];
 };
 
 export const IMPLEMENTED_AGGREGATORS: Record<string, AggregatorClass | undefined> = {

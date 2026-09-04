@@ -1,6 +1,6 @@
 import * as cheerio from "cheerio";
 import type { Element } from "domhandler";
-import { FeedLike, RawArticle } from "../base";
+import { RawArticle } from "../base";
 import type { ChromeLabels } from "../chrome-labels";
 import { isSafeUrl } from "../blocks/parser";
 import {
@@ -13,6 +13,7 @@ import { extractMainContentIfPresent } from "../extract/content";
 import { escapeHtml, formatArticleContent } from "../extract/format";
 import { YOUTUBE_IFRAME_KEEP_SELECTOR } from "../embeds/youtube-url";
 import { getHeaderImageRef } from "../header/context";
+import { defineSite } from "../define-site";
 import { fetchHtml } from "../http/fetcher";
 import { FullWebsiteAggregator, proxyYoutubeEmbeds } from "../website";
 
@@ -158,11 +159,11 @@ function processFullViewComment(
   );
 }
 
-export class HeiseAggregator extends FullWebsiteAggregator {
-  static contentSelectors = ["#meldung", ".StoryContent"];
-  protected contentSelectors = [...HeiseAggregator.contentSelectors];
-
-  static selectorsToRemove = [
+export class HeiseAggregator extends defineSite(FullWebsiteAggregator, {
+  key: "heise",
+  siteUrl: "https://www.heise.de/",
+  content: ["#meldung", ".StoryContent"],
+  remove: [
     ".ad-label",
     ".ad",
     ".article-sidebar",
@@ -189,22 +190,9 @@ export class HeiseAggregator extends FullWebsiteAggregator {
     "footer",
     ".rte__list",
     "#wtma_teaser_ho_vertrieb_inline_branding",
-  ];
-  protected selectorsToRemove = [...HeiseAggregator.selectorsToRemove];
-
-  usesFirstContentMatch = true;
-
-  constructor(feed: FeedLike) {
-    super(feed);
-    if (!this.identifier) {
-      this.identifier = "https://www.heise.de/rss/heise.rdf";
-    }
-  }
-
-  override getSourceUrl(): string {
-    return "https://www.heise.de/";
-  }
-
+  ],
+  firstMatchOnly: true,
+}) {
   override async fetchArticleContent(url: string): Promise<string> {
     let articleUrl = url;
     try {

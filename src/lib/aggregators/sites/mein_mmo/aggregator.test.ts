@@ -299,7 +299,7 @@ describe("MeinMmoAggregator.enrichArticles", () => {
  * Pipeline-review-3, Task 3, Finding 1: MeinMmoAggregator.extractContent()
  * (via extractMeinMmoContent()'s removeSelectors(getIgnoreSelectors()) call)
  * runs before MeinMmoAggregator.processContent()'s proxyYoutubeEmbeds() ever
- * sees a raw iframe. The static selectorsToRemove used to carry a bare
+ * sees a raw iframe. This site's `remove` list used to carry a bare
  * "iframe:not([src*='youtube.com']):not([src*='youtu.be'])" rule, so a
  * youtube-nocookie.com iframe that isn't wrapped in a <figure> (and so is
  * never claimed by processEmbeds()'s figure-based strategies either) was
