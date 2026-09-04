@@ -465,6 +465,37 @@ These are **not** cleanup. Each changes behaviour on purpose.
 
 ---
 
+---
+
+### Task 9: Harden the two remaining unbounded fetch sites (added 2026-09-04)
+
+Added during execution, on the Task 7c-7g review's finding. Task 7d/7e hardened
+`images/fetcher.ts` and `http/fetcher.ts`; **three other fetch sites were left
+with the same defects**, and one of them is now the worst fetch in the tree.
+Ticking 7e as done while it stands invites the reading that the class is closed.
+
+- [ ] **`ImageExtractor.fetchAndParsePage()`** (`src/lib/aggregators/images/extractor.ts`)
+      — rated **High** residual risk. It has **no size cap at all**, no body
+      deadline (its timer is cleared before `res.text()`), and
+      `redirect: "follow"`, on a URL taken from a source page — i.e.
+      attacker-influenced. Strictly worse than either defect 7d/7e just fixed,
+      and Task 7e's own rationale still applies verbatim: a server that sends
+      headers then stalls blocks a worker forever, and with
+      `WORKER_CONCURRENCY = 4` four such feeds deadlock all background work.
+      Give it `readCapped`, a body-covering deadline and bounded redirects, the
+      same treatment 7d/7e applied.
+- [ ] **`fetchTweetData()`** (`src/lib/aggregators/images/strategies.ts`) — same
+      shape (timer cleared before `res.json()`), rated **Low**: fixed host,
+      digit-validated path segment, no attacker-chosen origin. Fix for
+      consistency, not urgency.
+- [ ] **A tripwire, not just two fixes.** Both this task and 7a/7b closed a
+      "several call sites must each remember the same precaution" defect by
+      hand. Consider one specifier test asserting every `fetch(` in
+      `src/lib/aggregators/**` goes through a capped helper — the same shape as
+      this repo's existing dependency-free-module tripwires. Decide and record;
+      do not build it if the sites are few enough that the test is the harder
+      thing to maintain.
+
 ## Done criteria
 
 - [ ] Every deletion's dead-ness proven by grep and recorded in its commit
