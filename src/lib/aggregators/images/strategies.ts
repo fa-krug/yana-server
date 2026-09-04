@@ -1,6 +1,7 @@
 import type * as cheerio from "cheerio";
 import { isTwitterUrl } from "../extract/format";
 import { thumbnailUrlFor, youtubeIdFrom } from "../embeds/youtube-url";
+import { readCappedJson, withDeadline } from "../http/fetcher";
 import { fetchSingleImage, type FetchedImageResult } from "./fetcher";
 
 export interface ImageExtractionContext {
@@ -24,21 +25,32 @@ export function extractTweetId(url: string): string | null {
   return match ? match[1] : null;
 }
 
+/**
+ * Read one tweet's metadata from fxtwitter.
+ *
+ * The deadline covers the body, and the body is capped -- the timer used to be
+ * cleared on the line above `res.json()`, so a host that sent headers and then
+ * stalled held this call (and its worker loop) open forever, and `res.json()`
+ * buffered whatever arrived with no ceiling. Lower risk than the page fetch in
+ * `./extractor.ts` -- fixed host, digit-validated path segment, no
+ * attacker-chosen origin -- but the same shape, so it gets the same bounds
+ * rather than an argument about why it does not need them.
+ */
 export async function fetchTweetData(
   tweetId: string,
   timeoutMs = 10000,
 ): Promise<Record<string, unknown> | null> {
   if (!tweetId) return null;
+  const url = `https://api.fxtwitter.com/status/${tweetId}`;
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const res = await fetch(`https://api.fxtwitter.com/status/${tweetId}`, {
-      headers: { "User-Agent": "Yana/1.0" },
-      signal: controller.signal,
+    return await withDeadline(timeoutMs, async (signal) => {
+      const res = await fetch(url, {
+        headers: { "User-Agent": "Yana/1.0" },
+        signal,
+      });
+      if (!res.ok) return null;
+      return await readCappedJson<Record<string, unknown>>(res, url);
     });
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    return (await res.json()) as Record<string, unknown>;
   } catch {
     return null;
   }

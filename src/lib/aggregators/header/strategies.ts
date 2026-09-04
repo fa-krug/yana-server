@@ -1,4 +1,5 @@
 import { ArticleSkipError } from "../errors";
+import { readCappedJson, withDeadline } from "../http/fetcher";
 import { ImageExtractor } from "../images/extractor";
 import { fetchSingleImage } from "../images/fetcher";
 import { storeImageBytes } from "../images/store";
@@ -30,25 +31,41 @@ export function extractPostInfoFromUrl(url: string): {
   return { subreddit: null, postId: null };
 }
 
+/** Deadline for the about.json read, matching the other reddit reads. */
+const SUBREDDIT_ICON_TIMEOUT_MS = 10_000;
+
 export function fixRedditMediaUrl(url: string): string {
   if (!url) return url;
   return url.replace(/&amp;/g, "&");
 }
 
+/**
+ * Read a subreddit's icon URL off its `about.json`.
+ *
+ * Had no deadline at all and no cap until 2026-09-04: a stalled reddit.com
+ * connection held this call, and the worker loop running it, open forever --
+ * see `withDeadline()` for why that deadlocks every background job rather
+ * than merely delaying one feed. 10s matches the other reddit reads in
+ * `../sites/reddit/`.
+ */
 export async function fetchSubredditIcon(subreddit: string): Promise<string | null> {
   if (!subreddit) return null;
+  const url = `https://www.reddit.com/r/${subreddit}/about.json`;
   try {
-    const res = await fetch(`https://www.reddit.com/r/${subreddit}/about.json`, {
-      headers: { "User-Agent": "Yana/1.0" },
+    const data = await withDeadline(SUBREDDIT_ICON_TIMEOUT_MS, async (signal) => {
+      const res = await fetch(url, {
+        headers: { "User-Agent": "Yana/1.0" },
+        signal,
+      });
+      if (!res.ok) return null;
+      return await readCappedJson<{
+        data?: {
+          icon_img?: string;
+          community_icon?: string;
+          header_img?: string;
+        };
+      }>(res, url);
     });
-    if (!res.ok) return null;
-    const data = (await res.json()) as {
-      data?: {
-        icon_img?: string;
-        community_icon?: string;
-        header_img?: string;
-      };
-    };
     const rawUrl = data?.data?.icon_img || data?.data?.community_icon || data?.data?.header_img;
     if (!rawUrl) return null;
     return fixRedditMediaUrl(rawUrl);

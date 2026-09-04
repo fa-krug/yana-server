@@ -1,6 +1,7 @@
 import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MAX_FETCH_BYTES as HTTP_MAX_FETCH_BYTES, MAX_REDIRECTS } from "../http/fetcher";
+import { countingStream } from "../http/test-support";
 import {
   fetchImageOutcome,
   fetchSingleImage,
@@ -148,29 +149,6 @@ describe("fetcher utilities", () => {
   });
 
   describe("fetchImageOutcome resource bounds", () => {
-    /**
-     * A stream that yields `chunkCount` one-megabyte chunks lazily, counting
-     * how many were pulled and whether the consumer cancelled.
-     */
-    function countingStream(chunkCount: number) {
-      const state = { pulls: 0, cancelled: false };
-      const chunk = new Uint8Array(1024 * 1024);
-      const stream = new ReadableStream({
-        pull(controller) {
-          if (state.pulls >= chunkCount) {
-            controller.close();
-            return;
-          }
-          state.pulls += 1;
-          controller.enqueue(chunk);
-        },
-        cancel() {
-          state.cancelled = true;
-        },
-      });
-      return { stream, state };
-    }
-
     it("stops reading at the byte cap instead of buffering the whole body", async () => {
       // No Content-Length: a server free to ignore its own declaration is
       // exactly the case a declared-size check cannot cover. Buffering first

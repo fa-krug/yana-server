@@ -12,6 +12,7 @@ import {
   ResponseTooLarge,
   USER_AGENT,
 } from "./fetcher";
+import { stallingBodyResponse } from "./test-support";
 
 describe("http/fetcher constants & errors", () => {
   it("exports expected constants", () => {
@@ -37,23 +38,6 @@ describe("http/fetcher constants & errors", () => {
     expect(netErr.url).toBe("https://example.com");
   });
 });
-
-/**
- * A response whose headers arrive at once and whose body then never delivers
- * another byte -- the shape a stalling server produces. The stream errors when
- * `signal` aborts, exactly as undici wires a fetch's signal to its body.
- */
-function stallingBodyResponse(signal: AbortSignal): Response {
-  const stream = new ReadableStream({
-    start(controller) {
-      controller.enqueue(new TextEncoder().encode("<html>"));
-      const abort = () => controller.error(new DOMException("aborted", "AbortError"));
-      if (signal.aborted) abort();
-      else signal.addEventListener("abort", abort, { once: true });
-    },
-  });
-  return new Response(stream, { status: 200, headers: { "content-type": "text/html" } });
-}
 
 /** Resolves to "HUNG" if `promise` has not settled within `ms`. */
 async function settledWithin(promise: Promise<unknown>, ms: number): Promise<"settled" | "HUNG"> {

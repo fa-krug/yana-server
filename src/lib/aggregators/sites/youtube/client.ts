@@ -4,6 +4,8 @@
  * Ported from old/core/aggregators/utils/youtube_client.py.
  */
 
+import { readCappedJson, readCappedText, withDeadline } from "../../http/fetcher";
+
 export class YouTubeAPIError extends Error {
   originalError?: unknown;
 
@@ -108,6 +110,11 @@ export interface YouTubeCommentThread {
   [key: string]: unknown;
 }
 
+/** Deadline for one API call, covering the body rather than only the headers. */
+const API_TIMEOUT_MS = 30_000;
+/** An error body is only ever interpolated into a message -- 64 KB is plenty. */
+const MAX_ERROR_BYTES = 64 * 1024;
+
 export class YouTubeClient {
   static BASE_URL = "https://www.googleapis.com/youtube/v3";
   public apiKey: string;
@@ -127,14 +134,24 @@ export class YouTubeClient {
     url.searchParams.set("key", this.apiKey);
 
     try {
-      const response = await fetch(url.toString(), {
-        headers: { Accept: "application/json" },
+      // No deadline at all until 2026-09-04, and no cap on either body read:
+      // a stalled googleapis connection held this call -- and the worker loop
+      // running it -- open indefinitely, with nothing able to interrupt it
+      // (worker.ts's budget timer only requests cooperative cancellation and
+      // has no checkpoint inside a fetch). See withDeadline().
+      return await withDeadline(API_TIMEOUT_MS, async (signal) => {
+        const response = await fetch(url.toString(), {
+          headers: { Accept: "application/json" },
+          signal,
+        });
+        if (!response.ok) {
+          const errorText = await readCappedText(response, url.toString(), MAX_ERROR_BYTES).catch(
+            () => "",
+          );
+          throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+        return await readCappedJson<T>(response, url.toString());
       });
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => "");
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
-      return (await response.json()) as T;
     } catch (e) {
       if (e instanceof YouTubeAPIError) throw e;
       throw new YouTubeAPIError(

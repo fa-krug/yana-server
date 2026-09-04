@@ -474,7 +474,7 @@ Added during execution, on the Task 7c-7g review's finding. Task 7d/7e hardened
 with the same defects**, and one of them is now the worst fetch in the tree.
 Ticking 7e as done while it stands invites the reading that the class is closed.
 
-- [ ] **`ImageExtractor.fetchAndParsePage()`** (`src/lib/aggregators/images/extractor.ts`)
+- [x] **`ImageExtractor.fetchAndParsePage()`** (`src/lib/aggregators/images/extractor.ts`)
       — rated **High** residual risk. It has **no size cap at all**, no body
       deadline (its timer is cleared before `res.text()`), and
       `redirect: "follow"`, on a URL taken from a source page — i.e.
@@ -484,17 +484,30 @@ Ticking 7e as done while it stands invites the reading that the class is closed.
       `WORKER_CONCURRENCY = 4` four such feeds deadlock all background work.
       Give it `readCapped`, a body-covering deadline and bounded redirects, the
       same treatment 7d/7e applied.
-- [ ] **`fetchTweetData()`** (`src/lib/aggregators/images/strategies.ts`) — same
+- [x] **`fetchTweetData()`** (`src/lib/aggregators/images/strategies.ts`) — same
       shape (timer cleared before `res.json()`), rated **Low**: fixed host,
       digit-validated path segment, no attacker-chosen origin. Fix for
       consistency, not urgency.
-- [ ] **A tripwire, not just two fixes.** Both this task and 7a/7b closed a
+- [x] **A tripwire, not just two fixes.** Both this task and 7a/7b closed a
       "several call sites must each remember the same precaution" defect by
       hand. Consider one specifier test asserting every `fetch(` in
       `src/lib/aggregators/**` goes through a capped helper — the same shape as
       this repo's existing dependency-free-module tripwires. Decide and record;
       do not build it if the sites are few enough that the test is the harder
       thing to maintain.
+      **Decided: built, for the deadline half only.**
+      `src/lib/aggregators/http/fetch-deadline.test.ts` scans every `.ts` under
+      `src/lib/aggregators/**` and asserts that every `fetch(` call site's own
+      init object passes a `signal`. The sites are *not* few (seventeen), and
+      two of the four this task fixed carried no deadline whatsoever -- so the
+      recurrence argument won. The size-cap half was **declined**: the read
+      that needs capping can be any distance from the `fetch()`, behind a
+      helper, or legitimately absent, so a regex would pass a file where only
+      one of two fetches is capped (`embeds/bluesky.ts`'s shape) or fail on
+      correct code. That half stays a review obligation, named in
+      `readCapped()`'s doc comment. The *placement* defect that recurred four
+      times is now structural rather than checked: `withDeadline()` owns the
+      timer, so a caller cannot disarm it above the body read.
 
 ## Done criteria
 

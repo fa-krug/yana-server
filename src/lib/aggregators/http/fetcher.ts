@@ -3,6 +3,13 @@ export const USER_AGENT =
 export const DEFAULT_RETRIES = 3;
 export const MAX_FETCH_BYTES = 2 * 1024 * 1024;
 export const MAX_HTML_BYTES = 8 * 1024 * 1024;
+/**
+ * Cap for a JSON API response drained through `readCappedJson()`. Generous on
+ * purpose: the largest thing that reaches it is a Reddit comment listing, and
+ * a cap that refuses a real feed is worse than one that only stops a body
+ * nobody sent deliberately.
+ */
+export const MAX_JSON_BYTES = 8 * 1024 * 1024;
 export const MAX_REDIRECTS = 5;
 
 export class NetworkError extends Error {
@@ -45,9 +52,13 @@ function rejectOversizedDeclaration(response: Response, url: string, maxBytes: n
 
 /**
  * Drain a response body, refusing it the moment it goes past `maxBytes` --
- * both as declared and as actually delivered. Exported because
- * `../images/fetcher.ts` reads the same way: buffering a whole body and
- * checking its size afterwards is a memory hazard, not a size check.
+ * both as declared and as actually delivered. Exported because five other
+ * call sites read the same way -- `../images/fetcher.ts`,
+ * `../images/extractor.ts`, `../images/strategies.ts`,
+ * `../sites/youtube/client.ts` and `../header/strategies.ts`, the last four
+ * through `readCappedText()`/`readCappedJson()` below: buffering a whole body
+ * and checking its size afterwards is a memory hazard, not a size check, and
+ * `res.text()`/`res.json()` do not check at all.
  */
 export async function readCapped(
   response: Response,
@@ -116,6 +127,60 @@ function decodeText(body: Uint8Array, contentType: string | null): string {
     return new TextDecoder("utf-8", { fatal: true }).decode(body);
   } catch {
     return new TextDecoder("iso-8859-1").decode(body);
+  }
+}
+
+/**
+ * Drain a response body under `maxBytes` and decode it as text, honouring the
+ * response's own charset. The text counterpart of `readCapped()`; `res.text()`
+ * has no cap at all.
+ */
+export async function readCappedText(
+  response: Response,
+  url: string,
+  maxBytes: number,
+): Promise<string> {
+  const body = await readCapped(response, url, maxBytes);
+  return decodeText(body, response.headers.get("content-type"));
+}
+
+/**
+ * Drain a response body under `maxBytes` and parse it as JSON. Throws on an
+ * oversized body (`ResponseTooLarge`) or on unparseable JSON, which is what
+ * every caller's own catch already treats as "no answer".
+ */
+export async function readCappedJson<T>(
+  response: Response,
+  url: string,
+  maxBytes: number = MAX_JSON_BYTES,
+): Promise<T> {
+  return JSON.parse(await readCappedText(response, url, maxBytes)) as T;
+}
+
+/**
+ * Run `body` under one deadline covering the **whole** exchange -- the fetch,
+ * every redirect hop it makes and the body drain.
+ *
+ * This exists because the hazard it closes is a placement mistake, not a
+ * missing feature: four call sites in this tree each wrote their own
+ * `AbortController` + `setTimeout` pair and then cleared the timer on the line
+ * *above* the body read, so the deadline covered only the headers. A server
+ * that sends headers and then stalls held such a call open forever -- and
+ * worker.ts's budget timer only requests cooperative cancellation, with no
+ * checkpoint inside a fetch, so WORKER_CONCURRENCY (4) such feeds deadlock
+ * every background job with no way back. A caller that never holds the timer
+ * cannot disarm it early.
+ */
+export async function withDeadline<T>(
+  timeoutMs: number,
+  body: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await body(controller.signal);
+  } finally {
+    clearTimeout(timer);
   }
 }
 

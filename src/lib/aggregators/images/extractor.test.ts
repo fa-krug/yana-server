@@ -1,6 +1,13 @@
 import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { extractImages, getOverrideImageUrl, ImageExtractor } from "./extractor";
+import { MAX_HTML_BYTES, MAX_REDIRECTS } from "../http/fetcher";
+import { countingStream, settledAfterFakeTime, stallingBodyResponse } from "../http/test-support";
+import {
+  extractImages,
+  getOverrideImageUrl,
+  ImageExtractor,
+  PAGE_FETCH_TIMEOUT_MS,
+} from "./extractor";
 import { youtubeIdFrom } from "../embeds/youtube-url";
 import { isTwitterUrl } from "../extract/format";
 import {
@@ -108,5 +115,86 @@ describe("Image Extraction Strategies", () => {
       expect(result).not.toBeNull();
       expect(result?.imageUrl).toBe("https://example.com/og-banner.jpg");
     });
+  });
+});
+
+/**
+ * `fetchAndParsePage()` is private, so these drive it through
+ * `extractImageFromUrl()`. A plain article URL is handled by none of the first
+ * three strategies, and the HTML served below carries no `og:image` and no
+ * `<img>`, so the page fetch is the only fetch in the run -- which is what
+ * makes the call counts below meaningful.
+ */
+describe("ImageExtractor.fetchAndParsePage bounds", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("stops reading the page at the byte cap instead of buffering the whole body", async () => {
+    // `res.text()` had no cap at all, and the URL comes off a source page, so
+    // its size was the source's choice.
+    const { stream, state } = countingStream(20);
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(stream, { status: 200, headers: { "content-type": "text/html" } }),
+    );
+
+    expect(
+      await new ImageExtractor().extractImageFromUrl("https://example.com/article"),
+    ).toBeNull();
+    expect(state.cancelled).toBe(true);
+    // The cap plus the chunk that trips it plus the stream's own read-ahead --
+    // short of the 20 on offer.
+    expect(state.pulls).toBeLessThanOrEqual(MAX_HTML_BYTES / (1024 * 1024) + 2);
+  });
+
+  it("keeps a deadline over the body, not only the headers", async () => {
+    // The timer used to be cleared on the line above `res.text()`, so a server
+    // that sent headers and then stalled held this call -- and its worker
+    // loop -- open forever. Fake time is what makes the 30s deadline testable.
+    vi.spyOn(globalThis, "fetch").mockImplementation(((_url: string, init: RequestInit) =>
+      Promise.resolve(stallingBodyResponse(init.signal))) as unknown as typeof fetch);
+    vi.useFakeTimers();
+
+    const outcome = await settledAfterFakeTime(
+      new ImageExtractor().extractImageFromUrl("https://example.com/article"),
+      PAGE_FETCH_TIMEOUT_MS,
+      (ms) => vi.advanceTimersByTimeAsync(ms),
+    );
+
+    expect(outcome).toBe("settled");
+  });
+
+  it("follows page redirects itself, bounded by MAX_REDIRECTS", async () => {
+    const inits: RequestInit[] = [];
+    const fetchMock = vi.fn((url: string, init: RequestInit) => {
+      inits.push(init);
+      return Promise.resolve(
+        url.endsWith("/article")
+          ? new Response(null, { status: 302, headers: { location: "/hop" } })
+          : new Response("<html><head><title>t</title></head><body></body></html>", {
+              status: 200,
+              headers: { "content-type": "text/html" },
+            }),
+      );
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(fetchMock as unknown as typeof fetch);
+
+    await new ImageExtractor().extractImageFromUrl("https://example.com/article");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(inits[0]).toMatchObject({ redirect: "manual" });
+  });
+
+  it("refuses an unbounded page redirect chain", async () => {
+    // `redirect: "follow"` handed the whole budget to undici with no ceiling
+    // of our own, on a URL taken from a source page.
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(new Response(null, { status: 302, headers: { location: "/loop" } })),
+    );
+    vi.spyOn(globalThis, "fetch").mockImplementation(fetchMock as unknown as typeof fetch);
+
+    expect(await new ImageExtractor().extractImageFromUrl("https://example.com/loop")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(MAX_REDIRECTS + 1);
   });
 });
