@@ -1,3 +1,8 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { FeedLike, RawArticle } from "../../base";
@@ -596,6 +601,101 @@ describe("RedditAggregator comments wrapper wiring", () => {
       `<section data-sanitized-class="${ARTICLE_COMMENTS_CLASS}">`,
     );
     expect(finalized!.content).toContain("a real comment");
+  });
+});
+
+/**
+ * Ports the assertion the deleted "extractContent legacy JSON locale" test
+ * used to make (2026-09-03 pipeline review 4, Task 3) onto the real,
+ * currently-reachable path. That test proved the same thing -- the Comments
+ * heading renders in the feed owner's stored `user_settings.language` -- but
+ * only by feeding JSON straight into `extractContent()`'s now-deleted dead
+ * branch. Nothing else here proves it end-to-end through production code:
+ * `chrome-labels.test.ts` proves `resolveChromeLabels()` in isolation,
+ * `content.test.ts`/`section.test.ts` always pass `DEFAULT_CHROME_LABELS`
+ * (English), and the "comments wrapper wiring" test right above this one
+ * gives its feed no `userId`, so `chromeLabels()` short-circuits to English
+ * and never reaches the database. Composing those three would still not
+ * prove RedditAggregator itself is wired to a German-locale user on its real
+ * `enrichArticles()`/`finalizeArticles()` path -- exactly the "a helper
+ * tested in isolation proves nothing about how the aggregator wires it"
+ * lesson the comment above the sibling test already states.
+ */
+describe("RedditAggregator comments wrapper wiring locale", () => {
+  let dbPath: string;
+  let client: typeof import("../../../db/client");
+  let schema: typeof import("../../../db/schema");
+  let FreshRedditAggregator: typeof import("./aggregator").RedditAggregator;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    dbPath = path.join(
+      os.tmpdir(),
+      `yana-reddit-comments-locale-${process.pid}-${Math.random().toString(36).slice(2)}.db`,
+    );
+    process.env.DATABASE_PATH = dbPath;
+    const { applyMigrationsAt } = await import("../../../db/test-support");
+    applyMigrationsAt(dbPath);
+
+    client = await import("../../../db/client");
+    schema = await import("../../../db/schema");
+    // Same reason as the deleted test: `RedditAggregator` is imported
+    // statically at the top of this file, so its transitive
+    // `chrome-labels.ts` -> `@/lib/db/client` dependency captured `DB_PATH`
+    // before this test ever set `DATABASE_PATH`. A fresh dynamic import,
+    // after `vi.resetModules()`, is what makes the aggregator's own
+    // `getDb()` resolve to this test's temp database.
+    ({ RedditAggregator: FreshRedditAggregator } = await import("./aggregator"));
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_PATH;
+    const connection = (client.getDb() as unknown as { $client: Database.Database }).$client;
+    if (connection.open) connection.close();
+    for (const suffix of ["", "-shm", "-wal"]) {
+      fs.rmSync(`${dbPath}${suffix}`, { force: true });
+    }
+  });
+
+  it("renders the Comments heading in the feed owner's language on the real enrich+finalize path", async () => {
+    client.writeTransaction((db) => {
+      db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+      db.insert(schema.userSettings).values({ userId: "user1", language: "de" }).run();
+    });
+
+    vi.mocked(fetchPostComments).mockResolvedValue([
+      {
+        id: "c1",
+        body: "a real comment",
+        body_html: null,
+        author: "someone",
+        score: 1,
+        permalink: "/r/test/comments/abc123/post/c1/",
+        created_utc: 0,
+        replies: null,
+      },
+    ]);
+
+    const feed: FeedLike = {
+      identifier: "test",
+      dailyLimit: 20,
+      userId: "user1",
+      options: { comment_limit: 5 },
+    };
+    const agg = new FreshRedditAggregator(feed);
+    const raw = article({
+      identifier: "abc123",
+      content: "<p>the post body</p>",
+      _reddit_post_data: postData("abc123"),
+      _reddit_subreddit: "test",
+      _reddit_crosspost: null,
+    });
+
+    const enriched = await agg.enrichArticles([raw]);
+    const [finalized] = await agg.finalizeArticles(enriched);
+
+    expect(finalized!.content).toContain("Kommentare");
+    expect(finalized!.content).not.toContain(">Comments<");
   });
 });
 
