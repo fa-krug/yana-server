@@ -284,39 +284,39 @@ The problem is that it is expressed as class inheritance rather than data.
 
 ### Task 6: Collapse the remaining mechanical repetition (~180 lines)
 
-- [ ] **Comic aggregators (~75).** `explosm.ts:66-116`, `dark_legacy.ts:60-113`,
+- [x] **Comic aggregators (~75).** `explosm.ts:66-116`, `dark_legacy.ts:60-113`,
       `oglaf.ts:75-126` all do: find the comic `<img>` → absolutise → `isSafeUrl`
       → `storeImageRefFromUrl` → emit `<img>` + optional italic caption. The
       caption's inline style `font-style: italic; margin-top: 1em; color: #666`
       is verbatim in all three, and `COMIC_MAX_DIMENSIONS = {1600,4800}` is
       declared twice (`oglaf.ts:13`, `dark_legacy.ts:12`).
-- [ ] **Relative-URL resolution (~55).** `caschys_blog.ts:84-119` and
+- [x] **Relative-URL resolution (~55).** `caschys_blog.ts:84-119` and
       `mactechnews/aggregator.ts:159-194` are **identical apart from two comment
       strings** — 36 lines each. Partial copies at `dark_legacy.ts:76-87` and
       `heise.ts:62-63,74-80,117-122`. One `absolutizeUrls($, baseUrl)` in
       `extract/clean.ts` collapses all of it; `oglaf.ts:91-95`'s bespoke CDN rule
       can stay the only site-specific one.
-- [ ] **Whitespace-trim block (~36).** `merkur.ts:131-148` and
+- [x] **Whitespace-trim block (~36).** `merkur.ts:131-148` and
       `heise.ts:347-364` are byte-identical; `caschys_blog.ts:219-236` is the
       same restricted to `p`. Move beside `removeEmptyElements()` in
       `extract/clean.ts`.
-- [ ] **`extractHeaderElement() → null` ×5 (~12).** `oglaf.ts:71-73`,
+- [x] **`extractHeaderElement() → null` ×5 (~12).** `oglaf.ts:71-73`,
       `explosm.ts:62-64`, `dark_legacy.ts:56-58`,
       `youtube/aggregator.ts:353-355`, `reddit/aggregator.ts:903-905`, each with
       a comment cross-referencing the others. Replace with a
       `static suppressesHeaderExtraction = true` read once in
       `BaseAggregator.extractHeaderElement()`.
-- [ ] **`parser.ts` embed builders ×3.** `videoEmbed:303`, `audioEmbed:321`,
+- [x] **`parser.ts` embed builders ×3.** `videoEmbed:303`, `audioEmbed:321`,
       `iframeEmbed:339`. The first two differ **only** in a `provider` literal;
       the third only in not looking for a nested `<source>`.
-- [ ] **`parser.ts` recoverable-media loop ×3.** `:506-511`, `:830-836`,
+- [x] **`parser.ts` recoverable-media loop ×3.** `:506-511`, `:830-836`,
       `:851-857` — identical bodies, differing only in destination.
-- [ ] **Reconcile the three tag drop-lists.** `clean.ts:196` drops
+- [x] **Reconcile the three tag drop-lists.** `clean.ts:196` drops
       `script/style/iframe/object/embed`; `parser.ts:47-60` drops
       `script/style/iframe/form/input/button/select/textarea/noscript/audio/svg/canvas`;
       `content.ts:8` drops `script/style/noscript/template`. Three answers to
       "what is never article content", and `template` appears in only one.
-- [ ] **`clean.ts` call-site pair ×6.** `cleanHtml(...)` →
+- [x] **`clean.ts` call-site pair ×6.** `cleanHtml(...)` →
       `sanitizeHtmlAttributes($)` → `removeSanitizedAttributes($)` is repeated at
       `heise.ts:28`, `podcast.ts:21`, `mein_mmo/comments.ts:16`,
       `mactechnews/comments.ts:16`, `youtube/aggregator.ts:49`,
