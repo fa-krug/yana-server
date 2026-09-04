@@ -38,6 +38,42 @@ describe("http/fetcher constants & errors", () => {
   });
 });
 
+/**
+ * A response whose headers arrive at once and whose body then never delivers
+ * another byte -- the shape a stalling server produces. The stream errors when
+ * `signal` aborts, exactly as undici wires a fetch's signal to its body.
+ */
+function stallingBodyResponse(signal: AbortSignal): Response {
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("<html>"));
+      const abort = () => controller.error(new DOMException("aborted", "AbortError"));
+      if (signal.aborted) abort();
+      else signal.addEventListener("abort", abort, { once: true });
+    },
+  });
+  return new Response(stream, { status: 200, headers: { "content-type": "text/html" } });
+}
+
+/** Resolves to "HUNG" if `promise` has not settled within `ms`. */
+async function settledWithin(promise: Promise<unknown>, ms: number): Promise<"settled" | "HUNG"> {
+  let timer: NodeJS.Timeout | undefined;
+  const hung = new Promise<"HUNG">((resolve) => {
+    timer = setTimeout(() => resolve("HUNG"), ms);
+  });
+  try {
+    return await Promise.race([
+      promise.then(
+        () => "settled" as const,
+        () => "settled" as const,
+      ),
+      hung,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 describe("fetchHtml", () => {
   const originalFetch = globalThis.fetch;
 
@@ -63,6 +99,28 @@ describe("fetchHtml", () => {
 
     return new Response(stream, { status, statusText, headers });
   }
+
+  // 7e: the timer used to be cleared the moment headers arrived, so
+  // readCapped() drained the body with no deadline at all. A server that
+  // sends headers and then stalls blocked the calling worker loop forever --
+  // and the worker's budget timer only *requests* cooperative cancellation,
+  // with no checkpoint inside a fetch, so four such feeds deadlock every
+  // background job on the instance.
+  it("aborts a body that stalls after the headers arrive", async () => {
+    const fetchMock = vi.fn((_url: string, init: { signal: AbortSignal }) =>
+      Promise.resolve(stallingBodyResponse(init.signal)),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const call = fetchHtml("https://example.com/stall", {
+      timeout: 50,
+      retries: 1,
+      retryDelayMs: 0,
+    });
+
+    expect(await settledWithin(call, 2000)).toBe("settled");
+    await expect(call).rejects.toThrow(NetworkError);
+  });
 
   it("fetches HTML content successfully on 200 OK", async () => {
     const htmlContent = "<html><body><h1>Hello World</h1></body></html>";
@@ -226,6 +284,44 @@ describe("fetchBinary", () => {
 
     return new Response(stream, { status, statusText, headers });
   }
+
+  // 7e, the same defect in the other fetcher.
+  it("aborts a body that stalls after the headers arrive", async () => {
+    const fetchMock = vi.fn((_url: string, init: { signal: AbortSignal }) =>
+      Promise.resolve(stallingBodyResponse(init.signal)),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const call = fetchBinary("https://example.com/stall.png", { timeout: 50 });
+
+    expect(await settledWithin(call, 2000)).toBe("settled");
+    await expect(call).rejects.toThrow();
+  });
+
+  // 7e: one deadline for the whole call, not one per redirect hop. A fresh
+  // timer per hop made the real worst case MAX_REDIRECTS + 1 times the
+  // configured timeout; the same AbortSignal on every hop is what makes the
+  // configured timeout the actual ceiling.
+  it("uses one deadline across every redirect hop", async () => {
+    const signals: AbortSignal[] = [];
+    const fetchMock = vi.fn((_url: string, init: { signal: AbortSignal }) => {
+      signals.push(init.signal);
+      if (signals.length <= 3) {
+        return Promise.resolve(
+          new Response(null, { status: 302, headers: { location: "https://example.com/next" } }),
+        );
+      }
+      return Promise.resolve(mockStreamResponse(new Uint8Array([1, 2, 3])));
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await fetchBinary("https://example.com/start.png");
+
+    expect(signals.length).toBe(4);
+    for (const signal of signals) {
+      expect(signal).toBe(signals[0]);
+    }
+  });
 
   it("fetches binary Buffer successfully", async () => {
     const rawData = new Uint8Array([1, 2, 3, 4, 5]);

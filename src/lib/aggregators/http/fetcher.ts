@@ -136,30 +136,39 @@ export async function fetchHtml(
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
+      // The deadline covers the *body*, not just the headers. Cleared below
+      // the readCapped() call rather than as soon as fetch() resolves: a
+      // server that sends headers and then stalls used to hold this call
+      // open forever, because the only thing that could interrupt the drain
+      // was this signal and it had already been disarmed. That is a worker
+      // loop hung with no way back -- worker.ts's budget timer only requests
+      // cooperative cancellation and has no checkpoint inside a fetch, so
+      // WORKER_CONCURRENCY such feeds deadlock every background job. undici
+      // wires the signal to the body stream, so aborting mid-drain rejects
+      // the reader.
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
 
-      let response: Response;
       try {
-        response = await fetch(url, {
+        const response = await fetch(url, {
           headers,
           signal: controller.signal,
         });
+
+        if (!response.ok) {
+          throw new NetworkError(
+            `HTTP ${response.status} ${response.statusText} fetching ${url}`,
+            response.status,
+            url,
+          );
+        }
+
+        const body = await readCapped(response, url, maxBytes);
+        const contentType = response.headers.get("content-type");
+        return decodeText(body, contentType);
       } finally {
         clearTimeout(timer);
       }
-
-      if (!response.ok) {
-        throw new NetworkError(
-          `HTTP ${response.status} ${response.statusText} fetching ${url}`,
-          response.status,
-          url,
-        );
-      }
-
-      const body = await readCapped(response, url, maxBytes);
-      const contentType = response.headers.get("content-type");
-      return decodeText(body, contentType);
     } catch (err) {
       if (err instanceof ResponseTooLarge) {
         throw err;
@@ -207,50 +216,56 @@ export async function fetchBinary(
 
   let target = url;
 
-  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    if (isAllowedUrl && !isAllowedUrl(target)) {
-      throw new DisallowedRedirect(`Refusing to fetch ${target}: not on allowed site`, target);
-    }
+  // One deadline for the whole call -- every redirect hop and the final body
+  // drain share it. Two separate defects were fixed by hoisting it out of the
+  // loop and clearing it below readCapped(): a fresh timer per hop made the
+  // real ceiling (MAX_REDIRECTS + 1) x `timeout`, and clearing it as soon as
+  // the headers arrived left the body drain with no deadline at all, so a
+  // server that stalled after its headers hung the calling worker loop
+  // forever. See the same pair in fetchHtml() above.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      if (isAllowedUrl && !isAllowedUrl(target)) {
+        throw new DisallowedRedirect(`Refusing to fetch ${target}: not on allowed site`, target);
+      }
 
-    let response: Response;
-    try {
-      response = await fetch(target, {
+      const response = await fetch(target, {
         headers: { "User-Agent": USER_AGENT },
         signal: controller.signal,
         redirect: "manual",
       });
-    } finally {
-      clearTimeout(timer);
-    }
 
-    const isRedirect = response.status >= 300 && response.status < 400;
-    if (isRedirect) {
-      const location = response.headers.get("location");
-      if (!location) {
+      const isRedirect = response.status >= 300 && response.status < 400;
+      if (isRedirect) {
+        const location = response.headers.get("location");
+        if (!location) {
+          throw new NetworkError(
+            `Redirect status ${response.status} without Location header`,
+            response.status,
+            target,
+          );
+        }
+        target = new URL(location, target).toString();
+        continue;
+      }
+
+      if (!response.ok) {
         throw new NetworkError(
-          `Redirect status ${response.status} without Location header`,
+          `HTTP ${response.status} ${response.statusText} fetching ${target}`,
           response.status,
           target,
         );
       }
-      target = new URL(location, target).toString();
-      continue;
+
+      const bytes = await readCapped(response, target, maxBytes);
+      return Buffer.from(bytes);
     }
 
-    if (!response.ok) {
-      throw new NetworkError(
-        `HTTP ${response.status} ${response.statusText} fetching ${target}`,
-        response.status,
-        target,
-      );
-    }
-
-    const bytes = await readCapped(response, target, maxBytes);
-    return Buffer.from(bytes);
+    throw new NetworkError(`Too many redirects fetching ${url}`, undefined, url);
+  } finally {
+    clearTimeout(timer);
   }
-
-  throw new NetworkError(`Too many redirects fetching ${url}`, undefined, url);
 }
