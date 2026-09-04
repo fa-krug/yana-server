@@ -353,7 +353,7 @@ These are **not** cleanup. Each changes behaviour on purpose.
       re-encode, or serve with `Content-Disposition: attachment` + a restrictive
       CSP. Same passthrough also lands sub-5 KB BMP/TIFF/APNG as `.bin`.
 
-- [ ] **7c. `compressImage` has no decompression-bomb limits.**
+- [x] **7c. `compressImage` has no decompression-bomb limits.**
       `images/compression.ts:64` calls `sharp(imageData)` with **neither
       `limitInputPixels` nor `.timeout()`**, while `avatar-storage.ts:134-135`
       sets both and `CLAUDE.md` explains at length that "a byte cap on the upload
@@ -361,7 +361,7 @@ These are **not** cleanup. Each changes behaviour on purpose.
       arbitrary remote host — a strictly larger surface than the 2 MB avatar path
       that got the hardening. Apply the same two limits.
 
-- [ ] **7d. The two HTTP fetchers export the same names with different values.**
+- [x] **7d. The two HTTP fetchers export the same names with different values.**
 
       | | `images/fetcher.ts` | `http/fetcher.ts` |
       |---|---|---|
@@ -382,7 +382,7 @@ These are **not** cleanup. Each changes behaviour on purpose.
       are attacker-controlled. Rename the constants apart at minimum; better,
       have `images/fetcher.ts` use `readCapped` and bounded redirects.
 
-- [ ] **7e. The fetch timeout does not cover the response body.**
+- [x] **7e. The fetch timeout does not cover the response body.**
       `http/fetcher.ts:147-156` clears the timer as soon as **headers** arrive;
       `readCapped()` (`:183`) then drains the body with no deadline. A server
       that sends headers and stalls blocks forever — and the worker's budget
@@ -394,7 +394,7 @@ These are **not** cleanup. Each changes behaviour on purpose.
       re-created per redirect hop, making the real worst case 6× the configured
       timeout.
 
-- [ ] **7f. `getJob()`/`listJobs()` take the write lock for reads.**
+- [x] **7f. `getJob()`/`listJobs()` take the write lock for reads.**
       `queue.ts:551-555` and `:578-637` wrap pure `SELECT`s in
       `writeTransaction()`, i.e. `BEGIN IMMEDIATE`. Every `/jobs` page load
       contends with four worker loops and every `progress()`/`appendLogLine()`
@@ -403,7 +403,7 @@ These are **not** cleanup. Each changes behaviour on purpose.
       — the same module fixes it in one place and reintroduces it in two.
       Neither has a read-then-write to make atomic; use plain `getDb()` reads.
 
-- [ ] **7g. `store.ts:146-156` writes outside `writeTransaction()`.** A raw
+- [x] **7g. `store.ts:146-156` writes outside `writeTransaction()`.** A raw
       autocommit `getDb().insert(articleImages)…run()`, which `CLAUDE.md` permits
       only as a ratified, documented exception. It pairs with a read at `:113` as
       a check-then-act, and the `catch {}` at `:157` absorbs the unique-index

@@ -195,26 +195,33 @@ describe("fetcher utilities", () => {
         .png()
         .toBuffer();
 
-      const fetchMock = vi.fn((_url: string) =>
-        Promise.resolve(
-          fetchMock.mock.calls.length <= 2
+      const inits: RequestInit[] = [];
+      const fetchMock = vi.fn((url: string, init: RequestInit) => {
+        inits.push(init);
+        return Promise.resolve(
+          url.endsWith("/redirected.png")
             ? new Response(null, {
                 status: 302,
-                headers: { location: "https://cdn.example.com/next.png" },
+                headers: { location: "https://cdn.example.com/hop.png" },
               })
-            : new Response(new Uint8Array(png), {
-                status: 200,
-                headers: { "Content-Type": "image/png" },
-              }),
-        ),
-      );
+            : url.endsWith("/hop.png")
+              ? new Response(null, {
+                  status: 302,
+                  headers: { location: "https://cdn.example.com/final.png" },
+                })
+              : new Response(new Uint8Array(png), {
+                  status: 200,
+                  headers: { "Content-Type": "image/png" },
+                }),
+        );
+      });
       vi.spyOn(globalThis, "fetch").mockImplementation(fetchMock as unknown as typeof fetch);
 
       const result = await fetchImageOutcome("https://example.com/redirected.png");
       expect(result).not.toBeNull();
       expect(result).not.toBe(NON_IMAGE_RESPONSE);
       expect(fetchMock).toHaveBeenCalledTimes(3);
-      expect(fetchMock.mock.calls[0][1]).toMatchObject({ redirect: "manual" });
+      expect(inits[0]).toMatchObject({ redirect: "manual" });
     });
 
     it("refuses an unbounded redirect chain", async () => {
