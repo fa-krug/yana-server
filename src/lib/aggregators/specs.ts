@@ -71,10 +71,17 @@ export type AggregatorSpec = {
    * and that test are gone now (2026-09-03 pipeline-review-4 cleanup, Task 2:
    * `getConfigurationFields()`/`getIdentifierChoices()` and the rest of that
    * configuration API had no production caller). `specs.ts` is the single
-   * source for this data now, with nothing left to cross-check it against;
-   * `registry.test.ts` asserts invariants about the data directly (every
-   * choice-mode aggregator has at least two choices, no choice is blank)
-   * instead of comparing two copies. Empty for the two free-form-URL
+   * source for this data now, with nothing left to cross-check it against.
+   * `registry.test.ts` asserts one invariant about this field directly --
+   * every choice has a non-empty value and label -- and covers "a
+   * choice-mode aggregator has at least two choices" only *indirectly*,
+   * through `identifierModeFor()`'s own mode-derivation test: that function
+   * returns `"choice"` precisely when this array has two or more entries
+   * (see its doc comment below), so a spec whose `identifierChoices` shrank
+   * enough to flip its mode away from `"choice"` fails that test instead. A
+   * test asserting the length threshold directly, filtered on the mode it
+   * derives from that same threshold, would be true by construction --
+   * which is why there isn't one. Empty for the two free-form-URL
    * aggregators and the two live-search aggregators.
    */
   identifierChoices: { value: string; label: string }[];
