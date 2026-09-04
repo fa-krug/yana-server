@@ -264,8 +264,13 @@ export class YouTubeAggregator extends BaseAggregator {
     // that can itself be a link to the commenter's channel
     // (`authorIsHtml: true`), and an already-escaped comment-id-bearing href
     // that must not be run through `escapeHtml()` a second time
-    // (`rawAnchorHref: true`) -- doing so would double-escape the literal "&"
-    // between its query parameters.
+    // (`rawAnchorHref: true`) -- doing so would turn its `&amp;` into
+    // `&amp;amp;`. `rawAnchorHref` is what makes writing the separator as
+    // `&amp;` here mandatory rather than optional: this string is
+    // interpolated straight into an `href` attribute, so the raw `&lc=` it
+    // used to carry was an unescaped ampersand in attribute-value context --
+    // invalid HTML that a parser is only obliged to salvage, not to read the
+    // way it was meant.
     const spec: CommentSpec<YouTubeCommentThread[], YouTubeCommentThread> = {
       list: (source) => source,
       author: (c) =>
@@ -277,7 +282,7 @@ export class YouTubeAggregator extends BaseAggregator {
       authorIsHtml: true,
       bodyHtml: (c) => c.snippet?.topLevelComment?.snippet?.textDisplay || "",
       anchorUrl: (c) =>
-        `https://www.youtube.com/watch?v=${videoId}&lc=${escapeHtml(String(c.id || ""))}`,
+        `https://www.youtube.com/watch?v=${videoId}&amp;lc=${escapeHtml(String(c.id || ""))}`,
       rawAnchorHref: true,
       linkAttrs: 'target="_blank" rel="noopener"',
       multiline: true,

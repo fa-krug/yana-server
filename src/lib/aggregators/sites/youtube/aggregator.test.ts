@@ -180,7 +180,10 @@ describe("YouTubeAggregator.buildContentHtml", () => {
     expect(html).toBe(
       '<div class="youtube-comments"><h3>Comments</h3>\n<blockquote>\n<p>' +
         '<strong><a href="https://www.youtube.com/channel/xyz">Someone</a></strong> | ' +
-        '<a href="https://www.youtube.com/watch?v=vid1&lc=c1" target="_blank" ' +
+        // `&amp;`, not a bare `&`: this href is interpolated into an
+        // attribute value, and `rawAnchorHref: true` means the section
+        // builder writes it through verbatim rather than escaping it.
+        '<a href="https://www.youtube.com/watch?v=vid1&amp;lc=c1" target="_blank" ' +
         'rel="noopener">source</a></p>\n<div>nice video</div>\n</blockquote>\n</div>',
     );
   });

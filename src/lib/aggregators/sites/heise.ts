@@ -195,14 +195,17 @@ export class HeiseAggregator extends defineSite(FullWebsiteAggregator, {
   firstMatchOnly: true,
 }) {
   override async fetchArticleContent(url: string): Promise<string> {
-    let articleUrl = url;
-    try {
-      if (!url.includes("seite=all")) {
-        articleUrl = url.includes("?") ? `${url}&seite=all` : `${url}?seite=all`;
-      }
-    } catch {
-      // Keep original URL
-    }
+    // No try/catch: this used to wrap `String.prototype.includes` and two
+    // template concatenations in one, with a `// Keep original URL` comment
+    // on a catch nothing can reach -- neither operation throws for any string
+    // value, and `url` is typed `string`. The guard read as though appending
+    // `seite=all` were the risky part; the actual fetch below is where a
+    // failure comes from, and that is handled by the caller.
+    const articleUrl = url.includes("seite=all")
+      ? url
+      : url.includes("?")
+        ? `${url}&seite=all`
+        : `${url}?seite=all`;
     return super.fetchArticleContent(articleUrl);
   }
 

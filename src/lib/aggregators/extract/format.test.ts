@@ -3,6 +3,7 @@ import { DEFAULT_CHROME_LABELS } from "../chrome-labels";
 import {
   buildDailymotionFacadeHtml,
   buildHeaderHtml,
+  createYoutubeEmbedHtml,
   escapeHtml,
   formatArticleContent,
   isTwitterUrl,
@@ -60,6 +61,37 @@ describe("content format utilities", () => {
         watchOnDailymotion: "Auf Dailymotion ansehen",
       });
       expect(html).toContain("Auf Dailymotion ansehen");
+    });
+  });
+
+  describe("createYoutubeEmbedHtml", () => {
+    it("returns the bare facade when there is no caption", () => {
+      const html = createYoutubeEmbedHtml("dQw4w9WgXcQ", DEFAULT_CHROME_LABELS);
+      expect(html.endsWith("</div>")).toBe(true);
+      expect(html).toContain('data-embed="https://www.youtube.com/embed/dQw4w9WgXcQ"');
+    });
+
+    it("treats a caption's `$&` as literal text, not a substitution pattern", () => {
+      // The scraped caption is spliced in through String.replace, where `$&`,
+      // "$`", `$'` and `$1` are substitution patterns in a *replacement
+      // string*. With one, `$&` expanded to the matched `</div>` and the
+      // closing tag landed in the middle of the caption. A caption is markup
+      // from someone else's page, so nothing in it may be interpreted.
+      const caption = "<p>Cost: $100 &amp; $& more</p>";
+      const html = createYoutubeEmbedHtml("dQw4w9WgXcQ", DEFAULT_CHROME_LABELS, caption);
+      expect(html).toContain(caption);
+      expect(html.endsWith(`${caption}</div>`)).toBe(true);
+      // One closing </div> -- the facade's own. The bug produced two, one of
+      // them inside the caption.
+      expect(html.match(/<\/div>/g)).toHaveLength(1);
+    });
+
+    it("treats every other replacement pattern in a caption as literal too", () => {
+      for (const caption of ["<p>$`</p>", "<p>$'</p>", "<p>$1</p>", "<p>$$</p>"]) {
+        const html = createYoutubeEmbedHtml("vid", DEFAULT_CHROME_LABELS, caption);
+        expect(html).toContain(caption);
+        expect(html.match(/<\/div>/g)).toHaveLength(1);
+      }
     });
   });
 

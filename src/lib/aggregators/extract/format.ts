@@ -43,7 +43,16 @@ export function createYoutubeEmbedHtml(
   if (!caption) {
     return facade;
   }
-  return facade.replace("</div>", `${caption}</div>`);
+  // **A function replacement, not a string one, and that is the whole point.**
+  // `caption` is `headerCaptionHtml` -- markup scraped straight off the source
+  // page -- and in a *replacement string* `$&`, "$`", `$'` and `$1` are
+  // substitution patterns, not literal text. A caption reading
+  // `<p>Cost: $100 &amp; $& more</p>` expanded `$&` to the matched `</div>`
+  // and produced `...<p>Cost: $100 &amp; </div> more</p></div>`: the closing
+  // tag moved into the middle of the caption and the document structure was
+  // destroyed, for markup no code here chose. A replacer *function*'s return
+  // value is used verbatim, so nothing in the caption can be interpreted.
+  return facade.replace("</div>", () => `${caption}</div>`);
 }
 
 /**
