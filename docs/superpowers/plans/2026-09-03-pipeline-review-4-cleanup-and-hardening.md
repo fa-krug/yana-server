@@ -507,7 +507,30 @@ Ticking 7e as done while it stands invites the reading that the class is closed.
       correct code. That half stays a review obligation, named in
       `readCapped()`'s doc comment. The *placement* defect that recurred four
       times is now structural rather than checked: `withDeadline()` owns the
-      timer, so a caller cannot disarm it above the body read.
+      timer, so a caller cannot disarm it above the body read -- **for the four
+      callers converted here.** `fetchHtml()`, `fetchBinary()` and
+      `fetchImageOutcome()` still hand-roll a controller and a timer, and they
+      are the three sites that already made that mistake once, so 7d/7e's
+      `finally` blocks are all that hold it for them. The tripwire itself
+      checks the *presence of the token*, not a live deadline:
+      `signal: new AbortController().signal` with nothing ever aborting it
+      satisfies it, and no textual check can tell otherwise. Its argument text
+      is sliced from the comment/string-blanked copy of the source, not the
+      raw source -- read raw, a `// no signal needed, fixed host` inside the
+      init turned the check green, which is worse than no check; four negative
+      controls in the test pin that.
+- [x] **Residual, recorded not fixed: twelve uncapped fetch sites.** Nine have
+      an honest body-covering deadline (`AbortSignal.timeout(...)`, never
+      disarmed) and only lack a size cap: `search.ts` x3, the five
+      `sites/reddit/` reads, `embeds/bluesky.ts` x2. Three more are in
+      **`src/lib/feeds/logo.ts`**, outside the tripwire's scan directory and on
+      the worker-executed `feed.logo` path: its three hand-rolled controller +
+      timer pairs are *not* a fifth instance of this task's defect (all three
+      `clearTimeout`s are in `finally` blocks below their body reads) but all
+      three read bodies uncapped -- `response.arrayBuffer()` then measure,
+      which is exactly the "buffered before it is measured" hazard 7e fixed,
+      plus a bare `res.text()` and a bare `res.json()`. Left for a later task;
+      the fix is one `readCapped*` call per site.
 
 ## Done criteria
 

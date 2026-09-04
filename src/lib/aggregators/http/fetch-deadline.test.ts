@@ -14,6 +14,17 @@ import { describe, expect, it } from "vitest";
  * that never holds the timer cannot disarm it early); this makes the
  * *presence* half checked.
  *
+ * **Two limits, stated so this test is not read as more than it is.** It
+ * checks the *presence of the token*, not a real deadline:
+ * `signal: new AbortController().signal` with nothing ever aborting it
+ * satisfies it, and no textual check can tell otherwise. And
+ * `withDeadline()`'s guarantee reaches only the callers that use it -- the
+ * four this task converted. `fetchHtml()`, `fetchBinary()` and
+ * `fetchImageOutcome()` still hand-roll a controller and a timer, and they are
+ * precisely the three sites that already made the placement mistake once, so
+ * for them the structural half is not in force and 7d/7e's `finally` blocks
+ * are all that hold it.
+ *
  * **Why it asserts the deadline and not the size cap.** The deadline is
  * mechanically decidable: it is a property of the `fetch()` call's own init
  * object, which this test reads. A size cap is not -- the read that needs
@@ -27,9 +38,9 @@ import { describe, expect, it } from "vitest";
  * and has no checkpoint inside a fetch, so `WORKER_CONCURRENCY` (4) such feeds
  * deadlock every background job with no way back.
  *
- * A `signal` satisfying this can be either shape, because both are honest:
- * `AbortSignal.timeout(...)`, which is never disarmed and so covers the body
- * by construction, or a signal handed down by `withDeadline()`.
+ * The two shapes seen in this tree are both honest: `AbortSignal.timeout(...)`,
+ * which is never disarmed and so covers the body by construction, and a signal
+ * handed down by `withDeadline()`.
  */
 const AGGREGATORS_DIR = path.join(process.cwd(), "src/lib/aggregators");
 
@@ -130,9 +141,21 @@ function tsFilesUnder(dir: string): string[] {
   return found;
 }
 
-/** Every `fetch(...)` call site, as "path:line" plus its argument text. */
-function fetchCallSites(file: string): { where: string; args: string }[] {
-  const source = readFileSync(file, "utf8");
+/**
+ * Every `fetch(...)` call site in `source`, as "label:line" plus its argument
+ * text.
+ *
+ * **The argument text is sliced from `scanned`, not from `source`, and that one
+ * word is the whole guard.** Slicing the original meant the bare token
+ * `signal` anywhere inside the init satisfied the check -- in a string, or in a
+ * comment. The realistic form is the dangerous one: someone adding a
+ * deliberately unsignalled fetch writes `// no signal needed, fixed host`
+ * inside the object and this test goes green. A check defeatable by a comment
+ * is worse than no check, because it licenses the belief that the class is
+ * closed. The negative controls at the bottom of this file are what keep the
+ * slice honest.
+ */
+function fetchCallSitesIn(source: string, label: string): { where: string; args: string }[] {
   const scanned = blankCommentsAndStrings(source);
   const sites: { where: string; args: string }[] = [];
 
@@ -151,29 +174,92 @@ function fetchCallSites(file: string): { where: string; args: string }[] {
         }
       }
     }
-    const args = source.slice(open + 1, close);
+    const args = scanned.slice(open + 1, close);
     if (!args.trim()) continue; // a bare `fetch()` mention, not a call
     const line = source.slice(0, open).split("\n").length;
-    sites.push({ where: `${path.relative(process.cwd(), file)}:${line}`, args });
+    sites.push({ where: `${label}:${line}`, args });
   }
   return sites;
+}
+
+function fetchCallSites(file: string): { where: string; args: string }[] {
+  return fetchCallSitesIn(readFileSync(file, "utf8"), path.relative(process.cwd(), file));
+}
+
+function hasNoSignal(site: { args: string }): boolean {
+  return !/\bsignal\b/.test(site.args);
+}
+
+/** The `path:line` of every call site in `source` whose init passes no signal. */
+function undeadlinedIn(source: string, label: string): string[] {
+  return fetchCallSitesIn(source, label)
+    .filter(hasNoSignal)
+    .map((site) => site.where);
 }
 
 describe("every fetch() in the aggregator tree carries a deadline", () => {
   it("finds the call sites at all, so a silent zero cannot pass", () => {
     const sites = tsFilesUnder(AGGREGATORS_DIR).flatMap(fetchCallSites);
-    // Sixteen at the time of writing. Asserted as a floor rather than an
-    // exact count: a new bounded fetch should not have to edit this test,
-    // but a scanner that quietly matches nothing must not read as green.
+    // Sixteen at the time of writing (seventeen call sites, one of which is
+    // in this scan's excluded test-support). A floor rather than an exact
+    // count, so a new bounded fetch need not edit this test.
+    //
+    // A drop below it means *look*, not necessarily "the scanner broke":
+    // consolidating the five `sites/reddit/` fetches behind one helper would
+    // reduce the count perfectly legitimately. What the floor actually rules
+    // out is the failure mode that would otherwise read as green -- a scanner
+    // that matches nothing at all, which is what a mis-lexed new syntax would
+    // produce.
     expect(sites.length).toBeGreaterThanOrEqual(16);
   });
 
   it("passes a signal at every one of them", () => {
-    const undeadlined = tsFilesUnder(AGGREGATORS_DIR)
-      .flatMap(fetchCallSites)
-      .filter((site) => !/\bsignal\b/.test(site.args))
-      .map((site) => site.where);
+    const undeadlined = tsFilesUnder(AGGREGATORS_DIR).flatMap(fetchCallSites).filter(hasNoSignal);
 
-    expect(undeadlined).toEqual([]);
+    expect(undeadlined.map((site) => site.where)).toEqual([]);
+  });
+
+  /**
+   * Negative controls, against inline fixtures rather than a probe file left in
+   * the tree.
+   *
+   * A tripwire nobody has watched fail is a tripwire nobody knows works, and
+   * this one was defeatable in exactly the way that matters: it tested the
+   * argument text taken from the *original* source, so the bare word `signal`
+   * in a comment or a string satisfied it. The first two cases below are the
+   * demonstration; the third is the one someone would really write.
+   */
+  describe("and is not satisfied by the word alone", () => {
+    it("reports a fetch whose init has no signal", () => {
+      const fixture = `const res = await fetch("https://example.com/x", { headers: {} });`;
+      expect(undeadlinedIn(fixture, "fixture.ts")).toEqual(["fixture.ts:1"]);
+    });
+
+    it("reports one whose init mentions signal only in a string", () => {
+      const fixture =
+        `const res = await fetch("https://example.com/x", ` +
+        `{ headers: { "x-note": "signal" } });`;
+      expect(undeadlinedIn(fixture, "fixture.ts")).toEqual(["fixture.ts:1"]);
+    });
+
+    it("reports one whose init mentions signal only in a comment", () => {
+      // The realistic form: a deliberately unsignalled fetch, explained in
+      // place. Read off the raw source, this comment is what turned the check
+      // green.
+      const fixture = [
+        `const res = await fetch("https://example.com/x", {`,
+        `  // no signal needed, fixed host`,
+        `  headers: {},`,
+        `});`,
+      ].join("\n");
+      expect(undeadlinedIn(fixture, "fixture.ts")).toEqual(["fixture.ts:1"]);
+    });
+
+    it("accepts a real signal, so the controls are not vacuous", () => {
+      const fixture =
+        `const res = await fetch("https://example.com/x", ` +
+        `{ signal: AbortSignal.timeout(1000) });`;
+      expect(undeadlinedIn(fixture, "fixture.ts")).toEqual([]);
+    });
   });
 });
