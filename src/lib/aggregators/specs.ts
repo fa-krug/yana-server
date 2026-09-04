@@ -65,11 +65,17 @@ export type AggregatorSpec = {
   identifierLabel: string;
   identifierHelp: string;
   /**
-   * Fixed feed variants, ported verbatim from the aggregator's own
-   * `getIdentifierChoices()` in `src/lib/aggregators/sites/*` — see the
-   * cross-check test in `registry.test.ts` that keeps this hand-kept copy
-   * honest. Empty for the two free-form-URL aggregators and the two
-   * live-search aggregators.
+   * Fixed feed variants for this aggregator. Used to be a hand-kept copy of
+   * each site class's own `getIdentifierChoices()` static, cross-checked
+   * byte-for-byte by a `registry.test.ts` test -- both the site-class method
+   * and that test are gone now (2026-09-03 pipeline-review-4 cleanup, Task 2:
+   * `getConfigurationFields()`/`getIdentifierChoices()` and the rest of that
+   * configuration API had no production caller). `specs.ts` is the single
+   * source for this data now, with nothing left to cross-check it against;
+   * `registry.test.ts` asserts invariants about the data directly (every
+   * choice-mode aggregator has at least two choices, no choice is blank)
+   * instead of comparing two copies. Empty for the two free-form-URL
+   * aggregators and the two live-search aggregators.
    */
   identifierChoices: { value: string; label: string }[];
   /** Set only for the two aggregators with a live search-as-you-type identifier field. */

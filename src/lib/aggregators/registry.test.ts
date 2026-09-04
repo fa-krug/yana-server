@@ -206,14 +206,17 @@ describe("AGGREGATOR_SPECS identifier and option data", () => {
     expect(option?.default).toBe(false);
   });
 
-  it("gives every choice-mode aggregator at least two identifier choices", () => {
-    for (const key of AGGREGATOR_KEYS) {
-      const spec = AGGREGATOR_SPECS[key];
-      if (identifierModeFor(spec) === "choice") {
-        expect(spec.identifierChoices.length, key).toBeGreaterThanOrEqual(2);
-      }
-    }
-  });
+  // A test used to sit here asserting "every choice-mode aggregator has at
+  // least two identifier choices" -- but `identifierModeFor()` *returns*
+  // "choice" precisely when `identifierChoices.length >= 2` (see its own doc
+  // comment above), so filtering on that mode and then asserting the same
+  // threshold is true by construction: it cannot fail unless
+  // `identifierModeFor()` itself changes, which the "derives the four modes
+  // from the data on each spec" test in the `identifierModeFor` describe
+  // block above already covers -- it hardcodes the expected mode per
+  // aggregator key against real `AGGREGATOR_SPECS` data, so a spec whose
+  // `identifierChoices` shrank enough to flip its mode fails that test
+  // instead.
 
   it("gives every identifier choice a non-empty value and label", () => {
     for (const key of AGGREGATOR_KEYS) {
