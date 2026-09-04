@@ -285,8 +285,8 @@ function chunk<T>(items: T[], size: number): T[][] {
  * article's images" on its own; this is the only place that may remove a row.
  *
  * **The reference roots, verified against the schema rather than assumed --
- * there are exactly three, the same three `GET /api/v1/images/[hash]`'s
- * `ownsHash()` checks:**
+ * there are exactly three, the same three `ownsImageHash()` (`./ownership.ts`)
+ * checks on behalf of both image-serving routes:**
  * 1. `articleBlocks.imageRef` -- an image block's own image.
  * 2. `articleBlocks.embedThumbnailRef` -- an embed's localized poster.
  * 3. `feeds.logoImageHash` -- a feed's discovered/uploaded logo.
@@ -298,8 +298,8 @@ function chunk<T>(items: T[], size: number): T[][] {
  * **The two block columns and the feed column do NOT use the same encoding,
  * and conflating them would delete every image on the instance.** The block
  * columns store the *full* `yana-img://<hash>` ref (see `writeBlocks()` in
- * `../blocks/storage.ts`, and `ownsHash()` above comparing via
- * `buildImageRef()`); `feeds.logoImageHash` stores the *bare* hash (see
+ * `../blocks/storage.ts`, and `ownsImageHash()` in `./ownership.ts` comparing
+ * via `buildImageRef()`); `feeds.logoImageHash` stores the *bare* hash (see
  * `storeLogo()` in `@/lib/feeds/logo.ts`), the same encoding
  * `articleImages.contentHash` uses. So the two ref columns are stripped of
  * `IMAGE_REF_SCHEME` before joining the referenced set -- comparing them

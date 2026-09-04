@@ -149,19 +149,46 @@ describe("compressImage", () => {
   // The wall-clock half of the same pair cannot be exercised in-process (it
   // would take a genuinely pathological image and ten real seconds), so it is
   // pinned to the source instead: both limits must be applied to every sharp
-  // pipeline fed caller-supplied bytes, inside this module rather than at a
+  // pipeline fed caller-supplied bytes, inside the module rather than at a
   // call site that can forget them -- the rule `processAvatar()` states.
-  it("applies both sharp resource limits inside the module", () => {
-    const source = fs.readFileSync(
-      path.join(process.cwd(), "src/lib/aggregators/images/compression.ts"),
-      "utf8",
-    );
-    const inputCalls = source.match(/sharp\(imageData[^)]*\)/g) ?? [];
-    expect(inputCalls.length).toBeGreaterThan(0);
-    for (const call of inputCalls) {
-      expect(call).toContain("limitInputPixels: MAX_INPUT_PIXELS");
+  //
+  // The scan covers `./fetcher.ts` as well, and matches a call by *shape*
+  // rather than by the argument's spelling. Its first version did neither: it
+  // looked only at `compression.ts` and only for the literal
+  // `sharp(imageData`, so it could not see `validateImageDataWithSharp()`'s
+  // bare `sharp(imageData)` one file over -- the first sharp call every
+  // fetched image hits -- and a new unguarded call under any other variable
+  // name would have been invisible to it too.
+  it("applies both sharp resource limits to every call fed caller-supplied bytes", () => {
+    /** Comments name these calls in prose; only real code counts. */
+    function stripComments(source: string): string {
+      return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
     }
-    expect(source).toMatch(/\.timeout\(\{\s*seconds: SHARP_TIMEOUT_SECONDS,?\s*\}\)/);
+
+    const files = ["compression.ts", "fetcher.ts"];
+    for (const file of files) {
+      const code = stripComments(
+        fs.readFileSync(path.join(process.cwd(), "src/lib/aggregators/images", file), "utf8"),
+      );
+
+      // Any `sharp(<identifier>` -- a buffer, whatever it is called. A
+      // `sharp({ create: ... })` literal builds an image from scratch and has
+      // no caller-supplied bytes to bound, so it is not matched.
+      const calls = [...code.matchAll(/\bsharp\(\s*[A-Za-z_$][\w$]*[^)]*\)/g)];
+      expect(calls.length, `${file} has no sharp() call to check`).toBeGreaterThan(0);
+
+      for (const call of calls) {
+        expect(call[0], `unguarded sharp() call in ${file}`).toContain(
+          "limitInputPixels: MAX_INPUT_PIXELS",
+        );
+        const tail = code.slice(call.index + call[0].length, call.index + call[0].length + 120);
+        expect(tail, `sharp() call in ${file} without a timeout`).toMatch(
+          /^\s*\.timeout\(\{\s*seconds: SHARP_TIMEOUT_SECONDS,?\s*\}\)/,
+        );
+      }
+    }
+
     expect(SHARP_TIMEOUT_SECONDS).toBe(10);
+    expect(MAX_INPUT_PIXELS).toBe(25_000_000);
   });
 });

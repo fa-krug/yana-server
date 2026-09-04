@@ -330,7 +330,7 @@ The problem is that it is expressed as class inheritance rather than data.
 
 These are **not** cleanup. Each changes behaviour on purpose.
 
-- [ ] **7a. Two image routes disagree about ownership.**
+- [x] **7a. Two image routes disagree about ownership.**
       `src/app/api/v1/images/[hash]/route.ts` does `requireApiUser()` **plus** a
       three-path ownership check. `src/app/media/images/[hash]/route.ts:22`
       does `await requireUser()` and **nothing else** — any signed-in user who

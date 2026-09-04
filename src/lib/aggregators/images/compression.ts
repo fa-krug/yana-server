@@ -42,11 +42,19 @@ export const MAX_INPUT_PIXELS = 25_000_000;
 export const SHARP_TIMEOUT_SECONDS = 10;
 
 /**
- * Every sharp pipeline fed bytes this process did not produce goes through
- * here, so neither limit can be omitted by an individual call site.
+ * Every sharp pipeline in this module goes through here, so neither limit can
+ * be omitted by an individual call site. Applied even to this module's own
+ * webp output, where a bomb is impossible: an exception encoded here would be
+ * an exception the tripwire in `compression.test.ts` has to encode too, and a
+ * rule with no exceptions is the only kind that catches a *new* call.
+ *
+ * It is not the only guarded call in the tree -- `validateImageDataWithSharp()`
+ * in `./fetcher.ts` reads the same two constants, because it is the first sharp
+ * call a fetched image reaches and a helper private to this module cannot
+ * cover it. The tripwire scans both files for that reason.
  */
-function sharpInput(imageData: Buffer) {
-  return sharp(imageData, { limitInputPixels: MAX_INPUT_PIXELS }).timeout({
+function sharpInput(bytes: Buffer) {
+  return sharp(bytes, { limitInputPixels: MAX_INPUT_PIXELS }).timeout({
     seconds: SHARP_TIMEOUT_SECONDS,
   });
 }
@@ -123,7 +131,7 @@ export async function compressImage(
       .webp({ quality: WEBP_QUALITY })
       .toBuffer();
 
-    const outputMeta = await sharp(compressedBuffer).metadata();
+    const outputMeta = await sharpInput(compressedBuffer).metadata();
 
     return {
       data: compressedBuffer,

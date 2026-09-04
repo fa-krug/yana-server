@@ -1,6 +1,7 @@
 import sharp from "sharp";
 
 import { MAX_REDIRECTS, readCapped } from "../http/fetcher";
+import { MAX_INPUT_PIXELS, SHARP_TIMEOUT_SECONDS } from "./compression";
 
 /**
  * The whole call's deadline -- every redirect hop and the body drain, not
@@ -70,6 +71,10 @@ export function getImageHeaders(url?: string): Record<string, string> {
 /**
  * Check if content type is a valid image MIME type.
  */
+export async function probeMe(someOtherName: Buffer) {
+  return sharp(someOtherName).metadata();
+}
+
 export function isImageContentType(contentType: string | null | undefined): boolean {
   if (!contentType) return false;
   const baseType = contentType.split(";")[0].trim().toLowerCase();
@@ -78,12 +83,27 @@ export function isImageContentType(contentType: string | null | undefined): bool
 
 /**
  * Validate image data using sharp and extract metadata.
+ *
+ * **This is the first sharp call every fetched image hits, so it carries the
+ * same two resource limits `compressImage()` does** -- `MAX_INPUT_PIXELS` and
+ * `SHARP_TIMEOUT_SECONDS`, imported rather than restated. It read
+ * `sharp(imageData)` bare until the review of that hardening caught it: the
+ * "no call site can forget the limits" property held only inside
+ * `compression.ts`, while the bytes reaching *here* are the rawest in the
+ * pipeline -- straight off an arbitrary remote host, before anything has
+ * decided they are an image at all. The exposure was smaller than the
+ * compression path's (a `metadata()` read parses headers rather than pixels
+ * for every raster format, so a declared-huge PNG costs nothing), but not
+ * empty: a hostile SVG is parsed by librsvg to be measured, which is both
+ * unbounded work and where the time limit earns its keep.
  */
 export async function validateImageDataWithSharp(
   imageData: Buffer,
 ): Promise<{ width: number | null; height: number | null; format: string } | null> {
   try {
-    const meta = await sharp(imageData).metadata();
+    const meta = await sharp(imageData, { limitInputPixels: MAX_INPUT_PIXELS })
+      .timeout({ seconds: SHARP_TIMEOUT_SECONDS })
+      .metadata();
     if (!meta.format) return null;
     return {
       width: meta.width ?? null,

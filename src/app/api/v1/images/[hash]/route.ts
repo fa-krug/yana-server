@@ -1,14 +1,14 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { connection } from "next/server";
 
-import { buildImageRef } from "@/lib/aggregators/images/store";
+import { ownsImageHash } from "@/lib/aggregators/images/ownership";
 import { ApiError, apiErrorResponse, requireApiUser } from "@/lib/api/auth";
 import { mediaRoot } from "@/lib/avatar-storage";
 import { getDb } from "@/lib/db/client";
-import { articleBlocks, articleImages, articles, feeds } from "@/lib/db/schema";
+import { articleImages } from "@/lib/db/schema";
 
 /**
  * A stored image's content hash is `crypto.createHash("sha256")` in hex --
@@ -34,28 +34,13 @@ const HASH_PATTERN = /^[0-9a-f]{64}$/;
  * why that fallback only applies when there is no `Authorization` header at
  * all.
  *
- * **Ownership is three disjoint paths, all scoped to the caller's own feeds,
- * and a hash needs only one of them to be "owned":**
- *
- * 1. **Logo**: some feed the caller owns has `feeds.logoImageHash` equal to
- *    the bare hash (Task 6 made feed logos content-addressed the same way
- *    article images already were).
- * 2. **Article body image**: some `article_blocks` row belonging to an
- *    article whose feed the caller owns has `imageRef` equal to
- *    `buildImageRef(hash)` -- the block stores the `yana-img://<hash>` *ref*
- *    string, never the bare hash, so the comparison has to go through
- *    `buildImageRef()` rather than comparing to `hash` directly.
- * 3. **Embed thumbnail**: same shape as (2), but on an embed block's
- *    `embedThumbnailRef` column instead of an image block's `imageRef` --
- *    this is what a video embed's poster (e.g. Tagesschau's player,
- *    `src/lib/aggregators/sites/tagesschau/media.ts`) is stored under, and
- *    without this path a caller's own localized video thumbnail 404s.
- *
- * Deduplication crosses users (`article_images` carries no `userId` -- see
- * its schema comment), so the same hash can legitimately be "owned" by many
- * users at once; each caller's ownership is checked independently and a hash
- * that exists but is reachable only through *another* user's feeds/articles
- * 404s exactly as a nonexistent hash would.
+ * **Ownership is not decided here.** `ownsImageHash()`
+ * (`@/lib/aggregators/images/ownership.ts`) owns that answer -- its three
+ * reference roots, their two different hash encodings, and why a hash owned
+ * only by another user must 404 exactly as a nonexistent one does -- and it is
+ * shared with `src/app/media/images/[hash]/route.ts`, which serves the same
+ * bytes to the web UI. Read it there rather than restating it here; the two
+ * routes disagreeing about ownership is the defect that made it shared.
  *
  * `await connection()` is the literal first statement, ahead of
  * `requireApiUser()` -- this route has no other Dynamic API call in its path
@@ -77,7 +62,7 @@ export async function GET(
     // never match a real content hash, so validating it first is a wasted
     // query avoided, not merely an early exit to the same answer.
     if (!HASH_PATTERN.test(hash)) throw new ApiError(404, "not_found");
-    if (!ownsHash(user.id, hash)) throw new ApiError(404, "not_found");
+    if (!ownsImageHash(user.id, hash)) throw new ApiError(404, "not_found");
 
     const image = getDb()
       .select()
@@ -106,38 +91,4 @@ export async function GET(
     if (error instanceof ApiError) return apiErrorResponse(error);
     throw error;
   }
-}
-
-/**
- * Does `userId` own `hash`, through a feed logo, an article body image, or an
- * embed thumbnail? Three independent, narrowly-scoped queries rather than one
- * clever join, so each path reads as exactly the sentence describing it above.
- */
-function ownsHash(userId: string, hash: string): boolean {
-  const db = getDb();
-
-  const viaLogo = db
-    .select({ id: feeds.id })
-    .from(feeds)
-    .where(and(eq(feeds.userId, userId), eq(feeds.logoImageHash, hash)))
-    .get();
-  if (viaLogo) return true;
-
-  const viaArticleBlock = db
-    .select({ id: articleBlocks.id })
-    .from(articleBlocks)
-    .innerJoin(articles, eq(articleBlocks.articleId, articles.id))
-    .innerJoin(feeds, eq(articles.feedId, feeds.id))
-    .where(and(eq(feeds.userId, userId), eq(articleBlocks.imageRef, buildImageRef(hash))))
-    .get();
-  if (viaArticleBlock) return true;
-
-  const viaEmbedThumbnail = db
-    .select({ id: articleBlocks.id })
-    .from(articleBlocks)
-    .innerJoin(articles, eq(articleBlocks.articleId, articles.id))
-    .innerJoin(feeds, eq(articles.feedId, feeds.id))
-    .where(and(eq(feeds.userId, userId), eq(articleBlocks.embedThumbnailRef, buildImageRef(hash))))
-    .get();
-  return Boolean(viaEmbedThumbnail);
 }

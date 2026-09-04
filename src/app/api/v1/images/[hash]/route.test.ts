@@ -333,8 +333,8 @@ describe("GET /api/v1/images/[hash]", () => {
     // lookup in userForBearerToken()); resolving the caller before validating
     // the hash is deliberate (see requireApiUser's doc comment on ordering).
     // Spying here proves the *hash* is never used in a query: a call count of
-    // 1 means only that auth lookup ran, and neither ownsHash()'s two queries
-    // nor the final articleImages lookup ever executed.
+    // 1 means only that auth lookup ran, and neither ownsImageHash()'s three
+    // queries nor the final articleImages lookup ever executed.
     const getDbSpy = vi.spyOn(client, "getDb");
 
     const response = await get(encodeURIComponent(hash), { authorization: `Bearer ${token}` });
