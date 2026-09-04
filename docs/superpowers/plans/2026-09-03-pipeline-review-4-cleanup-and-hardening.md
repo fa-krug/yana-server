@@ -95,20 +95,20 @@ registered at all, and `bluesky.ts` registers under `key: "tweet"`
 (`twitter.ts:154`). The doc at `registry.ts:37-42` describes an ordering
 — "YouTube → Dailymotion → Bluesky → Twitter" — that no code establishes.
 
-- [ ] **Step 1:** Grep and record: `convertEmbed`, `registerEmbedProvider`,
+- [x] **Step 1:** Grep and record: `convertEmbed`, `registerEmbedProvider`,
       `detectYoutube`, `convertYoutube`, `detectDailymotion`,
       `convertDailymotion`, `detectBluesky`, `convertBluesky`, `detectTwitter`,
       `convertTwitter`.
-- [ ] **Step 2:** Delete `registry.ts`, `index.ts`, `twitter.ts`, the four
+- [x] **Step 2:** Delete `registry.ts`, `index.ts`, `twitter.ts`, the four
       `detect*`/`convert*` pairs and their tests.
-- [ ] **Step 3:** Keep `localizeThumbnail` ×2, the ID extractors (plan 3 Task 3
+- [x] **Step 3:** Keep `localizeThumbnail` ×2, the ID extractors (plan 3 Task 3
       consolidated them) and `buildBlueskyEmbedHtml`. Move them somewhere that
       does not imply a registry exists.
-- [ ] **Step 4:** Remove the `embeds/youtube.ts:16` → `website.ts` re-export
+- [x] **Step 4:** Remove the `embeds/youtube.ts:16` → `website.ts` re-export
       hop. Three site aggregators import `proxyYoutubeEmbeds` *through* it
       rather than from `website.ts` where it lives; it is pure indirection and
       it is why importing `embeds/youtube.ts` drags `website.ts` in.
-- [ ] **Step 5:** If a registry is ever wanted, `defineEmbedProvider()` in the
+- [x] **Step 5:** If a registry is ever wanted, `defineEmbedProvider()` in the
       style of `src/lib/integrations/define.ts` would take the four modules from
       839 to ~380 lines. **Do not build it now** — there is no consumer. Record
       the shape in a comment or an issue and move on.
