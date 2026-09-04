@@ -2,6 +2,7 @@ import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MAX_FETCH_BYTES as HTTP_MAX_FETCH_BYTES, MAX_REDIRECTS } from "../http/fetcher";
 import { countingStream } from "../http/test-support";
+import { MAX_DECODE_PIXELS, MAX_MEASURE_PIXELS } from "./compression";
 import {
   fetchImageOutcome,
   fetchSingleImage,
@@ -132,6 +133,59 @@ describe("fetcher utilities", () => {
 
       const result = await fetchImageOutcome("https://example.com/huge.gif");
       expect(result).toBeNull();
+    });
+
+    // The measure gate's pixel limit used to be `compression.ts`'s 25 MP
+    // decode limit, and a refusal here is not a downsize: it is
+    // `NON_IMAGE_RESPONSE`, a definitive "this is not an image", after which
+    // the article's `contentHash` is written and the image is gone for the
+    // life of that source article. So a large-but-real photograph was dropped
+    // permanently -- this is the assertion that it is not.
+    it("admits a photograph larger than the decode limit rather than calling it a non-image", async () => {
+      // 36 MP of flat colour, about 1 MB of PNG -- past MAX_DECODE_PIXELS and
+      // far inside MAX_IMAGE_FETCH_BYTES, i.e. exactly the shape of a 45 MP
+      // press JPEG as far as this gate is concerned.
+      const big = await sharp({
+        create: { width: 6000, height: 6000, channels: 3, background: { r: 9, g: 9, b: 9 } },
+      })
+        .png({ compressionLevel: 1 })
+        .toBuffer();
+
+      expect(6000 * 6000).toBeGreaterThan(MAX_DECODE_PIXELS);
+      expect(6000 * 6000).toBeLessThan(MAX_MEASURE_PIXELS);
+      expect(big.length).toBeLessThan(MAX_IMAGE_FETCH_BYTES);
+
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(new Uint8Array(big), {
+          status: 200,
+          headers: { "Content-Type": "image/png" },
+        }),
+      );
+
+      const result = await fetchImageOutcome("https://example.com/press-photo.png");
+      expect(result).not.toBe(NON_IMAGE_RESPONSE);
+      expect(result).not.toBeNull();
+    });
+
+    // The other half of the split: a declaration so absurd it cannot be an
+    // image at all is still refused at this gate, so the measure limit is a
+    // high ceiling rather than no ceiling.
+    it("still refuses a declaration past the measure limit", async () => {
+      const absurd = Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg" width="100000" height="100000">` +
+          `<rect width="100%" height="100%" fill="red"/></svg>`.padEnd(200, " "),
+      );
+      expect(100000 * 100000).toBeGreaterThan(MAX_MEASURE_PIXELS);
+
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(new Uint8Array(absurd), {
+          status: 200,
+          headers: { "Content-Type": "image/svg+xml" },
+        }),
+      );
+
+      const result = await fetchImageOutcome("https://example.com/bomb.svg");
+      expect(result).toBe(NON_IMAGE_RESPONSE);
     });
   });
 

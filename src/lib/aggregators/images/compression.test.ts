@@ -2,7 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { compressImage, MAX_INPUT_PIXELS, SHARP_TIMEOUT_SECONDS } from "./compression";
+import {
+  compressImage,
+  MAX_DECODE_PIXELS,
+  MAX_MEASURE_PIXELS,
+  SHARP_TIMEOUT_SECONDS,
+} from "./compression";
 
 describe("compressImage", () => {
   it("skips compression for small images (<5KB) while measuring dimensions", async () => {
@@ -125,7 +130,7 @@ describe("compressImage", () => {
   // raster nor the time spent producing it.
   it("refuses an image whose pixel count exceeds the input limit", async () => {
     // 36 MP of flat colour: ~1 MB of PNG, ~108 MB decoded. Well past
-    // MAX_INPUT_PIXELS, and well under any byte cap on the fetch.
+    // MAX_DECODE_PIXELS, and well under any byte cap on the fetch.
     const bomb = await sharp({
       create: {
         width: 6000,
@@ -137,7 +142,7 @@ describe("compressImage", () => {
       .png({ compressionLevel: 1 })
       .toBuffer();
 
-    expect(6000 * 6000).toBeGreaterThan(MAX_INPUT_PIXELS);
+    expect(6000 * 6000).toBeGreaterThan(MAX_DECODE_PIXELS);
     expect(bomb.length).toBeGreaterThan(5000);
     expect(bomb.length).toBeLessThan(64 * 1024 * 1024);
 
@@ -152,24 +157,38 @@ describe("compressImage", () => {
   // pipeline fed caller-supplied bytes, inside the module rather than at a
   // call site that can forget them -- the rule `processAvatar()` states.
   //
-  // The scan covers `./fetcher.ts` as well, and matches a call by *shape*
-  // rather than by the argument's spelling. Its first version did neither: it
-  // looked only at `compression.ts` and only for the literal
-  // `sharp(imageData`, so it could not see `validateImageDataWithSharp()`'s
-  // bare `sharp(imageData)` one file over -- the first sharp call every
-  // fetched image hits -- and a new unguarded call under any other variable
-  // name would have been invisible to it too.
+  // The scan matches a call by *shape* rather than by the argument's spelling,
+  // and it has now been widened twice, each time because a real unguarded call
+  // was sitting outside it. Its first version looked only at
+  // `compression.ts` and only for the literal `sharp(imageData`, so it could
+  // not see `validateImageDataWithSharp()`'s bare `sharp(imageData)` one file
+  // over -- the first sharp call every fetched image hits -- and a new
+  // unguarded call under any other variable name would have been invisible to
+  // it too. Its second version fixed both of those and still scanned only this
+  // *directory*, which is how `storeLogo()` in `src/lib/feeds/logo.ts` kept a
+  // completely unprotected `sharp(backgroundRemoved).resize(128, 128)` on
+  // remote, site-declared icon bytes -- sharp's 268 MP default, on the
+  // worker-executed `feed.logo` path. A tripwire is only ever as wide as its
+  // file list, so the file list is the part to distrust.
+  //
+  // It accepts *either* named pixel limit, because there are two: a call that
+  // only measures reads `MAX_MEASURE_PIXELS` and one that decodes reads
+  // `MAX_DECODE_PIXELS` (see both constants). What is enforced is that a
+  // pixel limit and a timeout are applied at all, never which number -- the
+  // numbers themselves are pinned separately at the bottom of this test.
   it("applies both sharp resource limits to every call fed caller-supplied bytes", () => {
     /** Comments name these calls in prose; only real code counts. */
     function stripComments(source: string): string {
       return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
     }
 
-    const files = ["compression.ts", "fetcher.ts"];
+    const files = [
+      "src/lib/aggregators/images/compression.ts",
+      "src/lib/aggregators/images/fetcher.ts",
+      "src/lib/feeds/logo.ts",
+    ];
     for (const file of files) {
-      const code = stripComments(
-        fs.readFileSync(path.join(process.cwd(), "src/lib/aggregators/images", file), "utf8"),
-      );
+      const code = stripComments(fs.readFileSync(path.join(process.cwd(), file), "utf8"));
 
       // Any `sharp(<identifier>` -- a buffer, whatever it is called. A
       // `sharp({ create: ... })` literal builds an image from scratch and has
@@ -178,8 +197,8 @@ describe("compressImage", () => {
       expect(calls.length, `${file} has no sharp() call to check`).toBeGreaterThan(0);
 
       for (const call of calls) {
-        expect(call[0], `unguarded sharp() call in ${file}`).toContain(
-          "limitInputPixels: MAX_INPUT_PIXELS",
+        expect(call[0], `unguarded sharp() call in ${file}`).toMatch(
+          /limitInputPixels: MAX_(DECODE|MEASURE)_PIXELS/,
         );
         const tail = code.slice(call.index + call[0].length, call.index + call[0].length + 120);
         expect(tail, `sharp() call in ${file} without a timeout`).toMatch(
@@ -189,6 +208,7 @@ describe("compressImage", () => {
     }
 
     expect(SHARP_TIMEOUT_SECONDS).toBe(10);
-    expect(MAX_INPUT_PIXELS).toBe(25_000_000);
+    expect(MAX_DECODE_PIXELS).toBe(25_000_000);
+    expect(MAX_MEASURE_PIXELS).toBe(1_000_000_000);
   });
 });

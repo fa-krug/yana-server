@@ -1,7 +1,7 @@
 import sharp from "sharp";
 
 import { MAX_REDIRECTS, readCapped } from "../http/fetcher";
-import { MAX_INPUT_PIXELS, SHARP_TIMEOUT_SECONDS } from "./compression";
+import { MAX_MEASURE_PIXELS, SHARP_TIMEOUT_SECONDS } from "./compression";
 
 /**
  * The whole call's deadline -- every redirect hop and the body drain, not
@@ -80,24 +80,33 @@ export function isImageContentType(contentType: string | null | undefined): bool
 /**
  * Validate image data using sharp and extract metadata.
  *
- * **This is the first sharp call every fetched image hits, so it carries the
- * same two resource limits `compressImage()` does** -- `MAX_INPUT_PIXELS` and
- * `SHARP_TIMEOUT_SECONDS`, imported rather than restated. It read
- * `sharp(imageData)` bare until the review of that hardening caught it: the
- * "no call site can forget the limits" property held only inside
- * `compression.ts`, while the bytes reaching *here* are the rawest in the
- * pipeline -- straight off an arbitrary remote host, before anything has
- * decided they are an image at all. The exposure was smaller than the
- * compression path's (a `metadata()` read parses headers rather than pixels
- * for every raster format, so a declared-huge PNG costs nothing), but not
- * empty: a hostile SVG is parsed by librsvg to be measured, which is both
- * unbounded work and where the time limit earns its keep.
+ * **This is the first sharp call every fetched image hits, so it carries both
+ * resource limits** -- it read `sharp(imageData)` bare until the review of
+ * that hardening caught it: the "no call site can forget the limits" property
+ * held only inside `compression.ts`, while the bytes reaching *here* are the
+ * rawest in the pipeline, straight off an arbitrary remote host, before
+ * anything has decided they are an image at all.
+ *
+ * **The pixel limit is `MAX_MEASURE_PIXELS` (1 GP), not the 25 MP decode
+ * limit, and the difference is content that used to be lost.** A refusal here
+ * is not a downsize and not a retry: this function answers `null`,
+ * `fetchImageOutcome()` turns that into `NON_IMAGE_RESPONSE` -- a definitive
+ * "this is not an image" -- and the article's `contentHash` is then written,
+ * so the image is gone for the life of that source article with no repair
+ * path. Sharing `compression.ts`'s decode limit therefore dropped a 45 MP
+ * JPEG outright (5-20 MB, comfortably inside `MAX_IMAGE_FETCH_BYTES`) where
+ * it would previously have been fetched and stored. And it bought almost
+ * nothing in exchange: a `metadata()` read parses headers rather than pixels
+ * for every raster format, and measures even an SVG without rendering it, so
+ * the work here is O(1) in the declared dimensions either way. What earns its
+ * keep at this gate is `SHARP_TIMEOUT_SECONDS`, against a hostile SVG whose
+ * parse is unbounded. See both constants' comments in `./compression.ts`.
  */
 export async function validateImageDataWithSharp(
   imageData: Buffer,
 ): Promise<{ width: number | null; height: number | null; format: string } | null> {
   try {
-    const meta = await sharp(imageData, { limitInputPixels: MAX_INPUT_PIXELS })
+    const meta = await sharp(imageData, { limitInputPixels: MAX_MEASURE_PIXELS })
       .timeout({ seconds: SHARP_TIMEOUT_SECONDS })
       .metadata();
     if (!meta.format) return null;

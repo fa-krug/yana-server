@@ -3,7 +3,9 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * A tripwire over every `fetch()` in the aggregator tree.
+ * A tripwire over every `fetch()` a worker loop can reach -- see
+ * {@link SCAN_ROOTS} for which directories that is, and why the list is
+ * wider than "the aggregator tree".
  *
  * **Why this exists rather than a fourth hand-fix.** This review has now
  * closed the same "several call sites must each remember the same precaution"
@@ -41,8 +43,21 @@ import { describe, expect, it } from "vitest";
  * The two shapes seen in this tree are both honest: `AbortSignal.timeout(...)`,
  * which is never disarmed and so covers the body by construction, and a signal
  * handed down by `withDeadline()`.
+ *
+ * **Every root below is a directory a worker loop can reach, and the list is
+ * the part of this tripwire to distrust.** It scanned `src/lib/aggregators`
+ * alone at first, which reads as "the fetching code" and is not: `feeds/`
+ * carries `logo.ts`, whose three fetches run on the worker-executed
+ * `feed.logo` path, and whose sibling `sharp()` calls were unguarded for
+ * exactly the same "outside the scan directory" reason (see
+ * `../images/compression.test.ts`). Widening it here turned up no new
+ * offender -- all three of `logo.ts`'s fetches already pass a signal -- which
+ * is precisely why it had to be widened by inspection rather than by waiting
+ * for a failure.
  */
-const AGGREGATORS_DIR = path.join(process.cwd(), "src/lib/aggregators");
+const SCAN_ROOTS = ["src/lib/aggregators", "src/lib/feeds"].map((dir) =>
+  path.join(process.cwd(), dir),
+);
 
 /**
  * True when a `/` at `at` opens a regex literal rather than a division -- the
@@ -197,12 +212,13 @@ function undeadlinedIn(source: string, label: string): string[] {
     .map((site) => site.where);
 }
 
-describe("every fetch() in the aggregator tree carries a deadline", () => {
+describe("every fetch() a worker loop can reach carries a deadline", () => {
   it("finds the call sites at all, so a silent zero cannot pass", () => {
-    const sites = tsFilesUnder(AGGREGATORS_DIR).flatMap(fetchCallSites);
-    // Sixteen at the time of writing (seventeen call sites, one of which is
-    // in this scan's excluded test-support). A floor rather than an exact
-    // count, so a new bounded fetch need not edit this test.
+    const sites = SCAN_ROOTS.flatMap(tsFilesUnder).flatMap(fetchCallSites);
+    // Nineteen at the time of writing: sixteen under `aggregators/`
+    // (seventeen call sites, one of which is in this scan's excluded
+    // test-support) plus `feeds/logo.ts`'s three. A floor rather than an
+    // exact count, so a new bounded fetch need not edit this test.
     //
     // A drop below it means *look*, not necessarily "the scanner broke":
     // consolidating the five `sites/reddit/` fetches behind one helper would
@@ -210,11 +226,13 @@ describe("every fetch() in the aggregator tree carries a deadline", () => {
     // out is the failure mode that would otherwise read as green -- a scanner
     // that matches nothing at all, which is what a mis-lexed new syntax would
     // produce.
-    expect(sites.length).toBeGreaterThanOrEqual(16);
+    expect(sites.length).toBeGreaterThanOrEqual(19);
   });
 
   it("passes a signal at every one of them", () => {
-    const undeadlined = tsFilesUnder(AGGREGATORS_DIR).flatMap(fetchCallSites).filter(hasNoSignal);
+    const undeadlined = SCAN_ROOTS.flatMap(tsFilesUnder)
+      .flatMap(fetchCallSites)
+      .filter(hasNoSignal);
 
     expect(undeadlined.map((site) => site.where)).toEqual([]);
   });

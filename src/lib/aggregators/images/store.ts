@@ -114,7 +114,7 @@ export async function storeImageBytes(
   // null, and the `width !== null` guard below turned the check off entirely:
   // the 1x1 pixel this exists to refuse was stored instead. Probing the bytes
   // directly closes that, using the same `validateImageDataWithSharp()` the
-  // fetch path already runs (so the same `MAX_INPUT_PIXELS`/timeout limits
+  // fetch path already runs (so the same `MAX_MEASURE_PIXELS`/timeout limits
   // apply, and on the fetch path the header parse is one the bytes have
   // already survived once).
   if (width === null || height === null) {

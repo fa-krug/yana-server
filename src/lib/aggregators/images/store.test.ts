@@ -215,6 +215,35 @@ describe("image store", () => {
     expect(hash).not.toBeNull();
   });
 
+  // The decode limit's refusal is a *fallback*, not a drop: `compressImage()`
+  // returns null and the original bytes are stored un-resized. What changed
+  // when the measure limit was split off is the second half -- the dimension
+  // probe now succeeds on the same bytes, so the row records 6000x6000 instead
+  // of two nulls, which is also what makes the tracking-pixel check informed
+  // rather than skipped on this path.
+  it("stores an image past the decode limit as its original bytes, measured", async () => {
+    const big = await sharp({
+      create: { width: 6000, height: 6000, channels: 3, background: { r: 7, g: 8, b: 9 } },
+    })
+      .png({ compressionLevel: 1 })
+      .toBuffer();
+
+    const hash = await store.storeImageBytes(big, "image/png", { compress: true });
+    expect(hash).not.toBeNull();
+
+    const row = client
+      .getDb()
+      .select()
+      .from(articleImages)
+      .where(eq(articleImages.contentHash, hash!))
+      .get();
+    expect(row?.width).toBe(6000);
+    expect(row?.height).toBe(6000);
+    // Un-resized: the stored bytes are the original PNG, not a 600x600 webp.
+    expect(row?.contentType).toBe("image/png");
+    expect(row?.byteSize).toBe(big.length);
+  });
+
   it("storeBodyImageRefFromUrl returns NON_CONTENT_IMAGE for non-image responses or tracking pixels", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response("<html>Html</html>", {
