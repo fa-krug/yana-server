@@ -9,7 +9,6 @@ import {
   fixRedditMediaUrl,
   GenericImageStrategy,
   isRedditEmbedUrl,
-  RedditEmbedStrategy,
   RedditPostStrategy,
   YouTubeStrategy,
 } from "./strategies";
@@ -61,12 +60,6 @@ describe("Header Element Extraction", () => {
       expect(isRedditEmbedUrl("https://v.redd.it/embed/123")).toBe(true);
       expect(isRedditEmbedUrl("https://reddit.com/r/funny/comments/123")).toBe(false);
       expect(isRedditEmbedUrl("")).toBe(false);
-    });
-
-    it("RedditEmbedStrategy handles embed URLs", () => {
-      const strategy = new RedditEmbedStrategy();
-      expect(strategy.canHandle("https://vxreddit.com/r/funny/comments/123")).toBe(true);
-      expect(strategy.canHandle("https://reddit.com/r/funny/comments/123")).toBe(false);
     });
   });
 
@@ -156,11 +149,10 @@ describe("Header Element Extraction", () => {
   describe("HeaderElementExtractor", () => {
     it("has strategies in exact specified order", () => {
       const extractor = new HeaderElementExtractor();
-      expect(extractor.strategies).toHaveLength(4);
-      expect(extractor.strategies[0]).toBeInstanceOf(RedditEmbedStrategy);
-      expect(extractor.strategies[1]).toBeInstanceOf(RedditPostStrategy);
-      expect(extractor.strategies[2]).toBeInstanceOf(YouTubeStrategy);
-      expect(extractor.strategies[3]).toBeInstanceOf(GenericImageStrategy);
+      expect(extractor.strategies).toHaveLength(3);
+      expect(extractor.strategies[0]).toBeInstanceOf(RedditPostStrategy);
+      expect(extractor.strategies[1]).toBeInstanceOf(YouTubeStrategy);
+      expect(extractor.strategies[2]).toBeInstanceOf(GenericImageStrategy);
     });
 
     it("returns null for empty URL", async () => {
@@ -188,7 +180,7 @@ describe("Header Element Extraction", () => {
 
     it("re-throws ArticleSkipError when encountered in strategy", async () => {
       const extractor = new HeaderElementExtractor();
-      const mockStrategy = extractor.strategies[3]; // GenericImageStrategy
+      const mockStrategy = extractor.strategies[2]; // GenericImageStrategy
       vi.spyOn(mockStrategy, "canHandle").mockReturnValue(true);
       vi.spyOn(mockStrategy, "create").mockRejectedValue(
         new ArticleSkipError("Article skipped due to 404", 404),

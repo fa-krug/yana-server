@@ -210,7 +210,7 @@ function getAttr(element: Element, attrName: string): string {
   if (!element || !element.attribs) {
     return "";
   }
-  return element.attribs[attrName] || element.attribs[attrName.toLowerCase()] || "";
+  return element.attribs[attrName] || "";
 }
 
 function hasDirectContent(tag: Element): boolean {
@@ -219,11 +219,7 @@ function hasDirectContent(tag: Element): boolean {
     if (child.type === "tag" || Boolean((child as Element).name)) {
       return true;
     }
-    if (
-      child.type === "text" &&
-      !isNonTextString(child) &&
-      (child as Text).data.trim().length > 0
-    ) {
+    if (child.type === "text" && (child as Text).data.trim().length > 0) {
       return true;
     }
   }

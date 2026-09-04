@@ -189,7 +189,7 @@ export class FullWebsiteAggregator extends RssAggregator {
 
   getContentSelectors(): string[] {
     const options = this.feed.options || {};
-    const configured = options.content_selectors ?? options.contentSelectors;
+    const configured = options.content_selectors;
     if (configured) {
       const cleaned = this.cleanSelectorList(configured);
       if (cleaned.length > 0) {
@@ -201,7 +201,7 @@ export class FullWebsiteAggregator extends RssAggregator {
 
   getIgnoreSelectors(): string[] {
     const options = this.feed.options || {};
-    const configured = options.ignore_selectors ?? options.ignoreSelectors;
+    const configured = options.ignore_selectors;
     let removeList: string[];
     if (configured) {
       removeList = this.cleanSelectorList(configured);

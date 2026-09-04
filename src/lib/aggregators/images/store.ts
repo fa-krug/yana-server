@@ -28,13 +28,6 @@ const EXTENSIONS: Record<string, string> = {
   "image/vnd.microsoft.icon": "ico",
 };
 
-export class ImageHashCollisionError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ImageHashCollisionError";
-  }
-}
-
 /**
  * Return the yana-img:// reference for a stored image hash.
  */
@@ -117,12 +110,6 @@ export async function storeImageBytes(
     .get();
 
   if (existing) {
-    if (existing.byteSize !== data.length) {
-      throw new ImageHashCollisionError(
-        `${contentHash} already stores ${existing.byteSize} B, refusing to overwrite it with ${data.length} B`,
-      );
-    }
-
     const filePath = path.join(mediaRoot(), existing.file);
     try {
       await fs.stat(filePath);

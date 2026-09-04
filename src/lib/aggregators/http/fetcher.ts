@@ -54,31 +54,24 @@ async function readCapped(response: Response, url: string, maxBytes: number): Pr
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
 
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) {
-        totalBytes += value.byteLength;
-        if (totalBytes > maxBytes) {
-          try {
-            await reader.cancel();
-          } catch {
-            // Ignore stream cancel error
-          }
-          throw new ResponseTooLarge(
-            `Response from ${url} is too large: over ${maxBytes} bytes`,
-            url,
-          );
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        try {
+          await reader.cancel();
+        } catch {
+          // Ignore stream cancel error
         }
-        chunks.push(value);
+        throw new ResponseTooLarge(
+          `Response from ${url} is too large: over ${maxBytes} bytes`,
+          url,
+        );
       }
+      chunks.push(value);
     }
-  } catch (err) {
-    if (err instanceof ResponseTooLarge) {
-      throw err;
-    }
-    throw err;
   }
 
   const combined = new Uint8Array(totalBytes);
@@ -157,27 +150,11 @@ export async function fetchHtml(
       }
 
       if (!response.ok) {
-        const isDeterministic =
-          response.status >= 400 && response.status < 500 && response.status !== 429;
-        const err = new NetworkError(
+        throw new NetworkError(
           `HTTP ${response.status} ${response.statusText} fetching ${url}`,
           response.status,
           url,
         );
-
-        if (isDeterministic) {
-          throw err;
-        } else {
-          lastException = err;
-          if (attempt < retries - 1) {
-            const waitTime = Math.pow(2, attempt) * baseDelay;
-            if (waitTime > 0) {
-              await new Promise((resolve) => setTimeout(resolve, waitTime));
-            }
-            continue;
-          }
-          throw err;
-        }
       }
 
       const body = await readCapped(response, url, maxBytes);

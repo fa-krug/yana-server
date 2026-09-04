@@ -57,21 +57,6 @@ export async function fetchSubredditIcon(subreddit: string): Promise<string | nu
   }
 }
 
-export class RedditEmbedStrategy implements HeaderElementStrategy {
-  canHandle(url: string): boolean {
-    return isRedditEmbedUrl(url);
-  }
-
-  async create(context: HeaderElementContext): Promise<HeaderElementData | null> {
-    try {
-      const strategy = new GenericImageStrategy();
-      return await strategy.create(context);
-    } catch {
-      return null;
-    }
-  }
-}
-
 export class RedditPostStrategy implements HeaderElementStrategy {
   canHandle(url: string): boolean {
     if (isRedditEmbedUrl(url)) return false;

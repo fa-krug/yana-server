@@ -204,22 +204,22 @@ by the `_last_reloaded_video` branch above it (`:382-394`).
 
 ### Task 4: Small proven-dead removals
 
-- [ ] **`website.ts:108,120`** — `options.contentSelectors` /
+- [x] **`website.ts:108,120`** — `options.contentSelectors` /
       `options.ignoreSelectors` camelCase aliases. No spec declares them, and
       `schemaFor().strip()` + `stripUnavailable()` guarantee they can never be
       present. Only survive because `options` is `Record<string, unknown>`.
-- [ ] **`http/fetcher.ts:77-81`** — a `try/catch` whose two arms both
+- [x] **`http/fetcher.ts:77-81`** — a `try/catch` whose two arms both
       `throw err`. The entire block is a no-op.
-- [ ] **`http/fetcher.ts:167-181`** — the `else` branch sets `lastException`,
+- [x] **`http/fetcher.ts:167-181`** — the `else` branch sets `lastException`,
       backs off and `continue`s, then falls through to `throw err`, which the
       outer catch at `:186` handles with *identical* logic. Replace the whole
       `if/else` with a bare `throw err`; ~14 lines.
-- [ ] **`images/store.ts:31-36,120-124`** — `ImageHashCollisionError` fires when
+- [x] **`images/store.ts:31-36,120-124`** — `ImageHashCollisionError` fires when
       a hash matches but `byteSize` differs. Equal SHA-256 implies equal bytes
       implies equal length, so it is unreachable short of a genuine collision.
       It also throws out of `storeImageBytes` into callers that do not expect
       throws (`storeImageRefFromUrl` has no catch).
-- [ ] **`header/strategies.ts:68-75`** — delete `RedditEmbedStrategy`. Its
+- [x] **`header/strategies.ts:68-75`** — delete `RedditEmbedStrategy`. Its
       `create()` does nothing but call `new GenericImageStrategy().create(context)`
       in a bare `catch { return null }`. Since `GenericImageStrategy.canHandle`
       (`:147-152`) returns `false` only for non-embed `v.redd.it` URLs, every URL
@@ -230,9 +230,9 @@ by the `_last_reloaded_video` branch above it (`:382-394`).
       article. Its bare `catch` also **swallows `ArticleSkipError`**, which
       `GenericImageStrategy` deliberately rethrows (`:173`) and the extractor's
       contract requires (`extractor.test.ts:187`).
-- [ ] **`parser.ts:208`** — `getAttr` lowercases an attribute name every call
+- [x] **`parser.ts:208`** — `getAttr` lowercases an attribute name every call
       site already passes lowercase.
-- [ ] **`parser.ts:219,721`** — `child.type === "text" && !isNonTextString(child)`;
+- [x] **`parser.ts:219,721`** — `child.type === "text" && !isNonTextString(child)`;
       `isNonTextString` can never be true when `type === "text"`.
 
 ---

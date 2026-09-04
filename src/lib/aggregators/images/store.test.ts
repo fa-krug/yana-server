@@ -139,29 +139,6 @@ describe("image store", () => {
     expect(hash).toBeNull();
   });
 
-  it("throws ImageHashCollisionError if hash collision has different byte size", async () => {
-    const rawPixels = Buffer.alloc(200 * 200 * 3, 200);
-    const imagePng1 = await sharp(rawPixels, {
-      raw: { width: 200, height: 200, channels: 3 },
-    })
-      .png({ compressionLevel: 0 })
-      .toBuffer();
-
-    const hash = await store.storeImageBytes(imagePng1, "image/png", { compress: false });
-    expect(hash).not.toBeNull();
-
-    client
-      .getDb()
-      .update(articleImages)
-      .set({ byteSize: 999999 })
-      .where(eq(articleImages.contentHash, hash!))
-      .run();
-
-    await expect(
-      store.storeImageBytes(imagePng1, "image/png", { compress: false }),
-    ).rejects.toThrow(store.ImageHashCollisionError);
-  });
-
   it("storeBodyImageRefFromUrl returns NON_CONTENT_IMAGE for non-image responses or tracking pixels", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response("<html>Html</html>", {
