@@ -33,4 +33,4 @@
  *    arbitrary untrusted fragment the way script/style/object/embed/iframe
  *    are.
  */
-export const NEVER_CONTENT_TAGS = ["script", "style"];
+export const NEVER_CONTENT_TAGS = ["script", "style"] as const;

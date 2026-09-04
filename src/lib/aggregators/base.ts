@@ -36,8 +36,6 @@ export interface RawArticle {
 }
 
 export abstract class BaseAggregator {
-  static identifierField = "identifier";
-
   /**
    * Set by a subclass whose own content already **is** the header image (the
    * three comics) or that builds its header from richer data than a bare URL

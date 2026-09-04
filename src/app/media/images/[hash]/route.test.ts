@@ -219,6 +219,21 @@ describe("GET /media/images/[hash]", () => {
     expect(response.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
   });
 
+  it("normalizes a mixed-case hash before the ownership check, not after", async () => {
+    const cookie = await setupUserAndImage();
+    requestAs(cookie);
+
+    // Every URL in the app is built from a stored lower-case hash, so this is
+    // not reachable today -- it is a guard against the `.toLowerCase()`
+    // drifting *below* `ownsImageHash()`, which would 404 an upper-case URL
+    // for the caller who owns it while `HASH_PATTERN` (deliberately
+    // case-insensitive) still let it through.
+    const response = await get(VALID_HASH.toUpperCase());
+
+    expect(response.status).toBe(200);
+    expect(Buffer.from(await response.arrayBuffer()).equals(SAMPLE_BYTES)).toBe(true);
+  });
+
   it("refuses an unauthenticated request", async () => {
     await setupUserAndImage();
     requestHeaders.current = new Headers();

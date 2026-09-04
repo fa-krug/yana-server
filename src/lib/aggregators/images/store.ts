@@ -67,6 +67,14 @@ export async function storeImageBytes(
   imageBytes: Buffer,
   contentType: string,
   options?: {
+    /**
+     * Resize to `MAX_HEADER_IMAGE_*` (1200x1200) instead of `MAX_IMAGE_*`
+     * (600x600) -- see `./compression.ts`. That is the *only* thing this flag
+     * does. It is right for a video poster and wrong for an ordinary body
+     * photo; `localizeThumbnail()` in `../embeds/dailymotion.ts` carries the
+     * full argument, and a new embed provider deciding this should read it
+     * there rather than copy whichever neighbour it found first.
+     */
     isHeader?: boolean;
     compress?: boolean;
     maxDimensions?: { width: number; height: number };
@@ -224,6 +232,9 @@ export async function storeImageBytes(
  */
 export async function storeImageFromUrl(
   url: string,
+  // `isHeader` is a resize ceiling and nothing else -- see `storeImageBytes()`
+  // above, and `localizeThumbnail()` in `../embeds/dailymotion.ts` for when it
+  // is the right answer.
   options?: { isHeader?: boolean; maxDimensions?: { width: number; height: number } },
 ): Promise<string | null> {
   const fetched = await fetchSingleImage(url);
@@ -237,6 +248,9 @@ export async function storeImageFromUrl(
  */
 export async function storeImageRefFromUrl(
   url: string,
+  // `isHeader` is a resize ceiling and nothing else -- see `storeImageBytes()`
+  // above, and `localizeThumbnail()` in `../embeds/dailymotion.ts` for when it
+  // is the right answer.
   options?: { isHeader?: boolean; maxDimensions?: { width: number; height: number } },
 ): Promise<string | null> {
   const hash = await storeImageFromUrl(url, options);

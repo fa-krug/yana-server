@@ -55,9 +55,12 @@
  * - **`maxRetries` 0-10.** Zero is meaningful (do not retry). The ceiling used
  *   to be justified as "ten retries against a rate-limited provider is already
  *   an hour of `retryDelay`", which does not describe shipped behaviour twice
- *   over: `./run`'s back-off is *exponential* (`retryDelay * 2^attempt`, so
- *   ten of them at the maximum `retryDelay` would be days, not an hour), and
- *   above it sits an un-configurable 60-second budget -- `MAX_RETRY_TIME_SECONDS`
+ *   over: `./run`'s back-off is *exponential* (`retryDelay * 2^attempt`, so ten
+ *   of them at the maximum `retryDelay` of 60 s add up to
+ *   60 x (2^0 + ... + 2^9) = 61,380 s, about seventeen hours, of which the last
+ *   single wait is eight and a half -- not an hour, and not the "days" an
+ *   earlier version of this comment overshot to), and above it sits an
+ *   un-configurable 60-second budget -- `MAX_RETRY_TIME_SECONDS`
  *   there -- that refuses any wait which would carry the schedule past a
  *   minute. **The comment was the wrong half to keep, not the bound**, because
  *   that budget is only consulted when there is a wait to check: the guard is

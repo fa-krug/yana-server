@@ -44,8 +44,6 @@ export function safeCommentAvatarHtml(): string {
 }
 
 export class YouTubeAggregator extends BaseAggregator {
-  static identifierField = "youtube_channel";
-
   // processContent() below builds its own embed thumbnail via
   // localizeThumbnail(videoId) and never reads article.header_data -- the
   // generic header extractor's YouTubeStrategy would otherwise still run on

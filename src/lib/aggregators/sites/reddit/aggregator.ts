@@ -36,8 +36,6 @@ interface RedditSourceData {
 }
 
 export class RedditAggregator extends BaseAggregator {
-  static identifierField = "subreddit";
-
   // The real per-post header (video, YouTube-thumbnail facade, stored header
   // image) is built by processContent() below, from either finalizeArticles()'s
   // _reddit_* fields or fetchArticleContent()'s stashed instance state on

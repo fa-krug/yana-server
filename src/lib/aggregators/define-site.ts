@@ -98,7 +98,7 @@ export function defineSite(
 ): WebsiteAggregatorClass {
   const defaultIdentifier = defaultIdentifierFor(AGGREGATOR_SPECS[site.key]);
 
-  return class Site extends Base {
+  const Site = class extends Base {
     constructor(feed: ConstructorParameters<WebsiteAggregatorClass>[0]) {
       super(feed);
       // Assigned in the constructor body rather than as class fields, because
@@ -121,4 +121,14 @@ export function defineSite(
       return site.siteUrl;
     }
   };
+
+  // `scripts/aggregator.ts --info` walks the prototype chain and prints each
+  // layer's `.name`, and an anonymous mixin class made all eleven sites report
+  // a layer literally called `Site` -- the one thing that walk exists to
+  // disambiguate. `name` is configurable on a class, so give it the site's own
+  // key. Cosmetic to the runtime, load-bearing to the repo's own
+  // aggregator-debugging tool.
+  Object.defineProperty(Site, "name", { value: `${site.key}Site`, configurable: true });
+
+  return Site;
 }

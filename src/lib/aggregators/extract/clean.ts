@@ -164,8 +164,13 @@ export function resolveIfRelative(url: string, baseUrl: string): string {
  * Rewrite every relative `img[src]` and `a[href]` in `soup` to an absolute
  * URL against `baseUrl`. `caschys_blog.ts` and `mactechnews/aggregator.ts`
  * both used to carry this verbatim (identical apart from two comments);
- * `dark_legacy.ts` and `heise.ts` use `resolveIfRelative()` above for their
- * own narrower, single-value cases. `a[href]` additionally skips
+ * `dark_legacy.ts` uses `resolveIfRelative()` above for its own narrower,
+ * single-value case. (`heise.ts` deliberately does *not*, though it resolves
+ * three single URLs: each of its three sites wants a different answer when
+ * resolution fails -- `continue` to the next JSON-LD item, fall through to the
+ * next comment-link strategy, or keep the raw `href` -- where
+ * `resolveIfRelative()` has exactly one, "return the input untouched".)
+ * `a[href]` additionally skips
  * `mailto:`/`tel:`/`#` targets -- none of those want resolving against the
  * page's own URL, and an in-page `#anchor` would otherwise be rewritten into
  * a full URL rather than left as a same-page fragment. `oglaf.ts`'s CDN-path

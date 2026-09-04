@@ -32,9 +32,7 @@ import { TheVergeAggregator } from "./sites/the_verge";
 import { YouTubeAggregator } from "./sites/youtube/aggregator";
 import { FullWebsiteAggregator } from "./website";
 
-export type AggregatorClass = (new (feed: FeedLike) => BaseAggregator) & {
-  identifierField?: string;
-};
+export type AggregatorClass = new (feed: FeedLike) => BaseAggregator;
 
 export const IMPLEMENTED_AGGREGATORS: Record<string, AggregatorClass | undefined> = {
   feed_content: RssAggregator as unknown as AggregatorClass,

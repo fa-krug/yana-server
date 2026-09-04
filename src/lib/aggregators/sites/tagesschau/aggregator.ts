@@ -148,6 +148,15 @@ export class TagesschauAggregator extends defineSite(FullWebsiteAggregator, {
     try {
       const ref = await storeImageRefFromUrl(mediaHeader.imageUrl, { isHeader: true });
       if (ref) {
+        // A *string* replacement, which is safe here only because of what
+        // `ref` is: `yana-img://` plus 64 hex characters, so it cannot contain
+        // `$` and nothing in it can be read as a `$&`/`$1` substitution
+        // pattern. That is the same hazard `createYoutubeEmbedHtml()`
+        // (`../../extract/format.ts`) had to switch to a replacer *function*
+        // for, because its replacement was scraped caption markup. Anything
+        // that makes this replacement value less than fully controlled --
+        // falling back to the remote URL, splicing in a caption -- has to
+        // switch to `() => ref` at the same time.
         return mediaHeader.html.replace(escapeHtml(mediaHeader.imageUrl), ref);
       }
     } catch (err) {
