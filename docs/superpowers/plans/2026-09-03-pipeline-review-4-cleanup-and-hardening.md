@@ -339,7 +339,7 @@ These are **not** cleanup. Each changes behaviour on purpose.
       it the same ownership check. Guessing a SHA-256 is infeasible, but hashes
       are readable by anyone who can see a shared article's blocks.
 
-- [ ] **7b. Small SVGs are served verbatim, same-origin.** `store.ts` accepts
+- [x] **7b. Small SVGs are served verbatim, same-origin.** `store.ts` accepts
       `image/svg+xml` (`fetcher.ts:15`, `store.ts:25`), and `compressImage`
       (`compression.ts:40-58`) **skips re-encoding entirely below
       `MIN_IMAGE_SIZE`**, storing the original bytes and content type.

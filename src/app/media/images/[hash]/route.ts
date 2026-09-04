@@ -82,6 +82,24 @@ export async function GET(
       "Content-Type": row.contentType,
       "Content-Length": String(bytes.byteLength),
       "X-Content-Type-Options": "nosniff",
+      // Neutralizes the one class of stored bytes that is an *active
+      // document*. `compressImage()` skips re-encoding entirely below
+      // `MIN_IMAGE_SIZE` (`@/lib/aggregators/images/compression.ts`), so a
+      // sub-5 KB SVG from a source article's `og:image` -- attacker-supplied
+      // remote content -- is stored and served verbatim as `image/svg+xml`,
+      // and `nosniff` does not help because the declared type *is* SVG.
+      //
+      // An SVG referenced from an `<img>` tag never runs its script in any
+      // browser; script in SVG runs only on direct navigation or through
+      // `<object>`/`<iframe>`. So the vector is a user navigating straight to
+      // this URL, and this header closes exactly that while leaving `<img>`
+      // rendering, SVG feed logos and vector sharpness untouched. Refusing
+      // SVG outright would silently drop legitimate feed logos; rasterizing
+      // would add librsvg parsing of untrusted input as a *new* attack
+      // surface to remove one a response header already handles. And not
+      // `Content-Disposition: attachment`, which would break the inline
+      // `<img>` rendering this route exists for.
+      "Content-Security-Policy": "default-src 'none'; sandbox",
       // `private`, never `public`: the response is per-caller
       // access-controlled now, so `public` would license a shared cache or
       // intermediary to hand one user's article image to a caller this route

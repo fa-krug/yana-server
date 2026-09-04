@@ -206,6 +206,19 @@ describe("GET /media/images/[hash]", () => {
     expect(cacheControl).toBe("private, max-age=31536000, immutable");
   });
 
+  it("neutralizes a stored active document with a CSP", async () => {
+    const cookie = await setupUserAndImage();
+    requestAs(cookie);
+
+    // A sub-MIN_IMAGE_SIZE SVG is stored verbatim (compression.ts skips
+    // re-encoding), so the bytes this route serves can be an active document.
+    // An <img> tag never runs its script; direct navigation would, and this
+    // header is what closes that.
+    const response = await get(VALID_HASH);
+
+    expect(response.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
+  });
+
   it("refuses an unauthenticated request", async () => {
     await setupUserAndImage();
     requestHeaders.current = new Headers();

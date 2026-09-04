@@ -79,6 +79,13 @@ export async function GET(
         // Belt and braces behind that stored type, same reasoning as the
         // avatar route: never let a browser sniff its own content type.
         "X-Content-Type-Options": "nosniff",
+        // Same reasoning as `src/app/media/images/[hash]/route.ts`, which
+        // states it at length: a sub-`MIN_IMAGE_SIZE` SVG is stored and
+        // served verbatim, so these bytes can be an active document, and
+        // `requireApiUser()`'s cookie fallback makes this URL just as
+        // navigable from a browser as that one. A CSP closes the
+        // direct-navigation vector without touching `<img>` rendering.
+        "Content-Security-Policy": "default-src 'none'; sandbox",
         // Unlike the avatar route -- which explicitly declines caching until
         // it has a version token of its own -- this URL *is* the content
         // hash, so nothing can go stale under it. `private` because
