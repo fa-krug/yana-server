@@ -8,6 +8,7 @@ import {
   removeImageByUrl,
   sanitizeClassNames,
   sanitizeUntrustedFragment,
+  trimEdgeWhitespace,
 } from "../extract/clean";
 import { extractMainContentIfPresent } from "../extract/content";
 import { escapeHtml, formatArticleContent } from "../extract/format";
@@ -295,24 +296,7 @@ export class HeiseAggregator extends defineSite(FullWebsiteAggregator, {
       removeImageByUrl($, headerData.imageUrl);
     }
 
-    $("p, h1, h2, h3, h4, h5, h6, li").each((_, elem) => {
-      const contents = $(elem).contents();
-      const first = contents.first();
-      if (first.length > 0 && first.get(0)?.type === "text") {
-        const text = first.text();
-        if (/^\s+/.test(text)) {
-          first.replaceWith(text.replace(/^\s+/, ""));
-        }
-      }
-      const updatedContents = $(elem).contents();
-      const last = updatedContents.last();
-      if (last.length > 0 && last.get(0)?.type === "text") {
-        const text = last.text();
-        if (/\s+$/.test(text)) {
-          last.replaceWith(text.replace(/\s+$/, ""));
-        }
-      }
-    });
+    trimEdgeWhitespace($, "p, h1, h2, h3, h4, h5, h6, li");
 
     $(
       ".lable, .linkWrapper, .price, .prosHeadding, .prosText, .consHeadding, .consText, .expandTrigger, .title, h1, h2, h3, h4, h5, h6",

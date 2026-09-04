@@ -1,7 +1,7 @@
 import * as cheerio from "cheerio";
 import type { Element } from "domhandler";
 import { RawArticle } from "../base";
-import { absolutizeUrls } from "../extract/clean";
+import { absolutizeUrls, trimEdgeWhitespace } from "../extract/clean";
 import { defineSite } from "../define-site";
 import { FullWebsiteAggregator } from "../website";
 
@@ -156,24 +156,7 @@ export class CaschysBlogAggregator extends defineSite(FullWebsiteAggregator, {
     }
 
     // Clean up leading and trailing whitespace in all paragraphs
-    $("p").each((_, p) => {
-      const contents = $(p).contents();
-      const first = contents.first();
-      if (first.length > 0 && first.get(0)?.type === "text") {
-        const text = first.text();
-        if (/^\s+/.test(text)) {
-          first.replaceWith(text.replace(/^\s+/, ""));
-        }
-      }
-      const updatedContents = $(p).contents();
-      const last = updatedContents.last();
-      if (last.length > 0 && last.get(0)?.type === "text") {
-        const text = last.text();
-        if (/\s+$/.test(text)) {
-          last.replaceWith(text.replace(/\s+$/, ""));
-        }
-      }
-    });
+    trimEdgeWhitespace($, "p");
 
     return super.processContent($.html(), article);
   }

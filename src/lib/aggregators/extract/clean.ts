@@ -115,6 +115,33 @@ export function removeEmptyElements(soup: SoupOrSelection, tags: string[]): void
 }
 
 /**
+ * Strip leading whitespace from an element's first text child and trailing
+ * whitespace from its last, for every element `selector` matches --
+ * `merkur.ts` and `heise.ts` carried this byte-identical (down to the
+ * selector), and `caschys_blog.ts` the same body restricted to `p`.
+ */
+export function trimEdgeWhitespace($: cheerio.CheerioAPI, selector: string): void {
+  $(selector).each((_, elem) => {
+    const contents = $(elem).contents();
+    const first = contents.first();
+    if (first.length > 0 && first.get(0)?.type === "text") {
+      const text = first.text();
+      if (/^\s+/.test(text)) {
+        first.replaceWith(text.replace(/^\s+/, ""));
+      }
+    }
+    const updatedContents = $(elem).contents();
+    const last = updatedContents.last();
+    if (last.length > 0 && last.get(0)?.type === "text") {
+      const text = last.text();
+      if (/\s+$/.test(text)) {
+        last.replaceWith(text.replace(/\s+$/, ""));
+      }
+    }
+  });
+}
+
+/**
  * Resolve a possibly-relative URL against `baseUrl`, leaving it untouched
  * when it is already absolute (`http:`, `https:`) or a `data:` URI, or when
  * resolution fails. The single-value primitive behind `absolutizeUrls()`

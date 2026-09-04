@@ -4,6 +4,7 @@ import {
   removeEmptyElements,
   sanitizeHtmlAttributes,
   removeSanitizedAttributes,
+  trimEdgeWhitespace,
 } from "../extract/clean";
 import { extractMainContentIfPresent } from "../extract/content";
 import { YOUTUBE_IFRAME_KEEP_SELECTOR } from "../embeds/youtube-url";
@@ -91,24 +92,7 @@ export class MerkurAggregator extends defineSite(FullWebsiteAggregator, {
 
     removeSanitizedAttributes($);
 
-    $("p, h1, h2, h3, h4, h5, h6, li").each((_, elem) => {
-      const contents = $(elem).contents();
-      const first = contents.first();
-      if (first.length > 0 && first.get(0)?.type === "text") {
-        const text = first.text();
-        if (/^\s+/.test(text)) {
-          first.replaceWith(text.replace(/^\s+/, ""));
-        }
-      }
-      const updatedContents = $(elem).contents();
-      const last = updatedContents.last();
-      if (last.length > 0 && last.get(0)?.type === "text") {
-        const text = last.text();
-        if (/\s+$/.test(text)) {
-          last.replaceWith(text.replace(/\s+$/, ""));
-        }
-      }
-    });
+    trimEdgeWhitespace($, "p, h1, h2, h3, h4, h5, h6, li");
 
     return super.processContent($.html(), article);
   }
