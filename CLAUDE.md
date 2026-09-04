@@ -1536,12 +1536,18 @@ markup}</div></blockquote>` shape the builder's non-`multiline` branch
   constructor chain and comparing the `${key}Site` layer's name back against
   the registry key (that rename exists for `scripts/aggregator.ts --info`, and
   the test pins it and the join together).
-  **It collapses declaration only.** A site that overrides `extractContent`,
-  `processContent`, `enrichArticles`, `fetchArticleContent` or
-  `sourceTitleFrom` keeps doing so in its own class body, extending the class
-  `defineSite()` returns — heise, mein_mmo, mactechnews and tagesschau all do,
-  and that genuine per-site behaviour is what this helper deliberately does
-  _not_ try to express. One consequence worth knowing before adding a site:
+  **It collapses declaration only, and overriding is the norm rather than the
+  exception — all eleven sites override something.** `processContent` is
+  overridden by nine of them (every site except `ars_technica` and
+  `the_verge`), `sourceTitleFrom` by eight (every site except the three comics
+  `oglaf`, `explosm` and `dark_legacy`, which have no headline distinct from
+  the feed's), and `extractContent` / `fetchArticleContent` / `enrichArticles`
+  / `filterArticles` by the handful that reshape extraction or fetching
+  (`heise`, `mein_mmo`, `mactechnews`, `tagesschau`, `merkur`,
+  `caschys_blog`). Each keeps doing so in its own class body, extending the
+  class `defineSite()` returns. **So do not read this helper as covering a
+  site's behaviour** — it covers the scaffolding, and the genuine per-site
+  behaviour is precisely what it deliberately does _not_ try to express. One consequence worth knowing before adding a site:
   `remove` **replaces** the base list rather than extending it, so a site that
   wants `IFRAME_SANITIZE_SELECTOR` has to name it, and only three of the eleven
   (`the_verge`, `ars_technica`, `tagesschau`) do.
@@ -2308,10 +2314,17 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
 
   **That rule is not avatar-specific, and it holds in three files with two
   different numbers.** Every sharp pipeline fed bytes from somewhere else
-  carries a pixel limit _and_ a timeout, applied inside a private
-  `sharpInput()` helper so no call site can omit one:
-  `src/lib/aggregators/images/compression.ts`,
-  `src/lib/aggregators/images/fetcher.ts` and `src/lib/feeds/logo.ts`. The
+  carries a pixel limit _and_ a timeout. **Two of the three files apply them
+  through a private `sharpInput()` helper, so no call site in those modules
+  can omit one** — `src/lib/aggregators/images/compression.ts` and
+  `src/lib/feeds/logo.ts`. The third, `src/lib/aggregators/images/fetcher.ts`,
+  applies **both inline** in `validateImageDataWithSharp()`, and has to: a
+  helper private to `compression.ts` cannot reach a call in another module, and
+  that function is the _first_ sharp call a fetched image hits, so it cannot
+  wait for one. Do not "simplify" those two inline arguments away on the belief
+  that a helper is covering them — nothing is. **That asymmetry is exactly why
+  the tripwire scans all three files rather than trusting the helper**, and it
+  is what the helper's own doc comment in `compression.ts` says. The
   numbers differ because the _cost of refusing_ differs, and that is the part
   to get right rather than to unify. **`MAX_DECODE_PIXELS` (25 MP) is for a
   pipeline that actually decodes**, sized against concurrency and not against
@@ -2322,14 +2335,30 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   bytes un-resized, so the limit is a fallback-to-unbounded-bytes rather than a
   refusal. **`MAX_MEASURE_PIXELS` (1 GP) is for a gate that only measures** —
   `validateImageDataWithSharp()` — where a `metadata()` read parses headers
-  rather than pixels for every raster format and does not even render an SVG
-  (measured: a 40000×25000 SVG measures in ~1 ms with no RSS change), so a low
-  pixel limit buys almost nothing and the `.timeout()` is what guards librsvg
-  against a hostile SVG. Sharing the 25 MP number there was **permanent content
+  rather than pixels for every raster format and does not even render an SVG.
+  **The measured property is that the cost is _flat_ in the declared
+  dimensions, not that it is zero**: sweeping a synthetic SVG from 0.01 MP to
+  1000 MP costs 0.6–0.7 ms and ~0.1 MB of RSS at every size, and a _cold_ first
+  call costs 5–8 ms and +2.5–3.2 MB — librsvg's one-time initialisation, paid
+  once per process and not proportional to the declaration. (An earlier version
+  of this paragraph said "~1 ms with no RSS change", which was the warm figure
+  reported as if it were the only one; a reviewer measuring the cold path got
+  9 ms and +3.1 MB and was right to.) So a low pixel limit buys almost nothing
+  here and the `.timeout()` is what guards librsvg against a hostile SVG. Sharing the 25 MP number there was **permanent content
   loss**, not a downsize: that gate answers `NON_IMAGE_RESPONSE`, a definitive
   "this is not an image", after which the article's `contentHash` is written
   and a 45 MP press JPEG (well inside `MAX_IMAGE_FETCH_BYTES`) is gone for the
   life of that source article with no repair path.
+  **One consequence of the higher ceiling is worth stating rather than
+  discovering: it widens the storable and servable _SVG_ declared-dimension
+  range from ≤25 MP to ≤1 GP.** An SVG declaring more than 25 MP used to answer
+  `NON_IMAGE_RESPONSE`; it is now admitted, refused by `compressImage()`, and
+  stored and served as the original `image/svg+xml`. Accepted, and the reasons
+  are the same three: nothing on the server decodes it (the measure read is
+  flat, per above), the unchanged 10 s parse timeout is the real SVG guard, and
+  a browser rasterizes at display size rather than at the declared one. What
+  would change that judgement is any future path that _renders_ a stored SVG
+  server-side.
   **Both halves of this were found by widening a tripwire, not by it firing.**
   `compression.test.ts` asserts the limits against the _source_ of those three
   files, and it scanned only `aggregators/images/` — which is exactly how
@@ -2340,6 +2369,15 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   ever as wide as its file list, so the file list is the part to distrust** —
   adding a sharp call or a worker-reachable `fetch()` outside those roots means
   adding the root, because nothing else will tell you.
+  **And know what the sharp one does not prove: it accepts _either_ named pixel
+  limit, so it checks that two limits are applied, never that they are the
+  _right_ two.** A new call that genuinely decodes but was written with
+  `MAX_MEASURE_PIXELS` passes it silently, at 1 GP — which is 40x the memory
+  budget the decode limit exists to hold. Tightening it (accept
+  `MAX_MEASURE_PIXELS` only where the call's tail is `.metadata()`) is a known
+  follow-up, deliberately not built; until it is, which limit a new pipeline
+  reads is a review obligation, and the two constants' own doc comments are
+  what decides it.
 
 - **An avatar upload is size-checked in three places, and none of them is
   redundant.** In order: the client (`profile-section.tsx`) refuses by

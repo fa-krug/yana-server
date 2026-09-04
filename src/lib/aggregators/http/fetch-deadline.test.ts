@@ -215,10 +215,13 @@ function undeadlinedIn(source: string, label: string): string[] {
 describe("every fetch() a worker loop can reach carries a deadline", () => {
   it("finds the call sites at all, so a silent zero cannot pass", () => {
     const sites = SCAN_ROOTS.flatMap(tsFilesUnder).flatMap(fetchCallSites);
-    // Nineteen at the time of writing: sixteen under `aggregators/`
-    // (seventeen call sites, one of which is in this scan's excluded
-    // test-support) plus `feeds/logo.ts`'s three. A floor rather than an
-    // exact count, so a new bounded fetch need not edit this test.
+    // Twenty at the time of writing: seventeen under `aggregators/` plus
+    // `feeds/logo.ts`'s three. Counted by running this scanner and reading
+    // what it returned, not by adding three to the previous comment -- which
+    // is how "sixteen" survived here after that number had stopped being
+    // true. A floor rather than an exact count, so a new bounded fetch need
+    // not edit this test; it stays at 19 rather than tracking 20 for the same
+    // reason.
     //
     // A drop below it means *look*, not necessarily "the scanner broke":
     // consolidating the five `sites/reddit/` fetches behind one helper would

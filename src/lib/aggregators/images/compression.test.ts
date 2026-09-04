@@ -176,6 +176,15 @@ describe("compressImage", () => {
   // `MAX_DECODE_PIXELS` (see both constants). What is enforced is that a
   // pixel limit and a timeout are applied at all, never which number -- the
   // numbers themselves are pinned separately at the bottom of this test.
+  //
+  // **That is a recorded residual, not a property.** A new call that genuinely
+  // decodes but was written with `MAX_MEASURE_PIXELS` passes this test
+  // silently, at 1 GP -- forty times the memory budget `MAX_DECODE_PIXELS`
+  // exists to hold, on a path where sixteen can run at once. The tightening is
+  // known and deliberately not built: accept `MAX_MEASURE_PIXELS` only when
+  // the matched call's tail is `.metadata()`, which is the one shape that
+  // provably does not decode. Until then, which limit a new pipeline reads is
+  // a review obligation.
   it("applies both sharp resource limits to every call fed caller-supplied bytes", () => {
     /** Comments name these calls in prose; only real code counts. */
     function stripComments(source: string): string {
