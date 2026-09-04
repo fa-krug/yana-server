@@ -1,6 +1,11 @@
 import * as cheerio from "cheerio";
 import { RawArticle } from "../../base";
-import { cleanHtml, removeImageByUrl, sanitizeClassNames } from "../../extract/clean";
+import {
+  absolutizeUrls,
+  cleanHtml,
+  removeImageByUrl,
+  sanitizeClassNames,
+} from "../../extract/clean";
 import { formatArticleContent } from "../../extract/format";
 import { getHeaderImageRef } from "../../header/context";
 import { defineSite } from "../../define-site";
@@ -119,43 +124,8 @@ export class MactechnewsAggregator extends defineSite(FullWebsiteAggregator, {
       }
     }
 
-    // Resolve relative URLs for images
-    $("img").each((_, img) => {
-      const $img = $(img);
-      const src = $img.attr("src");
-      if (
-        src &&
-        !src.startsWith("http://") &&
-        !src.startsWith("https://") &&
-        !src.startsWith("data:")
-      ) {
-        try {
-          $img.attr("src", new URL(src, baseUrl).toString());
-        } catch {
-          // ignore
-        }
-      }
-    });
-
-    // Resolve relative URLs for links
-    $("a").each((_, a) => {
-      const $a = $(a);
-      const href = $a.attr("href");
-      if (
-        href &&
-        !href.startsWith("http://") &&
-        !href.startsWith("https://") &&
-        !href.startsWith("mailto:") &&
-        !href.startsWith("tel:") &&
-        !href.startsWith("#")
-      ) {
-        try {
-          $a.attr("href", new URL(href, baseUrl).toString());
-        } catch {
-          // ignore
-        }
-      }
-    });
+    // Resolve relative image and link URLs
+    absolutizeUrls($, baseUrl);
 
     // Replace YouTube iframes with click-through facades
     await proxyYoutubeEmbeds($, labels);

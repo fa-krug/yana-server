@@ -1,8 +1,7 @@
 import * as cheerio from "cheerio";
 import { RawArticle } from "../base";
-import { isSafeUrl } from "../blocks/parser";
 import { escapeHtml } from "../extract/format";
-import { storeImageRefFromUrl } from "../images/store";
+import { COMIC_CAPTION_STYLE, resolveComicImageSrc, wantsComicAltText } from "./comic-support";
 import { defineSite } from "../define-site";
 import { FullWebsiteAggregator } from "../website";
 
@@ -29,8 +28,7 @@ export class ExplosmAggregator extends defineSite(FullWebsiteAggregator, {
   static suppressesHeaderExtraction = true;
 
   override async processContent(htmlContent: string, article: RawArticle): Promise<string> {
-    const options = (this.feed.options as Record<string, unknown> | null) || {};
-    const showAltText = options.show_alt_text !== false;
+    const showAltText = wantsComicAltText(this.feed);
 
     const $ = cheerio.load(htmlContent);
 
@@ -54,11 +52,9 @@ export class ExplosmAggregator extends defineSite(FullWebsiteAggregator, {
 
     let newHtml = htmlContent;
     if (comicImgSrc) {
-      let imgSrc = comicImgSrc;
-      if (isSafeUrl(comicImgSrc)) {
-        const ref = await storeImageRefFromUrl(comicImgSrc);
-        imgSrc = ref || comicImgSrc;
-      }
+      // No maxDimensions override here -- explosm's strips are fine under the
+      // default 600x600 body-image cap; see comic-support.ts.
+      const imgSrc = await resolveComicImageSrc(comicImgSrc);
 
       let builder = "<div>";
       builder += `<img src="${escapeHtml(imgSrc)}"`;
@@ -68,7 +64,7 @@ export class ExplosmAggregator extends defineSite(FullWebsiteAggregator, {
       builder += ">";
 
       if (showAltText && comicImgAlt) {
-        builder += `<p style="font-style: italic; margin-top: 1em; color: #666; text-align: center;">${escapeHtml(
+        builder += `<p style="${COMIC_CAPTION_STYLE} text-align: center;">${escapeHtml(
           comicImgAlt,
         )}</p>`;
       }

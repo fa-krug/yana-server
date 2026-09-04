@@ -1,15 +1,15 @@
 import * as cheerio from "cheerio";
 import { RawArticle } from "../base";
-import { isSafeUrl } from "../blocks/parser";
+import { resolveIfRelative } from "../extract/clean";
 import { escapeHtml } from "../extract/format";
-import { storeImageRefFromUrl } from "../images/store";
+import {
+  COMIC_CAPTION_STYLE,
+  COMIC_MAX_DIMENSIONS,
+  resolveComicImageSrc,
+  wantsComicAltText,
+} from "./comic-support";
 import { defineSite } from "../define-site";
 import { FullWebsiteAggregator } from "../website";
-
-// Comics here are tall vertical strips; the default 600x600 body-image cap
-// (src/lib/aggregators/images/compression.ts) crushes them down to an
-// unreadable width. This aggregator alone gets a taller ceiling.
-const COMIC_MAX_DIMENSIONS = { width: 1600, height: 4800 };
 
 export class DarkLegacyAggregator extends defineSite(FullWebsiteAggregator, {
   key: "dark_legacy",
@@ -23,8 +23,7 @@ export class DarkLegacyAggregator extends defineSite(FullWebsiteAggregator, {
   static suppressesHeaderExtraction = true;
 
   override async processContent(htmlContent: string, article: RawArticle): Promise<string> {
-    const options = (this.feed.options as Record<string, unknown> | null) || {};
-    const showAltText = options.show_alt_text !== false;
+    const showAltText = wantsComicAltText(this.feed);
 
     const $ = cheerio.load(htmlContent);
     const images = $("img").toArray();
@@ -37,25 +36,8 @@ export class DarkLegacyAggregator extends defineSite(FullWebsiteAggregator, {
       // awaited, and a comic page can carry more than one image.
       for (const imgEl of images) {
         const $img = $(imgEl);
-        let src = ($img.attr("src") || "").trim();
-        if (
-          src &&
-          !src.startsWith("http://") &&
-          !src.startsWith("https://") &&
-          !src.startsWith("data:")
-        ) {
-          try {
-            src = new URL(src, article.identifier).href;
-          } catch {
-            // Keep original src if URL resolution fails
-          }
-        }
-
-        let imgSrc = src;
-        if (isSafeUrl(src)) {
-          const ref = await storeImageRefFromUrl(src, { maxDimensions: COMIC_MAX_DIMENSIONS });
-          imgSrc = ref || src;
-        }
+        const src = resolveIfRelative(($img.attr("src") || "").trim(), article.identifier);
+        const imgSrc = await resolveComicImageSrc(src, { maxDimensions: COMIC_MAX_DIMENSIONS });
 
         const alt = $img.attr("alt");
         const altText = alt !== undefined && alt !== null && alt !== "" ? alt : "";
@@ -67,7 +49,7 @@ export class DarkLegacyAggregator extends defineSite(FullWebsiteAggregator, {
         htmlBuilder += ">";
 
         if (showAltText && altText) {
-          htmlBuilder += `<p style="font-style: italic; margin-top: 1em; color: #666; text-align: center;">${escapeHtml(altText)}</p>`;
+          htmlBuilder += `<p style="${COMIC_CAPTION_STYLE} text-align: center;">${escapeHtml(altText)}</p>`;
         }
       }
       htmlBuilder += "</div>";

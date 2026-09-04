@@ -115,6 +115,54 @@ export function removeEmptyElements(soup: SoupOrSelection, tags: string[]): void
 }
 
 /**
+ * Resolve a possibly-relative URL against `baseUrl`, leaving it untouched
+ * when it is already absolute (`http:`, `https:`) or a `data:` URI, or when
+ * resolution fails. The single-value primitive behind `absolutizeUrls()`
+ * below -- also used directly by `dark_legacy.ts`, which resolves one image
+ * `src` at a time rather than walking a whole document.
+ */
+export function resolveIfRelative(url: string, baseUrl: string): string {
+  if (!url || url.startsWith("http://") || url.startsWith("https://") || url.startsWith("data:")) {
+    return url;
+  }
+  try {
+    return new URL(url, baseUrl).toString();
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Rewrite every relative `img[src]` and `a[href]` in `soup` to an absolute
+ * URL against `baseUrl`. `caschys_blog.ts` and `mactechnews/aggregator.ts`
+ * both used to carry this verbatim (identical apart from two comments);
+ * `dark_legacy.ts` and `heise.ts` use `resolveIfRelative()` above for their
+ * own narrower, single-value cases. `a[href]` additionally skips
+ * `mailto:`/`tel:`/`#` targets -- none of those want resolving against the
+ * page's own URL, and an in-page `#anchor` would otherwise be rewritten into
+ * a full URL rather than left as a same-page fragment. `oglaf.ts`'s CDN-path
+ * rule for a bare comic filename (not a relative *URL*) is site-specific
+ * enough to stay where it is.
+ */
+export function absolutizeUrls($: cheerio.CheerioAPI, baseUrl: string): void {
+  $("img").each((_, img) => {
+    const $img = $(img);
+    const src = $img.attr("src");
+    if (src) {
+      $img.attr("src", resolveIfRelative(src, baseUrl));
+    }
+  });
+
+  $("a").each((_, a) => {
+    const $a = $(a);
+    const href = $a.attr("href");
+    if (href && !href.startsWith("mailto:") && !href.startsWith("tel:") && !href.startsWith("#")) {
+      $a.attr("href", resolveIfRelative(href, baseUrl));
+    }
+  });
+}
+
+/**
  * Remove data attributes except those in the keep list.
  */
 export function cleanDataAttributes(

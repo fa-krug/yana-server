@@ -3,14 +3,9 @@ import { RawArticle } from "../base";
 import { isSafeUrl } from "../blocks/parser";
 import { escapeHtml, formatArticleContent } from "../extract/format";
 import { storeImageRefFromUrl } from "../images/store";
+import { COMIC_CAPTION_STYLE, COMIC_MAX_DIMENSIONS, wantsComicAltText } from "./comic-support";
 import { defineSite } from "../define-site";
 import { FullWebsiteAggregator } from "../website";
-
-// A comic panel is the whole article; the default 600x600 body-image cap
-// (src/lib/aggregators/images/compression.ts) shrinks Oglaf's ~800-1000px
-// strips until the lettering stops being readable. Same ceiling as
-// dark_legacy.ts, which is here for the same reason.
-const COMIC_MAX_DIMENSIONS = { width: 1600, height: 4800 };
 
 export class OglafAggregator extends defineSite(FullWebsiteAggregator, {
   key: "oglaf",
@@ -25,8 +20,7 @@ export class OglafAggregator extends defineSite(FullWebsiteAggregator, {
 
   override async processContent(htmlContent: string, article: RawArticle): Promise<string> {
     const labels = await this.chromeLabels();
-    const options = (this.feed.options as Record<string, unknown> | null) || {};
-    const showAltText = options.show_alt_text !== false;
+    const showAltText = wantsComicAltText(this.feed);
 
     const $ = cheerio.load(htmlContent);
 
@@ -66,7 +60,7 @@ export class OglafAggregator extends defineSite(FullWebsiteAggregator, {
         newHtml += `<img src="${imgSrc}" alt="${altText}" style="max-width: 100%; height: auto;">`;
       }
       if (showAltText && jokeText) {
-        newHtml += `<figcaption style="font-style: italic; margin-top: 1em; color: #666;">${jokeText}</figcaption>`;
+        newHtml += `<figcaption style="${COMIC_CAPTION_STYLE}">${jokeText}</figcaption>`;
       }
       newHtml += "</figure>";
     } else {

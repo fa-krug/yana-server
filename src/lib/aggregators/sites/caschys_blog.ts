@@ -1,6 +1,7 @@
 import * as cheerio from "cheerio";
 import type { Element } from "domhandler";
 import { RawArticle } from "../base";
+import { absolutizeUrls } from "../extract/clean";
 import { defineSite } from "../define-site";
 import { FullWebsiteAggregator } from "../website";
 
@@ -54,43 +55,8 @@ export class CaschysBlogAggregator extends defineSite(FullWebsiteAggregator, {
       }
     });
 
-    // Resolve relative URLs for images
-    $("img").each((_, img) => {
-      const $img = $(img);
-      const src = $img.attr("src");
-      if (
-        src &&
-        !src.startsWith("http://") &&
-        !src.startsWith("https://") &&
-        !src.startsWith("data:")
-      ) {
-        try {
-          $img.attr("src", new URL(src, baseUrl).toString());
-        } catch {
-          // ignore invalid URLs
-        }
-      }
-    });
-
-    // Resolve relative URLs for links
-    $("a").each((_, a) => {
-      const $a = $(a);
-      const href = $a.attr("href");
-      if (
-        href &&
-        !href.startsWith("http://") &&
-        !href.startsWith("https://") &&
-        !href.startsWith("mailto:") &&
-        !href.startsWith("tel:") &&
-        !href.startsWith("#")
-      ) {
-        try {
-          $a.attr("href", new URL(href, baseUrl).toString());
-        } catch {
-          // ignore invalid URLs
-        }
-      }
-    });
+    // Resolve relative image and link URLs
+    absolutizeUrls($, baseUrl);
 
     // Remove first image if we have a header image (avoid duplication)
     if (article.header_data) {
