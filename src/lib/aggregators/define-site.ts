@@ -72,8 +72,13 @@ export interface SiteDefinition {
   /**
    * Selectors stripped from the extracted body. Replaces the base list
    * outright rather than extending it (which is what the `protected` field it
-   * feeds always did); a site that wants the base class's own
-   * `IFRAME_SANITIZE_SELECTOR` names it, as most of them already do.
+   * feeds always did) -- so a site that wants the base class's own
+   * `IFRAME_SANITIZE_SELECTOR` has to name it, and **only three of the eleven
+   * do** (`the_verge`, `ars_technica`, `tagesschau`). The other eight
+   * therefore do not strip it, which is the pre-existing behaviour of the
+   * hand-written `protected selectorsToRemove` this replaced, not something
+   * this helper introduced. Worth knowing before assuming a new site inherits
+   * it.
    */
   remove?: string[];
   /** `usesFirstContentMatch`: take only the first matching container. */

@@ -519,18 +519,24 @@ Ticking 7e as done while it stands invites the reading that the class is closed.
       raw source -- read raw, a `// no signal needed, fixed host` inside the
       init turned the check green, which is worse than no check; four negative
       controls in the test pin that.
-- [x] **Residual, recorded not fixed: twelve uncapped fetch sites.** Nine have
-      an honest body-covering deadline (`AbortSignal.timeout(...)`, never
-      disarmed) and only lack a size cap: `search.ts` x3, the five
-      `sites/reddit/` reads, `embeds/bluesky.ts` x2. Three more are in
-      **`src/lib/feeds/logo.ts`**, outside the tripwire's scan directory and on
-      the worker-executed `feed.logo` path: its three hand-rolled controller +
+- [x] **Residual, recorded not fixed: uncapped response-body reads.** Counted
+      per location rather than as one total, because the earlier total said
+      "twelve" over a list of thirteen and a "Nine" heading over ten items.
+      **Ten** have an honest body-covering deadline
+      (`AbortSignal.timeout(...)`, never disarmed) and only lack a size cap:
+      `search.ts` x3 (all via `readJson`), the five `sites/reddit/` reads, and
+      `embeds/bluesky.ts` x2. **Three more** are in
+      **`src/lib/feeds/logo.ts`**, outside the tripwire's scan directory at the
+      time and on the worker-executed `feed.logo` path: its three hand-rolled controller +
       timer pairs are *not* a fifth instance of this task's defect (all three
       `clearTimeout`s are in `finally` blocks below their body reads) but all
       three read bodies uncapped -- `response.arrayBuffer()` then measure,
       which is exactly the "buffered before it is measured" hazard 7e fixed,
       plus a bare `res.text()` and a bare `res.json()`. Left for a later task;
-      the fix is one `readCapped*` call per site.
+      the fix is one `readCapped*` call per site. `logo.ts` is inside the
+      deadline tripwire's scan roots as of the review-4 final fix wave, so a
+      *new* undeadlined fetch there now fails a test -- the missing size caps
+      are unchanged and still uncapped.
 
 ## Done criteria
 

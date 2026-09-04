@@ -1511,6 +1511,41 @@ markup}</div></blockquote>` shape the builder's non-`multiline` branch
   logged through `onLog` (so it reaches `/jobs/<id>`) and degrades to `null`:
   the same "skip rather than break the article" behaviour, minus the silence.
 
+- **A per-site aggregator is a _declaration_ too — `defineSite()` in
+  `src/lib/aggregators/define-site.ts`, which 11 of the 16 registered
+  aggregators are built on.** It is the answer to "how do I add a site", and
+  it is the shape `defineIntegration()` established, applied to the six lines
+  of scaffolding every `sites/*.ts` module used to repeat verbatim. A
+  declaration names its `key`, its `siteUrl`, its two selector lists and
+  `firstMatchOnly`; the helper derives the rest — the constructor's **default
+  identifier** from `specs.ts` via `defaultIdentifierFor()`, `getSourceUrl()`
+  from `siteUrl`, and **both selector pairs from one list each**, where a site
+  used to write a `static` and a `protected` copy of the same array with no
+  reader for the static half. The module's own doc comment is the full
+  argument for each of those, including why there is no `defaultFeed` option
+  and why `firstMatchOnly` is required rather than defaulted; read it there
+  rather than here.
+  **`key: AggregatorKey` is the compiler-checked join into `specs.ts`, and it
+  is the only one** — the default feed URL lives in `specs.ts` and nowhere
+  else, so there is no second source of truth to drift. What the compiler
+  cannot check is that the key a site _declares_ is the key `registry.ts`
+  _files it under_: both are valid `AggregatorKey`s, so a copy-pasted `key:`
+  typechecks and silently gives one site another's default feed URL.
+  `registry.test.ts`'s "files each defineSite() class under the same key it
+  declares" is what catches that, by walking each registered class's
+  constructor chain and comparing the `${key}Site` layer's name back against
+  the registry key (that rename exists for `scripts/aggregator.ts --info`, and
+  the test pins it and the join together).
+  **It collapses declaration only.** A site that overrides `extractContent`,
+  `processContent`, `enrichArticles`, `fetchArticleContent` or
+  `sourceTitleFrom` keeps doing so in its own class body, extending the class
+  `defineSite()` returns — heise, mein_mmo, mactechnews and tagesschau all do,
+  and that genuine per-site behaviour is what this helper deliberately does
+  _not_ try to express. One consequence worth knowing before adding a site:
+  `remove` **replaces** the base list rather than extending it, so a site that
+  wants `IFRAME_SANITIZE_SELECTOR` has to name it, and only three of the eleven
+  (`the_verge`, `ars_technica`, `tagesschau`) do.
+
 - **A paginated article is fetched by one function, and it hands back _two_
   things because one of them is the page a comment extractor needs.**
   `fetchAllPages()` in `src/lib/aggregators/multipage.ts` returns
@@ -2270,6 +2305,42 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   `avatar-storage` — while `processAvatar()` still applies them. A rejection
   message must **name the megapixel limit**; "processing failed" is the message
   this arrangement exists to prevent.
+
+  **That rule is not avatar-specific, and it holds in three files with two
+  different numbers.** Every sharp pipeline fed bytes from somewhere else
+  carries a pixel limit _and_ a timeout, applied inside a private
+  `sharpInput()` helper so no call site can omit one:
+  `src/lib/aggregators/images/compression.ts`,
+  `src/lib/aggregators/images/fetcher.ts` and `src/lib/feeds/logo.ts`. The
+  numbers differ because the _cost of refusing_ differs, and that is the part
+  to get right rather than to unify. **`MAX_DECODE_PIXELS` (25 MP) is for a
+  pipeline that actually decodes**, sized against concurrency and not against
+  one image: 25 MP is ~100 MB of RGBA and `feeds.concurrency` (4) ×
+  `WORKER_CONCURRENCY` (4) means up to sixteen at once, so it is really a
+  ~1.6 GB ceiling and 100 MP would be ~6.4 GB. Refusing there is cheap —
+  `compressImage()` returns `null` and `storeImageBytes()` stores the original
+  bytes un-resized, so the limit is a fallback-to-unbounded-bytes rather than a
+  refusal. **`MAX_MEASURE_PIXELS` (1 GP) is for a gate that only measures** —
+  `validateImageDataWithSharp()` — where a `metadata()` read parses headers
+  rather than pixels for every raster format and does not even render an SVG
+  (measured: a 40000×25000 SVG measures in ~1 ms with no RSS change), so a low
+  pixel limit buys almost nothing and the `.timeout()` is what guards librsvg
+  against a hostile SVG. Sharing the 25 MP number there was **permanent content
+  loss**, not a downsize: that gate answers `NON_IMAGE_RESPONSE`, a definitive
+  "this is not an image", after which the article's `contentHash` is written
+  and a 45 MP press JPEG (well inside `MAX_IMAGE_FETCH_BYTES`) is gone for the
+  life of that source article with no repair path.
+  **Both halves of this were found by widening a tripwire, not by it firing.**
+  `compression.test.ts` asserts the limits against the _source_ of those three
+  files, and it scanned only `aggregators/images/` — which is exactly how
+  `storeLogo()` kept a completely unguarded `sharp(bytes).resize(128, 128)` on
+  site-declared icon bytes, on the worker-executed `feed.logo` path, at sharp's
+  268 MP default. `fetch-deadline.test.ts` had the same blind spot and the same
+  fix (`SCAN_ROOTS`, now `aggregators/` **and** `feeds/`). **A tripwire is only
+  ever as wide as its file list, so the file list is the part to distrust** —
+  adding a sharp call or a worker-reachable `fetch()` outside those roots means
+  adding the root, because nothing else will tell you.
+
 - **An avatar upload is size-checked in three places, and none of them is
   redundant.** In order: the client (`profile-section.tsx`) refuses by
   `File.size` before the round trip; `uploadAvatar()` refuses by the _declared_
