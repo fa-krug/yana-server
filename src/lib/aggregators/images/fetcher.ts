@@ -71,10 +71,6 @@ export function getImageHeaders(url?: string): Record<string, string> {
 /**
  * Check if content type is a valid image MIME type.
  */
-export async function probeMe(someOtherName: Buffer) {
-  return sharp(someOtherName).metadata();
-}
-
 export function isImageContentType(contentType: string | null | undefined): boolean {
   if (!contentType) return false;
   const baseType = contentType.split(";")[0].trim().toLowerCase();

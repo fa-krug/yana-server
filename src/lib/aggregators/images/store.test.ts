@@ -100,11 +100,17 @@ describe("image store", () => {
     );
     vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const hash = await store.storeImageBytes(imagePng, "image/png", { compress: false });
-    expect(hash).toBeNull();
-    expect(console.error).toHaveBeenCalled();
-
-    raw(client.getDb()).exec("DROP TRIGGER refuse_image");
+    // The drop is in a `finally`: a failing assertion above would otherwise
+    // leak the trigger into every later test in this file, turning one real
+    // failure into a cascade of unrelated ones. (`beforeEach` re-migrates a
+    // fresh database file, but only after this test's own teardown.)
+    try {
+      const hash = await store.storeImageBytes(imagePng, "image/png", { compress: false });
+      expect(hash).toBeNull();
+      expect(console.error).toHaveBeenCalled();
+    } finally {
+      raw(client.getDb()).exec("DROP TRIGGER refuse_image");
+    }
   });
 
   it("writes the row inside a transaction, so a concurrent duplicate is not a failure", async () => {
