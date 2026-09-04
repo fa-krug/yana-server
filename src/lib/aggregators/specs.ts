@@ -81,8 +81,9 @@ export type AggregatorSpec = {
    * enough to flip its mode away from `"choice"` fails that test instead. A
    * test asserting the length threshold directly, filtered on the mode it
    * derives from that same threshold, would be true by construction --
-   * which is why there isn't one. Empty for the two free-form-URL
-   * aggregators and the two live-search aggregators.
+   * which is why there isn't one. Empty for `full_website`, `feed_content`
+   * and `podcast`, which take a free-form URL, and for `youtube` and
+   * `reddit`, which search live instead of offering a fixed list.
    */
   identifierChoices: { value: string; label: string }[];
   /** Set only for the two aggregators with a live search-as-you-type identifier field. */
