@@ -1082,4 +1082,47 @@ describe("src/lib/jobs/queue", () => {
     const { runProgressPercent } = await import("./queue");
     expect(runProgressPercent(3, 1, 0)).toBe(33);
   });
+
+  // 7f: both were pure SELECTs wrapped in writeTransaction(), i.e.
+  // BEGIN IMMEDIATE -- so every /jobs page load asked for the exclusive write
+  // lock, contending with four worker loops and every progress()/
+  // appendLogLine() write for nothing. That is the cost claim()'s read-only
+  // pre-check exists to avoid, reintroduced two functions later.
+  describe("reads do not take the write lock", () => {
+    /**
+     * Holds the database's write lock on a second connection for the duration
+     * of `body`, with this process's own connection given a short
+     * busy_timeout so a read that *does* ask for the lock fails in
+     * milliseconds rather than waiting out the 30 s PRAGMA.
+     */
+    function whileAnotherConnectionIsWriting(body: () => void): void {
+      const db = client.getDb() as unknown as { $client: Database.Database };
+      const previousTimeout = db.$client.pragma("busy_timeout", { simple: true });
+      const writer = new Database(dbPath);
+      writer.pragma("busy_timeout = 50");
+      writer.exec("BEGIN IMMEDIATE");
+      db.$client.pragma("busy_timeout = 50");
+      try {
+        body();
+      } finally {
+        db.$client.pragma(`busy_timeout = ${previousTimeout}`);
+        writer.exec("ROLLBACK");
+        writer.close();
+      }
+    }
+
+    it("getJob() and listJobs() answer while another connection holds it", () => {
+      const userId = seedUserAndReturnId();
+      const id = queue.enqueue("test.read", { a: 1 }, { userId });
+
+      whileAnotherConnectionIsWriting(() => {
+        expect(queue.getJob(id)?.kind).toBe("test.read");
+
+        const listed = queue.listJobs({ kind: "test.read" });
+        expect(listed.total).toBe(1);
+        expect(listed.jobs[0].id).toBe(id);
+        expect(listed.jobs[0].ownerEmail).toBe(`${userId}@example.com`);
+      });
+    });
+  });
 });

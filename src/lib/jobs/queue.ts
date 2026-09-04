@@ -658,10 +658,17 @@ function publishJobOutcome(job: Job, status: "completed" | "failed" | "cancelled
   }
 }
 
+/**
+ * A plain read, deliberately not wrapped in `writeTransaction()`. It used to
+ * be: a pure SELECT under `BEGIN IMMEDIATE`, which asks for the exclusive
+ * write lock and so contends with four worker loops and every
+ * `progress()`/`appendLogLine()` write -- on every `/jobs` page load, for a
+ * query that writes nothing. That is exactly the cost `claim()`'s read-only
+ * pre-check above exists to remove. There is no read-then-write here to keep
+ * atomic; a single statement is a consistent snapshot on its own.
+ */
 export function getJob(id: number): Job | null {
-  return writeTransaction((db) => {
-    return db.select().from(jobs).where(eq(jobs.id, id)).get() ?? null;
-  });
+  return getDb().select().from(jobs).where(eq(jobs.id, id)).get() ?? null;
 }
 
 export interface ListJobsOptions {
@@ -685,65 +692,76 @@ export interface JobWithOwner extends Job {
   ownerLastName: string | null;
 }
 
+/**
+ * Two plain reads, deliberately not wrapped in `writeTransaction()` -- see
+ * `getJob()` above for why a SELECT must not take the write lock, which this
+ * one made worse by running a LEFT JOIN and a COUNT(*) under it.
+ *
+ * The page and the count are therefore two separate snapshots, so a job
+ * inserted between them can make `total` disagree with `jobs.length` by one.
+ * That is what a paginated list already tolerates -- the count is stale the
+ * moment it is rendered anyway, and a worker inserting jobs continuously
+ * makes it stale again before the response is read -- and it is not worth
+ * every reader blocking every writer to avoid.
+ */
 export function listJobs(options: ListJobsOptions = {}): { jobs: JobWithOwner[]; total: number } {
   const limit = options.limit ?? 50;
   const offset = options.offset ?? 0;
 
-  return writeTransaction((db) => {
-    const conditions = [];
-    if (options.kind) {
-      conditions.push(eq(jobs.kind, options.kind));
-    }
-    if (options.status) {
-      // `options.status` comes from a URL filter param (parseListParams()), not
-      // a caller who already knows it's one of JobStatus -- an unrecognized value
-      // just matches no rows, same as before the column was typed.
-      conditions.push(eq(jobs.status, options.status as JobStatus));
-    }
-    if (options.userId) {
-      conditions.push(eq(jobs.userId, options.userId));
-    }
+  const db = getDb();
+  const conditions = [];
+  if (options.kind) {
+    conditions.push(eq(jobs.kind, options.kind));
+  }
+  if (options.status) {
+    // `options.status` comes from a URL filter param (parseListParams()), not
+    // a caller who already knows it's one of JobStatus -- an unrecognized value
+    // just matches no rows, same as before the column was typed.
+    conditions.push(eq(jobs.status, options.status as JobStatus));
+  }
+  if (options.userId) {
+    conditions.push(eq(jobs.userId, options.userId));
+  }
 
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    // Explicit column list rather than `db.select()`: the two tables both have
-    // an `id` column, which a wildcard select would collide on.
-    const items = db
-      .select({
-        id: jobs.id,
-        runId: jobs.runId,
-        userId: jobs.userId,
-        kind: jobs.kind,
-        payload: jobs.payload,
-        status: jobs.status,
-        attempts: jobs.attempts,
-        maxAttempts: jobs.maxAttempts,
-        priority: jobs.priority,
-        runAt: jobs.runAt,
-        startedAt: jobs.startedAt,
-        finishedAt: jobs.finishedAt,
-        progress: jobs.progress,
-        error: jobs.error,
-        createdAt: jobs.createdAt,
-        ownerEmail: users.email,
-        ownerFirstName: users.firstName,
-        ownerLastName: users.lastName,
-      })
-      .from(jobs)
-      .leftJoin(users, eq(jobs.userId, users.id))
-      .where(whereClause)
-      .orderBy(desc(jobs.createdAt), desc(jobs.id))
-      .limit(limit)
-      .offset(offset)
-      .all();
+  // Explicit column list rather than `db.select()`: the two tables both have
+  // an `id` column, which a wildcard select would collide on.
+  const items = db
+    .select({
+      id: jobs.id,
+      runId: jobs.runId,
+      userId: jobs.userId,
+      kind: jobs.kind,
+      payload: jobs.payload,
+      status: jobs.status,
+      attempts: jobs.attempts,
+      maxAttempts: jobs.maxAttempts,
+      priority: jobs.priority,
+      runAt: jobs.runAt,
+      startedAt: jobs.startedAt,
+      finishedAt: jobs.finishedAt,
+      progress: jobs.progress,
+      error: jobs.error,
+      createdAt: jobs.createdAt,
+      ownerEmail: users.email,
+      ownerFirstName: users.firstName,
+      ownerLastName: users.lastName,
+    })
+    .from(jobs)
+    .leftJoin(users, eq(jobs.userId, users.id))
+    .where(whereClause)
+    .orderBy(desc(jobs.createdAt), desc(jobs.id))
+    .limit(limit)
+    .offset(offset)
+    .all();
 
-    const countResult = db.select({ value: count() }).from(jobs).where(whereClause).get();
+  const countResult = db.select({ value: count() }).from(jobs).where(whereClause).get();
 
-    return {
-      jobs: items,
-      total: countResult?.value ?? 0,
-    };
-  });
+  return {
+    jobs: items,
+    total: countResult?.value ?? 0,
+  };
 }
 
 export type JobLogStream = "stdout" | "stderr";
