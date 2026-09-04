@@ -43,7 +43,13 @@ function rejectOversizedDeclaration(response: Response, url: string, maxBytes: n
   }
 }
 
-async function readCapped(response: Response, url: string, maxBytes: number): Promise<Uint8Array> {
+/**
+ * Drain a response body, refusing it the moment it goes past `maxBytes` --
+ * both as declared and as actually delivered. Exported because
+ * `../images/fetcher.ts` reads the same way: buffering a whole body and
+ * checking its size afterwards is a memory hazard, not a size check.
+ */
+export async function readCapped(response: Response, url: string, maxBytes: number): Promise<Uint8Array> {
   rejectOversizedDeclaration(response, url, maxBytes);
 
   if (!response.body) {

@@ -1,10 +1,13 @@
 import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MAX_FETCH_BYTES as HTTP_MAX_FETCH_BYTES, MAX_REDIRECTS } from "../http/fetcher";
 import {
   fetchImageOutcome,
   fetchSingleImage,
   getImageHeaders,
+  IMAGE_USER_AGENT,
   isImageContentType,
+  MAX_IMAGE_FETCH_BYTES,
   NON_IMAGE_RESPONSE,
 } from "./fetcher";
 
@@ -128,6 +131,108 @@ describe("fetcher utilities", () => {
 
       const result = await fetchImageOutcome("https://example.com/huge.gif");
       expect(result).toBeNull();
+    });
+  });
+
+  // 7d: the two fetchers used to export `USER_AGENT` and `MAX_FETCH_BYTES`
+  // each, with different values -- an import auto-completed from the wrong
+  // module was a silent 32-fold change in the byte cap that nothing could
+  // typecheck against. The names are disjoint now, so such an import does
+  // not resolve at all.
+  describe("constants", () => {
+    it("does not share a name with the http fetcher's differing constants", () => {
+      expect(MAX_IMAGE_FETCH_BYTES).toBe(64 * 1024 * 1024);
+      expect(MAX_IMAGE_FETCH_BYTES).not.toBe(HTTP_MAX_FETCH_BYTES);
+      expect(IMAGE_USER_AGENT).toContain("Chrome");
+    });
+  });
+
+  describe("fetchImageOutcome resource bounds", () => {
+    /**
+     * A stream that yields `chunkCount` one-megabyte chunks lazily, counting
+     * how many were pulled and whether the consumer cancelled.
+     */
+    function countingStream(chunkCount: number) {
+      const state = { pulls: 0, cancelled: false };
+      const chunk = new Uint8Array(1024 * 1024);
+      const stream = new ReadableStream({
+        pull(controller) {
+          if (state.pulls >= chunkCount) {
+            controller.close();
+            return;
+          }
+          state.pulls += 1;
+          controller.enqueue(chunk);
+        },
+        cancel() {
+          state.cancelled = true;
+        },
+      });
+      return { stream, state };
+    }
+
+    it("stops reading at the byte cap instead of buffering the whole body", async () => {
+      // No Content-Length: a server free to ignore its own declaration is
+      // exactly the case a declared-size check cannot cover. Buffering first
+      // and checking afterwards costs 64 MB of RSS per in-flight image, and
+      // feeds.concurrency (4) x WORKER_CONCURRENCY (4) of those is ~1 GB.
+      const { stream, state } = countingStream(70);
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(stream, { status: 200, headers: { "Content-Type": "image/gif" } }),
+      );
+
+      expect(await fetchImageOutcome("https://example.com/endless.gif")).toBeNull();
+      expect(state.cancelled).toBe(true);
+      // 64 pulls to reach the cap, plus the one that trips it and the
+      // stream's own one-chunk read-ahead. Far short of the 70 on offer.
+      expect(state.pulls).toBeLessThanOrEqual(MAX_IMAGE_FETCH_BYTES / (1024 * 1024) + 2);
+    });
+
+    it("follows redirects itself, bounded by MAX_REDIRECTS", async () => {
+      const png = await sharp({
+        create: { width: 50, height: 50, channels: 3, background: { r: 9, g: 9, b: 9 } },
+      })
+        .png()
+        .toBuffer();
+
+      const fetchMock = vi.fn((_url: string) =>
+        Promise.resolve(
+          fetchMock.mock.calls.length <= 2
+            ? new Response(null, {
+                status: 302,
+                headers: { location: "https://cdn.example.com/next.png" },
+              })
+            : new Response(new Uint8Array(png), {
+                status: 200,
+                headers: { "Content-Type": "image/png" },
+              }),
+        ),
+      );
+      vi.spyOn(globalThis, "fetch").mockImplementation(fetchMock as unknown as typeof fetch);
+
+      const result = await fetchImageOutcome("https://example.com/redirected.png");
+      expect(result).not.toBeNull();
+      expect(result).not.toBe(NON_IMAGE_RESPONSE);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(fetchMock.mock.calls[0][1]).toMatchObject({ redirect: "manual" });
+    });
+
+    it("refuses an unbounded redirect chain", async () => {
+      // Image URLs come from the source page, so they are attacker-chosen;
+      // `redirect: "follow"` handed the redirect budget to undici with no
+      // ceiling of our own, where fetchBinary() has bounded hops.
+      const fetchMock = vi.fn(() =>
+        Promise.resolve(
+          new Response(null, {
+            status: 302,
+            headers: { location: "https://example.com/loop.png" },
+          }),
+        ),
+      );
+      vi.spyOn(globalThis, "fetch").mockImplementation(fetchMock as unknown as typeof fetch);
+
+      expect(await fetchImageOutcome("https://example.com/loop.png")).toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(MAX_REDIRECTS + 1);
     });
   });
 
