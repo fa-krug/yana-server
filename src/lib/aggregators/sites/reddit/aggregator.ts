@@ -8,7 +8,7 @@ import * as cheerio from "cheerio";
 import { BaseAggregator, FeedLike, RawArticle } from "../../base";
 import { mapWithConcurrency } from "../../concurrency";
 import { AggregatorError, ArticleSkipError } from "../../errors";
-import { getHeaderImageRef, HeaderElementData } from "../../header/context";
+import { getHeaderImageRef } from "../../header/context";
 import { buildHeaderHtml, formatArticleContent, isTwitterUrl } from "../../extract/format";
 import { localizeThumbnail } from "../../embeds/youtube";
 import { youtubeIdFrom } from "../../embeds/youtube-url";
@@ -37,6 +37,15 @@ interface RedditSourceData {
 
 export class RedditAggregator extends BaseAggregator {
   static identifierField = "subreddit";
+
+  // The real per-post header (video, YouTube-thumbnail facade, stored header
+  // image) is built by processContent() below, from either finalizeArticles()'s
+  // _reddit_* fields or fetchArticleContent()'s stashed instance state on
+  // reload -- never from BaseAggregator.extractHeaderElement()'s generic
+  // og:image scrape, which would resolve to the *subreddit's* icon for a bare
+  // post permalink (RedditPostStrategy in header/strategies.ts) -- wrong in
+  // both cases, and exactly the bug this suppression prevents on reload.
+  static suppressesHeaderExtraction = true;
 
   // Populated by fetchArticleContent() (the reload path only -- a normal
   // aggregation run gets the same information from parseToRawArticles()
@@ -666,7 +675,8 @@ export class RedditAggregator extends BaseAggregator {
         // instead. Rebuild the real header/video/YouTube-thumbnail facade
         // from that, rather than falling through to header_data below, which
         // would otherwise just be article.identifier's og:image (the
-        // subreddit icon for a bare post permalink -- see extractHeaderElement()).
+        // subreddit icon for a bare post permalink -- see
+        // suppressesHeaderExtraction above).
         const built = await this._buildHeaderForArticle(
           content,
           article.name,
@@ -702,15 +712,4 @@ export class RedditAggregator extends BaseAggregator {
     );
   }
 
-  // The real per-post header (video, YouTube-thumbnail facade, stored header
-  // image) is built by processContent() above, from either finalizeArticles()'s
-  // _reddit_* fields or fetchArticleContent()'s stashed instance state on
-  // reload -- never from here. Returning the generic og:image scrape here
-  // would resolve to the *subreddit's* icon for a bare post permalink
-  // (RedditPostStrategy in header/strategies.ts), which is wrong in both
-  // cases and, on reload, is exactly the bug this no-op prevents. Same
-  // reasoning as youtube/aggregator.ts's override.
-  override async extractHeaderElement(_article: RawArticle): Promise<HeaderElementData | null> {
-    return null;
-  }
 }

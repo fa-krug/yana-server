@@ -8,7 +8,6 @@ import { BaseAggregator, FeedLike, RawArticle } from "../../base";
 import type { ChromeLabels } from "../../chrome-labels";
 import { buildCommentsSection, type CommentSpec } from "../../comments/section";
 import { mapWithConcurrency } from "../../concurrency";
-import type { HeaderElementData } from "../../header/context";
 import { isSafeUrl } from "../../blocks/parser";
 import { createYoutubeEmbedHtml, escapeHtml, formatArticleContent } from "../../extract/format";
 import { localizeThumbnail } from "../../embeds/youtube";
@@ -46,6 +45,14 @@ export function safeCommentAvatarHtml(): string {
 
 export class YouTubeAggregator extends BaseAggregator {
   static identifierField = "youtube_channel";
+
+  // processContent() below builds its own embed thumbnail via
+  // localizeThumbnail(videoId) and never reads article.header_data -- the
+  // generic header extractor's YouTubeStrategy would otherwise still run on
+  // every article.reload (see reload.ts, which calls this for every
+  // aggregator unconditionally), fetching the video's thumbnail image over
+  // HTTP and writing it to the image store for a result nothing consumes.
+  static suppressesHeaderExtraction = true;
 
   private _client: YouTubeClient | null = null;
   private _channel_id: string | null = null;
@@ -318,17 +325,6 @@ export class YouTubeAggregator extends BaseAggregator {
     }
 
     return finalized;
-  }
-
-  // `processContent()` below builds its own embed thumbnail via
-  // `localizeThumbnail(videoId)` and never reads `article.header_data` --
-  // the generic header extractor's `YouTubeStrategy` would otherwise still
-  // run on every `article.reload` (see `reload.ts`, which calls this for
-  // every aggregator unconditionally), fetching the video's thumbnail image
-  // over HTTP and writing it to the image store for a result nothing
-  // consumes. Same reasoning as explosm.ts/oglaf.ts/dark_legacy.ts.
-  override async extractHeaderElement(_article: RawArticle): Promise<HeaderElementData | null> {
-    return null;
   }
 
   override async fetchArticleContent(url: string): Promise<string> {

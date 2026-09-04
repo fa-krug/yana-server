@@ -38,6 +38,17 @@ export interface RawArticle {
 export abstract class BaseAggregator {
   static identifierField = "identifier";
 
+  /**
+   * Set by a subclass whose own content already **is** the header image (the
+   * three comics) or that builds its header from richer data than a bare URL
+   * fetch can produce (YouTube, Reddit) -- both cases want
+   * `extractHeaderElement()` to do nothing rather than fetch a redundant
+   * `og:image`. Read once below instead of five identical
+   * `async extractHeaderElement() { return null; }` overrides, each of which
+   * used to carry a comment pointing at the other four.
+   */
+  static suppressesHeaderExtraction = false;
+
   public identifier: string;
   public dailyLimit: number;
   public concurrency: number;
@@ -226,6 +237,7 @@ export abstract class BaseAggregator {
   }
 
   async extractHeaderElement(article: RawArticle): Promise<HeaderElementData | null> {
+    if ((this.constructor as typeof BaseAggregator).suppressesHeaderExtraction) return null;
     const url = article.identifier;
     const alt = article.name || "Article image";
     if (!url) return null;

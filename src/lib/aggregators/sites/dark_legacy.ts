@@ -2,7 +2,6 @@ import * as cheerio from "cheerio";
 import { RawArticle } from "../base";
 import { isSafeUrl } from "../blocks/parser";
 import { escapeHtml } from "../extract/format";
-import { HeaderElementData } from "../header/context";
 import { storeImageRefFromUrl } from "../images/store";
 import { defineSite } from "../define-site";
 import { FullWebsiteAggregator } from "../website";
@@ -19,9 +18,9 @@ export class DarkLegacyAggregator extends defineSite(FullWebsiteAggregator, {
   remove: ["script", "style", "iframe", "noscript"],
   firstMatchOnly: true,
 }) {
-  override async extractHeaderElement(_article: RawArticle): Promise<HeaderElementData | null> {
-    return null;
-  }
+  // The comic panel *is* the article's content, not something with a
+  // separate header image to fetch -- see BaseAggregator.
+  static suppressesHeaderExtraction = true;
 
   override async processContent(htmlContent: string, article: RawArticle): Promise<string> {
     const options = (this.feed.options as Record<string, unknown> | null) || {};
