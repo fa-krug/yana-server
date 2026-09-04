@@ -93,7 +93,11 @@ describe("src/lib/jobs/worker", () => {
     expect(order).toEqual([urgent, older1, older2]);
   });
 
-  it("fails job if no handler is registered", async () => {
+  it("fails job immediately, without retrying, if no handler is registered", async () => {
+    // A missing handler is deterministic: the registry is populated at module
+    // load and never grows at runtime. This used to leave the job `pending`
+    // and burn all three attempts over an exponential back-off before showing
+    // the operator the message it already had on the first attempt.
     const id = queue.enqueue("unhandled.job", {});
 
     const loopPromise = worker.runWorkerLoop({ pollIntervalMs: 50 });
@@ -102,7 +106,10 @@ describe("src/lib/jobs/worker", () => {
     await loopPromise;
 
     const job = queue.getJob(id);
-    expect(job?.status).toBe("pending"); // Will backoff & stay pending because maxAttempts > 1
+    expect(job?.status).toBe("failed");
+    expect(job?.attempts).toBe(1);
+    expect(job?.maxAttempts).toBe(3);
+    expect(job?.finishedAt).not.toBeNull();
     expect(job?.error).toContain("No handler registered");
   });
 

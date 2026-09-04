@@ -22,19 +22,23 @@ export interface EnqueueOptions {
 export const PRIORITY_IMMEDIATE = 10;
 
 /**
- * Every job kind that ends up running `handleAggregateJob`
- * (`src/lib/jobs/handlers/aggregate.ts`) -- directly, as `"aggregate"` does,
- * or by delegating to it, as `handleUpdateJob` does for `"feed.update"` (see
- * `src/lib/jobs/handlers/index.ts`). That delegation means the registry's
- * kind -> function mapping cannot be introspected to derive this list --
- * `"feed.update"` maps to `handleUpdateJob`, a distinct function reference
- * that happens to call `handleAggregateJob` itself, not to
- * `handleAggregateJob` directly. This is the one hand-maintained definition;
- * `scheduler.ts`'s dedupe query is the single reader of it.
- * `handlers/index.ts`'s `registerDefaultHandlers()` still restates both
- * kinds as literals in its own `registerHandler()` calls and imports
- * nothing from here -- nothing keeps the two lists agreed, so a kind added
- * to one and not the other will not be caught.
+ * Every job kind that runs `handleAggregateJob`
+ * (`src/lib/jobs/handlers/aggregate.ts`). Both of them map to that one
+ * function directly: `"feed.update"` used to go through a six-line
+ * `handlers/update.ts` wrapper whose whole body was
+ * `await handleAggregateJob(job)`, which is gone.
+ *
+ * **This is the definition, and `handlers/index.ts` now reads it rather than
+ * restating its kinds as literals** -- so a kind added here is registered
+ * there by construction, closing the drift the wrapper created (two distinct
+ * function references made the registry's kind -> function mapping
+ * un-introspectable, so both halves were hand-maintained and nothing kept
+ * them agreed). Its other reader is `scheduler.ts`'s dedupe query.
+ *
+ * The alias kind itself is load-bearing beyond the handler and stays:
+ * `claim()` below stamps `feeds.lastAggregationStartedAt` for every kind in
+ * this list, and `/jobs` shows `feed.update` as its own user-visible kind
+ * (a user-triggered update, as against the scheduler's `aggregate`).
  */
 export const AGGREGATE_HANDLER_JOB_KINDS = ["aggregate", "feed.update"] as const;
 
@@ -170,7 +174,18 @@ export function complete(id: number): void {
   }
 }
 
-export function fail(id: number, error: string | Error): void {
+/**
+ * A job attempt failed.
+ *
+ * `options.permanent` skips the retry schedule and fails the job outright,
+ * for a cause no retry can change. Its one caller is `worker.ts`'s
+ * "no handler registered for this kind" branch: the registry is populated at
+ * module load and never grows at runtime, so a missing handler is
+ * deterministic -- retried, it burned all three attempts on two pointless
+ * `claim()`/`fail()` round trips over an exponential back-off, and only then
+ * showed the operator the error message it already had on the first one.
+ */
+export function fail(id: number, error: string | Error, options?: { permanent?: boolean }): void {
   const errMsg = typeof error === "string" ? error : error?.message || String(error);
   const now = new Date();
 
@@ -188,7 +203,7 @@ export function fail(id: number, error: string | Error): void {
       return { job, outcome: "cancelling" as const };
     }
 
-    if (job.attempts >= job.maxAttempts) {
+    if (options?.permanent || job.attempts >= job.maxAttempts) {
       db.update(jobs)
         .set({
           status: "failed",

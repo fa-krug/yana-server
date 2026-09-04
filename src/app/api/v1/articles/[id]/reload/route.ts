@@ -2,8 +2,8 @@ import { and, eq, inArray } from "drizzle-orm";
 
 import { ApiError, apiErrorResponse, requireApiUser } from "@/lib/api/auth";
 import { getDb, writeTransaction } from "@/lib/db/client";
-import { articles, feeds, jobs } from "@/lib/db/schema";
-import { PRIORITY_IMMEDIATE } from "@/lib/jobs/queue";
+import { articles, feeds } from "@/lib/db/schema";
+import { enqueue, PRIORITY_IMMEDIATE } from "@/lib/jobs/queue";
 
 /**
  * The native client's single-article reload endpoint -- the same
@@ -17,6 +17,11 @@ import { PRIORITY_IMMEDIATE } from "@/lib/jobs/queue";
  * The ownership check and the `INSERT` happen inside one `writeTransaction()`
  * so a mismatch can never enqueue a job -- there is no window where the
  * `SELECT` passes and the row is deleted or reassigned before the `INSERT`.
+ * That does not require a hand-rolled `tx.insert(jobs)`: `enqueue()` opens
+ * its own `writeTransaction()`, which is re-entrant (see `db/client.ts`), so
+ * calling it from inside this callback joins *this* transaction and keeps the
+ * atomicity while still picking up `enqueue()`'s own defaults and any future
+ * enqueue-side logic.
  */
 export async function POST(
   request: Request,
@@ -40,17 +45,11 @@ export async function POST(
         .get();
       if (!article) return null;
 
-      const inserted = tx
-        .insert(jobs)
-        .values({
-          kind: "article.reload",
-          payload: { articleId },
-          userId: user.id,
-          priority: PRIORITY_IMMEDIATE,
-        })
-        .returning({ id: jobs.id })
-        .get();
-      return inserted.id;
+      return enqueue(
+        "article.reload",
+        { articleId },
+        { userId: user.id, priority: PRIORITY_IMMEDIATE },
+      );
     });
 
     if (jobId === null) throw new ApiError(404, "not_found");

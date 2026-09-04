@@ -7,17 +7,9 @@ import { z } from "zod";
 
 import { currentUserId } from "@/lib/auth/session";
 import { getDb, writeTransaction } from "@/lib/db/client";
-import {
-  feeds,
-  feedTags,
-  tags,
-  jobs,
-  articles,
-  articleTombstones,
-  userSettings,
-} from "@/lib/db/schema";
+import { feeds, feedTags, tags, articles, articleTombstones, userSettings } from "@/lib/db/schema";
 import { aiReadinessFor } from "@/lib/ai/readiness";
-import { enqueueRun } from "@/lib/jobs/queue";
+import { enqueue, enqueueRun } from "@/lib/jobs/queue";
 import { getSettings } from "@/lib/settings/queries";
 import type { ListParams } from "@/lib/crud/params";
 import {
@@ -315,13 +307,15 @@ export async function createFeed(
           .run();
       }
 
-      tx.insert(jobs)
-        .values({
-          kind: "feed.logo",
-          payload: { feedId: feed.id },
-          userId,
-        })
-        .run();
+      // `enqueue()` rather than a hand-rolled `tx.insert(jobs)`. It opens its
+      // own `writeTransaction()`, which is re-entrant (see
+      // `db/client.ts`), so the insert still joins *this* transaction and
+      // still rolls back with the feed if anything below fails -- while
+      // picking up every default `enqueue()` applies (`maxAttempts`,
+      // `priority`, `runAt`) and any future enqueue-side logic. The three
+      // hand-rolled copies this replaces are why `feed.update` drifted from
+      // `aggregate` in the first place.
+      enqueue("feed.logo", { feedId: feed.id }, { userId });
 
       revalidatePath("/feeds");
       return { ok: true, id: feed.id };
@@ -804,9 +798,9 @@ export async function importOpmlFeeds(
           .run();
       }
 
-      tx.insert(jobs)
-        .values({ kind: "feed.logo", payload: { feedId: feed.id }, userId })
-        .run();
+      // Inside the import's own transaction, for the reason `createFeed()`
+      // above spells out: `enqueue()` nests rather than opening a second one.
+      enqueue("feed.logo", { feedId: feed.id }, { userId });
     }
 
     revalidatePath("/feeds");

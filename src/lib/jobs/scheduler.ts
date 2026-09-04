@@ -35,6 +35,22 @@ export function startScheduler(options?: { tickIntervalMs?: number }): void {
 
   const intervalMs = options?.tickIntervalMs ?? 60_000;
 
+  tickReportingFailures();
+  schedulerTimer = setInterval(tickReportingFailures, intervalMs);
+}
+
+/**
+ * One `tick()` whose failure is logged and mailed to every admin -- the
+ * "is this instance healthy" channel, because a stuck scheduler has no single
+ * owner (see `../email/error-notifications.ts`).
+ *
+ * Hoisted out of `startScheduler()`, where the immediate tick and the
+ * `setInterval` one each carried a verbatim copy of this block: the two
+ * *have* to report identically (a failure on the first tick after a boot and
+ * one an hour later are the same failure), and two copies is one edit away
+ * from them not doing so.
+ */
+function tickReportingFailures(): void {
   tick().catch((err) => {
     console.error("[Scheduler] Error in scheduler tick:", err);
     notifyAdmins({
@@ -43,17 +59,6 @@ export function startScheduler(options?: { tickIntervalMs?: number }): void {
       occurredAt: new Date(),
     });
   });
-
-  schedulerTimer = setInterval(() => {
-    tick().catch((err) => {
-      console.error("[Scheduler] Error in scheduler tick:", err);
-      notifyAdmins({
-        category: "scheduler",
-        message: err instanceof Error ? (err.stack ?? err.message) : String(err),
-        occurredAt: new Date(),
-      });
-    });
-  }, intervalMs);
 }
 
 export function stopScheduler(): void {
