@@ -234,12 +234,25 @@ export abstract class BaseAggregator {
     return articles;
   }
 
-  async extractHeaderElement(article: RawArticle): Promise<HeaderElementData | null> {
+  /**
+   * `html`, when given, is the article page the caller has already fetched --
+   * see `HeaderElementContext.html`. Passing it is what keeps
+   * `FullWebsiteAggregator` from fetching every article page twice: without
+   * it, `extractHeaderElement()` reaches
+   * `ImageExtractor.fetchAndParsePage()`, which fetches the same page again
+   * purely to read its og:image. It stays optional because not every caller
+   * has a page in hand -- the RSS-only aggregators reach header extraction
+   * with nothing fetched yet, and still fall back to fetching it.
+   */
+  async extractHeaderElement(
+    article: RawArticle,
+    html?: string,
+  ): Promise<HeaderElementData | null> {
     if ((this.constructor as typeof BaseAggregator).suppressesHeaderExtraction) return null;
     const url = article.identifier;
     const alt = article.name || "Article image";
     if (!url) return null;
-    return extractHeaderElement(url, alt, this.onLog);
+    return extractHeaderElement(url, alt, this.onLog, html);
   }
 
   private _sourceTitle: string | null = null;

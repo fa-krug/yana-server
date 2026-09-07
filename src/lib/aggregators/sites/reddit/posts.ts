@@ -5,6 +5,7 @@
  */
 
 import { AggregatorError } from "../../errors";
+import { fetchTextThrottled } from "../../http/throttled-fetch";
 import { RedditListing, RedditPostData, RedditPostRaw } from "./types";
 
 /**
@@ -31,12 +32,8 @@ export async function fetchRedditPost(
   const headers: Record<string, string> = { "User-Agent": "Yana/1.0" };
   if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
 
-  let res: Response;
-  try {
-    res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
-  } catch {
-    return null;
-  }
+  const res = await fetchTextThrottled(url, { headers });
+  if (!res) return null;
 
   if (res.status === 401) {
     throw new AggregatorError("Reddit authentication failed. Please check your API credentials.");
@@ -44,7 +41,7 @@ export async function fetchRedditPost(
   if (!res.ok) return null;
 
   try {
-    const data = (await res.json()) as RedditPostFetchResponse;
+    const data = JSON.parse(res.body) as RedditPostFetchResponse;
 
     let postDict: RedditPostRaw | null = null;
     if (Array.isArray(data)) {

@@ -1,5 +1,5 @@
 import { ArticleSkipError } from "../errors";
-import { readCappedJson, withDeadline } from "../http/fetcher";
+import { fetchJsonThrottled } from "../http/throttled-fetch";
 import { ImageExtractor } from "../images/extractor";
 import { fetchSingleImage } from "../images/fetcher";
 import { storeImageBytes } from "../images/store";
@@ -46,25 +46,25 @@ export function fixRedditMediaUrl(url: string): string {
  * connection held this call, and the worker loop running it, open forever --
  * see `withDeadline()` for why that deadlocks every background job rather
  * than merely delaying one feed. 10s matches the other reddit reads in
- * `../sites/reddit/`.
+ * `../sites/reddit/`. Both precautions now arrive through
+ * `fetchJsonThrottled()`, which is built on `withDeadline()` and
+ * `readCappedText()` -- and which additionally puts this read under
+ * reddit.com's shared host throttle, where it belongs: it is one more request
+ * to the same host every reddit feed is already hitting.
  */
 export async function fetchSubredditIcon(subreddit: string): Promise<string | null> {
   if (!subreddit) return null;
   const url = `https://www.reddit.com/r/${subreddit}/about.json`;
   try {
-    const data = await withDeadline(SUBREDDIT_ICON_TIMEOUT_MS, async (signal) => {
-      const res = await fetch(url, {
-        headers: { "User-Agent": "Yana/1.0" },
-        signal,
-      });
-      if (!res.ok) return null;
-      return await readCappedJson<{
-        data?: {
-          icon_img?: string;
-          community_icon?: string;
-          header_img?: string;
-        };
-      }>(res, url);
+    const data = await fetchJsonThrottled<{
+      data?: {
+        icon_img?: string;
+        community_icon?: string;
+        header_img?: string;
+      };
+    }>(url, {
+      headers: { "User-Agent": "Yana/1.0" },
+      timeoutMs: SUBREDDIT_ICON_TIMEOUT_MS,
     });
     const rawUrl = data?.data?.icon_img || data?.data?.community_icon || data?.data?.header_img;
     if (!rawUrl) return null;
@@ -153,7 +153,12 @@ export class GenericImageStrategy implements HeaderElementStrategy {
   async create(context: HeaderElementContext): Promise<HeaderElementData | null> {
     try {
       const extractor = new ImageExtractor();
-      const imageResult = await extractor.extractImageFromUrl(context.url, true, context.onLog);
+      const imageResult = await extractor.extractImageFromUrl(
+        context.url,
+        true,
+        context.onLog,
+        context.html,
+      );
 
       if (!imageResult) return null;
 

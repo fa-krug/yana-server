@@ -75,6 +75,10 @@ export default defineConfig({
           // (`scripts/docs-api.test.ts`) -- it lives beside the script it
           // tests, not under `src/`, so the glob has to reach it too.
           include: ["src/**/*.test.ts", "scripts/**/*.test.ts"],
+          // Resets the aggregators' per-host request throttle before each
+          // test and zeroes its inter-request gap -- see the file's own
+          // comment for why the gap is cost-only against mocked fetches.
+          setupFiles: ["src/test/setup-node.ts"],
           /**
            * One dependency module is inlined, and the regex is deliberately
            * this narrow.

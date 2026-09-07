@@ -932,6 +932,187 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   form from `AggregatorSpec.recommendedIntervalMinutes`/`recommendedConcurrency`
   (`src/lib/aggregators/specs.ts`) on create and on aggregator switch — a
   starting point, not an enforced limit, freely editable per feed afterward.
+- **`feeds.concurrency` is not the cap the remote site sees — that is
+  `withHostLimit()` in `src/lib/aggregators/http/host-limiter.ts`, and it is
+  keyed on the hostname.** Nothing above it bounds how hard one site is hit.
+  `feed.concurrency` bounds _articles_ per feed, and one article is several
+  requests to the same host (the page, its header image, inline images, and for
+  Heise the forum page as well); `WORKER_CONCURRENCY` then runs several feeds
+  at once in the same process, so four Heise feeds at concurrency 4 was sixteen
+  article workers against `www.heise.de` simultaneously. Hostname is the only
+  key that matches what a remote is actually rate-limiting and the only one
+  that still holds when two feeds, two jobs or two aggregators reach the same
+  host — which is also why the limiter is a module-level singleton, since
+  per-instance state would be per-feed state again. Three bounds:
+  `maxConcurrent` (2) on requests in flight; `minGapMs` (500) between request
+  _starts_, which is what bounds the **rate** — `maxConcurrent` alone does not,
+  since two slots turning over quickly is unbounded; and a `cooldownUntil` that
+  only exists once `noteRateLimited()` has seen a 429, taken from that
+  response's own `Retry-After` where it sent one, clamped to `maxCooldownMs`
+  (60s), and only ever **extended**, never shortened, by a later 429. The
+  cooldown holds _every_ request to that host, not just the one that drew the
+  refusal: a 429 is a statement about the host, and letting fifteen sibling
+  workers keep hammering through it is how a soft throttle becomes a block.
+  Every aggregator fetch path goes through it, and each wraps the **whole
+  exchange**, request through body read, because a slot released at the
+  response headers bounds the number of open sockets at nothing. The retry
+  _sleep_ is outside the slot, for the mirror-image reason. Three paths own
+  their own loop, because each carries something the others do not —
+  `fetchHtml()`/`fetchBinary()` (`http/fetcher.ts`: charset decoding, redirect
+  hops) and `fetchImageOutcome()` (`images/fetcher.ts`: content-type and sharp
+  validation). **Everything else goes through
+  `fetchTextThrottled()`/`fetchJsonThrottled()`
+  (`src/lib/aggregators/http/throttled-fetch.ts`)**, which is the same loop
+  for the small JSON APIs: Reddit's listing, comments, post, about and token
+  endpoints; a subreddit's `about.json` in `header/strategies.ts`; Bluesky's
+  DID resolve and post thread; YouTube's Data API (below); and
+  `ImageExtractor.fetchAndParsePage()`. Before it, each of those had
+  hand-rolled `AbortSignal.timeout(...)` + `fetch` + `if (!res.ok) return
+null`, none was throttled, and none told a 429 from a DNS failure.
+  **A new outbound call belongs on one of these paths, never on a bare
+  `fetch`** — the only remaining bare one is `search.ts` (user-triggered, one
+  request per action).
+
+  **The throttle sits _outside_ `withDeadline()` and `readCapped*()`, never
+  beside them.** Those two are the other half of this area (see the
+  `withDeadline()` bullet), and the composition order is the whole point:
+  `fetchTextThrottled()` is built on both, so a caller that reaches for the
+  throttle gets the deadline's placement guarantee and the body cap for free
+  rather than hand-rolling a third copy of the timer pair that four call sites
+  in this tree each got wrong once. The one rule that order imposes is that
+  **the deadline is armed inside the slot, per attempt** — an
+  `AbortSignal.timeout()` created before the queue wait is spent on
+  politeness, up to `maxCooldownMs` of it, and then aborts a request that was
+  never sent while reporting a timeout against a host that was merely being
+  waited for. `fetchBinary()` is where that gets interesting, because it also
+  owes main's "one budget for the whole call, not one per redirect hop"
+  guarantee: it therefore carries a `remaining` budget, deadlines each hop
+  with what is left, and deducts only the time spent **in flight** — the queue
+  wait is not the caller's to pay for. A new multi-hop path needs the same
+  shape; a single hoisted timer is the thing that looks right and is not.
+
+  **`youtube/client.ts` is on `fetchTextThrottled()` too, and its exception is
+  narrower than "it needs its own handling".** It used to be the second bare
+  `fetch`, on the argument that the Data API signals exhaustion as **403
+  `quotaExceeded`** rather than 429, so the limiter would never see it. That is
+  true and unchanged — but it argues for classifying the 403, not for skipping
+  the throttle: `www.googleapis.com` is one host reached by every YouTube feed
+  in every worker loop simultaneously, exactly the shape the limiter exists
+  for, and the hand-rolled `_get()` also had **no timeout at all**, so a hung
+  connection held a worker loop for as long as the socket stayed open. So
+  `_get()` goes through the shared loop and adds two things of its own:
+  - **`YouTubeQuotaError`**, a `YouTubeAPIError` subclass raised when a 403 (or
+    a surviving 429) carries `quotaExceeded`/`dailyLimitExceeded`/
+    `rateLimitExceeded` or `error.status === "RESOURCE_EXHAUSTED"` — both
+    envelopes, for the belt-and-braces reason `src/lib/integrations/youtube.ts`
+    already documents for the credential probe. It is a distinct type because
+    **every "not found" path in that client answers by swallowing an error**,
+    so a quota failure travelling as a generic error came out the other side as
+    _permanent absence_: a channel handle that does not exist, a video with no
+    comments — the same silent-loss shape Reddit's comment path had.
+    `_validateChannelId()`, `_resolveViaSearch()`, `_resolveViaUsername()` and
+    `fetchSourceData()`'s channel-row fallback therefore **rethrow** it (that
+    last one for a second reason: swallowing it took the search fallback, which
+    costs 100 quota units to the playlist read's 1, purely to fail again), while
+    `fetchVideoComments()` **logs** it and still returns `[]` — the same ruling
+    Reddit's comments carry, since a run that already has its videos is worth
+    shipping without comments but not silently.
+  - **Neither the URL nor the response body may reach an error message.** The
+    URL carries the API key and Google echoes a rejected key back in
+    `error.message`; these errors propagate into job logs and
+    error-notification emails. Only the endpoint name and the status number are
+    reported, which is what `client.test.ts`'s "never puts the API key or the
+    response body in the error message" case pins.
+
+  **`fetchTextThrottled()` takes `timeoutMs`, never a caller-built signal, and
+  that is the whole reason it exists rather than a thinner wrapper.** An
+  `AbortSignal.timeout(10_000)` starts counting when it is _created_, so time
+  spent queued behind the concurrency cap or a cooldown — up to 60s — is spent
+  against the request's own budget: with a cooldown active, a 10s signal is
+  already aborted before the request is ever sent, and the caller is told it
+  timed out against a host that was merely being waited for politely. The
+  signal is therefore built **inside** the slot, per attempt. This is not
+  hypothetical — the first version of `fetchAndParsePage()`'s throttling
+  shipped with the timer outside the slot and had exactly this bug. Testing it
+  needs a **signal-aware** fetch mock: a bare
+  `vi.fn().mockResolvedValue(new Response(...))` ignores `init.signal`
+  entirely, where undici rejects, so the naive mock passes with the defect
+  present. `throttled-fetch.test.ts`'s "does not spend the request timeout
+  waiting out the host cooldown" case checks `init.signal?.aborted` for this
+  reason. A second, duller trap in the same tests: a `Response` body can only
+  be read once, so a `mockResolvedValue(sameResponse)` fails the _second_
+  attempt of a retry for the wrong reason — use
+  `mockImplementation(async () => new Response(...))`. Converting these call
+  sites also broke six existing tests that mocked duck-typed `{ ok, json }`
+  objects; those are now real `Response`s, which is what the code always
+  deserved. Two consequences for tests:
+  `src/test/setup-node.ts` (the node project's only setup file) zeroes
+  `minGapMs` before each test, since the suite's fetches are mocked and the gap
+  would buy nothing but wall-clock — `maxConcurrent` is deliberately left real,
+  so something still exercises the cap; and `host-limiter.test.ts` sets its own
+  limits per case, because a limiter test inheriting `minGapMs: 0` would be
+  asserting against the feature switched off.
+
+- **Only a 429 is retried on the image path, and only because it is a statement
+  about _when_ rather than _whether_.** `fetchImageOutcome()` folded a 429 into
+  the same transient `null` as a DNS failure with no retry at all, so a
+  throttled run produced articles that permanently had no header image, with
+  nothing in the log to say a retry would have worked. It now gets
+  `RATE_LIMIT_ATTEMPTS` (3) tries — the same number, and the same reasoning,
+  as `throttled-fetch.ts`'s own constant; every other failure stays a
+  single-attempt `null`, deliberately — a 404 will not become a 200, and a timeout on a
+  decorative inline image is not worth a worker's time twice. The retry loop
+  does **not** sleep: `noteRateLimited()` has already pushed the host's
+  cooldown out and `withHostLimit()` inside the next attempt waits it out, so
+  sleeping here as well would double the delay. `fetchHtml()`'s 429 backoff is
+  `max(exponential, Retry-After)` for the same reason the cooldown exists: a
+  1s/2s ladder that ignores the header keeps re-asking a host that just said
+  "not for another thirty seconds".
+  **Reddit is where this mattered most, and it had the same silent-loss
+  shape.** `fetchPostComments()` (`sites/reddit/comments.ts`) runs once per
+  article under `feed.concurrency` against limits far tighter than a
+  website's, and ended `if (!res.ok) return []` — so a throttled run shipped
+  articles with an empty comment section indistinguishable from a post nobody
+  had replied to. It now retries and, when Reddit refuses every attempt,
+  **logs** rather than swallowing. One Reddit call deliberately opts out with
+  `attempts: 1`: the token endpoint in `sites/reddit/auth.ts`, because a 429
+  there is IP/edge-level load shedding returned without looking at the Basic
+  auth header — the same fact `quotaMeansVerified: false` already records for
+  Reddit — so re-asking does not become an answer, and every caller already
+  treats a missing token as "fall back to the unauthenticated endpoint". The
+  host cooldown is still recorded, which is what protects those. One more
+  Reddit fact the conversion made load-bearing: **its edge serves HTML block
+  pages with a 200**, so a parse failure on a 2xx is a real answer, not a bug.
+  `fetchJsonThrottled()` returns `null` for it, and the feed listing raises
+  `AggregatorError` rather than letting a `SyntaxError` escape as an unhandled
+  crash.
+- **`enrichOne()` fetches the article page first and hands it to header
+  extraction, and that order is load-bearing.** It ran the
+  other way round until it was measured: `extractHeaderElement()` reaches
+  `ImageExtractor.fetchAndParsePage()`, which fetched the _same_ article page
+  again purely to read its og:image — two full page requests per article
+  against every site aggregated, and the single largest contributor to Heise's
+  429s. `HeaderElementContext.html` is the seam
+  (`extractHeaderElement(article, html)` → `extractImageFromUrl(url, …, html)`),
+  and it stays **optional** because not every caller has a page in hand: the
+  RSS-only aggregators reach header extraction with nothing fetched yet and
+  still fall back to fetching it. It is fixed **once**, inside `enrichOne()`,
+  which is what makes `reload.ts` inherit it: that handler carried the
+  identical double fetch of its own before both callers were unified behind
+  that one pipeline. The obligation that leaves is at the **adapter**, not the
+  aggregator — `reload.ts` hands `enrichOne()` an `EnrichableAggregator`
+  object literal, and an entry written `extractHeaderElement: (a) => …` type-
+  checks perfectly while silently dropping the page and restoring the
+  duplicate fetch for reload alone. Forward the second argument.
+  A failed page fetch still gets a header attempt, with nothing to hand over,
+  and that is deliberate rather than tidy: `enrichArticles()`'s
+  `onFetchFailed` **keeps** the article with its original RSS body, and before
+  the reorder such an article already had a header image by the time the fetch
+  failed — skipping it would have quietly taken the header image away from
+  every article whose page cannot be scraped.
+  Nothing downstream depends on the old order — `header_data` is still set
+  before `extractContent()`/`processContent()` run, which
+  `website.test.ts`'s `["fetch", "header", "extract", "process"]` case pins.
 - **`feeds.lastAggregationStartedAt` is the scheduler's own clock, and it
   exists because `feeds.updatedAt` cannot be trusted as one.** `updatedAt`
   carries `$onUpdate` (see that convention above), so it is bumped by _any_
@@ -961,8 +1142,7 @@ isAdminRole(user.role))` in `src/app/(app)/page.tsx` — not a `Promise<User>`
   aggregation happened (the `/api/v1/feeds` wire form serializes whatever
   `updatedAt` holds, but as an ordinary "row last modified" field, the same
   meaning every other REST resource on this API gives it — not as evidence of
-  a completed aggregation).
-- **`feeds.maxArticleAgeDays` (default `30`) is an ingestion filter, not a
+  a completed aggregation).- **`feeds.maxArticleAgeDays` (default `30`) is an ingestion filter, not a
   retention policy — that's `userSettings.articleRetentionDays` (default
   `60`), a separate column enforced by the nightly `retention` job. This one
   is read by `BaseAggregator.filterArticles()` (`src/lib/aggregators/base.ts`)

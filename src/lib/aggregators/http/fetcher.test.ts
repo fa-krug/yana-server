@@ -12,6 +12,7 @@ import {
   ResponseTooLarge,
   USER_AGENT,
 } from "./fetcher";
+import { hostCooldownMs, resetHostLimits } from "./host-limiter";
 import { stallingBodyResponse } from "./test-support";
 
 describe("http/fetcher constants & errors", () => {
@@ -161,6 +162,54 @@ describe("fetchHtml", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("waits out a 429's Retry-After rather than its own shorter backoff", async () => {
+    const htmlContent = "<html>Allowed through</html>";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockStreamResponse(new TextEncoder().encode("Too Many Requests"), {
+          status: 429,
+          headers: { "retry-after": "1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockStreamResponse(new TextEncoder().encode(htmlContent), { status: 200 }),
+      );
+    globalThis.fetch = fetchMock;
+
+    const started = Date.now();
+    // `retryDelayMs: 0` is what the caller asked for, so anything longer than
+    // an instant retry can only have come from the header. Ignoring it is how
+    // a 1s/2s ladder keeps re-asking a host that just said "not yet".
+    const result = await fetchHtml("https://ratelimited.example.com/a", {
+      retries: 3,
+      retryDelayMs: 0,
+    });
+
+    expect(result).toBe(htmlContent);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(900);
+  });
+
+  it("puts the whole host on cooldown when one request draws a 429", async () => {
+    resetHostLimits({ minGapMs: 0, maxCooldownMs: 60_000 });
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockStreamResponse(new TextEncoder().encode("Too Many Requests"), {
+        status: 429,
+        headers: { "retry-after": "30" },
+      }),
+    );
+    globalThis.fetch = fetchMock;
+
+    await expect(
+      fetchHtml("https://cooldown.example.com/a", { retries: 1, retryDelayMs: 0 }),
+    ).rejects.toThrow(NetworkError);
+
+    // A sibling worker's *different* URL on the same host is held too --
+    // without this, fifteen article workers each rediscover the same refusal.
+    expect(hostCooldownMs("https://cooldown.example.com/b")).toBeGreaterThan(25_000);
+  });
+
   it("does not retry deterministic 404 error", async () => {
     const fetchMock = vi
       .fn()
@@ -284,27 +333,59 @@ describe("fetchBinary", () => {
 
   // 7e: one deadline for the whole call, not one per redirect hop. A fresh
   // timer per hop made the real worst case MAX_REDIRECTS + 1 times the
-  // configured timeout; the same AbortSignal on every hop is what makes the
-  // configured timeout the actual ceiling.
-  it("uses one deadline across every redirect hop", async () => {
+  // configured timeout.
+  //
+  // **This used to assert that every hop saw the identical `AbortSignal`, and
+  // that is deliberately no longer true.** Each hop now runs inside its own
+  // `withHostLimit()` slot -- a redirect chain can cross hosts, and the cap
+  // belongs to whichever host is being asked next -- and a signal armed
+  // before that queue wait would be spent on politeness rather than on the
+  // request, up to `maxCooldownMs` of it, then abort a request that was never
+  // sent. So the signal is per hop and the *budget* is shared: `fetchBinary()`
+  // deadlines each hop with what is left and deducts only time spent in
+  // flight. Signal identity was a proxy for the ceiling; this asserts the
+  // ceiling itself, which is what 7e was actually about.
+  it("spends one shared timeout across every redirect hop, not one per hop", async () => {
+    const HOP_MS = 120;
     const signals: AbortSignal[] = [];
+    let hops = 0;
+
     const fetchMock = vi.fn((_url: string, init: { signal: AbortSignal }) => {
       signals.push(init.signal);
-      if (signals.length <= 3) {
-        return Promise.resolve(
-          new Response(null, { status: 302, headers: { location: "https://example.com/next" } }),
+      hops++;
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(
+          () =>
+            resolve(
+              hops <= 3
+                ? new Response(null, {
+                    status: 302,
+                    headers: { location: "https://example.com/next" },
+                  })
+                : mockStreamResponse(new Uint8Array([1, 2, 3])),
+            ),
+          HOP_MS,
         );
-      }
-      return Promise.resolve(mockStreamResponse(new Uint8Array([1, 2, 3])));
+        init.signal.addEventListener("abort", () => {
+          clearTimeout(timer);
+          reject(new Error("aborted"));
+        });
+      });
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    await fetchBinary("https://example.com/start.png");
+    // Two hops' worth of in-flight time, against a four-hop chain. Per-hop
+    // timers would let all four through and resolve; one shared budget runs
+    // out partway.
+    await expect(
+      fetchBinary("https://example.com/start.png", { timeout: HOP_MS * 2 }),
+    ).rejects.toThrow();
 
-    expect(signals.length).toBe(4);
-    for (const signal of signals) {
-      expect(signal).toBe(signals[0]);
-    }
+    expect(hops).toBeLessThan(4);
+    // Per hop, for the throttling reason above -- stated so a future reader
+    // does not "restore" a single hoisted signal and reintroduce the abort of
+    // a request that was never sent.
+    expect(signals[1]).not.toBe(signals[0]);
   });
 
   it("fetches binary Buffer successfully", async () => {

@@ -97,7 +97,7 @@ export async function proxyYoutubeEmbeds(
  * must keep working with no cast at either call site.
  */
 export interface EnrichableAggregator {
-  extractHeaderElement(article: RawArticle): Promise<HeaderElementData | null>;
+  extractHeaderElement(article: RawArticle, html?: string): Promise<HeaderElementData | null>;
   fetchArticleContent(url: string): Promise<string>;
   extractContent(html: string, article: RawArticle): string | Promise<string>;
   processContent(html: string, article: RawArticle): string | Promise<string>;
@@ -129,8 +129,9 @@ export interface EnrichmentPolicy {
 }
 
 /**
- * The one enrichment pipeline: extractHeaderElement -> fetchArticleContent ->
- * extractContent -> hasBodyContent. `processContent()` is deliberately
+ * The one enrichment pipeline: fetchArticleContent -> extractHeaderElement ->
+ * extractContent -> hasBodyContent. (The first two are in that order for a
+ * reason -- see `applyHeader()` below.) `processContent()` is deliberately
  * *not* part of it -- `reload.ts` reports job progress between "content
  * extracted" and "content processed" (see its own `progress(job.id, 55)`
  * call), which only works if that boundary stays visible to the caller
@@ -158,18 +159,43 @@ export async function enrichOne(
 > {
   const url = article.identifier;
 
-  const headerData = await aggregator.extractHeaderElement(article);
-  if (headerData) {
-    article.header_data = headerData;
-  }
+  /**
+   * The page is fetched **first**, and its HTML is then handed to header
+   * extraction. The other order costs a second full fetch of the same page
+   * per article -- `extractHeaderElement()` reaches
+   * `ImageExtractor.fetchAndParsePage()`, which fetched it again purely to
+   * read its og:image -- which is doubled request volume against every site
+   * aggregated, and was the single largest contributor to Heise runs earning
+   * 429s.
+   *
+   * A failed fetch still gets a header attempt, with nothing to hand over.
+   * That is not tidiness: `enrichArticles()`'s `onFetchFailed` **keeps** the
+   * article with its original RSS body, and before the reorder that article
+   * already had a header image extracted by the time the fetch failed.
+   * Skipping it here would have quietly taken the header image away from
+   * every article whose page cannot be scraped.
+   *
+   * Nothing downstream depends on the order: `header_data` is still set
+   * before `extractContent()`/`processContent()` run, which
+   * `website.test.ts` pins.
+   */
+  const applyHeader = async (html?: string): Promise<void> => {
+    const headerData = await aggregator.extractHeaderElement(article, html);
+    if (headerData) {
+      article.header_data = headerData;
+    }
+  };
 
   let rawHtml: string;
   try {
     rawHtml = await aggregator.fetchArticleContent(url);
   } catch (err) {
+    await applyHeader();
     return { status: "resolved", article: await policy.onFetchFailed(article, err) };
   }
   article.raw_content = rawHtml;
+
+  await applyHeader(rawHtml);
 
   const content = await aggregator.extractContent(rawHtml, article);
 

@@ -7,6 +7,18 @@ export interface HeaderElementContext {
   url: string;
   alt?: string;
   onLog?: (message: string) => void;
+  /**
+   * The article page's HTML, when the caller has already fetched it.
+   *
+   * `FullWebsiteAggregator.enrichArticles()` fetches every article page for
+   * its content anyway, and the og:image/page-image strategies want that same
+   * page -- so without this the aggregator fetched each article twice, once
+   * here and once for the content, doubling the request count against every
+   * site it aggregates. Optional because not every caller has it: the
+   * `article.reload` job and the RSS-only aggregators reach header extraction
+   * with nothing fetched yet, and those still fall back to fetching the page.
+   */
+  html?: string;
 }
 
 /**

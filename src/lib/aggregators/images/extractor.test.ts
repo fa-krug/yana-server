@@ -115,6 +115,43 @@ describe("Image Extraction Strategies", () => {
       expect(result).not.toBeNull();
       expect(result?.imageUrl).toBe("https://example.com/og-banner.jpg");
     });
+
+    it("reads og:image from HTML the caller already has, without refetching the page", async () => {
+      const pageHtml = `
+        <html>
+          <head>
+            <meta property="og:image" content="https://example.com/og-banner.jpg" />
+          </head>
+        </html>
+      `;
+
+      const validJpeg = await sharp({
+        create: { width: 400, height: 300, channels: 3, background: { r: 200, g: 50, b: 50 } },
+      })
+        .jpeg()
+        .toBuffer();
+
+      // Only the image itself is mocked. If the extractor still fetched the
+      // page, this single mock would be consumed by that request and the
+      // og:image lookup would come back empty -- which is the assertion.
+      const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(new Uint8Array(validJpeg), {
+          status: 200,
+          headers: { "Content-Type": "image/jpeg" },
+        }),
+      );
+
+      const result = await extractImages(
+        "https://example.com/news/article-1",
+        true,
+        undefined,
+        pageHtml,
+      );
+
+      expect(result?.imageUrl).toBe("https://example.com/og-banner.jpg");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0][0]).toBe("https://example.com/og-banner.jpg");
+    });
   });
 });
 

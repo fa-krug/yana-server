@@ -2,9 +2,32 @@
  * YouTube API client for interacting with YouTube Data API v3.
  *
  * Ported from old/core/aggregators/utils/youtube_client.py.
+ *
+ * Every call goes through `fetchTextThrottled()`, so this shares the
+ * per-hostname concurrency cap, request gap and 429 cooldown with every other
+ * aggregator fetch -- `www.googleapis.com` is one host reached by every
+ * YouTube feed in every worker loop at once. Two things it needs that the
+ * shared loop does not provide on its own:
+ *
+ * - **A quota answer is a 403, not a 429**, so `withHostLimit()`'s retry and
+ *   cooldown never see it. It is classified here into {@link YouTubeQuotaError}
+ *   instead -- see {@link isQuotaExhausted} for why two envelopes are read.
+ * - **The URL carries the API key**, so neither it nor the response body may
+ *   reach an error message: these propagate into job logs and error-notification
+ *   emails, and Google echoes a rejected key back in `error.message`. Only the
+ *   endpoint name and the status number are ever reported.
+ *
+ * The deadline and the body cap this call needs are *not* extra work here:
+ * `fetchTextThrottled()` is itself built on `withDeadline()` and
+ * `readCappedText()`, so routing through it keeps the guarantees this fetch
+ * gained on 2026-09-04 -- it had no deadline of any kind before then, and a
+ * stalled googleapis connection held the worker loop running it open
+ * indefinitely (`worker.ts`'s budget timer only asks for cooperative
+ * cancellation and has no checkpoint inside a fetch) -- and adds the throttle
+ * and the 429 retry on top.
  */
 
-import { readCappedJson, readCappedText, withDeadline } from "../../http/fetcher";
+import { fetchTextThrottled, type ThrottledTextResponse } from "../../http/throttled-fetch";
 
 export class YouTubeAPIError extends Error {
   originalError?: unknown;
@@ -14,6 +37,51 @@ export class YouTubeAPIError extends Error {
     this.name = "YouTubeAPIError";
     this.originalError = originalError;
   }
+}
+
+/**
+ * The daily quota is spent -- the key itself is fine.
+ *
+ * It is a distinct type because every "not found" path in this client answers
+ * by swallowing an error, and a quota failure travelling as a generic
+ * `YouTubeAPIError` came out the other side as *permanent* absence: a channel
+ * handle that "does not exist", a video with no comments. Those paths rethrow
+ * this one (or log it, where the article is still worth shipping) rather than
+ * folding it into their fallback.
+ */
+export class YouTubeQuotaError extends YouTubeAPIError {
+  constructor(message: string) {
+    super(message);
+    this.name = "YouTubeQuotaError";
+  }
+}
+
+/**
+ * Whether a refusal is quota exhaustion rather than a bad key.
+ *
+ * **Two envelopes, deliberately** -- the same belt-and-braces
+ * `src/lib/integrations/youtube.ts` documents for the credential probe: the
+ * legacy `error.errors[0].reason` is what Google documents, and `error.status`
+ * is the newer google.rpc code it now populates alongside it. Reading only one
+ * would let a quota answer degrade into "your key was rejected".
+ */
+function isQuotaExhausted(response: ThrottledTextResponse): boolean {
+  if (response.status !== 403 && response.status !== 429) return false;
+
+  let body: { error?: { errors?: { reason?: string }[]; status?: string } };
+  try {
+    body = JSON.parse(response.body);
+  } catch {
+    return false;
+  }
+
+  const reason = body.error?.errors?.[0]?.reason ?? "";
+  return (
+    reason === "quotaExceeded" ||
+    reason === "dailyLimitExceeded" ||
+    reason === "rateLimitExceeded" ||
+    body.error?.status === "RESOURCE_EXHAUSTED"
+  );
 }
 
 export interface YouTubeChannelData {
@@ -110,10 +178,20 @@ export interface YouTubeCommentThread {
   [key: string]: unknown;
 }
 
-/** Deadline for one API call, covering the body rather than only the headers. */
+/**
+ * Deadline for one attempt at an API call, covering the body rather than only
+ * the headers. `fetchTextThrottled()` builds the signal from it *inside* the
+ * throttle slot, so time spent queued behind the host cap or a cooldown is not
+ * charged against it.
+ *
+ * There is no separate error-body cap any more. When this fetch read its own
+ * bodies, a refusal was read through a tighter `MAX_ERROR_BYTES` than a success
+ * because the text was only ever interpolated into a message. The shared loop
+ * reads one body whichever the status is, and the message no longer quotes it
+ * at all (see the no-echo rule above), so the one `MAX_JSON_BYTES` default is
+ * the only cap left with a job.
+ */
 const API_TIMEOUT_MS = 30_000;
-/** An error body is only ever interpolated into a message -- 64 KB is plenty. */
-const MAX_ERROR_BYTES = 64 * 1024;
 
 export class YouTubeClient {
   static BASE_URL = "https://www.googleapis.com/youtube/v3";
@@ -133,31 +211,34 @@ export class YouTubeClient {
     }
     url.searchParams.set("key", this.apiKey);
 
-    try {
-      // No deadline at all until 2026-09-04, and no cap on either body read:
-      // a stalled googleapis connection held this call -- and the worker loop
-      // running it -- open indefinitely, with nothing able to interrupt it
-      // (worker.ts's budget timer only requests cooperative cancellation and
-      // has no checkpoint inside a fetch). See withDeadline().
-      return await withDeadline(API_TIMEOUT_MS, async (signal) => {
-        const response = await fetch(url.toString(), {
-          headers: { Accept: "application/json" },
-          signal,
-        });
-        if (!response.ok) {
-          const errorText = await readCappedText(response, url.toString(), MAX_ERROR_BYTES).catch(
-            () => "",
-          );
-          throw new Error(`HTTP ${response.status}: ${errorText}`);
-        }
-        return await readCappedJson<T>(response, url.toString());
-      });
-    } catch (e) {
-      if (e instanceof YouTubeAPIError) throw e;
-      throw new YouTubeAPIError(
-        `YouTube API request failed: ${e instanceof Error ? e.message : String(e)}`,
-        e,
+    const response = await fetchTextThrottled(url.toString(), {
+      headers: { Accept: "application/json" },
+      timeoutMs: API_TIMEOUT_MS,
+    });
+
+    if (!response) {
+      // No answer this caller can act on: network, DNS, the deadline, or a body
+      // that ran past the cap -- `fetchTextThrottled()` collapses all four to
+      // `null`, because no caller in the tree can act on the difference.
+      throw new YouTubeAPIError(`YouTube API request failed: no response from ${endpoint}`);
+    }
+
+    if (isQuotaExhausted(response)) {
+      throw new YouTubeQuotaError(
+        `YouTube API quota exhausted (HTTP ${response.status} on ${endpoint})`,
       );
+    }
+
+    if (!response.ok) {
+      throw new YouTubeAPIError(
+        `YouTube API request failed: HTTP ${response.status} on ${endpoint}`,
+      );
+    }
+
+    try {
+      return JSON.parse(response.body) as T;
+    } catch (e) {
+      throw new YouTubeAPIError(`YouTube API returned an unparseable body for ${endpoint}`, e);
     }
   }
 
@@ -212,7 +293,8 @@ export class YouTubeClient {
         id: channelId,
       });
       return Array.isArray(data.items) && data.items.length > 0;
-    } catch {
+    } catch (e) {
+      if (e instanceof YouTubeQuotaError) throw e;
       return false;
     }
   }
@@ -284,7 +366,8 @@ export class YouTubeClient {
 
       // 3. First result fallback
       return channelIds[0];
-    } catch {
+    } catch (e) {
+      if (e instanceof YouTubeQuotaError) throw e;
       return null;
     }
   }
@@ -300,7 +383,8 @@ export class YouTubeClient {
         return items[0].id;
       }
       return null;
-    } catch {
+    } catch (e) {
+      if (e instanceof YouTubeQuotaError) throw e;
       return null;
     }
   }
@@ -441,8 +525,14 @@ export class YouTubeClient {
         nextPageToken = data.nextPageToken || null;
         if (!nextPageToken) break;
       }
-    } catch {
-      // Don't fail the whole video aggregation just because comments failed
+    } catch (e) {
+      // Don't fail the whole video aggregation just because comments failed --
+      // but a run that ships every article with an empty comment section
+      // because the quota ran out must say so, the same ruling Reddit's
+      // comment path already carries.
+      if (e instanceof YouTubeQuotaError) {
+        console.warn(`[youtube] quota exhausted fetching comments for ${videoId}`);
+      }
       return [];
     }
 

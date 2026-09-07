@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
-import { MAX_HTML_BYTES, MAX_REDIRECTS, readCappedText, withDeadline } from "../http/fetcher";
+import { MAX_HTML_BYTES, MAX_REDIRECTS } from "../http/fetcher";
+import { fetchTextThrottled } from "../http/throttled-fetch";
 import { fetchSingleImage, getImageHeaders } from "./fetcher";
 import {
   DirectImageStrategy,
@@ -53,6 +54,7 @@ export class ImageExtractor {
     url: string,
     isHeaderImage = false,
     onLog?: (message: string) => void,
+    html?: string,
   ): Promise<FetchedImageResultWithUrl | null> {
     if (!url) return null;
 
@@ -76,9 +78,11 @@ export class ImageExtractor {
       } catch {}
     }
 
-    // Fetch and parse page HTML for meta tag & page image strategies
+    // Parse the page HTML for the meta tag & page image strategies -- reusing
+    // the caller's copy when it has one, so the aggregator does not fetch the
+    // same article page a second time just to read its og:image.
     try {
-      const $ = await this.fetchAndParsePage(url);
+      const $ = html ? cheerio.load(html) : await this.fetchAndParsePage(url);
       if ($) {
         context.$ = $;
         for (const strategy of this.strategies.slice(3)) {
@@ -126,34 +130,41 @@ export class ImageExtractor {
    * chain that runs out of hops both land where a network error already did.
    */
   private async fetchAndParsePage(url: string): Promise<cheerio.CheerioAPI | null> {
-    try {
-      return await withDeadline(PAGE_FETCH_TIMEOUT_MS, async (signal) => {
-        let target = url;
+    // Through `fetchTextThrottled()` rather than a local `fetch` + timer,
+    // because the abort signal has to be created *inside* the throttle slot:
+    // built outside it, the timeout counts down while the request is still
+    // queued behind the host's cooldown, and a cooldown longer than the
+    // timeout aborts every request before it is ever sent. The helper is
+    // itself built on `withDeadline()` and `readCappedText()`, so the
+    // placement guarantee and the body cap both still hold.
+    //
+    // Redirects are followed by hand rather than by undici, for the same
+    // reason `fetchBinary()` does it: a chain can cross hosts, and the
+    // throttle slot belongs to whichever host is being asked *next* -- and
+    // `MAX_REDIRECTS` is a tighter bound than undici's own default of 20.
+    let target = url;
 
-        for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-          const res = await fetch(target, {
-            headers: getImageHeaders(target),
-            signal,
-            redirect: "manual",
-          });
-
-          if (res.status >= 300 && res.status < 400) {
-            const location = res.headers.get("location");
-            if (!location) return null;
-            target = new URL(location, target).toString();
-            continue;
-          }
-
-          if (!res.ok) return null;
-          const html = await readCappedText(res, target, MAX_HTML_BYTES);
-          return cheerio.load(html);
-        }
-
-        return null;
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      const res = await fetchTextThrottled(target, {
+        headers: getImageHeaders(target),
+        redirect: "manual",
+        timeoutMs: PAGE_FETCH_TIMEOUT_MS,
+        maxBytes: MAX_HTML_BYTES,
       });
-    } catch {
-      return null;
+      if (!res) return null;
+
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get("location");
+        if (!location) return null;
+        target = new URL(location, target).toString();
+        continue;
+      }
+
+      if (!res.ok) return null;
+      return cheerio.load(res.body);
     }
+
+    return null;
   }
 }
 
@@ -161,7 +172,8 @@ export async function extractImages(
   url: string,
   isHeaderImage = false,
   onLog?: (message: string) => void,
+  html?: string,
 ): Promise<FetchedImageResultWithUrl | null> {
   const extractor = new ImageExtractor();
-  return extractor.extractImageFromUrl(url, isHeaderImage, onLog);
+  return extractor.extractImageFromUrl(url, isHeaderImage, onLog, html);
 }

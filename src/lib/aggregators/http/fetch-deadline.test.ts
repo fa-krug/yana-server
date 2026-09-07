@@ -20,12 +20,16 @@ import { describe, expect, it } from "vitest";
  * checks the *presence of the token*, not a real deadline:
  * `signal: new AbortController().signal` with nothing ever aborting it
  * satisfies it, and no textual check can tell otherwise. And
- * `withDeadline()`'s guarantee reaches only the callers that use it -- the
- * four this task converted. `fetchHtml()`, `fetchBinary()` and
- * `fetchImageOutcome()` still hand-roll a controller and a timer, and they are
- * precisely the three sites that already made the placement mistake once, so
- * for them the structural half is not in force and 7d/7e's `finally` blocks
- * are all that hold it.
+ * `withDeadline()`'s guarantee reaches only the callers that use it. That
+ * used to exclude the three that had already made the placement mistake once
+ * -- `fetchHtml()`, `fetchBinary()` and `fetchImageOutcome()` each hand-rolled
+ * a controller and a timer, so for them only 7d/7e's `finally` blocks held it.
+ * All three were converted when per-hostname throttling went in (the timer had
+ * to move *inside* the throttle slot anyway, so hand-rolling it a fourth time
+ * was the wrong shape twice over), and `fetchTextThrottled()` -- now the
+ * single call site standing in for ten hand-rolled blocks -- is built on it
+ * too. The one `new AbortController()` left in the aggregator tree is
+ * `withDeadline()`'s own.
  *
  * **Why it asserts the deadline and not the size cap.** The deadline is
  * mechanically decidable: it is a property of the `fetch()` call's own init
@@ -234,21 +238,32 @@ function undeadlinedIn(source: string, label: string): string[] {
 describe("every fetch() a worker loop can reach carries a deadline", () => {
   it("finds the call sites at all, so a silent zero cannot pass", () => {
     const sites = SCAN_ROOTS.flatMap(tsFilesUnder).flatMap(fetchCallSites);
-    // Twenty-four at the time of writing: seventeen under `aggregators/`,
+    // Fourteen at the time of writing: four in the two fetch modules
+    // (`http/fetcher.ts`'s two, `http/throttled-fetch.ts`, and
+    // `images/fetcher.ts`), three in `aggregators/search.ts`,
     // `feeds/logo.ts`'s three, and four under `ai/`. Counted by *running*
     // this scanner and reading what it returned, never by adding to the
     // previous comment -- which is how "sixteen" survived here after that
     // number had stopped being true. A floor rather than an exact count, so a
-    // new bounded fetch need not edit this test; it stays at 19 rather than
-    // tracking 24 for the same reason.
+    // new bounded fetch need not edit this test; it stays at 12 rather than
+    // tracking 14 for the same reason.
     //
-    // A drop below it means *look*, not necessarily "the scanner broke":
-    // consolidating the five `sites/reddit/` fetches behind one helper would
-    // reduce the count perfectly legitimately. What the floor actually rules
-    // out is the failure mode that would otherwise read as green -- a scanner
-    // that matches nothing at all, which is what a mis-lexed new syntax would
-    // produce.
-    expect(sites.length).toBeGreaterThanOrEqual(19);
+    // **It was 24-against-a-floor-of-19 one commit ago, and the drop is the
+    // legitimate case this comment already predicted.** Per-hostname
+    // throttling (`http/host-limiter.ts`) put every small JSON read behind
+    // `fetchTextThrottled()`/`fetchJsonThrottled()`, so the ten hand-rolled
+    // `fetch` + timer blocks it replaced -- reddit's five, youtube's Data API
+    // call, bluesky's two, `images/strategies.ts`'s and
+    // `header/strategies.ts`'s -- are now one call site in
+    // `throttled-fetch.ts`. That is the consolidation this comment named as
+    // "perfectly legitimate", arriving for real; the floor was re-derived
+    // from the scanner rather than nudged down until green.
+    //
+    // A drop below it means *look*, not necessarily "the scanner broke".
+    // What the floor actually rules out is the failure mode that would
+    // otherwise read as green -- a scanner that matches nothing at all, which
+    // is what a mis-lexed new syntax would produce.
+    expect(sites.length).toBeGreaterThanOrEqual(12);
   });
 
   it("passes a signal at every one of them", () => {

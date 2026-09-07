@@ -9,6 +9,7 @@ import { BaseAggregator, FeedLike, RawArticle } from "../../base";
 import { splitTrailingComments } from "../../comments/section";
 import { mapWithConcurrency } from "../../concurrency";
 import { AggregatorError, ArticleSkipError } from "../../errors";
+import { fetchTextThrottled } from "../../http/throttled-fetch";
 import { getHeaderImageRef } from "../../header/context";
 import { buildHeaderHtml, formatArticleContent, isTwitterUrl } from "../../extract/format";
 import { localizeThumbnail } from "../../embeds/youtube";
@@ -132,11 +133,9 @@ export class RedditAggregator extends BaseAggregator {
       headers["Authorization"] = `Bearer ${accessToken}`;
     }
 
-    let res: Response;
-    try {
-      res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
-    } catch (err) {
-      throw new AggregatorError(`Failed to connect to Reddit: ${(err as Error).message}`);
+    const res = await fetchTextThrottled(url, { headers });
+    if (!res) {
+      throw new AggregatorError("Failed to connect to Reddit.");
     }
 
     if (res.status === 401) {
@@ -155,7 +154,15 @@ export class RedditAggregator extends BaseAggregator {
       throw new AggregatorError(`Reddit request failed with status ${res.status}.`);
     }
 
-    const data = (await res.json()) as RedditListing<"t3", RedditPostRaw> | null;
+    let data: RedditListing<"t3", RedditPostRaw> | null;
+    try {
+      data = JSON.parse(res.body) as RedditListing<"t3", RedditPostRaw> | null;
+    } catch {
+      // Reddit's edge serves HTML block pages with a 200 -- the same fact
+      // `openaiCompatibleChatProbe()`'s Reddit sibling records. A parse
+      // failure here is that, not a bug.
+      throw new AggregatorError("Reddit returned an unexpected response.");
+    }
     const children = data?.data?.children || [];
     const posts = children
       .filter((child) => child.kind === "t3" && child.data)

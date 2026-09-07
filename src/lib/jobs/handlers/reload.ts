@@ -107,7 +107,7 @@ function buildErrorBlocks(message: string): Block[] {
  * reload that silently keeps serving the original language, while every job
  * still shows green, is a failure an operator has no way to notice.
  *
- * **The extractHeaderElement -> fetchArticleContent -> extractContent ->
+ * **The fetchArticleContent -> extractHeaderElement -> extractContent ->
  * hasBodyContent sequence above is not this file's own -- it's
  * `enrichOne()` in `@/lib/aggregators/website`, the same function
  * `FullWebsiteAggregator.enrichArticles()` calls per article during a real
@@ -243,7 +243,12 @@ export async function handleReloadJob(job: Job): Promise<void> {
   // (skip, logged), never `onFetchFailed()` (keep original) -- so this stays
   // local to reload rather than moving into `enrichOne()` itself.
   const enrichable: EnrichableAggregator = {
-    extractHeaderElement: (a) => aggregator.extractHeaderElement(a),
+    // `html` is forwarded, not dropped: `enrichOne()` hands over the page it
+    // has just fetched so header extraction does not fetch it a second time
+    // purely to read its og:image (see `applyHeader()` there). An adapter
+    // that swallowed the argument would put that duplicate fetch back for
+    // reload alone, which is where it was first measured.
+    extractHeaderElement: (a, html) => aggregator.extractHeaderElement(a, html),
     fetchArticleContent: async (url) => {
       const html = await aggregator.fetchArticleContent(url);
       if (!html) {

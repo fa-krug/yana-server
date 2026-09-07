@@ -35,11 +35,13 @@ const SAMPLE_POST = {
  * resolution, then the post fetch.
  */
 function mockBlueskyApi(post: Record<string, unknown> | null) {
+  // Real Responses rather than duck-typed `{ ok, json }`: both calls go
+  // through `fetchTextThrottled()`, which reads `status`/`headers`/`text()`.
   mockFetch.mockImplementation(async (url: string) => {
     if (url.includes("resolveHandle")) {
-      return { ok: true, json: async () => ({ did: "did:plc:test123" }) };
+      return new Response(JSON.stringify({ did: "did:plc:test123" }), { status: 200 });
     }
-    return { ok: true, json: async () => ({ posts: post ? [post] : [] }) };
+    return new Response(JSON.stringify({ posts: post ? [post] : [] }), { status: 200 });
   });
 }
 
@@ -227,7 +229,7 @@ describe("buildBlueskyEmbedHtml", () => {
   });
 
   it("resolves to null when the API answers with an HTTP error status", async () => {
-    mockFetch.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+    mockFetch.mockImplementation(async () => new Response("{}", { status: 500 }));
 
     const result = await buildBlueskyEmbedHtml(
       "https://bsky.app/profile/user.bsky.social/post/abc",

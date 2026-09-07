@@ -2337,6 +2337,64 @@ describe("src/lib/jobs/handlers", () => {
       expect(reloaded?.plainText).toContain("Fresh from the source");
     });
 
+    it("hands the refetched page to header extraction instead of fetching it twice", async () => {
+      vi.resetModules();
+      const fetchArticleContent = vi.fn().mockResolvedValue("<p>Fresh from the source</p>");
+      const extractHeaderElement = vi.fn().mockResolvedValue(null);
+      vi.doMock("@/lib/aggregators/factory", () => ({
+        createAggregator: () => ({
+          fetchArticleContent,
+          extractHeaderElement,
+          extractContent: (html: string) => html,
+          processContent: (html: string) => html,
+        }),
+      }));
+      handlers = await import("./index");
+
+      let articleId = 0;
+      client.writeTransaction((db) => {
+        let user = db.select().from(schema.users).limit(1).get();
+        if (!user) {
+          db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
+          user = db.select().from(schema.users).limit(1).get();
+        }
+
+        const feed = db
+          .insert(schema.feeds)
+          .values({ name: "Feed", userId: user!.id })
+          .returning({ id: schema.feeds.id })
+          .get();
+
+        const article = db
+          .insert(schema.articles)
+          .values({
+            name: "No Content",
+            identifier: "https://example.com/art-1",
+            feedId: feed.id,
+            date: new Date(),
+          })
+          .returning({ id: schema.articles.id })
+          .get();
+        articleId = article.id;
+      });
+
+      const reloadHandler = handlers.getHandler("article.reload");
+      await reloadHandler!(makeJob("article.reload", { articleId }));
+
+      // The fix lives in `enrichOne()`, but reload reaches it through an
+      // `EnrichableAggregator` adapter -- and an adapter entry written
+      // `extractHeaderElement: (a) => ...` typechecks perfectly while
+      // dropping the page, which puts the duplicate fetch back for reload
+      // alone. Without the second argument, `extractHeaderElement()` reaches
+      // `ImageExtractor.fetchAndParsePage()`, which fetches this same page
+      // again purely to read its og:image.
+      expect(fetchArticleContent).toHaveBeenCalledTimes(1);
+      expect(extractHeaderElement).toHaveBeenCalledWith(
+        expect.objectContaining({ identifier: "https://example.com/art-1" }),
+        "<p>Fresh from the source</p>",
+      );
+    });
+
     it("fails the job when the feed's AI options are configured but AI processing did not complete -- while still keeping the freshly fetched content", async () => {
       vi.resetModules();
       const fetchArticleContent = vi.fn().mockResolvedValue("<p>Fresh from the source</p>");

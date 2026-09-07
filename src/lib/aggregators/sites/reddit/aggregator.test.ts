@@ -85,10 +85,18 @@ function postData(id: string): RedditPostDataDict {
 describe("RedditAggregator.logoImageUrl", () => {
   it("returns the subreddit's icon from Reddit's about.json, with no client credentials configured", async () => {
     const agg = aggregatorFor({});
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ data: { icon_img: "https://styles.redditmedia.com/t5_x/icon.png" } }),
-    });
+    // A real Response, not a duck-typed `{ ok, json }`: these requests now go
+    // through `fetchTextThrottled()`, which reads `status`/`headers`/`text()`
+    // like anything handling a real response would.
+    const fetchMock = vi.fn().mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: { icon_img: "https://styles.redditmedia.com/t5_x/icon.png" },
+          }),
+          { status: 200 },
+        ),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(agg.logoImageUrl()).resolves.toBe("https://styles.redditmedia.com/t5_x/icon.png");
@@ -345,11 +353,19 @@ describe("RedditAggregator.fetchArticleContent source title", () => {
   it("reports the post's own title", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => listing({ ...postData("abc123"), title: "The source's own title" }),
-      }),
+      // A real Response, not a duck-typed `{ ok, json }`: this read goes
+      // through `fetchTextThrottled()` now. `mockImplementation` rather than
+      // `mockResolvedValue`, because a Response body can only be read once
+      // and the helper retries a 429.
+      vi
+        .fn()
+        .mockImplementation(
+          async () =>
+            new Response(
+              JSON.stringify(listing({ ...postData("abc123"), title: "The source's own title" })),
+              { status: 200 },
+            ),
+        ),
     );
 
     const agg = aggregatorFor({});
@@ -364,16 +380,19 @@ describe("RedditAggregator.fetchArticleContent source title", () => {
     const original = { ...postData("orig1"), title: "The original post's title" };
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () =>
-          listing({
-            ...postData("abc123"),
-            title: "The crosspost's title",
-            crosspost_parent_list: [original],
-          }),
-      }),
+      vi.fn().mockImplementation(
+        async () =>
+          new Response(
+            JSON.stringify(
+              listing({
+                ...postData("abc123"),
+                title: "The crosspost's title",
+                crosspost_parent_list: [original],
+              }),
+            ),
+            { status: 200 },
+          ),
+      ),
     );
 
     const agg = aggregatorFor({});
@@ -406,11 +425,11 @@ describe("RedditAggregator reload facade parity", () => {
     ];
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => listingResponse,
-      }),
+      vi
+        .fn()
+        .mockImplementation(
+          async () => new Response(JSON.stringify(listingResponse), { status: 200 }),
+        ),
     );
 
     const feed: FeedLike = { identifier: "test", dailyLimit: 20, options: {} };
@@ -458,14 +477,18 @@ describe("RedditAggregator reload facade parity", () => {
 
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => [
-          { data: { children: [{ kind: "t3", data: postData("abc123") }] } },
-          { data: { children: [] } },
-        ],
-      }),
+      vi
+        .fn()
+        .mockImplementation(
+          async () =>
+            new Response(
+              JSON.stringify([
+                { data: { children: [{ kind: "t3", data: postData("abc123") }] } },
+                { data: { children: [] } },
+              ]),
+              { status: 200 },
+            ),
+        ),
     );
 
     const agg = new RedditAggregator({ identifier: "test", dailyLimit: 20, options: {} });
@@ -579,11 +602,11 @@ describe("RedditAggregator crosspost recognition", () => {
  */
 describe("RedditAggregator limit handling", () => {
   it("fetches by the given limit even when it is zero, never falling back to a default", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ data: { children: [] } }),
-    });
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(
+        async () => new Response(JSON.stringify({ data: { children: [] } }), { status: 200 }),
+      );
     vi.stubGlobal("fetch", fetchMock);
     const agg = aggregatorFor({});
 

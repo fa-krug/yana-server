@@ -4,6 +4,8 @@
  * Ported from old/core/aggregators/reddit/urls.py.
  */
 
+import { fetchJsonThrottled } from "../../http/throttled-fetch";
+
 /** The subset of `/r/{subreddit}/about.json`'s response `fetchSubredditInfo` reads. */
 interface RedditSubredditAboutResponse {
   data?: {
@@ -111,9 +113,10 @@ export async function fetchSubredditInfo(
     const headers: Record<string, string> = { "User-Agent": "Yana/1.0" };
     if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
 
-    const res = await fetch(url, { headers, signal: AbortSignal.timeout(5000) });
-    if (!res.ok) return { iconUrl: null };
-    const data = (await res.json()) as RedditSubredditAboutResponse;
+    const data = await fetchJsonThrottled<RedditSubredditAboutResponse>(url, {
+      headers,
+      timeoutMs: 5000,
+    });
     const rawIcon =
       data?.data?.icon_img || data?.data?.community_icon || data?.data?.header_img || null;
     return { iconUrl: fixRedditMediaUrl(rawIcon) };

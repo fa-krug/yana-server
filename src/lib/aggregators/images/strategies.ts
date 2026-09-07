@@ -1,7 +1,7 @@
 import type * as cheerio from "cheerio";
 import { isTwitterUrl } from "../extract/format";
 import { thumbnailUrlFor, youtubeIdFrom } from "../embeds/youtube-url";
-import { readCappedJson, withDeadline } from "../http/fetcher";
+import { fetchJsonThrottled } from "../http/throttled-fetch";
 import { fetchSingleImage, type FetchedImageResult } from "./fetcher";
 
 export interface ImageExtractionContext {
@@ -28,13 +28,21 @@ export function extractTweetId(url: string): string | null {
 /**
  * Read one tweet's metadata from fxtwitter.
  *
- * The deadline covers the body, and the body is capped -- the timer used to be
- * cleared on the line above `res.json()`, so a host that sent headers and then
- * stalled held this call (and its worker loop) open forever, and `res.json()`
- * buffered whatever arrived with no ceiling. Lower risk than the page fetch in
- * `./extractor.ts` -- fixed host, digit-validated path segment, no
- * attacker-chosen origin -- but the same shape, so it gets the same bounds
- * rather than an argument about why it does not need them.
+ * Routed through `fetchJsonThrottled()`, which buys three things this call site
+ * used to hand-roll and get wrong. The deadline covers the **body**: the timer
+ * was cleared on the line above `res.json()`, so a host that sent headers and
+ * then stalled held this call -- and its worker loop -- open forever. The body
+ * is **capped**: `res.json()` buffered whatever arrived with no ceiling. And
+ * the request is **throttled** against fxtwitter's own hostname, with a 429
+ * recorded rather than collapsed into the same `null` as a DNS failure.
+ *
+ * That helper is itself built on `withDeadline()` + `readCappedText()` with a
+ * `maxBytes`, so going through it *is* the bounded read, not a looser
+ * alternative to one -- and the timeout is passed as `timeoutMs` rather than as
+ * a signal, so the budget is not spent waiting out the host's cooldown. Lower
+ * risk than the page fetch in `./extractor.ts` -- fixed host, digit-validated
+ * path segment, no attacker-chosen origin -- but the same shape, so it gets the
+ * same bounds rather than an argument about why it does not need them.
  */
 export async function fetchTweetData(
   tweetId: string,
@@ -43,13 +51,9 @@ export async function fetchTweetData(
   if (!tweetId) return null;
   const url = `https://api.fxtwitter.com/status/${tweetId}`;
   try {
-    return await withDeadline(timeoutMs, async (signal) => {
-      const res = await fetch(url, {
-        headers: { "User-Agent": "Yana/1.0" },
-        signal,
-      });
-      if (!res.ok) return null;
-      return await readCappedJson<Record<string, unknown>>(res, url);
+    return await fetchJsonThrottled<Record<string, unknown>>(url, {
+      headers: { "User-Agent": "Yana/1.0" },
+      timeoutMs,
     });
   } catch {
     return null;

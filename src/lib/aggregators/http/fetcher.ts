@@ -1,3 +1,5 @@
+import { noteRateLimited, parseRetryAfterMs, withHostLimit } from "./host-limiter";
+
 export const USER_AGENT =
   "Mozilla/5.0 (compatible; YanaBot/1.0; +https://github.com/yourusername/yana)";
 export const DEFAULT_RETRIES = 3;
@@ -184,6 +186,50 @@ export async function withDeadline<T>(
   }
 }
 
+type HtmlOutcome =
+  | { ok: true; text: string }
+  | { ok: false; status: number; statusText: string; retryAfterMs: number | null };
+
+/**
+ * One request/response exchange, headers through body. Kept separate from
+ * `fetchHtml`'s retry loop so the whole exchange -- not just the headers --
+ * can be run inside the host's throttle slot, while the retry *sleep* happens
+ * outside it, where it belongs: a worker waiting out a backoff must not be
+ * holding a slot the host would let a sibling use.
+ *
+ * The deadline comes from `withDeadline()` rather than a local timer pair, so
+ * the placement guarantee that helper exists for holds here too -- and note
+ * it is started *inside* the slot, per attempt, which is the same reasoning
+ * `fetchTextThrottled()`'s doc comment spells out: a deadline armed before
+ * the queue wait is spent on politeness rather than on the request.
+ */
+async function fetchHtmlOnce(
+  url: string,
+  headers: Record<string, string>,
+  timeout: number,
+  maxBytes: number,
+): Promise<HtmlOutcome> {
+  return withDeadline(timeout, async (signal) => {
+    const response = await fetch(url, { headers, signal });
+
+    if (!response.ok) {
+      // Discard the error body rather than leaving it undrained, which would
+      // hold the socket open for the whole keep-alive idle timeout -- and
+      // this path is now, by definition, the one a rate-limited host takes
+      // most often.
+      void response.body?.cancel().catch(() => {});
+      return {
+        ok: false,
+        status: response.status,
+        statusText: response.statusText,
+        retryAfterMs: parseRetryAfterMs(response.headers.get("retry-after")),
+      };
+    }
+
+    return { ok: true, text: await readCappedText(response, url, maxBytes) };
+  });
+}
+
 export async function fetchHtml(
   url: string,
   options?: {
@@ -211,38 +257,45 @@ export async function fetchHtml(
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      // The deadline covers the *body*, not just the headers. Cleared below
-      // the readCapped() call rather than as soon as fetch() resolves: a
-      // server that sends headers and then stalls used to hold this call
-      // open forever, because the only thing that could interrupt the drain
-      // was this signal and it had already been disarmed. That is a worker
-      // loop hung with no way back -- worker.ts's budget timer only requests
-      // cooperative cancellation and has no checkpoint inside a fetch, so
-      // WORKER_CONCURRENCY such feeds deadlock every background job. undici
-      // wires the signal to the body stream, so aborting mid-drain rejects
-      // the reader.
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeout);
+      const outcome = await withHostLimit(url, () =>
+        fetchHtmlOnce(url, headers, timeout, maxBytes),
+      );
 
-      try {
-        const response = await fetch(url, {
-          headers,
-          signal: controller.signal,
-        });
+      if (outcome.ok) {
+        return outcome.text;
+      }
 
-        if (!response.ok) {
-          throw new NetworkError(
-            `HTTP ${response.status} ${response.statusText} fetching ${url}`,
-            response.status,
-            url,
-          );
+      // A 429 is a statement about the host, not about this request: record it
+      // so every *other* in-flight worker for the same host waits it out too,
+      // rather than each of them independently discovering the same refusal.
+      if (outcome.status === 429) {
+        noteRateLimited(url, outcome.retryAfterMs);
+      }
+
+      const isDeterministic =
+        outcome.status >= 400 && outcome.status < 500 && outcome.status !== 429;
+      const err = new NetworkError(
+        `HTTP ${outcome.status} ${outcome.statusText} fetching ${url}`,
+        outcome.status,
+        url,
+      );
+
+      if (isDeterministic) {
+        throw err;
+      } else {
+        lastException = err;
+        if (attempt < retries - 1) {
+          // Honour the host's own `Retry-After` when it is longer than our
+          // backoff. Ignoring it is how a 1s/2s ladder keeps re-asking a host
+          // that just said "not for another thirty seconds", turning a soft
+          // throttle into a longer block.
+          const waitTime = Math.max(Math.pow(2, attempt) * baseDelay, outcome.retryAfterMs ?? 0);
+          if (waitTime > 0) {
+            await new Promise((resolve) => setTimeout(resolve, waitTime));
+          }
+          continue;
         }
-
-        const body = await readCapped(response, url, maxBytes);
-        const contentType = response.headers.get("content-type");
-        return decodeText(body, contentType);
-      } finally {
-        clearTimeout(timer);
+        throw err;
       }
     } catch (err) {
       if (err instanceof ResponseTooLarge) {
@@ -291,56 +344,99 @@ export async function fetchBinary(
 
   let target = url;
 
-  // One deadline for the whole call -- every redirect hop and the final body
-  // drain share it. Two separate defects were fixed by hoisting it out of the
-  // loop and clearing it below readCapped(): a fresh timer per hop made the
-  // real ceiling (MAX_REDIRECTS + 1) x `timeout`, and clearing it as soon as
-  // the headers arrived left the body drain with no deadline at all, so a
-  // server that stalled after its headers hung the calling worker loop
-  // forever. See the same pair in fetchHtml() above.
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
+  /**
+   * One budget for the whole call -- every redirect hop and the final body
+   * drain spend from it -- but only time actually **in flight** is charged
+   * against it.
+   *
+   * Both halves are load-bearing, and they came from opposite directions. A
+   * fresh `timeout` per hop made the real ceiling `(MAX_REDIRECTS + 1) x
+   * timeout`, and a timer cleared as soon as the headers arrived left the body
+   * drain with no deadline at all -- a server that stalls after its headers
+   * hung the calling worker loop forever, which `worker.ts`'s budget timer
+   * cannot interrupt (it only requests cooperative cancellation, and has no
+   * checkpoint inside a fetch). Hence one budget, and `withDeadline()` holding
+   * the timer so no caller can disarm it early.
+   *
+   * But a single timer armed at the top of the call would also be spent
+   * waiting behind `withHostLimit()`'s concurrency cap and cooldown -- up to
+   * 60s of deliberate politeness -- and would then abort a request that had
+   * never been sent, reporting a timeout against a host that was merely being
+   * queued for. So each hop is deadlined with what is *left*, and only the
+   * time spent inside the slot is deducted. Same reasoning as
+   * `fetchTextThrottled()`, which builds its signal inside the slot for it.
+   */
+  let remaining = timeout;
 
-  try {
-    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-      if (isAllowedUrl && !isAllowedUrl(target)) {
-        throw new DisallowedRedirect(`Refusing to fetch ${target}: not on allowed site`, target);
-      }
-
-      const response = await fetch(target, {
-        headers: { "User-Agent": USER_AGENT },
-        signal: controller.signal,
-        redirect: "manual",
-      });
-
-      const isRedirect = response.status >= 300 && response.status < 400;
-      if (isRedirect) {
-        const location = response.headers.get("location");
-        if (!location) {
-          throw new NetworkError(
-            `Redirect status ${response.status} without Location header`,
-            response.status,
-            target,
-          );
-        }
-        target = new URL(location, target).toString();
-        continue;
-      }
-
-      if (!response.ok) {
-        throw new NetworkError(
-          `HTTP ${response.status} ${response.statusText} fetching ${target}`,
-          response.status,
-          target,
-        );
-      }
-
-      const bytes = await readCapped(response, target, maxBytes);
-      return Buffer.from(bytes);
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    if (isAllowedUrl && !isAllowedUrl(target)) {
+      throw new DisallowedRedirect(`Refusing to fetch ${target}: not on allowed site`, target);
     }
 
-    throw new NetworkError(`Too many redirects fetching ${url}`, undefined, url);
-  } finally {
-    clearTimeout(timer);
+    if (remaining <= 0) {
+      throw new NetworkError(`Timed out after ${timeout}ms fetching ${url}`, undefined, url);
+    }
+
+    // Each hop is throttled against its own host, because a redirect chain can
+    // cross hosts and the cap belongs to whichever one is being asked next.
+    // The body read is inside the slot for the same reason it is in
+    // `fetchHtmlOnce()`: a slot released at the response headers bounds the
+    // number of open sockets at nothing.
+    const hopUrl = target;
+    const hopResult = await withHostLimit(
+      hopUrl,
+      async (): Promise<{ redirectTo: string } | { bytes: Uint8Array }> => {
+        const began = Date.now();
+        try {
+          return await withDeadline(remaining, async (signal) => {
+            const response = await fetch(hopUrl, {
+              headers: { "User-Agent": USER_AGENT },
+              signal,
+              redirect: "manual",
+            });
+
+            if (response.status === 429) {
+              noteRateLimited(hopUrl, parseRetryAfterMs(response.headers.get("retry-after")));
+            }
+
+            const isRedirect = response.status >= 300 && response.status < 400;
+            if (isRedirect) {
+              void response.body?.cancel().catch(() => {});
+              const location = response.headers.get("location");
+              if (!location) {
+                throw new NetworkError(
+                  `Redirect status ${response.status} without Location header`,
+                  response.status,
+                  hopUrl,
+                );
+              }
+              return { redirectTo: new URL(location, hopUrl).toString() };
+            }
+
+            if (!response.ok) {
+              void response.body?.cancel().catch(() => {});
+              throw new NetworkError(
+                `HTTP ${response.status} ${response.statusText} fetching ${hopUrl}`,
+                response.status,
+                hopUrl,
+              );
+            }
+
+            return { bytes: await readCapped(response, hopUrl, maxBytes) };
+          });
+        } finally {
+          remaining -= Date.now() - began;
+        }
+      },
+    );
+
+    if ("redirectTo" in hopResult) {
+      target = hopResult.redirectTo;
+      continue;
+    }
+
+    return Buffer.from(hopResult.bytes);
   }
+
+  throw new NetworkError(`Too many redirects fetching ${url}`, undefined, url);
 }

@@ -4,6 +4,8 @@
  * Ported from old/core/aggregators/reddit/auth.py.
  */
 
+import { fetchJsonThrottled } from "../../http/throttled-fetch";
+
 export interface RedditUserSettings {
   reddit_enabled: boolean;
   reddit_client_id: string;
@@ -52,20 +54,30 @@ export async function getRedditAccessToken(
 
   try {
     const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-    const res = await fetch("https://www.reddit.com/api/v1/access_token", {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${credentials}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": userAgent,
+    // `attempts: 1` -- no 429 retry here, unlike every other Reddit call.
+    // A 429 from the token endpoint is IP/edge-level load shedding returned
+    // without looking at the Basic auth header (the same fact
+    // `quotaMeansVerified: false` records for Reddit in
+    // `src/lib/integrations/actions.ts`), so re-asking it does not become an
+    // answer -- and every caller here already treats a missing token as
+    // "fall back to the unauthenticated endpoint" rather than as a failure.
+    // The host cooldown is still recorded, which is what protects the
+    // unauthenticated calls that follow.
+    const data = await fetchJsonThrottled<{ access_token?: string; expires_in?: number }>(
+      "https://www.reddit.com/api/v1/access_token",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${credentials}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": userAgent,
+        },
+        body: "grant_type=client_credentials",
+        attempts: 1,
       },
-      body: "grant_type=client_credentials",
-      signal: AbortSignal.timeout(10_000),
-    });
+    );
 
-    if (!res.ok) return null;
-    const data = (await res.json()) as { access_token?: string; expires_in?: number };
-    if (!data.access_token) return null;
+    if (!data?.access_token) return null;
 
     const token = data.access_token;
     const expiresIn = (data.expires_in || 3600) - 60;

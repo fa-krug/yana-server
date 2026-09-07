@@ -1,6 +1,7 @@
 import sharp from "sharp";
 
-import { MAX_REDIRECTS, readCapped } from "../http/fetcher";
+import { MAX_REDIRECTS, readCapped, withDeadline } from "../http/fetcher";
+import { noteRateLimited, parseRetryAfterMs, withHostLimit } from "../http/host-limiter";
 import { MAX_MEASURE_PIXELS, SHARP_TIMEOUT_SECONDS } from "./compression";
 
 /**
@@ -12,6 +13,21 @@ import { MAX_MEASURE_PIXELS, SHARP_TIMEOUT_SECONDS } from "./compression";
  * the same pair of fixes.
  */
 export const DEFAULT_TIMEOUT_MS = 30000;
+
+/**
+ * Total attempts an image fetch gets when the host answers 429.
+ *
+ * Deliberately narrow: only a 429 is retried here. Every other failure was
+ * already, and stays, a single-attempt `null` -- a 404 will not become a 200,
+ * and a 500 or a timeout on a decorative inline image is not worth spending a
+ * worker's time on twice. A 429 is different because it is a statement about
+ * *when*, not about *whether*, and losing to it silently discarded the image:
+ * `fetchImageOutcome()` folded it into the same transient `null` as a DNS
+ * failure, so a throttled Heise run came back with articles that permanently
+ * had no header image, with nothing in the log to say a retry would have
+ * worked.
+ */
+export const RATE_LIMIT_ATTEMPTS = 3;
 
 /**
  * The two fetchers in this tree deliberately no longer share constant names.
@@ -138,8 +154,8 @@ export async function validateImageDataWithSharp(
  *
  * Every refusal is still a `null` or `NON_IMAGE_RESPONSE`, never a throw:
  * `readCapped()`'s `ResponseTooLarge` and a redirect chain that runs out of
- * hops both land in the catch below, exactly where a network error already
- * did.
+ * hops both land in `fetchImageOnce()`'s catch, exactly where a network error
+ * already did.
  */
 export async function fetchImageOutcome(
   url: string,
@@ -147,56 +163,100 @@ export async function fetchImageOutcome(
 ): Promise<FetchedImageResult | NonImageResponse | null> {
   if (!url) return null;
 
-  // One deadline for the whole call, cleared only below the body read -- see
-  // DEFAULT_TIMEOUT_MS above, and fetchHtml()/fetchBinary() for the defect
-  // this shape avoids.
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // No sleep in this loop, deliberately: `noteRateLimited()` has already
+  // pushed this host's cooldown out, and `withHostLimit()` inside the next
+  // attempt waits it out. Sleeping here as well would double the delay.
+  for (let attempt = 0; attempt < RATE_LIMIT_ATTEMPTS; attempt++) {
+    const outcome = await fetchImageOnce(url, timeoutMs);
+    if (outcome !== RATE_LIMITED) return outcome;
+  }
+
+  return null;
+}
+
+/** Sentinel for "the host answered 429", which is the one status worth retrying. */
+const RATE_LIMITED = Symbol("RATE_LIMITED");
+
+type ImageOutcome = FetchedImageResult | NonImageResponse | null | typeof RATE_LIMITED;
+
+/**
+ * One attempt: the bounded redirect chain, and the body of whatever it ends at.
+ *
+ * **Every hop takes its own `withHostLimit()` slot**, because a redirect chain
+ * can cross hosts and the cap belongs to whichever one is being asked next --
+ * and the body is read *inside* the slot for the reason `fetchHtmlOnce()`
+ * gives: a slot released at the response headers bounds the number of open
+ * sockets at nothing.
+ *
+ * **`timeoutMs` is one budget for the whole attempt, but only time actually in
+ * flight is charged against it**, exactly as `fetchBinary()` spends its own
+ * `remaining`. A single timer armed at the top of the call would also be spent
+ * waiting behind the concurrency cap and any cooldown -- up to `maxCooldownMs`,
+ * 60s, of deliberate politeness -- and would then abort a request that had
+ * never been sent, reporting a timeout against a host that was merely being
+ * queued for. So `withDeadline()` is started inside the slot, per hop, with
+ * what is left; and it holds its own timer, so nothing here can disarm it above
+ * the body read the way this function's hand-rolled pair once did.
+ *
+ * An undrained body on any of the paths that answer without reading one is
+ * cancelled rather than abandoned, which would hold the socket for the whole
+ * keep-alive idle timeout -- and the 429 path is, by definition, the one a
+ * rate-limited host takes most often.
+ */
+async function fetchImageOnce(url: string, timeoutMs: number): Promise<ImageOutcome> {
+  let target = url;
+  let remaining = timeoutMs;
 
   try {
-    let target = url;
-
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-      const response = await fetch(target, {
-        headers: getImageHeaders(target),
-        signal: controller.signal,
-        redirect: "manual",
-      });
+      if (remaining <= 0) return null;
 
-      if (response.status >= 300 && response.status < 400) {
-        const location = response.headers.get("location");
-        if (!location) return null;
-        target = new URL(location, target).toString();
+      const hopUrl = target;
+      const hopResult = await withHostLimit(
+        hopUrl,
+        async (): Promise<{ redirectTo: string } | { outcome: ImageOutcome }> => {
+          const began = Date.now();
+          try {
+            return await withDeadline(remaining, async (signal) => {
+              const response = await fetch(hopUrl, {
+                headers: getImageHeaders(hopUrl),
+                signal,
+                redirect: "manual",
+              });
+
+              if (response.status === 429) {
+                void response.body?.cancel().catch(() => {});
+                noteRateLimited(hopUrl, parseRetryAfterMs(response.headers.get("retry-after")));
+                return { outcome: RATE_LIMITED };
+              }
+
+              if (response.status >= 300 && response.status < 400) {
+                void response.body?.cancel().catch(() => {});
+                const location = response.headers.get("location");
+                if (!location) return { outcome: null };
+                return { redirectTo: new URL(location, hopUrl).toString() };
+              }
+
+              if (!response.ok) {
+                // HTTP error status (404, 500, 503, etc.) is transient -> null
+                void response.body?.cancel().catch(() => {});
+                return { outcome: null };
+              }
+
+              return { outcome: await readImageResponse(response, hopUrl) };
+            });
+          } finally {
+            remaining -= Date.now() - began;
+          }
+        },
+      );
+
+      if ("redirectTo" in hopResult) {
+        target = hopResult.redirectTo;
         continue;
       }
 
-      if (!response.ok) {
-        // HTTP error status (404, 500, 503, 429, etc.) is transient -> return null
-        return null;
-      }
-
-      const rawContentType = response.headers.get("content-type") || "";
-      const baseType = rawContentType.split(";")[0].trim().toLowerCase();
-
-      if (!isImageContentType(baseType)) {
-        return NON_IMAGE_RESPONSE;
-      }
-
-      const buffer = Buffer.from(await readCapped(response, target, MAX_IMAGE_FETCH_BYTES));
-
-      if (buffer.length < 100) {
-        return NON_IMAGE_RESPONSE;
-      }
-
-      const validMeta = await validateImageDataWithSharp(buffer);
-      if (!validMeta) {
-        return NON_IMAGE_RESPONSE;
-      }
-
-      return {
-        imageData: buffer,
-        contentType: baseType,
-      };
+      return hopResult.outcome;
     }
 
     // Out of hops: a chain this long is not an image worth having.
@@ -204,9 +264,51 @@ export async function fetchImageOutcome(
   } catch {
     // Network error, DNS, timeout, abort, oversized body -> transient failure
     return null;
-  } finally {
-    clearTimeout(timer);
   }
+}
+
+/**
+ * The content-type, size and decodability gates, applied to whatever response
+ * the hop loop ended at.
+ *
+ * The body goes through `readCapped()` -- the same streaming cap `fetchHtml()`
+ * and `fetchBinary()` use -- rather than being buffered whole and measured
+ * afterwards, which is a memory hazard rather than a size check: a server that
+ * ignores its own `Content-Length` cost 64 MB of RSS per in-flight image, and
+ * `feeds.concurrency` (4) x `WORKER_CONCURRENCY` (4) of those is roughly a
+ * gigabyte, for a limit that had already been exceeded by the time it was
+ * checked. `readCapped()` also refuses an oversized *declaration* up front, so
+ * the hand-rolled `Content-Length` check this replaced is not lost -- its
+ * `ResponseTooLarge` lands in `fetchImageOnce()`'s catch, where a network
+ * failure already did.
+ */
+async function readImageResponse(
+  response: Response,
+  url: string,
+): Promise<FetchedImageResult | NonImageResponse | null> {
+  const rawContentType = response.headers.get("content-type") || "";
+  const baseType = rawContentType.split(";")[0].trim().toLowerCase();
+
+  if (!isImageContentType(baseType)) {
+    void response.body?.cancel().catch(() => {});
+    return NON_IMAGE_RESPONSE;
+  }
+
+  const buffer = Buffer.from(await readCapped(response, url, MAX_IMAGE_FETCH_BYTES));
+
+  if (buffer.length < 100) {
+    return NON_IMAGE_RESPONSE;
+  }
+
+  const validMeta = await validateImageDataWithSharp(buffer);
+  if (!validMeta) {
+    return NON_IMAGE_RESPONSE;
+  }
+
+  return {
+    imageData: buffer,
+    contentType: baseType,
+  };
 }
 
 /**
