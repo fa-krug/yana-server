@@ -67,13 +67,15 @@ describe("extractMeinMmoContent", () => {
 // to a real yana-img:// reference via storeImageRefFromUrl.
 describe("extractMeinMmoContent - real Bluesky builder end-to-end (unmocked)", () => {
   it("survives the real extraction pipeline with the embed's image left for processContent to localize", async () => {
+    // Real Responses rather than duck-typed `{ ok, json }`: the Bluesky
+    // calls go through `fetchTextThrottled()`, which reads
+    // `status`/`headers`/`text()`.
     const mockFetch = vi.fn(async (url: string) => {
       if (url.includes("resolveHandle")) {
-        return { ok: true, json: async () => ({ did: "did:plc:test123" }) };
+        return new Response(JSON.stringify({ did: "did:plc:test123" }), { status: 200 });
       }
-      return {
-        ok: true,
-        json: async () => ({
+      return new Response(
+        JSON.stringify({
           posts: [
             {
               author: { handle: "user.bsky.social", displayName: "Real Author" },
@@ -88,7 +90,8 @@ describe("extractMeinMmoContent - real Bluesky builder end-to-end (unmocked)", (
             },
           ],
         }),
-      };
+        { status: 200 },
+      );
     });
     vi.stubGlobal("fetch", mockFetch);
 

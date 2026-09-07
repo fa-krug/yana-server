@@ -1,4 +1,6 @@
 import * as cheerio from "cheerio";
+
+import { fetchTextThrottled } from "../http/throttled-fetch";
 import { fetchSingleImage, getImageHeaders } from "./fetcher";
 import {
   DirectImageStrategy,
@@ -46,6 +48,7 @@ export class ImageExtractor {
     url: string,
     isHeaderImage = false,
     onLog?: (message: string) => void,
+    html?: string,
   ): Promise<FetchedImageResultWithUrl | null> {
     if (!url) return null;
 
@@ -69,9 +72,11 @@ export class ImageExtractor {
       } catch {}
     }
 
-    // Fetch and parse page HTML for meta tag & page image strategies
+    // Parse the page HTML for the meta tag & page image strategies -- reusing
+    // the caller's copy when it has one, so the aggregator does not fetch the
+    // same article page a second time just to read its og:image.
     try {
-      const $ = await this.fetchAndParsePage(url);
+      const $ = html ? cheerio.load(html) : await this.fetchAndParsePage(url);
       if ($) {
         context.$ = $;
         for (const strategy of this.strategies.slice(3)) {
@@ -97,22 +102,17 @@ export class ImageExtractor {
   }
 
   private async fetchAndParsePage(url: string): Promise<cheerio.CheerioAPI | null> {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 10000);
-      const res = await fetch(url, {
-        headers: getImageHeaders(url),
-        signal: controller.signal,
-        redirect: "follow",
-      });
-      clearTimeout(timer);
-
-      if (!res.ok) return null;
-      const html = await res.text();
-      return cheerio.load(html);
-    } catch {
-      return null;
-    }
+    // Through `fetchTextThrottled()` rather than a local `fetch` + timer,
+    // because the abort signal has to be created *inside* the throttle slot:
+    // built outside it, the timeout counts down while the request is still
+    // queued behind the host's cooldown, and a cooldown longer than the
+    // timeout aborts every request before it is ever sent.
+    const res = await fetchTextThrottled(url, {
+      headers: getImageHeaders(url),
+      redirect: "follow",
+    });
+    if (!res || !res.ok) return null;
+    return cheerio.load(res.body);
   }
 }
 
@@ -120,7 +120,8 @@ export async function extractImages(
   url: string,
   isHeaderImage = false,
   onLog?: (message: string) => void,
+  html?: string,
 ): Promise<FetchedImageResultWithUrl | null> {
   const extractor = new ImageExtractor();
-  return extractor.extractImageFromUrl(url, isHeaderImage, onLog);
+  return extractor.extractImageFromUrl(url, isHeaderImage, onLog, html);
 }

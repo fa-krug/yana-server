@@ -29,6 +29,7 @@ export class HeaderElementExtractor {
     alt = "Article image",
     userId?: number | null,
     onLog?: (message: string) => void,
+    html?: string,
   ): Promise<HeaderElementData | null> {
     if (!url) return null;
 
@@ -37,7 +38,7 @@ export class HeaderElementExtractor {
       return overrideResult;
     }
 
-    const context: HeaderElementContext = { url, alt, userId, onLog };
+    const context: HeaderElementContext = { url, alt, userId, onLog, html };
 
     for (const strategy of this.strategies) {
       if (!strategy.canHandle(url)) continue;
@@ -93,7 +94,8 @@ export async function extractHeaderElement(
   alt = "Article image",
   userId?: number | null,
   onLog?: (message: string) => void,
+  html?: string,
 ): Promise<HeaderElementData | null> {
   const extractor = new HeaderElementExtractor();
-  return extractor.extractHeaderElement(url, alt, userId, onLog);
+  return extractor.extractHeaderElement(url, alt, userId, onLog, html);
 }

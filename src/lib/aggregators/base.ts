@@ -223,7 +223,15 @@ export abstract class BaseAggregator {
     return articles;
   }
 
-  async extractHeaderElement(article: RawArticle): Promise<HeaderElementData | null> {
+  /**
+   * `html`, when given, is the article page the caller has already fetched --
+   * see `HeaderElementContext.html`. Passing it is what keeps
+   * `FullWebsiteAggregator` from fetching every article page twice.
+   */
+  async extractHeaderElement(
+    article: RawArticle,
+    html?: string,
+  ): Promise<HeaderElementData | null> {
     const url = article.identifier;
     const alt = article.name || "Article image";
     if (!url) return null;
@@ -233,7 +241,7 @@ export abstract class BaseAggregator {
         : typeof this.feed.userId === "string"
           ? parseInt(this.feed.userId, 10) || null
           : null;
-    return extractHeaderElement(url, alt, userId, this.onLog);
+    return extractHeaderElement(url, alt, userId, this.onLog, html);
   }
 
   fetchArticleContent(_url: string): Promise<string> {

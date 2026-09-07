@@ -165,13 +165,20 @@ export class FullWebsiteAggregator extends RssAggregator {
       async (article): Promise<RawArticle | null> => {
         const url = article.identifier;
         try {
-          const headerData = await this.extractHeaderElement(article);
+          // The page is fetched **first**, and then handed to header
+          // extraction. The other order costs a second full fetch of the same
+          // page per article -- `ImageExtractor` fetches it again just to read
+          // the og:image -- which is doubled request volume against every site
+          // aggregated, and is what put Heise runs into 429s. Nothing
+          // downstream cares about the order: `header_data` is still set
+          // before `extractContent()`/`processContent()` run.
+          const rawHtml = await this.fetchArticleContent(url);
+          article.raw_content = rawHtml;
+
+          const headerData = await this.extractHeaderElement(article, rawHtml);
           if (headerData) {
             article.header_data = headerData;
           }
-
-          const rawHtml = await this.fetchArticleContent(url);
-          article.raw_content = rawHtml;
 
           const content = await this.extractContent(rawHtml, article);
           const processed = await this.processContent(content, article);

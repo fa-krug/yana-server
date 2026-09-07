@@ -1,4 +1,5 @@
 import { ArticleSkipError } from "../errors";
+import { fetchJsonThrottled } from "../http/throttled-fetch";
 import { ImageExtractor } from "../images/extractor";
 import { fetchSingleImage } from "../images/fetcher";
 import { storeImageBytes } from "../images/store";
@@ -41,17 +42,15 @@ export async function fetchSubredditIcon(
 ): Promise<string | null> {
   if (!subreddit || !userId) return null;
   try {
-    const res = await fetch(`https://www.reddit.com/r/${subreddit}/about.json`, {
-      headers: { "User-Agent": "Yana/1.0" },
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as {
+    const data = await fetchJsonThrottled<{
       data?: {
         icon_img?: string;
         community_icon?: string;
         header_img?: string;
       };
-    };
+    }>(`https://www.reddit.com/r/${subreddit}/about.json`, {
+      headers: { "User-Agent": "Yana/1.0" },
+    });
     const rawUrl = data?.data?.icon_img || data?.data?.community_icon || data?.data?.header_img;
     if (!rawUrl) return null;
     return fixRedditMediaUrl(rawUrl);
@@ -154,7 +153,12 @@ export class GenericImageStrategy implements HeaderElementStrategy {
   async create(context: HeaderElementContext): Promise<HeaderElementData | null> {
     try {
       const extractor = new ImageExtractor();
-      const imageResult = await extractor.extractImageFromUrl(context.url, true, context.onLog);
+      const imageResult = await extractor.extractImageFromUrl(
+        context.url,
+        true,
+        context.onLog,
+        context.html,
+      );
 
       if (!imageResult) return null;
 

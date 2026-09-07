@@ -6,6 +6,7 @@ import {
   getImageHeaders,
   isImageContentType,
   NON_IMAGE_RESPONSE,
+  RATE_LIMIT_ATTEMPTS,
 } from "./fetcher";
 
 describe("fetcher utilities", () => {
@@ -61,6 +62,68 @@ describe("fetcher utilities", () => {
         expect(result.contentType).toBe("image/png");
         expect(result.imageData).toEqual(validPng);
       }
+    });
+
+    it("retries a 429 and returns the image, instead of silently dropping it", async () => {
+      const validPng = await sharp({
+        create: {
+          width: 200,
+          height: 200,
+          channels: 4,
+          background: { r: 0, g: 0, b: 255, alpha: 1 },
+        },
+      })
+        .png()
+        .toBuffer();
+
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(
+          new Response("Too Many Requests", {
+            status: 429,
+            headers: { "retry-after": "0" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(new Uint8Array(validPng), {
+            status: 200,
+            headers: { "Content-Type": "image/png" },
+          }),
+        );
+
+      const result = await fetchImageOutcome("https://images.example.com/retried.png");
+
+      // Before this, a 429 folded into the same transient `null` as a DNS
+      // failure with no retry -- so a throttled run produced articles that
+      // permanently had no header image.
+      expect(result).not.toBeNull();
+      expect(result).not.toBe(NON_IMAGE_RESPONSE);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("gives up after RATE_LIMIT_ATTEMPTS of 429 and reports a transient failure", async () => {
+      const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("Too Many Requests", {
+          status: 429,
+          headers: { "retry-after": "0" },
+        }),
+      );
+
+      const result = await fetchImageOutcome("https://images.example.com/blocked.png");
+
+      // `null`, not NON_IMAGE_RESPONSE: the host never said what this URL is,
+      // so nothing upstream may cache it as "definitively not an image".
+      expect(result).toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(RATE_LIMIT_ATTEMPTS);
+    });
+
+    it("does not retry a 404, which will not become a 200", async () => {
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response("Not Found", { status: 404 }));
+
+      expect(await fetchImageOutcome("https://images.example.com/missing.png")).toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
     it("returns NON_IMAGE_RESPONSE for non-image Content-Type", async () => {

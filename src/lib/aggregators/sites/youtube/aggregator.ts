@@ -18,6 +18,7 @@ import {
   YouTubeChannelData,
   YouTubeClient,
   YouTubeCommentThread,
+  YouTubeQuotaError,
   YouTubeVideoItem,
 } from "./client";
 
@@ -201,8 +202,13 @@ export class YouTubeAggregator extends BaseAggregator {
       if (channelId) {
         channelData = await client.fetchChannelData(channelId);
       }
-    } catch {
-      // Ignore fallback
+    } catch (e) {
+      // A missing channel row is survivable -- `fetchVideosViaSearch()` below
+      // is the fallback. An exhausted quota is not: swallowing it here takes
+      // the *more* expensive path (search costs 100 units to the playlist
+      // read's 1) purely to fail again a moment later, and reports it as a
+      // channel that has no uploads playlist.
+      if (e instanceof YouTubeQuotaError) throw e;
     }
 
     const uploadsPlaylistId = channelData?.uploads_playlist_id;

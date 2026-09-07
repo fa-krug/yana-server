@@ -1,6 +1,22 @@
 import sharp from "sharp";
 
+import { noteRateLimited, parseRetryAfterMs, withHostLimit } from "../http/host-limiter";
+
 export const DEFAULT_TIMEOUT_MS = 10000;
+/**
+ * Total attempts an image fetch gets when the host answers 429.
+ *
+ * Deliberately narrow: only a 429 is retried here. Every other failure was
+ * already, and stays, a single-attempt `null` -- a 404 will not become a 200,
+ * and a 500 or a timeout on a decorative inline image is not worth spending a
+ * worker's time on twice. A 429 is different because it is a statement about
+ * *when*, not about *whether*, and losing to it silently discarded the image:
+ * `fetchImageOutcome()` folded it into the same transient `null` as a DNS
+ * failure, so a throttled Heise run came back with articles that permanently
+ * had no header image, with nothing in the log to say a retry would have
+ * worked.
+ */
+export const RATE_LIMIT_ATTEMPTS = 3;
 export const MAX_FETCH_BYTES = 64 * 1024 * 1024; // 64 MB cap for large GIFs
 export const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
@@ -86,65 +102,96 @@ export async function fetchImageOutcome(
 ): Promise<FetchedImageResult | NonImageResponse | null> {
   if (!url) return null;
 
+  // No sleep in this loop, deliberately: `noteRateLimited()` has already
+  // pushed this host's cooldown out, and `withHostLimit()` inside the next
+  // attempt waits it out. Sleeping here as well would double the delay.
+  for (let attempt = 0; attempt < RATE_LIMIT_ATTEMPTS; attempt++) {
+    const outcome = await fetchImageOnce(url, timeoutMs);
+    if (outcome !== RATE_LIMITED) return outcome;
+  }
+
+  return null;
+}
+
+/** Sentinel for "the host answered 429", which is the one status worth retrying. */
+const RATE_LIMITED = Symbol("RATE_LIMITED");
+
+async function fetchImageOnce(
+  url: string,
+  timeoutMs: number,
+): Promise<FetchedImageResult | NonImageResponse | null | typeof RATE_LIMITED> {
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    return await withHostLimit(url, async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        headers: getImageHeaders(url),
-        signal: controller.signal,
-        redirect: "follow",
-      });
-    } finally {
-      clearTimeout(timer);
-    }
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          headers: getImageHeaders(url),
+          signal: controller.signal,
+          redirect: "follow",
+        });
+      } finally {
+        clearTimeout(timer);
+      }
 
-    if (!response.ok) {
-      // HTTP error status (404, 500, 503, 429, etc.) is transient -> return null
-      return null;
-    }
+      if (response.status === 429) {
+        noteRateLimited(url, parseRetryAfterMs(response.headers.get("retry-after")));
+        return RATE_LIMITED;
+      }
 
-    const rawContentType = response.headers.get("content-type") || "";
-    const baseType = rawContentType.split(";")[0].trim().toLowerCase();
-
-    if (!isImageContentType(baseType)) {
-      return NON_IMAGE_RESPONSE;
-    }
-
-    const contentLengthHeader = response.headers.get("content-length");
-    if (contentLengthHeader) {
-      const length = parseInt(contentLengthHeader, 10);
-      if (!isNaN(length) && length > MAX_FETCH_BYTES) {
+      if (!response.ok) {
+        // HTTP error status (404, 500, 503, etc.) is transient -> return null
         return null;
       }
-    }
 
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    if (buffer.length > MAX_FETCH_BYTES) {
-      return null;
-    }
-
-    if (buffer.length < 100) {
-      return NON_IMAGE_RESPONSE;
-    }
-
-    const validMeta = await validateImageDataWithSharp(buffer);
-    if (!validMeta) {
-      return NON_IMAGE_RESPONSE;
-    }
-
-    return {
-      imageData: buffer,
-      contentType: baseType,
-    };
+      return readImageResponse(response);
+    });
   } catch {
     // Network error, DNS, timeout, abort -> transient failure
     return null;
   }
+}
+
+async function readImageResponse(
+  response: Response,
+): Promise<FetchedImageResult | NonImageResponse | null> {
+  const rawContentType = response.headers.get("content-type") || "";
+  const baseType = rawContentType.split(";")[0].trim().toLowerCase();
+
+  if (!isImageContentType(baseType)) {
+    return NON_IMAGE_RESPONSE;
+  }
+
+  const contentLengthHeader = response.headers.get("content-length");
+  if (contentLengthHeader) {
+    const length = parseInt(contentLengthHeader, 10);
+    if (!isNaN(length) && length > MAX_FETCH_BYTES) {
+      return null;
+    }
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+
+  if (buffer.length > MAX_FETCH_BYTES) {
+    return null;
+  }
+
+  if (buffer.length < 100) {
+    return NON_IMAGE_RESPONSE;
+  }
+
+  const validMeta = await validateImageDataWithSharp(buffer);
+  if (!validMeta) {
+    return NON_IMAGE_RESPONSE;
+  }
+
+  return {
+    imageData: buffer,
+    contentType: baseType,
+  };
 }
 
 /**

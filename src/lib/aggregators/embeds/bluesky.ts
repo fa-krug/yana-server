@@ -16,6 +16,7 @@ import { storeImageRefFromUrl } from "../images/store";
 import { registerEmbedProvider, type ExtractionContext } from "./registry";
 import { escapeHtml } from "../extract/format";
 import { isSafeUrl } from "../blocks/parser";
+import { fetchJsonThrottled } from "../http/throttled-fetch";
 
 /** Public (unauthenticated) Bluesky AppView API endpoint. */
 const BSKY_API_BASE = "https://public.api.bsky.app";
@@ -68,13 +69,10 @@ async function resolveBlueskyDid(actor: string): Promise<string | null> {
 
   try {
     const url = `${BSKY_API_BASE}/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(actor)}`;
-    const res = await fetch(url, {
+    const data = await fetchJsonThrottled<{ did?: string }>(url, {
       headers: { "User-Agent": "Yana/1.0" },
-      signal: AbortSignal.timeout(10_000),
     });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { did?: string };
-    return data.did ?? null;
+    return data?.did ?? null;
   } catch {
     return null;
   }
@@ -93,13 +91,10 @@ async function fetchBlueskyPost(
   const atUri = `at://${did}/app.bsky.feed.post/${rkey}`;
   try {
     const url = `${BSKY_API_BASE}/xrpc/app.bsky.feed.getPosts?uris=${encodeURIComponent(atUri)}`;
-    const res = await fetch(url, {
+    const data = await fetchJsonThrottled<{ posts?: Record<string, unknown>[] }>(url, {
       headers: { "User-Agent": "Yana/1.0" },
-      signal: AbortSignal.timeout(10_000),
     });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { posts?: Record<string, unknown>[] };
-    return data.posts?.[0] ?? null;
+    return data?.posts?.[0] ?? null;
   } catch {
     return null;
   }

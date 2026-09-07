@@ -12,6 +12,7 @@ import {
   ResponseTooLarge,
   USER_AGENT,
 } from "./fetcher";
+import { hostCooldownMs, resetHostLimits } from "./host-limiter";
 
 describe("http/fetcher constants & errors", () => {
   it("exports expected constants", () => {
@@ -117,6 +118,54 @@ describe("fetchHtml", () => {
     });
     expect(result).toBe(htmlContent);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("waits out a 429's Retry-After rather than its own shorter backoff", async () => {
+    const htmlContent = "<html>Allowed through</html>";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockStreamResponse(new TextEncoder().encode("Too Many Requests"), {
+          status: 429,
+          headers: { "retry-after": "1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockStreamResponse(new TextEncoder().encode(htmlContent), { status: 200 }),
+      );
+    globalThis.fetch = fetchMock;
+
+    const started = Date.now();
+    // `retryDelayMs: 0` is what the caller asked for, so anything longer than
+    // an instant retry can only have come from the header. Ignoring it is how
+    // a 1s/2s ladder keeps re-asking a host that just said "not yet".
+    const result = await fetchHtml("https://ratelimited.example.com/a", {
+      retries: 3,
+      retryDelayMs: 0,
+    });
+
+    expect(result).toBe(htmlContent);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(900);
+  });
+
+  it("puts the whole host on cooldown when one request draws a 429", async () => {
+    resetHostLimits({ minGapMs: 0, maxCooldownMs: 60_000 });
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockStreamResponse(new TextEncoder().encode("Too Many Requests"), {
+        status: 429,
+        headers: { "retry-after": "30" },
+      }),
+    );
+    globalThis.fetch = fetchMock;
+
+    await expect(
+      fetchHtml("https://cooldown.example.com/a", { retries: 1, retryDelayMs: 0 }),
+    ).rejects.toThrow(NetworkError);
+
+    // A sibling worker's *different* URL on the same host is held too --
+    // without this, fifteen article workers each rediscover the same refusal.
+    expect(hostCooldownMs("https://cooldown.example.com/b")).toBeGreaterThan(25_000);
   });
 
   it("does not retry deterministic 404 error", async () => {

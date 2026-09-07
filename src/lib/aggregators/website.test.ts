@@ -205,6 +205,77 @@ describe("FullWebsiteAggregator.enrichArticles", () => {
     expect(result[2].content).toContain("content for https://example.com/3");
   });
 
+  it("hands the fetched page to header extraction instead of fetching it twice", async () => {
+    const pageHtml = "<html><body><article>the page</article></body></html>";
+    let contentFetches = 0;
+    let headerHtml: string | undefined = "not called";
+    let headerRanAfterFetch = false;
+
+    class RecordingAggregator extends FullWebsiteAggregator {
+      async extractHeaderElement(_article: RawArticle, html?: string): Promise<null> {
+        headerHtml = html;
+        headerRanAfterFetch = contentFetches === 1;
+        return null;
+      }
+
+      async fetchArticleContent(): Promise<string> {
+        contentFetches++;
+        return pageHtml;
+      }
+
+      extractContent(html: string): string {
+        return html;
+      }
+
+      async processContent(html: string): Promise<string> {
+        return html;
+      }
+    }
+
+    const agg = new RecordingAggregator(feed);
+    await agg.enrichArticles([makeArticle("https://example.com/1")]);
+
+    // One fetch, and header extraction gets that exact copy. Before this, the
+    // header path re-fetched the same article page through `ImageExtractor`
+    // just to read its og:image -- two full page requests per article against
+    // every site aggregated, which is what put Heise runs into 429s.
+    expect(contentFetches).toBe(1);
+    expect(headerHtml).toBe(pageHtml);
+    // Order matters: the page has to be fetched first for there to be
+    // anything to hand over.
+    expect(headerRanAfterFetch).toBe(true);
+  });
+
+  it("still sets header_data before extractContent runs, despite the reordering", async () => {
+    const seen: string[] = [];
+
+    class OrderingAggregator extends FullWebsiteAggregator {
+      async extractHeaderElement(): Promise<null> {
+        seen.push("header");
+        return null;
+      }
+
+      async fetchArticleContent(): Promise<string> {
+        seen.push("fetch");
+        return "<article>body</article>";
+      }
+
+      extractContent(html: string): string {
+        seen.push("extract");
+        return html;
+      }
+
+      async processContent(html: string): Promise<string> {
+        seen.push("process");
+        return html;
+      }
+    }
+
+    await new OrderingAggregator(feed).enrichArticles([makeArticle("https://example.com/1")]);
+
+    expect(seen).toEqual(["fetch", "header", "extract", "process"]);
+  });
+
   it("never runs more than the feed's concurrency fetches concurrently", async () => {
     let inFlight = 0;
     let maxInFlight = 0;

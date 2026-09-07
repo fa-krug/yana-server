@@ -147,7 +147,11 @@ export async function handleReloadJob(job: Job): Promise<void> {
     author: article.author || "",
   };
 
-  const headerData = await aggregator.extractHeaderElement(rawArticle);
+  // `freshHtml` is handed over rather than re-fetched: without it
+  // `extractHeaderElement()` reaches `ImageExtractor.fetchAndParsePage()`,
+  // which fetches this same page a second time just to read its og:image.
+  // Same defect as the one `FullWebsiteAggregator.enrichArticles()` carried.
+  const headerData = await aggregator.extractHeaderElement(rawArticle, freshHtml);
   if (headerData) rawArticle.header_data = headerData;
 
   rawArticle.content = await aggregator.extractContent(freshHtml, rawArticle);

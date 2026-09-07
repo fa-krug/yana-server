@@ -1,5 +1,6 @@
 import type * as cheerio from "cheerio";
 import { fetchSingleImage, type FetchedImageResult } from "./fetcher";
+import { fetchJsonThrottled } from "../http/throttled-fetch";
 
 export interface ImageExtractionContext {
   url: string;
@@ -56,15 +57,10 @@ export async function fetchTweetData(
 ): Promise<Record<string, unknown> | null> {
   if (!tweetId) return null;
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const res = await fetch(`https://api.fxtwitter.com/status/${tweetId}`, {
-      headers: { "User-Agent": "Yana/1.0" },
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    return (await res.json()) as Record<string, unknown>;
+    return await fetchJsonThrottled<Record<string, unknown>>(
+      `https://api.fxtwitter.com/status/${tweetId}`,
+      { headers: { "User-Agent": "Yana/1.0" }, timeoutMs },
+    );
   } catch {
     return null;
   }

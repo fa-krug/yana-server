@@ -12,6 +12,7 @@ import type { Element } from "domhandler";
 import type { EmbedBlock } from "../blocks/types";
 import { storeImageRefFromUrl } from "../images/store";
 import { registerEmbedProvider, type ExtractionContext } from "./registry";
+import { fetchJsonThrottled } from "../http/throttled-fetch";
 
 /** fxtwitter API endpoint. */
 const FXTWITTER_API_BASE = "https://api.fxtwitter.com";
@@ -42,12 +43,9 @@ async function fetchTweetData(tweetId: string): Promise<Record<string, unknown> 
   if (!tweetId) return null;
   try {
     const url = `${FXTWITTER_API_BASE}/status/${tweetId}`;
-    const res = await fetch(url, {
+    return await fetchJsonThrottled<Record<string, unknown>>(url, {
       headers: { "User-Agent": "Yana/1.0" },
-      signal: AbortSignal.timeout(10_000),
     });
-    if (!res.ok) return null;
-    return (await res.json()) as Record<string, unknown>;
   } catch {
     return null;
   }

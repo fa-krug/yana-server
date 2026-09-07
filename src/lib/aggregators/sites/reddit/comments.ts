@@ -5,6 +5,7 @@
  */
 
 import { ArticleSkipError } from "../../errors";
+import { fetchTextThrottled } from "../../http/throttled-fetch";
 import type { ChromeLabels } from "../../chrome-labels";
 import { convertRedditMarkdown, escapeHtml, safeLinkHtml } from "./markdown";
 import { RedditComment, RedditCommentRaw, RedditListing, RedditPostRaw } from "./types";
@@ -55,12 +56,8 @@ export async function fetchPostComments(
   const headers: Record<string, string> = { "User-Agent": "Yana/1.0" };
   if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
 
-  let res: Response;
-  try {
-    res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
-  } catch {
-    return [];
-  }
+  const res = await fetchTextThrottled(url, { headers });
+  if (!res) return [];
 
   if (res.status === 403) {
     throw new ArticleSkipError("Post is private or removed", 403);
@@ -68,10 +65,21 @@ export async function fetchPostComments(
   if (res.status === 404) {
     throw new ArticleSkipError("Post not found", 404);
   }
+  if (res.status === 429) {
+    // Logged rather than swallowed. This runs once per article under
+    // `feed.concurrency`, and Reddit's limits are far tighter than a
+    // website's -- so a throttled run used to return `[]` here and ship the
+    // article with a silently empty comment section, indistinguishable from
+    // a post that genuinely had no comments. `fetchTextThrottled()` has
+    // already retried and recorded the host cooldown by this point, so
+    // reaching here means Reddit refused every attempt.
+    console.warn(`[reddit] rate limited fetching comments for ${subreddit}/${postId}`);
+    return [];
+  }
   if (!res.ok) return [];
 
   try {
-    const data: unknown = await res.json();
+    const data: unknown = JSON.parse(res.body);
     if (!Array.isArray(data) || data.length < 2) return [];
 
     const [, commentsListing] = data as RedditCommentsPageResponse;
