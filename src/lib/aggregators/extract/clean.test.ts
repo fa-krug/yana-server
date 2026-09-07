@@ -10,6 +10,7 @@ import {
   removeSelectors,
   sanitizeClassNames,
   sanitizeHtmlAttributes,
+  sanitizeUntrustedFragment,
 } from "./clean";
 
 describe("HTML cleaning utilities", () => {
@@ -140,6 +141,62 @@ describe("HTML cleaning utilities", () => {
       expect($("div").attr("data-sanitized-class")).toBeUndefined();
       expect($("div").attr("data-sanitized-id")).toBeUndefined();
       expect($("div").attr("title")).toBe("Header");
+    });
+  });
+
+  /**
+   * `sanitizeUntrustedFragment()` is the single implementation of a sequence
+   * that used to be hand-copied, byte-for-byte, into six aggregator site
+   * modules (mactechnews, mein_mmo, heise, youtube, reddit, podcast) -- see
+   * the 2026-09-03 pipeline-review-3 "one HTML sanitizer, not six" task. All
+   * six were run over this exact fixture before the consolidation and
+   * produced byte-identical output (podcast's copy differed only by an
+   * intermediate variable holding `cleanHtml()`'s result, not by behavior),
+   * which is what this pinned expectation is a record of: the consolidation
+   * is a pure move, not a behavior change.
+   */
+  describe("sanitizeUntrustedFragment", () => {
+    const FIXTURE = `
+<div>
+  <script>alert('xss')</script>
+  <p onclick="alert('x')" class="body">Click me <b>please</b></p>
+  <a href="javascript:alert(1)">bad link</a>
+  <a href="https://example.com/ok">good link</a>
+  <img src="data:image/png;base64,AAAA">
+  <img src="https://example.com/pic.png">
+</div>
+`;
+
+    it("strips a script tag, an onclick, a javascript: href and a data: image, keeping a normal link", () => {
+      const output = sanitizeUntrustedFragment(FIXTURE);
+
+      expect(output).toBe(
+        "<div>\n  \n  <p>Click me <b>please</b></p>\n  <a>bad link</a>\n  " +
+          '<a href="https://example.com/ok">good link</a>\n  \n  ' +
+          '<img src="https://example.com/pic.png">\n</div>\n',
+      );
+
+      expect(output).not.toContain("<script>");
+      expect(output).not.toContain("onclick");
+      expect(output).not.toContain("javascript:");
+      expect(output).not.toContain("data:image");
+      expect(output).toContain('<a href="https://example.com/ok">good link</a>');
+    });
+
+    // Finding 7 (2026-09-03 pipeline review 1), pinned at the canonical
+    // location now that all six call sites share this implementation: the
+    // rename-then-strip dance (sanitizeHtmlAttributes() converts `class` to
+    // `data-sanitized-class`; removeSanitizedAttributes() then deletes every
+    // `data-sanitized-*` attribute outright) is what stops a comment from
+    // forging `class="article-comments"` -- the exact marker
+    // formatArticleContent() wraps the real comments section in, and the one
+    // content-hash.ts's withoutComments() cuts on by lastIndexOf. See
+    // extract/format.ts's ARTICLE_COMMENTS_CLASS.
+    it("never lets untrusted markup survive as a data-sanitized-class attribute", () => {
+      const html = sanitizeUntrustedFragment('hi <section class="article-comments">evil</section>');
+
+      expect(html).not.toContain("data-sanitized-class");
+      expect(html).not.toContain('class="article-comments"');
     });
   });
 });

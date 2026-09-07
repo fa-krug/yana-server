@@ -205,6 +205,59 @@ describe("block storage", () => {
     expect(loaded).toEqual(TREE);
   });
 
+  it("reads back a summary block with its children", async () => {
+    const tree: Block[] = [
+      {
+        kind: "summary",
+        blocks: [
+          {
+            kind: "paragraph",
+            runs: [
+              {
+                text: "The gist.",
+                bold: false,
+                italic: false,
+                code: false,
+                strikethrough: false,
+                link: "",
+              },
+            ],
+          },
+        ],
+      },
+      {
+        kind: "paragraph",
+        runs: [
+          {
+            text: "Body.",
+            bold: false,
+            italic: false,
+            code: false,
+            strikethrough: false,
+            link: "",
+          },
+        ],
+      },
+    ];
+
+    await storage.writeBlocks(articleId, tree);
+    expect(await storage.readBlocks(articleId)).toEqual(tree);
+
+    // Stored as a parent row plus its own child rows, the same shape a
+    // blockquote takes -- not flattened into the root sequence.
+    const rows = client
+      .getDb()
+      .select()
+      .from(schema.articleBlocks)
+      .where(eq(schema.articleBlocks.articleId, articleId))
+      .all();
+    const summaryRow = rows.find((row) => row.kind === "summary");
+    expect(summaryRow).toBeDefined();
+    expect(summaryRow!.parentId).toBeNull();
+    expect(summaryRow!.position).toBe(0);
+    expect(rows.filter((row) => row.parentId === summaryRow!.id)).toHaveLength(1);
+  });
+
   it("returns row count matching written article blocks in DB", async () => {
     const written = await storage.writeBlocks(articleId, TREE);
     const db = client.getDb();
@@ -419,7 +472,7 @@ describe("block storage", () => {
 
   it("writes a tree spanning many insert batches without exceeding SQLite's variable limit", async () => {
     // A long-form scraped article can produce thousands of paragraphs/runs; writeBlocks batches
-    // its bulk inserts (INSERT_BATCH_SIZE = 100) so this never hits "too many SQL variables".
+    // its bulk inserts (SQL_VARIABLE_BATCH_SIZE = 100) so this never hits "too many SQL variables".
     const PARAGRAPH_COUNT = 6000;
     const tree: Block[] = Array.from({ length: PARAGRAPH_COUNT }, (_, i) => ({
       kind: "paragraph",
@@ -451,6 +504,30 @@ describe("block storage", () => {
     expect(roots.map((r) => r.position)).toEqual(
       Array.from({ length: PARAGRAPH_COUNT }, (_, i) => i),
     );
+  });
+
+  /**
+   * Task 5 (2026-09-03 pipeline review 3): the write side has always chunked
+   * its bulk inserts (SQL_VARIABLE_BATCH_SIZE) to survive
+   * SQLITE_MAX_VARIABLE_NUMBER, but `loadBlocksForArticles` used to bind
+   * every block id in one unchunked `inArray` -- so an article the batched
+   * insert wrote successfully could throw "too many SQL variables" reading
+   * itself back out, on the very SQLite build the write side already
+   * defends against. This repository's own better-sqlite3 build compiles
+   * MAX_VARIABLE_NUMBER=32766 (confirmed live), so this count is chosen to
+   * exceed it -- on unchunked code this test fails with exactly that SQLite
+   * error; chunked, both the insert and the read-back succeed.
+   */
+  it("reads back an article whose block count exceeds SQLite's compiled variable limit", async () => {
+    const BLOCK_COUNT = 33_000;
+    const tree: Block[] = Array.from({ length: BLOCK_COUNT }, () => ({ kind: "divider" }));
+
+    const written = await storage.writeBlocks(articleId, tree);
+    expect(written).toBe(BLOCK_COUNT);
+
+    const loaded = await storage.readBlocks(articleId);
+    expect(loaded.length).toBe(BLOCK_COUNT);
+    expect(loaded[0]).toEqual({ kind: "divider" });
   });
 
   it("preserves empty list items", async () => {

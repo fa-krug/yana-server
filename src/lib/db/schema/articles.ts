@@ -15,8 +15,13 @@ import { users } from "./users";
 
 /**
  * `content` from the Django model is deliberately absent: it held processed HTML
- * that blocks were rebuilt from, and blocks are authoritative here. `rawContent`
- * remains as the debugging surface and as what phase 12's reload action re-runs.
+ * that blocks were rebuilt from, and blocks are authoritative here. So was
+ * `raw_content`, which held the whole fetched page: it was kept as "the
+ * debugging surface, and what the reload action re-runs against" -- but reload
+ * always re-fetches (that is the point of a reload), and once the page stopped
+ * being a fingerprint input (see `contentHash`) nothing about a row depended on
+ * it being current either. It was written on every aggregation run and read by
+ * nothing, so it is gone.
  */
 export const articles = sqliteTable(
   "articles",
@@ -25,7 +30,6 @@ export const articles = sqliteTable(
     name: text("name").notNull(),
     /** URL or external id. */
     identifier: text("identifier").notNull(),
-    rawContent: text("raw_content").notNull().default(""),
     /** Block tree flattened to visible text, for search. */
     plainText: text("plain_text").notNull().default(""),
     /**
@@ -38,29 +42,38 @@ export const articles = sqliteTable(
      * article out of `/api/v1`'s sync `updated` stream.
      *
      * Nullable, and written *last* on purpose: a stored hash means "row and
-     * blocks are both up to date for this content", so a crash mid-write
-     * leaves it null or stale and the next run redoes the work. Every row
-     * that predates this column is null, is therefore treated as changed,
-     * and settles after one aggregation pass -- no backfill needed.
+     * blocks are both up to date for this content". Both handlers write the
+     * row, the block tree and this column inside one `writeTransaction()`
+     * (see `writeBlocksIn()` in `@/lib/aggregators/blocks/storage`), so that
+     * ordering is now atomic rather than three separate commits -- a crash
+     * anywhere in it leaves the article exactly as it was, and the next run
+     * redoes the work. Every row that predates this column is null, is
+     * therefore treated as changed, and settles after one aggregation pass
+     * -- no backfill needed.
      *
      * THE INVARIANT, and it binds every writer, not just the aggregator:
      * **anything that changes an article's content must set `contentHash` to
      * null** (or recompute it). A stale hash does not merely go out of date --
      * it makes the aggregate handler skip that row *forever*, because the
      * hash it computes from the unchanged feed item keeps matching. Content
-     * here means the fingerprinted inputs (`name`, `rawContent`, the block
+     * here means the fingerprinted inputs (`name`, the block
      * tree it is parsed into, `date`, `author`, `icon`) and `feedId`, which is
      * half the key the handler looks a row up by. Writers that only flip
      * `read`/`starred` must leave it alone: nothing about the content changed,
      * and nulling it would force a pointless full rewrite on the next cycle.
      *
-     * Two writers learned this the hard way and now null it explicitly:
+     * One writer learned this the hard way and nulls it explicitly:
      * `src/lib/jobs/handlers/reload.ts` (both branches -- a *failed* reload
-     * writes an error notice, which without this would have been permanent)
-     * and `updateArticle()` in `src/lib/articles/actions.ts`. The same trap
-     * waits for any future change to `parseBlocks`/`plainTextOf`: existing
-     * articles would never be re-parsed, where they used to be re-derived
-     * every cycle.
+     * writes an error notice, which without this would have been permanent).
+     * `updateArticle()` in `src/lib/articles/actions.ts` writes `name` and
+     * `date` (both fingerprint inputs) *without* nulling anything -- correct
+     * because the hash is taken over the article as fetched from source, not
+     * the stored bytes, so a local edit to either does not move it. `feedId`
+     * is the one field it could not leave unlinked this way, so it forbids
+     * changing it at all rather than nulling the hash on every move. The same
+     * trap waits for any future change to `parseBlocks`/`plainTextOf`:
+     * existing articles would never be re-parsed, where they used to be
+     * re-derived every cycle.
      */
     contentHash: text("content_hash"),
     /**
@@ -120,9 +133,9 @@ export const articles = sqliteTable(
  *
  * `userId` is denormalized on purpose: once the article (and possibly its
  * feed) is gone, nothing else lets this row be scoped to its owner. Every
- * hard-delete path (retention, feed deletion, feed restore) must insert one
- * of these for each affected article *before* the delete, inside the same
- * `writeTransaction()`.
+ * hard-delete path (retention, feed deletion, `deleteArticles()`'s bulk
+ * delete) must insert one of these for each affected article *before* the
+ * delete, inside the same `writeTransaction()`.
  */
 export const articleTombstones = sqliteTable(
   "article_tombstones",

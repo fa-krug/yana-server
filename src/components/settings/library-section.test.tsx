@@ -1,9 +1,9 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/render";
 
-import { LibrarySection } from "./library-section";
+import { LibrarySection, LibrarySectionForm } from "./library-section";
 
 const { updateLibrarySettings } = vi.hoisted(() => ({ updateLibrarySettings: vi.fn() }));
 vi.mock("@/lib/settings/actions", () => ({ updateLibrarySettings }));
@@ -19,7 +19,7 @@ const { toastError, toastSuccess } = vi.hoisted(() => ({
 vi.mock("sonner", () => ({ toast: { error: toastError, success: toastSuccess } }));
 
 function render(locale: "en" | "de" = "de") {
-  return renderWithProviders(<LibrarySection articleRetentionDays={30} />, { locale });
+  return renderWithProviders(<LibrarySectionForm articleRetentionDays={30} />, { locale });
 }
 
 function field(label: string): HTMLInputElement {
@@ -86,5 +86,47 @@ describe("<LibrarySection>", () => {
     } finally {
       logged.mockRestore();
     }
+  });
+
+  it("renders the real input and save button while the value is still loading", () => {
+    // The defect this whole migration exists to fix: a loading section used to be
+    // a grey bar where the field was. The field itself needs no data -- only its
+    // value does -- so it must be on screen, disabled, from the first frame.
+    renderWithProviders(<LibrarySectionForm pending />);
+
+    const input = screen.getByLabelText("Article retention") as HTMLInputElement;
+    expect(input.disabled).toBe(true);
+    expect(input.value).toBe("");
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    // The chrome the shell used to guarantee is still here, from the same component.
+    expect(screen.getByText("Library")).toBeTruthy();
+  });
+
+  it("shows the resolved value once the promise settles", async () => {
+    // A deferred promise, resolved under an explicit `act()` -- React 19's
+    // `use()` registers its continuation as a bare promise `.then()`, which
+    // lands outside any `act()` scope unless the resolution itself is wrapped.
+    // Without this, the update that fills in "60" never commits and the test
+    // hangs on `waitFor` instead of failing fast.
+    let resolveSettings!: (value: { articleRetentionDays: number }) => void;
+    const promise = new Promise<{ articleRetentionDays: number }>((resolve) => {
+      resolveSettings = resolve;
+    });
+
+    await act(async () => {
+      renderWithProviders(<LibrarySection promise={promise} />);
+    });
+
+    // Pending first: real control, no value.
+    expect((screen.getByLabelText("Article retention") as HTMLInputElement).value).toBe("");
+
+    await act(async () => {
+      resolveSettings({ articleRetentionDays: 60 });
+      await promise;
+    });
+
+    // Then the value fills in, with no skeleton in between.
+    expect((screen.getByLabelText("Article retention") as HTMLInputElement).value).toBe("60");
+    expect((screen.getByLabelText("Article retention") as HTMLInputElement).disabled).toBe(false);
   });
 });

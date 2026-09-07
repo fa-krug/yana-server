@@ -1,70 +1,81 @@
 import { connection } from "next/server";
-import { Suspense } from "react";
-import { getTranslations } from "next-intl/server";
 
 import { AboutSection } from "@/components/settings/about-section";
-import { GeneralSection, GeneralSectionShell } from "@/components/settings/general-section";
-import { LibrarySection, LibrarySectionShell } from "@/components/settings/library-section";
-import { Skeleton } from "@/components/ui/skeleton";
+import { GeneralSection } from "@/components/settings/general-section";
+import { LibrarySection } from "@/components/settings/library-section";
 import { Separator } from "@/components/ui/separator";
-import { getSettings } from "@/lib/settings/queries";
+import { getSettingsSummary } from "@/lib/settings/queries";
 
 /**
- * The `<Suspense>` fallback for `<Sections>` below: the same two section
- * shells `<Sections>` itself renders once `getSettings()` resolves, with a
- * skeleton bar standing in for each control -- so the headings, field labels
- * and help text are never replaced by an anonymous skeleton block, only the
- * values nobody can know yet.
+ * The instant-render-no-fallback migration: this page body awaits nothing,
+ * so it cannot suspend and Next never shows a route-level fallback for it --
+ * `loading.tsx` was deleted along with this rewrite, because there is no
+ * longer any suspension for it to cover.
+ *
+ * The `await getTranslations()` the streaming-controls migration kept here is
+ * gone too, along with the page `<h1>` it produced: the breadcrumb already
+ * names the page, so the per-page heading was removed everywhere.
  */
-function SectionsFallback() {
-  return (
-    <div className="space-y-8">
-      <GeneralSectionShell
-        themeControl={<Skeleton className="h-9 w-full sm:w-64" />}
-        languageControl={<Skeleton className="h-9 w-full sm:w-64" />}
-      />
-      <Separator />
-      <LibrarySectionShell
-        retentionControl={<Skeleton className="h-9 w-24" />}
-        saveControl={<Skeleton className="h-9 w-24" />}
-      />
-    </div>
-  );
-}
-
-async function Sections() {
-  const settings = await getSettings();
-  return (
-    <div className="space-y-8">
-      <GeneralSection theme={settings.theme} language={settings.language} />
-      <Separator />
-      <LibrarySection articleRetentionDays={settings.articleRetentionDays} />
-    </div>
-  );
-}
-
-export default async function SettingsPage() {
+export default function SettingsPage() {
   /**
-   * Opt this route out of prerendering, **before** the first line that can
-   * reach SQLite. `connection()` in the root layout is not enough and never
-   * was: the layout and this page are sibling render scopes, React starts this
-   * one before the layout's interrupt lands, and `getTranslations()` below
-   * resolves the next-intl request config -> `getSettings()` -> `getDb()`. That
-   * is what created an empty, unmigrated `data/yana.db` on the build machine
-   * (see the `connection()` bullet in CLAUDE.md). Every route that can reach
-   * the database needs its own call, first thing.
+   * Opt this route out of prerendering -- **called, not awaited**. Calling
+   * `connection()` is what interrupts static generation: during `next build`
+   * it throws synchronously (see `throwToInterruptStaticGeneration` in
+   * `next/dist/server/request/connection.js`) the moment it runs, whether or
+   * not anything awaits its result: the exception propagates out of this
+   * (now synchronous) page function exactly as it would if awaited, which
+   * is what still makes `rm -rf data/ && npm run build` leave `data/`
+   * unmigrated rather than baking a page against it. At real request time it
+   * just resolves to `undefined` and is never observed -- there is nothing to
+   * await here, so awaiting it would only reintroduce the one thing this
+   * migration removes. `connection()` in the root layout still is not enough
+   * on its own: the layout and this page are sibling render scopes, and
+   * `getSettingsSummary()` below reaches `getDb()` through its own chain of
+   * dynamic reads regardless of what the layout already resolved.
+   *
+   * **That "propagates exactly as it would if awaited" claim has a
+   * precondition this comment does not restate: no `cacheComponents` and no
+   * PPR configured.** Under `cacheComponents` the branch `connection()` takes
+   * instead returns a hanging promise and never throws, so an unawaited call
+   * would interrupt nothing. See CLAUDE.md's `connection()` bullet for the
+   * full reasoning -- the pages that point back to "SettingsPage's identical
+   * comment" mean this paragraph, and this paragraph means that bullet.
    */
-  await connection();
-  const t = await getTranslations("settings");
+  connection();
+
+  // Not awaited: the promise is handed to the client components, which render
+  // their real controls immediately and fill in the values when it resolves.
+  // Awaiting here is what made the whole page suspend behind one read.
+  // `getSettingsSummary()` is backed by the same `cache()`d `getSettings()`
+  // read the root layout already made, so sharing this one promise between
+  // both sections below is still exactly one read.
+  //
+  // `getSettingsSummary()`, never a bare `getSettings()` passed straight down
+  // or narrowed inline here. React serializes the *resolved value* of a
+  // promise handed to a Client Component, not its declared TypeScript type:
+  // a prop typed `Promise<{ theme; language; articleRetentionDays }>` is
+  // structurally satisfied by a promise that resolves to the whole
+  // `UserSettings` row, and the whole row -- including `youtubeApiKey`,
+  // `redditClientSecret`, `openaiApiKey` and five more provider secrets --
+  // would still be serialized into the page's flight payload, in plain text,
+  // in a browser's network tab. Narrowing inside `GeneralSection`/
+  // `LibrarySection`'s own `use(promise)` happens *after* serialization and
+  // buys nothing; narrowing inline here, in a `.then()` local to this page,
+  // was tried and rejected -- it left no shared symbol for a test to import,
+  // so a test asserting on its own copy of the narrowing kept passing even
+  // after a mutation that reverted this line to `getSettings()` itself (see
+  // `settings.test.ts`). `getSettingsSummary()` in `@/lib/settings/queries` is
+  // the one function both this page and that test call, so the test is
+  // actually exercising what ships here.
+  const settings = getSettingsSummary();
+
   return (
     <div className="max-w-2xl space-y-6">
-      <h1 className="text-2xl font-semibold">{t("title")}</h1>
-      <Suspense fallback={<SectionsFallback />}>
-        <Sections />
-      </Suspense>
-      {/* Static, no data dependency at all -- rendered directly rather than
-          through the Suspense boundary above, which exists only for the
-          database read the other two sections need. */}
+      <div className="space-y-8">
+        <GeneralSection promise={settings} />
+        <Separator />
+        <LibrarySection promise={settings} />
+      </div>
       <Separator />
       <AboutSection />
     </div>

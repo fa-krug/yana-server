@@ -5,6 +5,13 @@ export const USER_AGENT =
 export const DEFAULT_RETRIES = 3;
 export const MAX_FETCH_BYTES = 2 * 1024 * 1024;
 export const MAX_HTML_BYTES = 8 * 1024 * 1024;
+/**
+ * Cap for a JSON API response drained through `readCappedJson()`. Generous on
+ * purpose: the largest thing that reaches it is a Reddit comment listing, and
+ * a cap that refuses a real feed is worse than one that only stops a body
+ * nobody sent deliberately.
+ */
+export const MAX_JSON_BYTES = 8 * 1024 * 1024;
 export const MAX_REDIRECTS = 5;
 
 export class NetworkError extends Error {
@@ -45,7 +52,21 @@ function rejectOversizedDeclaration(response: Response, url: string, maxBytes: n
   }
 }
 
-async function readCapped(response: Response, url: string, maxBytes: number): Promise<Uint8Array> {
+/**
+ * Drain a response body, refusing it the moment it goes past `maxBytes` --
+ * both as declared and as actually delivered. Exported because five other
+ * call sites read the same way -- `../images/fetcher.ts`,
+ * `../images/extractor.ts`, `../images/strategies.ts`,
+ * `../sites/youtube/client.ts` and `../header/strategies.ts`, the last four
+ * through `readCappedText()`/`readCappedJson()` below: buffering a whole body
+ * and checking its size afterwards is a memory hazard, not a size check, and
+ * `res.text()`/`res.json()` do not check at all.
+ */
+export async function readCapped(
+  response: Response,
+  url: string,
+  maxBytes: number,
+): Promise<Uint8Array> {
   rejectOversizedDeclaration(response, url, maxBytes);
 
   if (!response.body) {
@@ -56,31 +77,24 @@ async function readCapped(response: Response, url: string, maxBytes: number): Pr
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
 
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) {
-        totalBytes += value.byteLength;
-        if (totalBytes > maxBytes) {
-          try {
-            await reader.cancel();
-          } catch {
-            // Ignore stream cancel error
-          }
-          throw new ResponseTooLarge(
-            `Response from ${url} is too large: over ${maxBytes} bytes`,
-            url,
-          );
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        try {
+          await reader.cancel();
+        } catch {
+          // Ignore stream cancel error
         }
-        chunks.push(value);
+        throw new ResponseTooLarge(
+          `Response from ${url} is too large: over ${maxBytes} bytes`,
+          url,
+        );
       }
+      chunks.push(value);
     }
-  } catch (err) {
-    if (err instanceof ResponseTooLarge) {
-      throw err;
-    }
-    throw err;
   }
 
   const combined = new Uint8Array(totalBytes);
@@ -118,6 +132,60 @@ function decodeText(body: Uint8Array, contentType: string | null): string {
   }
 }
 
+/**
+ * Drain a response body under `maxBytes` and decode it as text, honouring the
+ * response's own charset. The text counterpart of `readCapped()`; `res.text()`
+ * has no cap at all.
+ */
+export async function readCappedText(
+  response: Response,
+  url: string,
+  maxBytes: number,
+): Promise<string> {
+  const body = await readCapped(response, url, maxBytes);
+  return decodeText(body, response.headers.get("content-type"));
+}
+
+/**
+ * Drain a response body under `maxBytes` and parse it as JSON. Throws on an
+ * oversized body (`ResponseTooLarge`) or on unparseable JSON, which is what
+ * every caller's own catch already treats as "no answer".
+ */
+export async function readCappedJson<T>(
+  response: Response,
+  url: string,
+  maxBytes: number = MAX_JSON_BYTES,
+): Promise<T> {
+  return JSON.parse(await readCappedText(response, url, maxBytes)) as T;
+}
+
+/**
+ * Run `body` under one deadline covering the **whole** exchange -- the fetch,
+ * every redirect hop it makes and the body drain.
+ *
+ * This exists because the hazard it closes is a placement mistake, not a
+ * missing feature: four call sites in this tree each wrote their own
+ * `AbortController` + `setTimeout` pair and then cleared the timer on the line
+ * *above* the body read, so the deadline covered only the headers. A server
+ * that sends headers and then stalls held such a call open forever -- and
+ * worker.ts's budget timer only requests cooperative cancellation, with no
+ * checkpoint inside a fetch, so WORKER_CONCURRENCY (4) such feeds deadlock
+ * every background job with no way back. A caller that never holds the timer
+ * cannot disarm it early.
+ */
+export async function withDeadline<T>(
+  timeoutMs: number,
+  body: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await body(controller.signal);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 type HtmlOutcome =
   | { ok: true; text: string }
   | { ok: false; status: number; statusText: string; retryAfterMs: number | null };
@@ -128,6 +196,12 @@ type HtmlOutcome =
  * can be run inside the host's throttle slot, while the retry *sleep* happens
  * outside it, where it belongs: a worker waiting out a backoff must not be
  * holding a slot the host would let a sibling use.
+ *
+ * The deadline comes from `withDeadline()` rather than a local timer pair, so
+ * the placement guarantee that helper exists for holds here too -- and note
+ * it is started *inside* the slot, per attempt, which is the same reasoning
+ * `fetchTextThrottled()`'s doc comment spells out: a deadline armed before
+ * the queue wait is spent on politeness rather than on the request.
  */
 async function fetchHtmlOnce(
   url: string,
@@ -135,11 +209,8 @@ async function fetchHtmlOnce(
   timeout: number,
   maxBytes: number,
 ): Promise<HtmlOutcome> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
-
-  try {
-    const response = await fetch(url, { headers, signal: controller.signal });
+  return withDeadline(timeout, async (signal) => {
+    const response = await fetch(url, { headers, signal });
 
     if (!response.ok) {
       // Discard the error body rather than leaving it undrained, which would
@@ -155,11 +226,8 @@ async function fetchHtmlOnce(
       };
     }
 
-    const body = await readCapped(response, url, maxBytes);
-    return { ok: true, text: decodeText(body, response.headers.get("content-type")) };
-  } finally {
-    clearTimeout(timer);
-  }
+    return { ok: true, text: await readCappedText(response, url, maxBytes) };
+  });
 }
 
 export async function fetchHtml(
@@ -276,9 +344,37 @@ export async function fetchBinary(
 
   let target = url;
 
+  /**
+   * One budget for the whole call -- every redirect hop and the final body
+   * drain spend from it -- but only time actually **in flight** is charged
+   * against it.
+   *
+   * Both halves are load-bearing, and they came from opposite directions. A
+   * fresh `timeout` per hop made the real ceiling `(MAX_REDIRECTS + 1) x
+   * timeout`, and a timer cleared as soon as the headers arrived left the body
+   * drain with no deadline at all -- a server that stalls after its headers
+   * hung the calling worker loop forever, which `worker.ts`'s budget timer
+   * cannot interrupt (it only requests cooperative cancellation, and has no
+   * checkpoint inside a fetch). Hence one budget, and `withDeadline()` holding
+   * the timer so no caller can disarm it early.
+   *
+   * But a single timer armed at the top of the call would also be spent
+   * waiting behind `withHostLimit()`'s concurrency cap and cooldown -- up to
+   * 60s of deliberate politeness -- and would then abort a request that had
+   * never been sent, reporting a timeout against a host that was merely being
+   * queued for. So each hop is deadlined with what is *left*, and only the
+   * time spent inside the slot is deducted. Same reasoning as
+   * `fetchTextThrottled()`, which builds its signal inside the slot for it.
+   */
+  let remaining = timeout;
+
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     if (isAllowedUrl && !isAllowedUrl(target)) {
       throw new DisallowedRedirect(`Refusing to fetch ${target}: not on allowed site`, target);
+    }
+
+    if (remaining <= 0) {
+      throw new NetworkError(`Timed out after ${timeout}ms fetching ${url}`, undefined, url);
     }
 
     // Each hop is throttled against its own host, because a redirect chain can
@@ -290,48 +386,47 @@ export async function fetchBinary(
     const hopResult = await withHostLimit(
       hopUrl,
       async (): Promise<{ redirectTo: string } | { bytes: Uint8Array }> => {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeout);
-
-        let response: Response;
+        const began = Date.now();
         try {
-          response = await fetch(hopUrl, {
-            headers: { "User-Agent": USER_AGENT },
-            signal: controller.signal,
-            redirect: "manual",
+          return await withDeadline(remaining, async (signal) => {
+            const response = await fetch(hopUrl, {
+              headers: { "User-Agent": USER_AGENT },
+              signal,
+              redirect: "manual",
+            });
+
+            if (response.status === 429) {
+              noteRateLimited(hopUrl, parseRetryAfterMs(response.headers.get("retry-after")));
+            }
+
+            const isRedirect = response.status >= 300 && response.status < 400;
+            if (isRedirect) {
+              void response.body?.cancel().catch(() => {});
+              const location = response.headers.get("location");
+              if (!location) {
+                throw new NetworkError(
+                  `Redirect status ${response.status} without Location header`,
+                  response.status,
+                  hopUrl,
+                );
+              }
+              return { redirectTo: new URL(location, hopUrl).toString() };
+            }
+
+            if (!response.ok) {
+              void response.body?.cancel().catch(() => {});
+              throw new NetworkError(
+                `HTTP ${response.status} ${response.statusText} fetching ${hopUrl}`,
+                response.status,
+                hopUrl,
+              );
+            }
+
+            return { bytes: await readCapped(response, hopUrl, maxBytes) };
           });
         } finally {
-          clearTimeout(timer);
+          remaining -= Date.now() - began;
         }
-
-        if (response.status === 429) {
-          noteRateLimited(hopUrl, parseRetryAfterMs(response.headers.get("retry-after")));
-        }
-
-        const isRedirect = response.status >= 300 && response.status < 400;
-        if (isRedirect) {
-          void response.body?.cancel().catch(() => {});
-          const location = response.headers.get("location");
-          if (!location) {
-            throw new NetworkError(
-              `Redirect status ${response.status} without Location header`,
-              response.status,
-              hopUrl,
-            );
-          }
-          return { redirectTo: new URL(location, hopUrl).toString() };
-        }
-
-        if (!response.ok) {
-          void response.body?.cancel().catch(() => {});
-          throw new NetworkError(
-            `HTTP ${response.status} ${response.statusText} fetching ${hopUrl}`,
-            response.status,
-            hopUrl,
-          );
-        }
-
-        return { bytes: await readCapped(response, hopUrl, maxBytes) };
       },
     );
 

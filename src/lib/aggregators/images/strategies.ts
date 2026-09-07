@@ -1,6 +1,8 @@
 import type * as cheerio from "cheerio";
-import { fetchSingleImage, type FetchedImageResult } from "./fetcher";
+import { isTwitterUrl } from "../extract/format";
+import { thumbnailUrlFor, youtubeIdFrom } from "../embeds/youtube-url";
 import { fetchJsonThrottled } from "../http/throttled-fetch";
+import { fetchSingleImage, type FetchedImageResult } from "./fetcher";
 
 export interface ImageExtractionContext {
   url: string;
@@ -17,50 +19,42 @@ export interface ImageStrategy {
   extract(context: ImageExtractionContext): Promise<FetchedImageResultWithUrl | null>;
 }
 
-export function extractYoutubeVideoId(url: string): string | null {
-  if (!url) return null;
-  const patterns = [
-    /youtu\.be\/([A-Za-z0-9_-]+)/,
-    /youtube\.com\/watch\?.*v=([A-Za-z0-9_-]+)/,
-    /youtube\.com\/embed\/([A-Za-z0-9_-]+)/,
-    /youtube\.com\/v\/([A-Za-z0-9_-]+)/,
-    /youtube\.com\/shorts\/([A-Za-z0-9_-]+)/,
-  ];
-  for (const pattern of patterns) {
-    const match = pattern.exec(url);
-    if (match && match[1]) {
-      return match[1];
-    }
-  }
-  return null;
-}
-
-export function getYoutubeThumbnailUrl(videoId: string, quality = "maxresdefault"): string {
-  return `https://img.youtube.com/vi/${videoId}/${quality}.jpg`;
-}
-
-export function isTwitterUrl(url: string): boolean {
-  if (!url) return false;
-  const twitterDomains = ["twitter.com", "x.com", "mobile.twitter.com"];
-  return twitterDomains.some((domain) => url.includes(domain));
-}
-
 export function extractTweetId(url: string): string | null {
   if (!url) return null;
   const match = /\/status\/(\d+)/.exec(url);
   return match ? match[1] : null;
 }
 
+/**
+ * Read one tweet's metadata from fxtwitter.
+ *
+ * Routed through `fetchJsonThrottled()`, which buys three things this call site
+ * used to hand-roll and get wrong. The deadline covers the **body**: the timer
+ * was cleared on the line above `res.json()`, so a host that sent headers and
+ * then stalled held this call -- and its worker loop -- open forever. The body
+ * is **capped**: `res.json()` buffered whatever arrived with no ceiling. And
+ * the request is **throttled** against fxtwitter's own hostname, with a 429
+ * recorded rather than collapsed into the same `null` as a DNS failure.
+ *
+ * That helper is itself built on `withDeadline()` + `readCappedText()` with a
+ * `maxBytes`, so going through it *is* the bounded read, not a looser
+ * alternative to one -- and the timeout is passed as `timeoutMs` rather than as
+ * a signal, so the budget is not spent waiting out the host's cooldown. Lower
+ * risk than the page fetch in `./extractor.ts` -- fixed host, digit-validated
+ * path segment, no attacker-chosen origin -- but the same shape, so it gets the
+ * same bounds rather than an argument about why it does not need them.
+ */
 export async function fetchTweetData(
   tweetId: string,
   timeoutMs = 10000,
 ): Promise<Record<string, unknown> | null> {
   if (!tweetId) return null;
+  const url = `https://api.fxtwitter.com/status/${tweetId}`;
   try {
-    return await fetchJsonThrottled<Record<string, unknown>>(
-      `https://api.fxtwitter.com/status/${tweetId}`,
-      { headers: { "User-Agent": "Yana/1.0" }, timeoutMs },
-    );
+    return await fetchJsonThrottled<Record<string, unknown>>(url, {
+      headers: { "User-Agent": "Yana/1.0" },
+      timeoutMs,
+    });
   } catch {
     return null;
   }
@@ -142,15 +136,15 @@ export class DirectImageStrategy implements ImageStrategy {
 
 export class YouTubeThumbnailStrategy implements ImageStrategy {
   canHandle(context: ImageExtractionContext): boolean {
-    return extractYoutubeVideoId(context.url) !== null;
+    return youtubeIdFrom(context.url) !== null;
   }
 
   async extract(context: ImageExtractionContext): Promise<FetchedImageResultWithUrl | null> {
-    const videoId = extractYoutubeVideoId(context.url);
+    const videoId = youtubeIdFrom(context.url);
     if (!videoId) return null;
 
     for (const quality of ["maxresdefault", "hqdefault"]) {
-      const thumbnailUrl = getYoutubeThumbnailUrl(videoId, quality);
+      const thumbnailUrl = thumbnailUrlFor(videoId, quality);
       const res = await fetchSingleImage(thumbnailUrl);
       if (res) {
         return { ...res, imageUrl: thumbnailUrl };

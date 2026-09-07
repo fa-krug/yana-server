@@ -1,9 +1,10 @@
-import { and, eq, gte } from "drizzle-orm";
+import { and, eq, gte, inArray } from "drizzle-orm";
 
+import { aiReadinessFor } from "../ai/readiness";
 import { writeTransaction } from "../db/client";
-import { feeds, jobs } from "../db/schema";
+import { feeds, userSettings, jobs } from "../db/schema";
 import { notifyAdmins } from "../email/error-notifications";
-import { enqueue } from "./queue";
+import { AGGREGATE_HANDLER_JOB_KINDS, NON_TERMINAL_JOB_STATUSES, enqueue } from "./queue";
 
 const SCHEDULER_STARTED = Symbol.for("yana.scheduler.started");
 
@@ -34,6 +35,22 @@ export function startScheduler(options?: { tickIntervalMs?: number }): void {
 
   const intervalMs = options?.tickIntervalMs ?? 60_000;
 
+  tickReportingFailures();
+  schedulerTimer = setInterval(tickReportingFailures, intervalMs);
+}
+
+/**
+ * One `tick()` whose failure is logged and mailed to every admin -- the
+ * "is this instance healthy" channel, because a stuck scheduler has no single
+ * owner (see `../email/error-notifications.ts`).
+ *
+ * Hoisted out of `startScheduler()`, where the immediate tick and the
+ * `setInterval` one each carried a verbatim copy of this block: the two
+ * *have* to report identically (a failure on the first tick after a boot and
+ * one an hour later are the same failure), and two copies is one edit away
+ * from them not doing so.
+ */
+function tickReportingFailures(): void {
   tick().catch((err) => {
     console.error("[Scheduler] Error in scheduler tick:", err);
     notifyAdmins({
@@ -42,17 +59,6 @@ export function startScheduler(options?: { tickIntervalMs?: number }): void {
       occurredAt: new Date(),
     });
   });
-
-  schedulerTimer = setInterval(() => {
-    tick().catch((err) => {
-      console.error("[Scheduler] Error in scheduler tick:", err);
-      notifyAdmins({
-        category: "scheduler",
-        message: err instanceof Error ? (err.stack ?? err.message) : String(err),
-        occurredAt: new Date(),
-      });
-    });
-  }, intervalMs);
 }
 
 export function stopScheduler(): void {
@@ -72,17 +78,41 @@ export async function tick(): Promise<void> {
       .select({
         feedId: feeds.id,
         userId: feeds.userId,
-        updatedAt: feeds.updatedAt,
+        lastAggregationStartedAt: feeds.lastAggregationStartedAt,
         updateIntervalMinutes: feeds.updateIntervalMinutes,
+        options: feeds.options,
       })
       .from(feeds)
       .where(eq(feeds.enabled, true))
       .all();
 
+    // Every owner's settings row, read once per tick rather than once per
+    // feed -- several feeds commonly share one owner. Keyed by userId so the
+    // readiness check below is a map lookup, not a query per feed.
+    const settingsByUserId = new Map(
+      db
+        .select()
+        .from(userSettings)
+        .all()
+        .map((row) => [row.userId, row] as const),
+    );
+
+    // Every kind that runs (or delegates to) handleAggregateJob, in every
+    // non-terminal status -- not just a pending "aggregate" row. A job
+    // outlives one 60s tick whenever AI post-processing is on, so
+    // status = 'pending' alone missed every job already claimed to
+    // "running"; and kind = 'aggregate' alone missed "feed.update" (what
+    // updateFeedsBulk() enqueues) entirely, which also runs the same
+    // handler. See AGGREGATE_HANDLER_JOB_KINDS's doc comment.
     const pendingAggregateJobs = db
       .select({ payload: jobs.payload })
       .from(jobs)
-      .where(and(eq(jobs.kind, "aggregate"), eq(jobs.status, "pending")))
+      .where(
+        and(
+          inArray(jobs.kind, AGGREGATE_HANDLER_JOB_KINDS),
+          inArray(jobs.status, NON_TERMINAL_JOB_STATUSES),
+        ),
+      )
       .all();
 
     const pendingFeedIds = new Set<number>();
@@ -106,14 +136,45 @@ export async function tick(): Promise<void> {
       const jitter = 1 + (Math.random() * 2 - 1) * INTERVAL_JITTER_FRACTION;
       const intervalMs = baseIntervalMs * jitter;
 
+      // The scheduler's own clock -- feeds.updatedAt is *not* read here on
+      // purpose, because it carries $onUpdate and so is bumped by any write
+      // to the row (a logo store, a /feeds edit), which used to postpone the
+      // next aggregation by a full interval for reasons unrelated to
+      // aggregating. lastAggregationStartedAt is stamped only by claim()
+      // (src/lib/jobs/queue.ts), at the moment a job that runs this feed's
+      // aggregation is picked up. A NULL value -- every feed that predates
+      // the column, and every feed never yet aggregated by this mechanism --
+      // reads as "never aggregated", i.e. immediately due, so lastRunTime
+      // stays 0 for it: see feeds.lastAggregationStartedAt's doc comment.
       let lastRunTime = 0;
-      if (item.updatedAt instanceof Date) {
-        lastRunTime = item.updatedAt.getTime();
-      } else if (typeof item.updatedAt === "number") {
-        lastRunTime = item.updatedAt > 1e11 ? item.updatedAt : item.updatedAt * 1000;
+      if (item.lastAggregationStartedAt instanceof Date) {
+        lastRunTime = item.lastAggregationStartedAt.getTime();
+      } else if (typeof item.lastAggregationStartedAt === "number") {
+        lastRunTime =
+          item.lastAggregationStartedAt > 1e11
+            ? item.lastAggregationStartedAt
+            : item.lastAggregationStartedAt * 1000;
       }
 
       if (now.getTime() - lastRunTime >= intervalMs) {
+        // Refuse to enqueue a feed whose AI options are on but whose owner
+        // has no working provider -- see `aiReadinessFor()`'s doc comment.
+        // Enqueueing anyway would run `handleAggregateJob`, which treats
+        // every article's AI failure as transient and skips-and-retries it
+        // forever; for this permanent misconfiguration that means every
+        // article ages out of the feed's window and is lost for good, on a
+        // job that reports success. One log line per feed per tick, not per
+        // article -- the per-article log lives in `handleAggregateJob`
+        // itself and would flood the job output at this volume.
+        const readiness = aiReadinessFor(item.options, settingsByUserId.get(item.userId));
+        if (readiness === "noProvider") {
+          console.warn(
+            `[Scheduler] skipping feed ${item.feedId}: AI options are on but no working ` +
+              `AI provider is configured for its owner`,
+          );
+          continue;
+        }
+
         enqueue("aggregate", { feedId: item.feedId }, { userId: item.userId });
         pendingFeedIds.add(item.feedId);
       }

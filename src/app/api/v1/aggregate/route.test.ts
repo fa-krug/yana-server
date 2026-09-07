@@ -168,4 +168,68 @@ describe("POST /api/v1/aggregate", () => {
       .all();
     expect(childJobs).toHaveLength(0);
   });
+
+  it("skips an AI-enabled feed with no working AI provider, enqueues the rest, and reports the skip", async () => {
+    const owner = await createUserWithPassword({
+      email: "o3@example.com",
+      password: "correct horse battery staple",
+    });
+    const { token } = await createDeviceSession(owner.id, "Test");
+
+    let blockedFeedId = 0;
+    client.writeTransaction((tx) => {
+      // No `user_settings` row for this owner at all -- `createUserWithPassword`
+      // doesn't provision one (only the real signup/bootstrap path does), so
+      // `aiReadinessFor()` sees no active provider either way.
+      const blocked = tx
+        .insert(schema.feeds)
+        .values({
+          name: "Translated",
+          aggregator: "full_website",
+          identifier: "https://blocked",
+          userId: owner.id,
+          enabled: true,
+          options: { ai_translate: true },
+        })
+        .returning({ id: schema.feeds.id })
+        .get();
+      blockedFeedId = blocked.id;
+
+      tx.insert(schema.feeds)
+        .values({
+          name: "Plain",
+          aggregator: "full_website",
+          identifier: "https://plain",
+          userId: owner.id,
+          enabled: true,
+        })
+        .run();
+    });
+
+    const response = await aggregateRequest(token);
+
+    expect(response.status).toBe(202);
+    const body = await response.json();
+    expect(typeof body.runId).toBe("number");
+    expect(body.skippedFeeds).toEqual([{ feedId: blockedFeedId, reason: "ai_no_provider" }]);
+
+    const run = client
+      .getDb()
+      .select()
+      .from(schema.runs)
+      .where(eq(schema.runs.id, body.runId))
+      .get();
+    // Only the plain feed's job -- the run was not refused wholesale just
+    // because one of the owner's feeds is misconfigured.
+    expect(run?.totalJobs).toBe(1);
+
+    const childJobs = client
+      .getDb()
+      .select()
+      .from(schema.jobs)
+      .where(eq(schema.jobs.runId, body.runId))
+      .all();
+    expect(childJobs).toHaveLength(1);
+    expect((childJobs[0]?.payload as { feedId: number }).feedId).not.toBe(blockedFeedId);
+  });
 });

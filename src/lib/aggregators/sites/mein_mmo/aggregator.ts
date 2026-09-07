@@ -1,108 +1,108 @@
 import * as cheerio from "cheerio";
-import { FeedLike, RawArticle } from "../../base";
+import { RawArticle } from "../../base";
 import { isSafeUrl } from "../../blocks/parser";
 import { cleanHtml, removeImageByUrl } from "../../extract/clean";
 import { formatArticleContent } from "../../extract/format";
 import { getHeaderImageRef } from "../../header/context";
 import { storeImageRefFromUrl } from "../../images/store";
+import { defineSite } from "../../define-site";
+import { FirstPageStash, fetchAllPages } from "../../multipage";
 import { FullWebsiteAggregator, proxyYoutubeEmbeds } from "../../website";
+import { YOUTUBE_IFRAME_KEEP_SELECTOR } from "../../embeds/youtube-url";
 import { extractComments } from "./comments";
-import { extractMeinMmoContent } from "./content";
-import { detectPagination, fetchAllPages } from "./multipage";
+import { extractMeinMmoContent, MEIN_MMO_CONTENT_SELECTORS } from "./content";
+import { buildPageUrl, detectPagination } from "./multipage";
 
-export class MeinMmoAggregator extends FullWebsiteAggregator {
-  static MEIN_MMO_URL = "https://mein-mmo.de/";
-  static brandSiteUrl = "https://mein-mmo.de/";
+// The multi-page combine step (`fetchArticleContent()` below) selects by
+// `MEIN_MMO_CONTENT_SELECTORS` (`./content.ts`) -- deliberately *not*
+// `this.getContentSelectors()` (which would fold in a feed's
+// `content_selectors` override). `extractMeinMmoContent()` has never read
+// that override -- it hardcodes the same pair and returns the html untouched
+// when neither is found -- so combining by a different selector set would
+// hand it joined html it silently fails to recognise on any overridden feed,
+// skipping Dailymotion-block handling, ignoreSelectors removal, embed
+// processing and the "Weiter geht es auf Seite N" pagination-marker strip
+// for that feed. Unifying the two sites' fetch *loop* (`../../multipage.ts`)
+// does not require them to agree on selectors; making Mein-MMO honour
+// `content_selectors` for real is a separate change to
+// `extractMeinMmoContent()`, with its own tests.
 
-  static getSourceUrl(): string {
-    return MeinMmoAggregator.MEIN_MMO_URL;
+const MEIN_MMO_SELECTORS_TO_REMOVE = [
+  "div.wp-block-mmo-recirculation-box",
+  "div.wp-block-mmo-hub-box",
+  // The "Inhalt" table of contents. Mein-MMO generates it with the Fixed TOC
+  // (`ftwp`) WordPress plugin, which injects the whole widget -- header,
+  // trigger button and the nested <ol> of anchors -- inside an otherwise
+  // empty `<p class="wp-block-paragraph">` in the article body, so it is
+  // extracted as article content and rendered as a stray numbered list.
+  // It is navigation for the website's own page, not text: on a multi-page
+  // article most of its entries are absolute links to /2/, /3/ and so on,
+  // which do not exist in the aggregated article at all.
+  //
+  // Matched by id, and *only* this one: `div#ftwp-postcontent` is the same
+  // plugin's wrapper around the ENTIRE article body, so a broader
+  // `[id^='ftwp']` here would delete the article. The `<p>` left empty by
+  // the removal is cleaned up by extractMeinMmoContent()'s
+  // removeEmptyElements() pass.
+  "div#ftwp-container-outer",
+  "div.reading-position-indicator-end",
+  "label.toggle",
+  "a.wp-block-mmo-content-box",
+  "div.page-links",
+  "div.sources-wrapper",
+  "div.feedback-box",
+  "div.wp-block-wbd-affiliate-widget",
+  "script",
+  "style",
+  YOUTUBE_IFRAME_KEEP_SELECTOR,
+  "noscript",
+  // Do NOT add ".dailymotion-embed-container" here! That is the facade
+  // extractMeinMmoContent() builds for an author-inserted Dailymotion embed,
+  // which is real article content. The CMS's own auto-inserted
+  // "div.wp-block-mmo-video" blocks are a separate thing, and are dropped by
+  // processDailymotionBlocks() when the feed's include_videos option is off
+  // -- not from this list, so the removal can skip their thumbnail fetch too.
+];
+
+export class MeinMmoAggregator extends defineSite(FullWebsiteAggregator, {
+  key: "mein_mmo",
+  siteUrl: "https://mein-mmo.de/",
+  content: [...MEIN_MMO_CONTENT_SELECTORS],
+  remove: MEIN_MMO_SELECTORS_TO_REMOVE,
+  firstMatchOnly: true,
+}) {
+  /**
+   * The article headline. `h1.entry-title` is this WordPress theme's normal
+   * heading; `og:title` is the fallback for the rare template that omits it.
+   * Called once per page fetch (this aggregator paginates -- see
+   * `fetchArticleContent()` below), and `noteSourceTitle()`'s "sticky" rule
+   * (see ./base) means a later page's miss cannot blank out an earlier page's
+   * match.
+   */
+  protected override sourceTitleFrom($: cheerio.CheerioAPI): string | null {
+    const heading = $("h1.entry-title").first().text().trim();
+    if (heading) return heading;
+    const og = $('meta[property="og:title"]').attr("content");
+    return og?.trim() || null;
   }
 
-  override getSourceUrl(): string {
-    return MeinMmoAggregator.MEIN_MMO_URL;
-  }
-
-  static getDefaultIdentifier(): string {
-    return "https://mein-mmo.de/feed/";
-  }
-
-  static getIdentifierChoices(): Array<[string, string]> {
-    return [["https://mein-mmo.de/feed/", "Main Feed (All Articles)"]];
-  }
-
-  static getConfigurationFields(): Record<string, unknown> {
-    return {
-      combine_pages: {
-        type: "boolean",
-        initial: true,
-        label: "Combine Multi-page Articles",
-        help_text: "Automatically fetch and combine all pages of a multi-page article into one.",
-        required: false,
-      },
-      include_comments: {
-        type: "boolean",
-        initial: true,
-        label: "Include Comments",
-        help_text: "Extract wpDiscuz reader comments from the article page.",
-        required: false,
-      },
-      max_comments: {
-        type: "number",
-        initial: 5,
-        label: "Max Comments",
-        help_text: "Maximum number of comments to extract per article.",
-        required: false,
-        min_value: 0,
-        max_value: 20,
-      },
-    };
-  }
-
-  usesFirstContentMatch = true;
-
-  static contentSelectors = ["div.entry-content", "div.gp-entry-content"];
-  protected contentSelectors = [...MeinMmoAggregator.contentSelectors];
-
-  static selectorsToRemove = [
-    "div.wp-block-mmo-recirculation-box",
-    "div.wp-block-mmo-hub-box",
-    "div.reading-position-indicator-end",
-    "label.toggle",
-    "a.wp-block-mmo-content-box",
-    "div.page-links",
-    "div.sources-wrapper",
-    "div.feedback-box",
-    "div.wp-block-wbd-affiliate-widget",
-    "script",
-    "style",
-    "iframe:not([src*='youtube.com']):not([src*='youtu.be'])",
-    "noscript",
-    // Do NOT add ".dailymotion-embed-container" here!
-  ];
-  protected selectorsToRemove = [...MeinMmoAggregator.selectorsToRemove];
-
-  // Keyed by article URL rather than a single instance field: enrichArticles()
-  // now runs up to this.concurrency articles concurrently, so a
-  // single `firstPageHtml` field could be overwritten by a sibling article's
-  // fetchArticleContent() while this article's processContent() was still
-  // awaiting its img-resolution loop. Each entry is deleted once read, since
-  // one aggregator instance processes one feed's articles in one run -- this
-  // is a bounded per-run scratch space, not a cache.
-  private firstPageHtmlByUrl = new Map<string, string>();
-
-  constructor(feed: FeedLike) {
-    super(feed);
-    if (!this.identifier) {
-      this.identifier = "https://mein-mmo.de/feed/";
-    }
-  }
+  // Keyed by article URL, not a single field -- see `FirstPageStash`'s doc
+  // comment in `../../multipage` for why: `enrichArticles()` runs
+  // `fetchArticleContent()` for up to `this.concurrency` articles
+  // concurrently on one aggregator instance, so a single field could be
+  // overwritten by a sibling article's fetchArticleContent() while this
+  // article's processContent() was still awaiting its img-resolution loop.
+  // (This is the same shared stash MacTechNews now uses too -- see
+  // ../mactechnews/aggregator.ts -- rather than a second, hand-rolled copy
+  // of this same map.)
+  private firstPages = new FirstPageStash();
 
   override async fetchArticleContent(url: string): Promise<string> {
     const options = (this.feed.options as Record<string, unknown> | null) || {};
     const combinePages = options.combine_pages !== false;
 
     const firstPageHtml = await super.fetchArticleContent(url);
-    this.firstPageHtmlByUrl.set(url, firstPageHtml);
+    this.firstPages.set(url, firstPageHtml);
 
     if (!combinePages) {
       return firstPageHtml;
@@ -113,19 +113,26 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
       return firstPageHtml;
     }
 
-    const combinedHtml = await fetchAllPages(
+    const { combined } = await fetchAllPages(
       url,
       pageNumbers,
+      MEIN_MMO_CONTENT_SELECTORS,
       (pageUrl) => super.fetchArticleContent(pageUrl),
       firstPageHtml,
+      buildPageUrl,
     );
 
-    return combinedHtml;
+    return combined;
   }
 
   override async extractContent(html: string, article: RawArticle): Promise<string> {
     const labels = await this.chromeLabels();
-    return extractMeinMmoContent(html, article, this.getIgnoreSelectors(), labels);
+    const options = (this.feed.options as Record<string, unknown> | null) || {};
+    // `=== true`, not `!== false`, unlike combine_pages/include_comments above:
+    // this option is off by default, so an absent value -- every feed created
+    // before it existed -- must read as off.
+    const includeVideos = options.include_videos === true;
+    return extractMeinMmoContent(html, article, this.getIgnoreSelectors(), labels, includeVideos);
   }
 
   override async processContent(html: string, article: RawArticle): Promise<string> {
@@ -162,8 +169,7 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
     // always records one regardless of the include_comments option, so leaving the read
     // gated behind that option would leak an entry per article on every run with
     // comments disabled.
-    const firstPageHtml = this.firstPageHtmlByUrl.get(article.identifier);
-    this.firstPageHtmlByUrl.delete(article.identifier);
+    const firstPageHtml = this.firstPages.take(article.identifier);
 
     let commentsHtml: string | null = null;
     const options = (this.feed.options as Record<string, unknown> | null) || {};
@@ -171,13 +177,19 @@ export class MeinMmoAggregator extends FullWebsiteAggregator {
     const maxComments = typeof options.max_comments === "number" ? options.max_comments : 5;
 
     if (includeComments) {
-      try {
-        const commentSource = firstPageHtml || article.raw_content || "";
-        if (commentSource) {
-          commentsHtml = extractComments(commentSource, article.identifier, maxComments, labels);
-        }
-      } catch {
-        // ignore comment extraction errors
+      const commentSource = firstPageHtml || article.raw_content || "";
+      if (commentSource) {
+        // extractComments() never throws -- a selector-extraction failure is
+        // caught and logged by the shared buildCommentsSection() it delegates
+        // to (see src/lib/aggregators/comments/section.ts), rather than being
+        // swallowed silently by a try/catch here.
+        commentsHtml = extractComments(
+          commentSource,
+          article.identifier,
+          maxComments,
+          labels,
+          this.onLog,
+        );
       }
     }
 

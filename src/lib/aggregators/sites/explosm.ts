@@ -1,38 +1,15 @@
 import * as cheerio from "cheerio";
-import { FeedLike, RawArticle } from "../base";
-import { isSafeUrl } from "../blocks/parser";
+import { RawArticle } from "../base";
 import { escapeHtml } from "../extract/format";
-import { HeaderElementData } from "../header/context";
-import { storeImageRefFromUrl } from "../images/store";
+import { COMIC_CAPTION_STYLE, resolveComicImageSrc, wantsComicAltText } from "./comic-support";
+import { defineSite } from "../define-site";
 import { FullWebsiteAggregator } from "../website";
 
-export class ExplosmAggregator extends FullWebsiteAggregator {
-  static brandSiteUrl = "https://explosm.net/";
-
-  static getDefaultIdentifier(): string {
-    return "https://explosm.net/rss.xml";
-  }
-
-  static getIdentifierChoices(): Array<[string, string]> {
-    return [["https://explosm.net/rss.xml", "Cyanide & Happiness (Main RSS)"]];
-  }
-
-  static getConfigurationFields(): Record<string, unknown> {
-    return {
-      show_alt_text: {
-        type: "boolean",
-        initial: true,
-        label: "Show Alt Text",
-        help_text: "Display the comic's alt text below the image.",
-        required: false,
-      },
-    };
-  }
-
-  static contentSelectors = ["#comic"];
-  protected contentSelectors = [...ExplosmAggregator.contentSelectors];
-
-  static selectorsToRemove = [
+export class ExplosmAggregator extends defineSite(FullWebsiteAggregator, {
+  key: "explosm",
+  siteUrl: "https://explosm.net",
+  content: ["#comic"],
+  remove: [
     "script",
     "style",
     "iframe",
@@ -43,29 +20,15 @@ export class ExplosmAggregator extends FullWebsiteAggregator {
     'div[class*="ComicSelector__Container"]',
     'div[class*="ComicShare__Container"]',
     'img[loading~="lazy"]',
-  ];
-  protected selectorsToRemove = [...ExplosmAggregator.selectorsToRemove];
-
-  usesFirstContentMatch = true;
-
-  constructor(feed: FeedLike) {
-    super(feed);
-    if (!this.identifier) {
-      this.identifier = "https://explosm.net/rss.xml";
-    }
-  }
-
-  override getSourceUrl(): string {
-    return "https://explosm.net";
-  }
-
-  override async extractHeaderElement(_article: RawArticle): Promise<HeaderElementData | null> {
-    return null;
-  }
+  ],
+  firstMatchOnly: true,
+}) {
+  // The comic panel *is* the article's content, not something with a
+  // separate header image to fetch -- see BaseAggregator.
+  static suppressesHeaderExtraction = true;
 
   override async processContent(htmlContent: string, article: RawArticle): Promise<string> {
-    const options = (this.feed.options as Record<string, unknown> | null) || {};
-    const showAltText = options.show_alt_text !== false;
+    const showAltText = wantsComicAltText(this.feed);
 
     const $ = cheerio.load(htmlContent);
 
@@ -89,11 +52,9 @@ export class ExplosmAggregator extends FullWebsiteAggregator {
 
     let newHtml = htmlContent;
     if (comicImgSrc) {
-      let imgSrc = comicImgSrc;
-      if (isSafeUrl(comicImgSrc)) {
-        const ref = await storeImageRefFromUrl(comicImgSrc);
-        imgSrc = ref || comicImgSrc;
-      }
+      // No maxDimensions override here -- explosm's strips are fine under the
+      // default 600x600 body-image cap; see comic-support.ts.
+      const imgSrc = await resolveComicImageSrc(comicImgSrc);
 
       let builder = "<div>";
       builder += `<img src="${escapeHtml(imgSrc)}"`;
@@ -103,7 +64,7 @@ export class ExplosmAggregator extends FullWebsiteAggregator {
       builder += ">";
 
       if (showAltText && comicImgAlt) {
-        builder += `<p style="font-style: italic; margin-top: 1em; color: #666; text-align: center;">${escapeHtml(
+        builder += `<p style="${COMIC_CAPTION_STYLE} text-align: center;">${escapeHtml(
           comicImgAlt,
         )}</p>`;
       }

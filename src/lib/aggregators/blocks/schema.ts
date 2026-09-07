@@ -10,6 +10,7 @@
  */
 
 import {
+  clampHeadingLevel,
   EMBED_PROVIDERS,
   FORMAT_VERSION,
   STYLE_NAMES,
@@ -37,6 +38,7 @@ export type WireBlock =
   | { type: "heading"; level: number; runs: WireInlineRun[] }
   | { type: "list"; ordered: boolean; items: WireBlock[][] }
   | { type: "blockquote"; blocks: WireBlock[] }
+  | { type: "summary"; blocks: WireBlock[] }
   | { type: "image"; ref: string; caption: WireInlineRun[] }
   | {
       type: "embed";
@@ -95,6 +97,11 @@ export function encodeBlock(block: Block): WireBlock {
         type: "blockquote",
         blocks: block.blocks.map(encodeBlock),
       };
+    case "summary":
+      return {
+        type: "summary",
+        blocks: block.blocks.map(encodeBlock),
+      };
     case "image":
       return {
         type: "image",
@@ -133,10 +140,16 @@ export function encodeDocument(blocks: Block[]): WireDocument {
   };
 }
 
+/**
+ * Coerce an untrusted wire value into a heading level. Only the coercion --
+ * float truncation, string parsing, NaN defaulting to 1 -- is this function's
+ * own concern; the 1-6 bound itself is `clampHeadingLevel()` (`./types`), the
+ * one place that arithmetic lives, so this doesn't hold its own copy of it.
+ */
 function clampLevel(value: unknown): number {
   let level = typeof value === "number" ? Math.floor(value) : parseInt(String(value), 10);
   if (isNaN(level)) level = 1;
-  return Math.min(Math.max(level, 1), 6);
+  return clampHeadingLevel(level);
 }
 
 export function decodeRuns(items: unknown): InlineRun[] {
@@ -194,6 +207,11 @@ export function decodeBlock(obj: unknown): Block | null {
     case "blockquote":
       return {
         kind: "blockquote",
+        blocks: decodeBlocks(raw.blocks),
+      };
+    case "summary":
+      return {
+        kind: "summary",
         blocks: decodeBlocks(raw.blocks),
       };
     case "image":

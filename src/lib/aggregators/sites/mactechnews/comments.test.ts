@@ -66,4 +66,46 @@ describe("extractComments", () => {
 
     expect(html).toContain("<strong>Unbekannt</strong>");
   });
+
+  // Characterisation pin (2026-09-03 pipeline-review-3 Task 2): the exact
+  // byte output of today's implementation, captured before the shared
+  // `buildCommentsSection()` consolidation, so the refactor cannot silently
+  // change the nesting, the timestamp format or the section wrapper.
+  it("pins the exact section markup for a single dated comment", () => {
+    const html = extractComments(
+      pageWithOneComment(),
+      "https://mactechnews.de/a",
+      5,
+      DEFAULT_CHROME_LABELS,
+    );
+
+    expect(html).toBe(
+      '<section><h3><a href="https://mactechnews.de/a#comments">Comments</a></h3>' +
+        "<blockquote><p><strong>Alex</strong> (2026-01-01) | " +
+        '<a href="https://mactechnews.de/a#comment-1">source</a></p>' +
+        "<div><div><p>Nice article!</p></div></div></blockquote></section>",
+    );
+  });
+
+  it("pins null (no section at all) when no comment container is found", () => {
+    const html = extractComments(
+      `<div>no comments here</div>`,
+      "https://mactechnews.de/a",
+      5,
+      DEFAULT_CHROME_LABELS,
+    );
+
+    expect(html).toBeNull();
+  });
+
+  it("pins null (no section at all) when the container has no comments", () => {
+    const html = extractComments(
+      `<div class="MtnCommentScroll"></div>`,
+      "https://mactechnews.de/a",
+      5,
+      DEFAULT_CHROME_LABELS,
+    );
+
+    expect(html).toBeNull();
+  });
 });

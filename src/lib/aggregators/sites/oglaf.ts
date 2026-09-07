@@ -1,81 +1,26 @@
 import * as cheerio from "cheerio";
-import { FeedLike, RawArticle } from "../base";
+import { RawArticle } from "../base";
 import { isSafeUrl } from "../blocks/parser";
 import { escapeHtml, formatArticleContent } from "../extract/format";
-import { HeaderElementData } from "../header/context";
 import { storeImageRefFromUrl } from "../images/store";
+import { COMIC_CAPTION_STYLE, COMIC_MAX_DIMENSIONS, wantsComicAltText } from "./comic-support";
+import { defineSite } from "../define-site";
 import { FullWebsiteAggregator } from "../website";
 
-// A comic panel is the whole article; the default 600x600 body-image cap
-// (src/lib/aggregators/images/compression.ts) shrinks Oglaf's ~800-1000px
-// strips until the lettering stops being readable. Same ceiling as
-// dark_legacy.ts, which is here for the same reason.
-const COMIC_MAX_DIMENSIONS = { width: 1600, height: 4800 };
-
-export class OglafAggregator extends FullWebsiteAggregator {
-  static brandSiteUrl = "https://www.oglaf.com/";
-
-  static getDefaultIdentifier(): string {
-    return "https://www.oglaf.com/feeds/rss/";
-  }
-
-  static getIdentifierChoices(): Array<[string, string]> {
-    return [["https://www.oglaf.com/feeds/rss/", "Oglaf (Main Feed)"]];
-  }
-
-  static resolvesFeedUrl(): boolean {
-    return false;
-  }
-
-  static getConfigurationFields(): Record<string, unknown> {
-    return {
-      show_alt_text: {
-        type: "boolean",
-        initial: true,
-        label: "Show Alt Text",
-        help_text:
-          "Display the comic's 'title' text (often containing a second joke) below the image.",
-        required: false,
-      },
-    };
-  }
-
-  static contentSelectors = ["div.content"];
-  protected contentSelectors = [...OglafAggregator.contentSelectors];
-
-  static selectorsToRemove = [
-    "#nav",
-    "#tt",
-    ".align",
-    "#ll",
-    "script",
-    "style",
-    "div.clear",
-    "#ad_btm",
-  ];
-  protected selectorsToRemove = [...OglafAggregator.selectorsToRemove];
-
-  usesFirstContentMatch = true;
-
-  constructor(feed: FeedLike) {
-    super(feed);
-    if (!this.identifier) {
-      this.identifier = "https://www.oglaf.com/feeds/rss/";
-    }
-  }
-
-  override getSourceUrl(): string {
-    return "https://www.oglaf.com";
-  }
-
-  override async extractHeaderElement(_article: RawArticle): Promise<HeaderElementData | null> {
-    return null;
-  }
+export class OglafAggregator extends defineSite(FullWebsiteAggregator, {
+  key: "oglaf",
+  siteUrl: "https://www.oglaf.com",
+  content: ["div.content"],
+  remove: ["#nav", "#tt", ".align", "#ll", "script", "style", "div.clear", "#ad_btm"],
+  firstMatchOnly: true,
+}) {
+  // The comic panel *is* the article's content, not something with a
+  // separate header image to fetch -- see BaseAggregator.
+  static suppressesHeaderExtraction = true;
 
   override async processContent(htmlContent: string, article: RawArticle): Promise<string> {
     const labels = await this.chromeLabels();
-    const options = (this.feed.options as Record<string, unknown> | null) || {};
-    const showAltText = options.show_alt_text !== false;
+    const showAltText = wantsComicAltText(this.feed);
 
     const $ = cheerio.load(htmlContent);
 
@@ -115,7 +60,7 @@ export class OglafAggregator extends FullWebsiteAggregator {
         newHtml += `<img src="${imgSrc}" alt="${altText}" style="max-width: 100%; height: auto;">`;
       }
       if (showAltText && jokeText) {
-        newHtml += `<figcaption style="font-style: italic; margin-top: 1em; color: #666;">${jokeText}</figcaption>`;
+        newHtml += `<figcaption style="${COMIC_CAPTION_STYLE}">${jokeText}</figcaption>`;
       }
       newHtml += "</figure>";
     } else {

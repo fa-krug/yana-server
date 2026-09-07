@@ -1,50 +1,28 @@
 import * as cheerio from "cheerio";
 import type { Element } from "domhandler";
-import { FeedLike, RawArticle } from "../base";
+import { RawArticle } from "../base";
 import type { ChromeLabels } from "../chrome-labels";
 import { isSafeUrl } from "../blocks/parser";
 import {
   cleanHtml,
   removeImageByUrl,
-  removeSanitizedAttributes,
   sanitizeClassNames,
-  sanitizeHtmlAttributes,
+  sanitizeUntrustedFragment,
+  trimEdgeWhitespace,
 } from "../extract/clean";
 import { extractMainContentIfPresent } from "../extract/content";
 import { escapeHtml, formatArticleContent } from "../extract/format";
-import { proxyYoutubeEmbeds } from "../embeds/youtube";
+import { YOUTUBE_IFRAME_KEEP_SELECTOR } from "../embeds/youtube-url";
 import { getHeaderImageRef } from "../header/context";
+import { defineSite } from "../define-site";
 import { fetchHtml } from "../http/fetcher";
-import { FullWebsiteAggregator } from "../website";
+import { FullWebsiteAggregator, proxyYoutubeEmbeds } from "../website";
 
 function commentSourceLink(url: string, labels: ChromeLabels): string {
   if (isSafeUrl(url)) {
     return `<a href="${escapeHtml(url)}">${labels.source}</a>`;
   }
   return labels.source;
-}
-
-function sanitizeCommentHtml(contentHtml: string): string {
-  const $ = cheerio.load(cleanHtml(contentHtml));
-  sanitizeHtmlAttributes($);
-  removeSanitizedAttributes($);
-
-  $("a").each((_, tag) => {
-    const href = $(tag).attr("href");
-    if (href && !isSafeUrl(href)) {
-      $(tag).removeAttr("href");
-    }
-  });
-
-  $("img").each((_, tag) => {
-    const src = $(tag).attr("src");
-    if (src && !isSafeUrl(src)) {
-      $(tag).remove();
-    }
-  });
-
-  const body = $("body");
-  return body.length > 0 ? body.html() || "" : $.html();
 }
 
 function findForumUrl(html: string, articleUrl: string): string | null {
@@ -177,52 +155,16 @@ function processFullViewComment(
     `<blockquote>` +
     `<p><strong>${escapeHtml(author)}</strong> | ` +
     `${commentSourceLink(commentUrl, labels)}</p>` +
-    `<div>${sanitizeCommentHtml(content)}</div>` +
+    `<div>${sanitizeUntrustedFragment(content)}</div>` +
     `</blockquote>`
   );
 }
 
-export class HeiseAggregator extends FullWebsiteAggregator {
-  static brandSiteUrl = "https://www.heise.de/";
-
-  static getDefaultIdentifier(): string {
-    return "https://www.heise.de/rss/heise.rdf";
-  }
-
-  static getIdentifierChoices(): Array<[string, string]> {
-    return [
-      ["https://www.heise.de/rss/heise.rdf", "Main Feed"],
-      ["https://www.heise.de/rss/heise-security.rdf", "Security"],
-      ["https://www.heise.de/rss/heise-developer.rdf", "Developer"],
-      ["https://www.heise.de/rss/heise-top.rdf", "Top News"],
-    ];
-  }
-
-  static getConfigurationFields(): Record<string, unknown> {
-    return {
-      include_comments: {
-        type: "boolean",
-        initial: true,
-        label: "Include Forum Comments",
-        help_text: "Extract top comments from the Heise forum.",
-        required: false,
-      },
-      max_comments: {
-        type: "integer",
-        initial: 5,
-        label: "Max Comments",
-        help_text: "Number of comments to extract if enabled.",
-        required: false,
-        min: 0,
-        max: 20,
-      },
-    };
-  }
-
-  static contentSelectors = ["#meldung", ".StoryContent"];
-  protected contentSelectors = [...HeiseAggregator.contentSelectors];
-
-  static selectorsToRemove = [
+export class HeiseAggregator extends defineSite(FullWebsiteAggregator, {
+  key: "heise",
+  siteUrl: "https://www.heise.de/",
+  content: ["#meldung", ".StoryContent"],
+  remove: [
     ".ad-label",
     ".ad",
     ".article-sidebar",
@@ -237,7 +179,7 @@ export class HeiseAggregator extends FullWebsiteAggregator {
     "div[data-component='RecommendationBox']",
     ".opt-in__content-container",
     ".a-box",
-    "iframe:not([src*='youtube.com']):not([src*='youtu.be'])",
+    YOUTUBE_IFRAME_KEEP_SELECTOR,
     ".a-u-inline",
     ".redakteurskuerzel",
     ".branding",
@@ -249,36 +191,29 @@ export class HeiseAggregator extends FullWebsiteAggregator {
     "footer",
     ".rte__list",
     "#wtma_teaser_ho_vertrieb_inline_branding",
-  ];
-  protected selectorsToRemove = [...HeiseAggregator.selectorsToRemove];
-
-  usesFirstContentMatch = true;
-
-  constructor(feed: FeedLike) {
-    super(feed);
-    if (!this.identifier) {
-      this.identifier = "https://www.heise.de/rss/heise.rdf";
-    }
-  }
-
-  override getSourceUrl(): string {
-    return "https://www.heise.de/";
-  }
-
+  ],
+  firstMatchOnly: true,
+}) {
   override async fetchArticleContent(url: string): Promise<string> {
-    let articleUrl = url;
-    try {
-      if (!url.includes("seite=all")) {
-        articleUrl = url.includes("?") ? `${url}&seite=all` : `${url}?seite=all`;
-      }
-    } catch {
-      // Keep original URL
-    }
+    // No try/catch: this used to wrap `String.prototype.includes` and two
+    // template concatenations in one, with a `// Keep original URL` comment
+    // on a catch nothing can reach -- neither operation throws for any string
+    // value, and `url` is typed `string`. The guard read as though appending
+    // `seite=all` were the risky part; the actual fetch below is where a
+    // failure comes from, and that is handled by the caller.
+    const articleUrl = url.includes("seite=all")
+      ? url
+      : url.includes("?")
+        ? `${url}&seite=all`
+        : `${url}?seite=all`;
     return super.fetchArticleContent(articleUrl);
   }
 
-  override async filterArticles(articles: RawArticle[]): Promise<RawArticle[]> {
-    const baseFiltered = await super.filterArticles(articles);
+  override async filterArticles(
+    articles: RawArticle[],
+    clock: () => Date = () => new Date(),
+  ): Promise<RawArticle[]> {
+    const baseFiltered = await super.filterArticles(articles, clock);
 
     const skipTerms = [
       "die Bilder der Woche",
@@ -307,6 +242,17 @@ export class HeiseAggregator extends FullWebsiteAggregator {
     });
   }
 
+  /**
+   * The article headline. `.a-article-header__title` is itself in
+   * `selectorsToRemove` (it is stripped from the extracted body so it isn't
+   * duplicated inside the content), so it has to be read from the *raw* page
+   * `fetchArticleContent()` hands `sourceTitleFrom()`, before any removal runs.
+   */
+  protected override sourceTitleFrom($: cheerio.CheerioAPI): string | null {
+    const title = $(".a-article-header__title").first().text().trim();
+    return title || null;
+  }
+
   override extractContent(html: string, article: RawArticle): string {
     const extracted = extractMainContentIfPresent(
       html,
@@ -315,22 +261,31 @@ export class HeiseAggregator extends FullWebsiteAggregator {
       this.usesFirstContentMatch,
     );
 
-    if (extracted === null) {
-      return article.content || "";
+    let primary: string | null = null;
+    if (extracted !== null) {
+      const $ = cheerio.load(extracted);
+      $("p, div, span").each((_, elem) => {
+        const $elem = $(elem);
+        const text = $elem.text().trim();
+        const hasImg = $elem.find("img").length > 0;
+        if (!text && !hasImg) {
+          $elem.remove();
+        }
+      });
+
+      const body = $("body");
+      primary = body.length > 0 ? body.html() || "" : $.html();
     }
 
-    const $ = cheerio.load(extracted);
-    $("p, div, span").each((_, elem) => {
-      const $elem = $(elem);
-      const text = $elem.text().trim();
-      const hasImg = $elem.find("img").length > 0;
-      if (!text && !hasImg) {
-        $elem.remove();
-      }
-    });
-
-    const body = $("body");
-    return body.length > 0 ? body.html() || "" : $.html();
+    // Was `return article.content || ""` on a selector miss -- see
+    // `extractContentWithFallback()` in ../website for the shared,
+    // three-tier ladder this now goes through instead (site selector ->
+    // generic guess -> RSS summary), which is also what recovers the
+    // "every paragraph sits inside a removed section" case below: `primary`
+    // can be a non-null but *empty* string after the emptied-element pruning
+    // above, and the ladder falls further instead of returning that emptiness
+    // as-is.
+    return this.extractContentWithFallback(html, article, primary);
   }
 
   override async processContent(html: string, article: RawArticle): Promise<string> {
@@ -344,24 +299,7 @@ export class HeiseAggregator extends FullWebsiteAggregator {
       removeImageByUrl($, headerData.imageUrl);
     }
 
-    $("p, h1, h2, h3, h4, h5, h6, li").each((_, elem) => {
-      const contents = $(elem).contents();
-      const first = contents.first();
-      if (first.length > 0 && first.get(0)?.type === "text") {
-        const text = first.text();
-        if (/^\s+/.test(text)) {
-          first.replaceWith(text.replace(/^\s+/, ""));
-        }
-      }
-      const updatedContents = $(elem).contents();
-      const last = updatedContents.last();
-      if (last.length > 0 && last.get(0)?.type === "text") {
-        const text = last.text();
-        if (/\s+$/.test(text)) {
-          last.replaceWith(text.replace(/\s+$/, ""));
-        }
-      }
-    });
+    trimEdgeWhitespace($, "p, h1, h2, h3, h4, h5, h6, li");
 
     $(
       ".lable, .linkWrapper, .price, .prosHeadding, .prosText, .consHeadding, .consText, .expandTrigger, .title, h1, h2, h3, h4, h5, h6",
@@ -399,8 +337,16 @@ export class HeiseAggregator extends FullWebsiteAggregator {
             labels,
           );
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        // Selector-fragile: heise's forum markup changes without notice, so a
+        // failure here is logged (matching website.ts's "no body extracted"
+        // convention) rather than swallowed silently -- see the 2026-09-03
+        // pipeline-review-3 Task 2 note on this catch.
+        const message = `[heise] failed to extract comments for ${article.identifier}: ${
+          err instanceof Error ? err.message : String(err)
+        }`;
+        console.warn(message);
+        this.onLog?.(message);
       }
     }
 
@@ -457,7 +403,15 @@ export class HeiseAggregator extends FullWebsiteAggregator {
 
       const header = `<h3><a href="${escapeHtml(forumUrl)}">${labels.comments}</a></h3>`;
       return `<section>${header}${commentParts.join("")}</section>`;
-    } catch {
+    } catch (err) {
+      // Same rationale as the outer catch above: the forum page fetch or its
+      // markup can fail independently of the article page itself, and this
+      // is the one place in the pipeline that failure had no signal at all.
+      const message = `[heise] failed to fetch/parse the comment forum at ${forumUrl}: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+      console.warn(message);
+      this.onLog?.(message);
       return null;
     }
   }

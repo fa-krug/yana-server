@@ -74,7 +74,14 @@ describe("POST /api/v1/ai/prompt", () => {
     expect(body.error.code).toBe("invalid_prompt");
   });
 
-  it("400s on a prompt longer than the configured limit", async () => {
+  /**
+   * `aiMaxPromptLength` was the last Yana-imposed AI limit, and this route was
+   * its only enforcer -- a 400 `prompt_too_long` past the configured length.
+   * It is gone with the request caps, so the only bounds a caller meets are
+   * the provider's own; a prompt far past the retired 500-character default is
+   * simply answered.
+   */
+  it("answers a prompt far longer than the retired length cap", async () => {
     const token = await ownerToken();
     const owner = client
       .getDb()
@@ -84,15 +91,35 @@ describe("POST /api/v1/ai/prompt", () => {
       .get()!;
     client.writeTransaction((tx) => {
       tx.update(schema.userSettings)
-        .set({ aiMaxPromptLength: 5 })
+        .set({
+          anthropicEnabled: true,
+          anthropicApiKey: "sk-ant-test",
+          anthropicModel: "claude-haiku-4-5",
+          activeAiProvider: "anthropic",
+        })
         .where(eq(schema.userSettings.userId, owner.id))
         .run();
     });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(
+        async () =>
+          new Response(
+            JSON.stringify({
+              id: "msg_1",
+              type: "message",
+              role: "assistant",
+              content: [{ type: "text", text: "ok" }],
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
 
-    const response = await promptRequest(token, { prompt: "this is way too long" });
-    expect(response.status).toBe(400);
-    const body = await response.json();
-    expect(body.error.code).toBe("prompt_too_long");
+    const response = await promptRequest(token, { prompt: "x".repeat(5_000) });
+    expect(response.status).toBe(200);
+
+    vi.unstubAllGlobals();
   });
 
   it("409s when no AI provider is active", async () => {
@@ -233,7 +260,7 @@ describe("POST /api/v1/ai/prompt", () => {
     vi.unstubAllGlobals();
   });
 
-  it("429s once the daily request limit is reached", async () => {
+  it("never 429s: repeated prompts all reach the provider", async () => {
     const token = await ownerToken();
     const owner = client
       .getDb()
@@ -248,14 +275,16 @@ describe("POST /api/v1/ai/prompt", () => {
           anthropicApiKey: "sk-ant-test",
           anthropicModel: "claude-haiku-4-5",
           activeAiProvider: "anthropic",
-          aiDefaultDailyLimit: 1,
         })
         .where(eq(schema.userSettings.userId, owner.id))
         .run();
     });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
+    // A fresh Response per call, not one shared instance: a body can only be
+    // read once, so `mockResolvedValue` with a single Response 502s from the
+    // second call onward. The old two-call test never noticed, because its
+    // second call was short-circuited by the cap and never read a body.
+    const fetchMock = vi.fn().mockImplementation(
+      async () =>
         new Response(
           JSON.stringify({
             id: "msg_1",
@@ -265,15 +294,19 @@ describe("POST /api/v1/ai/prompt", () => {
           }),
           { status: 200 },
         ),
-      ),
     );
+    vi.stubGlobal("fetch", fetchMock);
 
-    await promptRequest(token, { prompt: "first" });
-    const response = await promptRequest(token, { prompt: "second" });
+    // This used to assert a 429 with `daily_limit_exceeded` on the second call,
+    // against a daily cap of 1. The per-user request caps were removed, so this
+    // route has no 429 left to answer at all -- ten calls in a row is what
+    // proves it, since any cap small enough to matter would have fired.
+    for (let i = 0; i < 10; i++) {
+      const response = await promptRequest(token, { prompt: `p${i}` });
+      expect(response.status).toBe(200);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(10);
 
-    expect(response.status).toBe(429);
-    const body = await response.json();
-    expect(body.error.code).toBe("daily_limit_exceeded");
     vi.unstubAllGlobals();
   });
 });

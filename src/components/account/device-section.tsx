@@ -3,14 +3,15 @@
 import { Smartphone } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useFormatter, useTranslations } from "next-intl";
-import { useTransition, type ReactNode } from "react";
+import { Suspense, use, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { removeDevice } from "@/lib/account/actions";
 import { attempt } from "@/lib/account/result";
-import type { DeviceSummary } from "@/lib/account/queries";
+import type { AccountOverview, DeviceSummary } from "@/lib/account/queries";
 
 /**
  * List and revoke device sessions paired with the API (see `listDevices()` in
@@ -38,12 +39,24 @@ import type { DeviceSummary } from "@/lib/account/queries";
  * `devices` prop this component was just rendered with, which is this same
  * user's own `getAccountOverview()` read, so the mismatch this note warns
  * about cannot arise from normal use of this card.
+ *
+ * **`devices === undefined` (paired with `pending`) is the "not loaded yet"
+ * state, and it is the one spot in this card a `<Skeleton>` still belongs**:
+ * the number of paired devices is genuinely unknowable, unlike a field's
+ * value, so there is no real control to show in its place. The card's heading
+ * and description need no data at all and render for real either way.
  */
-export function DeviceSection({ devices }: { devices: DeviceSummary[] }) {
+export function DeviceSectionForm({
+  devices,
+  pending = false,
+}: {
+  devices?: DeviceSummary[];
+  pending?: boolean;
+}) {
   const t = useTranslations("account");
   const format = useFormatter();
   const router = useRouter();
-  const [pending, start] = useTransition();
+  const [saving, start] = useTransition();
 
   function revoke(id: string) {
     start(async () => {
@@ -58,10 +71,22 @@ export function DeviceSection({ devices }: { devices: DeviceSummary[] }) {
     });
   }
 
+  const disabled = pending || saving;
+
   return (
-    <DeviceSectionShell
-      listControl={
-        devices.length === 0 ? (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("devices.title")}</CardTitle>
+        <CardDescription>{t("devices.description")}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {devices === undefined ? (
+          // The pending list: the row count is genuinely unknowable, unlike a
+          // field's value, so this is the one place in this card a <Skeleton>
+          // is still the right affordance. Do not "fix" this into a real
+          // control -- there is no data to render one against yet.
+          <Skeleton className="h-16 w-full" />
+        ) : devices.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("devices.empty")}</p>
         ) : (
           <ul className="divide-y rounded-md border">
@@ -83,7 +108,7 @@ export function DeviceSection({ devices }: { devices: DeviceSummary[] }) {
                   type="button"
                   variant="ghost"
                   size="sm"
-                  disabled={pending}
+                  disabled={disabled}
                   onClick={() => revoke(device.id)}
                 >
                   {t("devices.revoke")}
@@ -91,31 +116,29 @@ export function DeviceSection({ devices }: { devices: DeviceSummary[] }) {
               </li>
             ))}
           </ul>
-        )
-      }
-    />
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
-/**
- * The section's chrome alone: the card heading, with no dependency on
- * `devices` -- see the doc comment on `GeneralSectionShell` in
- * `../settings/general-section.tsx` for why `account/page.tsx` renders this
- * directly as its own `<Suspense>` fallback (with a skeleton standing in for
- * the list). One slot, because the list's shape -- an empty message or rows
- * each with their own revoke button -- depends on `devices` all the way
- * through; there is no static chrome left inside it to split out.
- */
-export function DeviceSectionShell({ listControl }: { listControl: ReactNode }) {
-  const t = useTranslations("account");
+/** Calls use(); suspends until the promise resolves; renders the form for real. */
+function DeviceSectionResolved({ promise }: { promise: Promise<AccountOverview> }) {
+  const { devices } = use(promise);
+  return <DeviceSectionForm devices={devices} />;
+}
 
+/**
+ * What the page renders. The fallback is the real form, in its pending
+ * state -- see the Design Reference in
+ * docs/superpowers/plans/2026-08-16-streaming-controls-migration.md -- so the
+ * heading is on screen from the first frame; only the list -- the one spot a
+ * `<Skeleton>` is still correct -- streams in afterward.
+ */
+export function DeviceSection({ promise }: { promise: Promise<AccountOverview> }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("devices.title")}</CardTitle>
-        <CardDescription>{t("devices.description")}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">{listControl}</CardContent>
-    </Card>
+    <Suspense fallback={<DeviceSectionForm pending />}>
+      <DeviceSectionResolved promise={promise} />
+    </Suspense>
   );
 }

@@ -61,7 +61,6 @@ function importRss() {
           .values({
             name: item.title,
             identifier: item.link,
-            rawContent: item.description,
             plainText: item.description,
             date: new Date(item.pubDateStr),
             feedId: feed.id,

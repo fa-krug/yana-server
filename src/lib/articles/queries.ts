@@ -132,6 +132,14 @@ export async function listArticles(
 
 /**
  * Get a single article owned by the current user, including feed details.
+ *
+ * A general-purpose read -- also used by `src/lib/articles/actions.test.ts`
+ * and `queries.test.ts` to verify a write (`read`/`starred`/`date`/`feedId`)
+ * actually landed, and to check the joined `feed` -- so it stays the full
+ * row rather than a page-specific projection. `/articles/[id]/page.tsx`
+ * projects the result down to what its form renders in its own `.then()`,
+ * the same pattern `/users/[id]/page.tsx` uses for `UserRecord`, rather than
+ * narrowing this shared function's return type.
  */
 export async function getArticle(id: number): Promise<(Article & { feed: Feed }) | null> {
   const userId = await currentUserId();

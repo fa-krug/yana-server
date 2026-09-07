@@ -824,5 +824,43 @@ describe("the account actions", () => {
       expect(overview.passkeys).toEqual([]);
       expect(overview.devices).toEqual([]);
     });
+
+    // Regression: `/account/page.tsx` hands this function's return value,
+    // unawaited, to four Client Components (`ProfileSection`,
+    // `PasswordSection`, `PasskeySection`, `DeviceSection`) -- so whatever
+    // `.user` resolves to is serialized into `/account`'s RSC payload,
+    // whether or not any component destructures every field. `.user` used to
+    // be the whole `User` row; a whole-branch review confirmed `role` and
+    // `banReason` reaching the live payload. `getAccountOverview()` now
+    // projects `.user` down to `AccountUser` (id/firstName/lastName/
+    // email/image) *before* returning it, so there is no whole row left to
+    // leak regardless of which component reads what.
+    it("never resolves .user to more than the five rendered columns (regression: account-row-leak)", async () => {
+      const { id } = await seedAndSignIn();
+      const { eq } = await import("drizzle-orm");
+      const schema = await import("@/lib/db/schema");
+      // role/banReason are own-row data, not secrets -- Important rather than
+      // Critical -- but they are exactly what the review found crossing the
+      // boundary undeclared, so they are what this test targets.
+      client.writeTransaction((tx) =>
+        tx
+          .update(schema.users)
+          .set({ role: "admin", banReason: "test-only-should-not-leak" })
+          .where(eq(schema.users.id, id))
+          .run(),
+      );
+
+      const overview = await queries.getAccountOverview();
+
+      expect(Object.keys(overview.user).sort()).toEqual([
+        "email",
+        "firstName",
+        "id",
+        "image",
+        "lastName",
+      ]);
+      expect(JSON.stringify(overview.user)).not.toContain("admin");
+      expect(JSON.stringify(overview.user)).not.toContain("test-only-should-not-leak");
+    });
   });
 });

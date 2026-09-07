@@ -3,12 +3,9 @@ import { and, eq } from "drizzle-orm";
 import { BaseAggregator, type RawArticle } from "@/lib/aggregators/base";
 import { parseBlocks, plainTextOf } from "@/lib/aggregators/blocks/parser";
 import { writeBlocks } from "@/lib/aggregators/blocks/storage";
-import {
-  AggregatorRegistry,
-  getAggregator,
-  IMPLEMENTED_AGGREGATORS,
-  type AggregatorClass,
-} from "@/lib/aggregators/registry";
+import { createAggregator } from "@/lib/aggregators/factory";
+import type { AggregatorClass } from "@/lib/aggregators/registry";
+import { AGGREGATOR_SPECS, defaultIdentifierFor } from "@/lib/aggregators/specs";
 import { getDb, writeTransaction } from "@/lib/db/client";
 import { articles, feeds, users, type Feed } from "@/lib/db/schema";
 import type { AggregatorKey } from "@/lib/db/schema/enums";
@@ -46,14 +43,10 @@ function printField(label: string, value: unknown): void {
 }
 
 function getDefaultIdentifier(target: string): string | undefined {
-  try {
-    const cls = AggregatorRegistry.get(target);
-    if (cls && typeof cls.getDefaultIdentifier === "function") {
-      const defaultId = cls.getDefaultIdentifier();
-      if (defaultId) return defaultId;
-    }
-  } catch {
-    // Ignore if not in registry
+  const spec = AGGREGATOR_SPECS[target as AggregatorKey];
+  if (spec) {
+    const defaultId = defaultIdentifierFor(spec);
+    if (defaultId) return defaultId;
   }
   return DEFAULT_IDENTIFIERS[target];
 }
@@ -126,7 +119,6 @@ async function saveArticles(feed: Feed, articlesData: RawArticle[]): Promise<voi
           tx.update(articles)
             .set({
               name: articleData.name || "Untitled",
-              rawContent: htmlContent,
               plainText,
               date: pubDate,
               author: articleData.author || "",
@@ -142,7 +134,6 @@ async function saveArticles(feed: Feed, articlesData: RawArticle[]): Promise<voi
               feedId: feed.id,
               name: articleData.name || "Untitled",
               identifier: articleData.identifier,
-              rawContent: htmlContent,
               plainText,
               date: pubDate,
               author: articleData.author || "",
@@ -269,6 +260,7 @@ async function main(): Promise<void> {
         logoImageHash: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        lastAggregationStartedAt: null,
         redditSubredditId: null,
         youtubeChannelId: null,
         updateIntervalMinutes: 30,
@@ -291,7 +283,7 @@ async function main(): Promise<void> {
   printField("Feed ID", feed!.id ? feed!.id : "(not saved)");
 
   printSection("AGGREGATOR CLASS INFO");
-  const aggregator = getAggregator(feed!);
+  const aggregator = createAggregator(feed!);
   const aggregatorClass = aggregator.constructor as unknown as AggregatorCtor;
 
   printField("Class", aggregatorClass.name);
@@ -310,16 +302,18 @@ async function main(): Promise<void> {
 
   if (selectorDebug) {
     const selectorAggregator = aggregator as SelectorAggregator;
+    // No static fallback any more: the `static contentSelectors` /
+    // `static selectorsToRemove` half of every site class's declaration is
+    // gone (see `defineSite()` in src/lib/aggregators/define-site.ts), and
+    // those branches were unreachable regardless -- every aggregator that
+    // ever declared the statics is a `FullWebsiteAggregator`, which always
+    // has both accessors.
     if (typeof selectorAggregator.getContentSelectors === "function") {
       printField("Content selectors", selectorAggregator.getContentSelectors().join(", "));
-    } else if (aggregatorClass.contentSelectors) {
-      printField("Content selectors", aggregatorClass.contentSelectors.join(", "));
     }
 
     if (typeof selectorAggregator.getIgnoreSelectors === "function") {
       printField("Selectors to remove", selectorAggregator.getIgnoreSelectors().join(", "));
-    } else if (aggregatorClass.selectorsToRemove) {
-      printField("Selectors to remove", aggregatorClass.selectorsToRemove.join(", "));
     }
   }
 

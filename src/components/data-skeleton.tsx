@@ -33,6 +33,19 @@ export function TableRowsSkeleton({ rows = 3, columns = 4 }: { rows?: number; co
   );
 }
 
+/**
+ * A `<div>`-based grid of bars, for the one remaining place where a *shape*
+ * rather than a value is unknown and no real control can stand in for it: the
+ * article detail route's "Content" section (`(app)/articles/[id]/page.tsx` and
+ * its `loading.tsx`), whose block tree has no form to mirror.
+ *
+ * **This is not a general-purpose page fallback.** Until the 2026-08-16
+ * streaming-controls migration it was also what `(app)/loading.tsx` rendered
+ * for every route with no nearer `loading.tsx`, which is how `/feeds/new`
+ * showed a table shape while loading a form. Every route now renders its real
+ * chassis in a `pending` state instead -- see CLAUDE.md's streaming-pattern
+ * bullet before reaching for this.
+ */
 export function TableSkeleton({ rows = 3, columns = 4 }: { rows?: number; columns?: number }) {
   return (
     <div className="space-y-2" aria-busy="true" aria-live="polite">
@@ -43,16 +56,6 @@ export function TableSkeleton({ rows = 3, columns = 4 }: { rows?: number; column
           ))}
         </div>
       ))}
-    </div>
-  );
-}
-
-export function CardSkeleton() {
-  return (
-    <div className="space-y-3 rounded-lg border p-4" aria-busy="true">
-      <Skeleton className="h-5 w-1/3" />
-      <Skeleton className="h-4 w-full" />
-      <Skeleton className="h-4 w-2/3" />
     </div>
   );
 }

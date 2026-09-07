@@ -28,6 +28,7 @@ export const BLOCK_KINDS = [
   "list",
   "list_item",
   "blockquote",
+  "summary",
   "image",
   "embed",
   "code_block",
@@ -56,6 +57,22 @@ export interface Heading {
   runs: InlineRun[];
 }
 
+/**
+ * The 1-6 heading levels both directions of this format can actually carry:
+ * `article_blocks.level` is read back by `blockForRow()`/written by
+ * `rowForNode()` (`../blocks/storage`), and `@/lib/ai/block-text`'s notation
+ * can only write `"#".repeat(level)` in that same range. The one place this
+ * arithmetic lives -- both of those, and `canonicalBlocks()`, call this
+ * rather than each holding its own copy, which is what let a `level: 7`
+ * heading round-trip to 6 through one path while being left at 7 by another.
+ * Declared here, in the one module in this graph both of those already
+ * import and that itself imports nothing, so neither side's module graph
+ * grows to share it.
+ */
+export function clampHeadingLevel(level: number): number {
+  return Math.min(Math.max(level, 1), 6);
+}
+
 export interface ListBlock {
   kind: "list";
   ordered: boolean;
@@ -64,6 +81,23 @@ export interface ListBlock {
 
 export interface Blockquote {
   kind: "blockquote";
+  blocks: Block[];
+}
+
+/**
+ * The article's AI-written summary, second in the document (after the
+ * lead-media image, when there is one) and never anywhere else -- see the
+ * document-order rule on `applyAiToBlocks()` in `@/lib/ai/run`.
+ *
+ * A kind of its own rather than the paragraph it used to parse as, so a client
+ * can style, collapse or skip it without counting blocks. It wraps blocks
+ * rather than runs (the blockquote shape, not the paragraph one) because the
+ * summary is prose of unknown length: a model answering in two paragraphs
+ * produces two, inside this one block, instead of silently pushing the article
+ * down the document.
+ */
+export interface SummaryBlock {
+  kind: "summary";
   blocks: Block[];
 }
 
@@ -94,4 +128,12 @@ export interface Divider {
 }
 
 export type Block =
-  Paragraph | Heading | ListBlock | Blockquote | ImageBlock | EmbedBlock | CodeBlock | Divider;
+  | Paragraph
+  | Heading
+  | ListBlock
+  | Blockquote
+  | SummaryBlock
+  | ImageBlock
+  | EmbedBlock
+  | CodeBlock
+  | Divider;

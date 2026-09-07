@@ -6,7 +6,6 @@ import { buildImageRef } from "../images/store";
 export interface HeaderElementContext {
   url: string;
   alt?: string;
-  userId?: number | null;
   onLog?: (message: string) => void;
   /**
    * The article page's HTML, when the caller has already fetched it.

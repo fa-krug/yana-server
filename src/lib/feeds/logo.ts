@@ -2,9 +2,42 @@ import * as cheerio from "cheerio";
 import sharp from "sharp";
 import { eq } from "drizzle-orm";
 
+import { MAX_DECODE_PIXELS, SHARP_TIMEOUT_SECONDS } from "../aggregators/images/compression";
 import { storeImageBytes } from "../aggregators/images/store";
 import { writeTransaction } from "../db/client";
 import { feeds } from "../db/schema";
+
+/**
+ * Every sharp pipeline in this module goes through here, so no call site can
+ * omit either resource limit -- the same helper `compression.ts` has, and for
+ * the same reason `processAvatar()` states: a caller cannot forget what it
+ * never had to remember.
+ *
+ * **This module needed it.** `storeLogo()`'s resize ran on a bare `sharp()`
+ * with sharp's 268 MP default -- which `CLAUDE.md` correctly calls no
+ * protection -- on bytes fetched by `fetchIconBytes()` from a URL a site's own
+ * `<link rel="icon">` or web manifest declared, under nothing but a 2 MB byte
+ * cap. A ~1 MB flat 36 MP PNG decodes to hundreds of megabytes, on the
+ * worker-executed `feed.logo` path where `WORKER_CONCURRENCY` peers are
+ * running too. `removeWhiteBackground()` above it was only *accidentally*
+ * safe: its `MAX_FILL_PIXELS` bail returns before the flood fill decodes
+ * anything -- and returning the full-size original is precisely what handed
+ * `storeLogo()` the unbounded buffer.
+ *
+ * The limits went unnoticed because the tripwire in
+ * `../aggregators/images/compression.test.ts` scanned only that directory.
+ * It scans this file now.
+ *
+ * The decode limit is right here rather than `MAX_MEASURE_PIXELS`: this module
+ * really does decode. What a refusal costs is a feed with no logo -- the
+ * `feed.logo` handler already treats `null` as "keep none", and rediscovery is
+ * one job away -- never article content.
+ */
+function sharpInput(input: Buffer, options?: sharp.SharpOptions) {
+  return sharp(input, { ...options, limitInputPixels: MAX_DECODE_PIXELS }).timeout({
+    seconds: SHARP_TIMEOUT_SECONDS,
+  });
+}
 
 const WHITE_THRESHOLD = 240;
 const BORDER_WHITE_FRACTION = 0.85;
@@ -46,7 +79,7 @@ export function pickBestIcon(icons: { href: string; sizes?: string; rel: string 
 
 export async function removeWhiteBackground(buffer: Buffer): Promise<Buffer> {
   try {
-    const image = sharp(buffer);
+    const image = sharpInput(buffer);
     const metadata = await image.metadata();
 
     if (!metadata.width || !metadata.height || metadata.width < 2 || metadata.height < 2) {
@@ -131,7 +164,11 @@ export async function removeWhiteBackground(buffer: Buffer): Promise<Buffer> {
       }
     }
 
-    return await sharp(data, {
+    // Raw pixels, already bounded by the MAX_FILL_PIXELS bail above, so this
+    // one call needs no protection of its own -- it goes through the helper
+    // anyway, because an exception here is an exception the tripwire would
+    // have to encode too.
+    return await sharpInput(data, {
       raw: { width, height, channels: 4 },
     })
       .png()
@@ -260,7 +297,7 @@ export async function storeLogo(
 
   let processed: Buffer;
   try {
-    processed = await sharp(backgroundRemoved)
+    processed = await sharpInput(backgroundRemoved)
       .resize(128, 128, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
       .webp()
       .toBuffer();

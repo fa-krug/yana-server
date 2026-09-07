@@ -6,15 +6,32 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { FeedLike, RawArticle } from "../../base";
+import { ARTICLE_COMMENTS_CLASS } from "../../extract/format";
 import { ArticleSkipError } from "../../errors";
 import { RedditAggregator } from "./aggregator";
 import { fetchPostComments } from "./comments";
+import { buildPostContent } from "./content";
+import { RedditPostData } from "./types";
 import type { RedditPostDataDict } from "./types";
 
 vi.mock("./comments", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./comments")>()),
   fetchPostComments: vi.fn(),
 }));
+
+// Wraps the real implementation by default (`vi.fn(actual.buildPostContent)`),
+// so every test that doesn't care about this -- fetchArticleContent, the
+// reload facade, the comments-wrapper wiring test -- keeps exercising the
+// real content builder. Only the failure test below overrides it, and only
+// once (`mockRejectedValueOnce`), which falls back to the real
+// implementation again afterward.
+vi.mock("./content", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./content")>();
+  return {
+    ...actual,
+    buildPostContent: vi.fn(actual.buildPostContent),
+  };
+});
 
 vi.mock("../../images/store", () => ({
   storeImageRefFromUrl: vi.fn(async () => "yana-img://abc123hash"),
@@ -144,11 +161,11 @@ describe("RedditAggregator.enrichArticles concurrency", () => {
       identifier: id,
       _reddit_post_data: postData(id),
       _reddit_subreddit: "test",
-      _reddit_is_cross_post: false,
+      _reddit_crosspost: null,
     });
   }
 
-  it("skips articles whose comment fetch raises ArticleSkipError, keeps others on other errors", async () => {
+  it("skips articles whose comment fetch raises ArticleSkipError, and drops others on other errors too", async () => {
     vi.mocked(fetchPostComments).mockImplementation(async (_subreddit, postId) => {
       if (postId === "skip") throw new ArticleSkipError("gone", 404);
       if (postId === "fail") throw new Error("network boom");
@@ -164,10 +181,13 @@ describe("RedditAggregator.enrichArticles concurrency", () => {
 
     const result = await agg.enrichArticles(articles);
 
-    expect(result.map((a) => a.identifier)).toEqual(["ok", "fail"]);
-    // The article that failed keeps blank content, exactly as before the
-    // concurrency conversion.
-    expect(result[1]!.content).toBe("");
+    // A transient failure (anything that isn't ArticleSkipError) used to
+    // blank the article's content and still return it, which
+    // `articleContentHash({content: ""})` then fingerprinted as stable --
+    // permanently storing an empty article, never repaired on a later run.
+    // Dropping it here instead lets the next aggregation run retry it while
+    // it's still in the feed's window, exactly like an ArticleSkipError drop.
+    expect(result.map((a) => a.identifier)).toEqual(["ok"]);
   });
 
   it("preserves input order even when comment fetches finish out of completion order", async () => {
@@ -307,6 +327,81 @@ describe("RedditAggregator.finalizeArticles YouTube-link header thumbnail", () =
   });
 });
 
+describe("RedditAggregator.fetchArticleContent source title", () => {
+  /**
+   * The reload path's only way to reach the post's *current* title:
+   * `reload.ts` reads `aggregator.sourceTitle` and hands that to the AI stage
+   * instead of `articles.name`, which on a feed with an AI option on is the
+   * model's own previous answer rather than source text. Left as the stored
+   * name, a translate request arrived as "translate this to German" over a
+   * title already in German beside an English document -- and an answer that
+   * echoed the document back unchanged stored a translated title over an
+   * untranslated body, silently.
+   */
+  function listing(post: RedditPostDataDict) {
+    return [{ data: { children: [{ kind: "t3", data: post }] } }, { data: { children: [] } }];
+  }
+
+  beforeEach(() => {
+    vi.mocked(fetchPostComments).mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("reports the post's own title", async () => {
+    vi.stubGlobal(
+      "fetch",
+      // A real Response, not a duck-typed `{ ok, json }`: this read goes
+      // through `fetchTextThrottled()` now. `mockImplementation` rather than
+      // `mockResolvedValue`, because a Response body can only be read once
+      // and the helper retries a 429.
+      vi
+        .fn()
+        .mockImplementation(
+          async () =>
+            new Response(
+              JSON.stringify(listing({ ...postData("abc123"), title: "The source's own title" })),
+              { status: 200 },
+            ),
+        ),
+    );
+
+    const agg = aggregatorFor({});
+    expect(agg.sourceTitle).toBeNull();
+
+    await agg.fetchArticleContent("https://reddit.com/r/test/comments/abc123/a_post/");
+
+    expect(agg.sourceTitle).toBe("The source's own title");
+  });
+
+  it("reports the original post's title for a crosspost, as parseToRawArticles does", async () => {
+    const original = { ...postData("orig1"), title: "The original post's title" };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(
+        async () =>
+          new Response(
+            JSON.stringify(
+              listing({
+                ...postData("abc123"),
+                title: "The crosspost's title",
+                crosspost_parent_list: [original],
+              }),
+            ),
+            { status: 200 },
+          ),
+      ),
+    );
+
+    const agg = aggregatorFor({});
+    await agg.fetchArticleContent("https://reddit.com/r/test/comments/abc123/a_post/");
+
+    expect(agg.sourceTitle).toBe("The original post's title");
+  });
+});
+
 describe("RedditAggregator reload facade parity", () => {
   it("rebuilds the real YouTube-thumbnail facade, not the generic header, on reload's fetch/extractHeaderElement/extractContent/processContent sequence", async () => {
     vi.mocked(fetchPostComments).mockResolvedValue([]);
@@ -357,9 +452,251 @@ describe("RedditAggregator reload facade parity", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("marks the comment section on reload, the same as the enrich+finalize path does", async () => {
+    // The divergence this pins closed: reload never runs enrichArticles(), so
+    // the `_reddit_comments_html` stash the "comments wrapper wiring" test
+    // below relies on was never set, and fetchArticleContent()'s concatenated
+    // `body + comments` string went into the stored block tree with the
+    // section *unmarked*. The same post therefore had two block-tree shapes
+    // depending on which path produced it. The concatenation stays -- it is
+    // what enrichOne()'s hasBodyContent() measures, and a bare link post has
+    // only its comments -- and processContent() splits it back off instead.
+    vi.mocked(fetchPostComments).mockResolvedValue([
+      {
+        id: "c1",
+        body: "a real comment",
+        body_html: null,
+        author: "someone",
+        score: 1,
+        permalink: "/r/test/comments/abc123/post/c1/",
+        created_utc: 0,
+        replies: null,
+      },
+    ]);
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockImplementation(
+          async () =>
+            new Response(
+              JSON.stringify([
+                { data: { children: [{ kind: "t3", data: postData("abc123") }] } },
+                { data: { children: [] } },
+              ]),
+              { status: 200 },
+            ),
+        ),
+    );
+
+    const agg = new RedditAggregator({ identifier: "test", dailyLimit: 20, options: {} });
+    const identifier = "https://reddit.com/r/test/comments/abc123/a_post/";
+
+    const freshHtml = await agg.fetchArticleContent(identifier);
+    const rawArticle: RawArticle = article({ identifier, raw_content: freshHtml, content: "" });
+    rawArticle.content = await agg.extractContent(freshHtml, rawArticle);
+    const processed = await agg.processContent(rawArticle.content || "", rawArticle);
+
+    const marker = `<section data-sanitized-class="${ARTICLE_COMMENTS_CLASS}">`;
+    expect(processed).toContain(marker);
+    expect(processed).toContain("a real comment");
+    // Exactly one: the split removed the unmarked copy rather than leaving
+    // the section in the body *and* wrapping a second one around it.
+    expect(processed.split(marker).length - 1).toBe(1);
+
+    vi.unstubAllGlobals();
+  });
 });
 
-describe("RedditAggregator.extractContent legacy JSON locale", () => {
+describe("RedditAggregator crosspost recognition", () => {
+  function crosspostListing() {
+    return {
+      subreddit: "de",
+      posts: [
+        {
+          data: new RedditPostData({
+            id: "abc123",
+            title: "the crosspost's own title",
+            permalink: "/r/de/comments/abc123/title/",
+            created_utc: 1,
+            author: "crossposter",
+            crosspost_parent_list: [
+              {
+                id: "xyz789",
+                title: "the original title",
+                permalink: "/r/ich_iel/comments/xyz789/title/",
+                subreddit: "ich_iel",
+                created_utc: 2,
+                author: "original_author",
+                num_comments: 12,
+              },
+            ],
+          }),
+        },
+      ],
+    };
+  }
+
+  it("captures the origin subreddit, which _getOriginalPostData() drops", async () => {
+    const agg = aggregatorFor({});
+
+    const [raw] = await agg.parseToRawArticles(crosspostListing(), 10);
+
+    // Unchanged: the article itself is still the original post.
+    expect(raw!.name).toBe("the original title");
+    expect(raw!.identifier).toBe("https://reddit.com/r/ich_iel/comments/xyz789/title/");
+    // New: what makes that recognizable as a crosspost downstream. The feed's
+    // own subreddit is not part of it -- the reader already knows that one.
+    expect(raw!._reddit_crosspost).toEqual({ originalSubreddit: "ich_iel" });
+  });
+
+  it("leaves the attribution null for an ordinary post", async () => {
+    const agg = aggregatorFor({});
+
+    const [raw] = await agg.parseToRawArticles(
+      {
+        subreddit: "de",
+        posts: [
+          {
+            data: new RedditPostData({
+              id: "abc123",
+              title: "an ordinary post",
+              permalink: "/r/de/comments/abc123/title/",
+              created_utc: 1,
+              author: "someone",
+            }),
+          },
+        ],
+      },
+      10,
+    );
+
+    expect(raw!._reddit_crosspost).toBeNull();
+  });
+
+  it("carries the notice into the finished body, naming the origin subreddit", async () => {
+    vi.mocked(fetchPostComments).mockResolvedValue([]);
+    const agg = aggregatorFor({ comment_limit: 5 });
+
+    const [enriched] = await agg.enrichArticles(
+      await agg.parseToRawArticles(crosspostListing(), 10),
+    );
+
+    expect(enriched!.content).toContain("Crosspost: ");
+    expect(enriched!.content).toContain(">r/ich_iel<");
+    expect(enriched!.content).toContain('href="https://reddit.com/r/ich_iel"');
+    expect(enriched!.content).not.toContain("r/de");
+  });
+});
+
+/**
+ * Finding 3/4 (2026-09-03 pipeline review 1): `fetchSourceData()`'s
+ * `Math.min((limit || 25) * 3, 100)` and `parseToRawArticles()`'s complete
+ * lack of a `limit` parameter both defeated `aggregate()`'s daily-limit
+ * pacing -- exactly the class of bug Task 4 fixed for `rss.ts`/`podcast.ts`,
+ * left open here. `limit || 25` also reads an explicit `0` as "no limit
+ * given", the same inversion `base.ts`'s contract forbids (see the
+ * `parseToRawArticles()` doc comment on `BaseAggregator`).
+ */
+describe("RedditAggregator limit handling", () => {
+  it("fetches by the given limit even when it is zero, never falling back to a default", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(
+        async () => new Response(JSON.stringify({ data: { children: [] } }), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const agg = aggregatorFor({});
+
+    await agg.fetchSourceData(0);
+
+    const requestedUrl = fetchMock.mock.calls[0]?.[0] as string;
+    expect(requestedUrl).toContain("limit=0");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("slices parsed posts to the given limit, not to however many fetchSourceData returned", async () => {
+    const agg = aggregatorFor({});
+    const posts = Array.from({ length: 10 }, (_, i) => ({
+      data: new RedditPostData(postData(`p${i}`)),
+    }));
+
+    const articles = await agg.parseToRawArticles({ subreddit: "test", posts }, 3);
+
+    expect(articles).toHaveLength(3);
+  });
+});
+
+/**
+ * Finding 2 (2026-09-03 pipeline review 1): Task 2 fixed `withoutComments()`
+ * and threaded `commentsContent` through `formatArticleContent()`, but every
+ * test for it drove `formatArticleContent()` directly -- proving the codec,
+ * never that `RedditAggregator` actually calls it that way. This test drives
+ * the real production wiring instead: `enrichArticles()` (which stashes
+ * `_reddit_comments_html`) followed by `finalizeArticles()` (which calls
+ * `processContent()`, the one place that reaches `formatArticleContent()`),
+ * exactly the path `aggregate()` runs. If a later change (e.g. plan 3's
+ * site-aggregator consolidation) drops the `_reddit_comments_html` stash or
+ * the `commentsContent` argument at `processContent()`'s call site, this is
+ * what catches it -- `content-hash.test.ts`'s cases cannot, since they never
+ * touch this aggregator.
+ */
+describe("RedditAggregator comments wrapper wiring", () => {
+  it("wraps the stitched-in comment section in ARTICLE_COMMENTS_CLASS on the real enrich+finalize path", async () => {
+    vi.mocked(fetchPostComments).mockResolvedValue([
+      {
+        id: "c1",
+        body: "a real comment",
+        body_html: null,
+        author: "someone",
+        score: 1,
+        permalink: "/r/test/comments/abc123/post/c1/",
+        created_utc: 0,
+        replies: null,
+      },
+    ]);
+
+    const feed: FeedLike = { identifier: "test", dailyLimit: 20, options: { comment_limit: 5 } };
+    const agg = new RedditAggregator(feed);
+    const raw = article({
+      identifier: "abc123",
+      content: "<p>the post body</p>",
+      _reddit_post_data: postData("abc123"),
+      _reddit_subreddit: "test",
+      _reddit_crosspost: null,
+    });
+
+    const enriched = await agg.enrichArticles([raw]);
+    const [finalized] = await agg.finalizeArticles(enriched);
+
+    expect(finalized!.content).toContain(
+      `<section data-sanitized-class="${ARTICLE_COMMENTS_CLASS}">`,
+    );
+    expect(finalized!.content).toContain("a real comment");
+  });
+});
+
+/**
+ * Ports the assertion the deleted "extractContent legacy JSON locale" test
+ * used to make (2026-09-03 pipeline review 4, Task 3) onto the real,
+ * currently-reachable path. That test proved the same thing -- the Comments
+ * heading renders in the feed owner's stored `user_settings.language` -- but
+ * only by feeding JSON straight into `extractContent()`'s now-deleted dead
+ * branch. Nothing else here proves it end-to-end through production code:
+ * `chrome-labels.test.ts` proves `resolveChromeLabels()` in isolation,
+ * `content.test.ts`/`section.test.ts` always pass `DEFAULT_CHROME_LABELS`
+ * (English), and the "comments wrapper wiring" test right above this one
+ * gives its feed no `userId`, so `chromeLabels()` short-circuits to English
+ * and never reaches the database. Composing those three would still not
+ * prove RedditAggregator itself is wired to a German-locale user on its real
+ * `enrichArticles()`/`finalizeArticles()` path -- exactly the "a helper
+ * tested in isolation proves nothing about how the aggregator wires it"
+ * lesson the comment above the sibling test already states.
+ */
+describe("RedditAggregator comments wrapper wiring locale", () => {
   let dbPath: string;
   let client: typeof import("../../../db/client");
   let schema: typeof import("../../../db/schema");
@@ -369,7 +706,7 @@ describe("RedditAggregator.extractContent legacy JSON locale", () => {
     vi.resetModules();
     dbPath = path.join(
       os.tmpdir(),
-      `yana-reddit-locale-${process.pid}-${Math.random().toString(36).slice(2)}.db`,
+      `yana-reddit-comments-locale-${process.pid}-${Math.random().toString(36).slice(2)}.db`,
     );
     process.env.DATABASE_PATH = dbPath;
     const { applyMigrationsAt } = await import("../../../db/test-support");
@@ -377,13 +714,12 @@ describe("RedditAggregator.extractContent legacy JSON locale", () => {
 
     client = await import("../../../db/client");
     schema = await import("../../../db/schema");
-    // `RedditAggregator` is imported statically at the top of this file, so
-    // its transitive `chrome-labels.ts` -> `@/lib/db/client` dependency
-    // captured `DB_PATH` (a module-load-time constant, see client.ts) before
-    // this test ever set `DATABASE_PATH` -- resetting the module registry
-    // does not retroactively change what an already-resolved module closed
-    // over. A fresh dynamic import, after `vi.resetModules()`, is what makes
-    // the aggregator's own `getDb()` resolve to this test's temp database.
+    // Same reason as the deleted test: `RedditAggregator` is imported
+    // statically at the top of this file, so its transitive
+    // `chrome-labels.ts` -> `@/lib/db/client` dependency captured `DB_PATH`
+    // before this test ever set `DATABASE_PATH`. A fresh dynamic import,
+    // after `vi.resetModules()`, is what makes the aggregator's own
+    // `getDb()` resolve to this test's temp database.
     ({ RedditAggregator: FreshRedditAggregator } = await import("./aggregator"));
   });
 
@@ -396,29 +732,128 @@ describe("RedditAggregator.extractContent legacy JSON locale", () => {
     }
   });
 
-  it("renders the Comments heading in the feed owner's language", async () => {
+  it("renders the Comments heading in the feed owner's language on the real enrich+finalize path", async () => {
     client.writeTransaction((db) => {
       db.insert(schema.users).values({ id: "user1", email: "user1@example.com" }).run();
       db.insert(schema.userSettings).values({ userId: "user1", language: "de" }).run();
     });
 
-    const feed: FeedLike = { identifier: "test", dailyLimit: 20, userId: "user1" };
-    const agg = new FreshRedditAggregator(feed);
+    vi.mocked(fetchPostComments).mockResolvedValue([
+      {
+        id: "c1",
+        body: "a real comment",
+        body_html: null,
+        author: "someone",
+        score: 1,
+        permalink: "/r/test/comments/abc123/post/c1/",
+        created_utc: 0,
+        replies: null,
+      },
+    ]);
 
-    // The legacy JSON shape extractContent() falls back to parsing when its
-    // input isn't already-built content HTML -- a raw post dict with at
-    // least `id` and `title`. No network call happens on this path.
-    const legacyJson = JSON.stringify({
-      id: "abc123",
-      title: "A post",
-      permalink: "/r/test/comments/abc123/post/",
-      is_self: true,
-      selftext: "hello",
+    const feed: FeedLike = {
+      identifier: "test",
+      dailyLimit: 20,
+      userId: "user1",
+      options: { comment_limit: 5 },
+    };
+    const agg = new FreshRedditAggregator(feed);
+    const raw = article({
+      identifier: "abc123",
+      content: "<p>the post body</p>",
+      _reddit_post_data: postData("abc123"),
+      _reddit_subreddit: "test",
+      _reddit_crosspost: null,
     });
 
-    const html = await agg.extractContent(legacyJson, article());
+    const enriched = await agg.enrichArticles([raw]);
+    const [finalized] = await agg.finalizeArticles(enriched);
 
-    expect(html).toContain("Kommentare");
-    expect(html).not.toContain(">Comments<");
+    expect(finalized!.content).toContain("Kommentare");
+    expect(finalized!.content).not.toContain(">Comments<");
+  });
+});
+
+/**
+ * Task 5 (2026-09-03 pipeline review 2), Bug A: `filterArticles()` used to
+ * build its filtered list from scratch instead of starting from
+ * `super.filterArticles(...)`, so a feed's own `maxArticleAgeDays` column was
+ * silently replaced by a hard-coded 60-day window (and `skip_ads` did
+ * nothing, since `promotionalLabelOf()` only runs inside the base
+ * implementation). `min_comments` and `min_age_hours` are disabled via
+ * options so this test isolates the age-cutoff behaviour alone.
+ *
+ * The system clock is frozen (`vi.useFakeTimers()`) rather than relying on an
+ * injected `clock` argument alone: the pre-fix code computed its hard-coded
+ * window from a bare `new Date()`, ignoring any `clock` passed in, so an
+ * un-frozen test would be at the mercy of the real wall-clock date instead of
+ * reliably failing before the fix.
+ */
+describe("RedditAggregator.filterArticles honours the feed's own maxArticleAgeDays", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("drops an article older than the feed's maxArticleAgeDays, even though a hard-coded 60-day window would keep it", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-02T00:00:00Z"));
+
+    const feed: FeedLike = {
+      identifier: "test",
+      dailyLimit: 20,
+      maxArticleAgeDays: 10,
+      options: { min_comments: 0, min_age_hours: 0 },
+    };
+    const agg = new RedditAggregator(feed);
+
+    const articles = [
+      article({
+        identifier: "recent",
+        date: new Date("2026-07-28T00:00:00Z"), // 5 days before "now"
+      }),
+      article({
+        identifier: "old",
+        // 28 days before "now": inside the old hard-coded 60-day window
+        // (so the pre-fix code would have kept it), but outside this
+        // feed's own 10-day maxArticleAgeDays.
+        date: new Date("2026-07-05T00:00:00Z"),
+      }),
+    ];
+
+    const filtered = await agg.filterArticles(articles);
+
+    expect(filtered.map((a) => a.identifier)).toEqual(["recent"]);
+  });
+});
+
+/**
+ * Task 5 (2026-09-03 pipeline review 2), Bug B: a transient failure inside
+ * `buildPostContent()` used to be caught and turned into an article with
+ * `raw_content = ""; content = ""` -- which was still returned and stored.
+ * `articleContentHash({content: ""})` is stable, so the next run computed the
+ * same hash, skipped the row, and the empty article was never repaired. The
+ * fix drops the article instead, exactly like an `ArticleSkipError`, so the
+ * next run's fetch gets a real chance to build it while it's still in the
+ * feed's window.
+ */
+describe("RedditAggregator.enrichArticles buildPostContent failure", () => {
+  it("drops the article rather than storing an empty body when buildPostContent throws", async () => {
+    vi.mocked(fetchPostComments).mockResolvedValue([]);
+    vi.mocked(buildPostContent).mockRejectedValueOnce(new Error("transient failure"));
+
+    const feed: FeedLike = { identifier: "test", dailyLimit: 20, options: {} };
+    const agg = new RedditAggregator(feed);
+    const articles = [
+      article({
+        identifier: "will-fail",
+        _reddit_post_data: postData("will-fail"),
+        _reddit_subreddit: "test",
+        _reddit_crosspost: null,
+      }),
+    ];
+
+    const result = await agg.enrichArticles(articles);
+
+    expect(result).toEqual([]);
   });
 });

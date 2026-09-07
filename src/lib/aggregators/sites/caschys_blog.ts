@@ -1,70 +1,37 @@
 import * as cheerio from "cheerio";
 import type { Element } from "domhandler";
-import { FeedLike, RawArticle } from "../base";
+import { RawArticle } from "../base";
+import { absolutizeUrls, trimEdgeWhitespace } from "../extract/clean";
+import { defineSite } from "../define-site";
 import { FullWebsiteAggregator } from "../website";
 
-export class CaschysBlogAggregator extends FullWebsiteAggregator {
-  static brandSiteUrl = "https://stadt-bremerhaven.de/";
-
-  static getDefaultIdentifier(): string {
-    return "https://stadt-bremerhaven.de/feed/";
+export class CaschysBlogAggregator extends defineSite(FullWebsiteAggregator, {
+  key: "caschys_blog",
+  siteUrl: "https://stadt-bremerhaven.de",
+  content: [".entry-inner"],
+  remove: [".aawp", ".aawp-disclaimer", "script", "style", "noscript", "svg"],
+  firstMatchOnly: true,
+}) {
+  protected override sourceTitleFrom($: cheerio.CheerioAPI): string | null {
+    const title = $("h1.entry-title").first().text().trim();
+    return title || null;
   }
 
-  static getIdentifierChoices(): Array<[string, string]> {
-    return [["https://stadt-bremerhaven.de/feed/", "Caschy's Blog (Main Feed)"]];
-  }
-
-  static getConfigurationFields(): Record<string, unknown> {
-    return {
-      skip_ads: {
-        type: "boolean",
-        initial: true,
-        label: "Skip Advertisements",
-        help_text: "Filter out articles marked as '(Anzeige)'.",
-        required: false,
-      },
-    };
-  }
-
-  static contentSelectors = [".entry-inner"];
-  protected contentSelectors = [...CaschysBlogAggregator.contentSelectors];
-
-  static selectorsToRemove = [".aawp", ".aawp-disclaimer", "script", "style", "noscript", "svg"];
-  protected selectorsToRemove = [...CaschysBlogAggregator.selectorsToRemove];
-
-  usesFirstContentMatch = true;
-
-  constructor(feed: FeedLike) {
-    super(feed);
-    if (!this.identifier) {
-      this.identifier = "https://stadt-bremerhaven.de/feed/";
-    }
-  }
-
-  override getSourceUrl(): string {
-    return "https://stadt-bremerhaven.de";
-  }
-
-  override async filterArticles(articles: RawArticle[]): Promise<RawArticle[]> {
-    const filtered = await super.filterArticles(articles);
-    const options = (this.feed.options as Record<string, unknown> | null) || {};
-    const skipAds = options.skip_ads !== false;
-
-    const result: RawArticle[] = [];
-    for (const article of filtered) {
-      const name = article.name || "";
-
-      if (skipAds && name.includes("(Anzeige)")) {
-        continue;
-      }
-
-      if (name.includes("Immer wieder sonntags KW")) {
-        continue;
-      }
-
-      result.push(article);
-    }
-    return result;
+  /**
+   * Only the weekly link-dump digest is site-specific now.
+   *
+   * The "(Anzeige)" title test that used to live here is the base class's
+   * advertising filter -- generalised, still gated on this feed's own
+   * `skip_ads` option, and now also reading the publisher's categories, which
+   * is what makes it work for feeds that label there instead of in the title.
+   * Leaving a copy behind would mean two vocabularies to keep agreed.
+   */
+  override async filterArticles(
+    articles: RawArticle[],
+    clock: () => Date = () => new Date(),
+  ): Promise<RawArticle[]> {
+    const filtered = await super.filterArticles(articles, clock);
+    return filtered.filter((article) => !(article.name || "").includes("Immer wieder sonntags KW"));
   }
 
   override processContent(html: string, article: RawArticle): Promise<string> {
@@ -88,43 +55,8 @@ export class CaschysBlogAggregator extends FullWebsiteAggregator {
       }
     });
 
-    // Resolve relative URLs for images
-    $("img").each((_, img) => {
-      const $img = $(img);
-      const src = $img.attr("src");
-      if (
-        src &&
-        !src.startsWith("http://") &&
-        !src.startsWith("https://") &&
-        !src.startsWith("data:")
-      ) {
-        try {
-          $img.attr("src", new URL(src, baseUrl).toString());
-        } catch {
-          // ignore invalid URLs
-        }
-      }
-    });
-
-    // Resolve relative URLs for links
-    $("a").each((_, a) => {
-      const $a = $(a);
-      const href = $a.attr("href");
-      if (
-        href &&
-        !href.startsWith("http://") &&
-        !href.startsWith("https://") &&
-        !href.startsWith("mailto:") &&
-        !href.startsWith("tel:") &&
-        !href.startsWith("#")
-      ) {
-        try {
-          $a.attr("href", new URL(href, baseUrl).toString());
-        } catch {
-          // ignore invalid URLs
-        }
-      }
-    });
+    // Resolve relative image and link URLs
+    absolutizeUrls($, baseUrl);
 
     // Remove first image if we have a header image (avoid duplication)
     if (article.header_data) {
@@ -224,24 +156,7 @@ export class CaschysBlogAggregator extends FullWebsiteAggregator {
     }
 
     // Clean up leading and trailing whitespace in all paragraphs
-    $("p").each((_, p) => {
-      const contents = $(p).contents();
-      const first = contents.first();
-      if (first.length > 0 && first.get(0)?.type === "text") {
-        const text = first.text();
-        if (/^\s+/.test(text)) {
-          first.replaceWith(text.replace(/^\s+/, ""));
-        }
-      }
-      const updatedContents = $(p).contents();
-      const last = updatedContents.last();
-      if (last.length > 0 && last.get(0)?.type === "text") {
-        const text = last.text();
-        if (/\s+$/.test(text)) {
-          last.replaceWith(text.replace(/\s+$/, ""));
-        }
-      }
-    });
+    trimEdgeWhitespace($, "p");
 
     return super.processContent($.html(), article);
   }

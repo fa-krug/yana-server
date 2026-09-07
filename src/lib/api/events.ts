@@ -57,6 +57,7 @@ export type ApiEvent =
       payload: {
         runId: number;
         status: string;
+        progress: number;
         totalJobs: number;
         completedJobs: number;
         failedJobs: number;

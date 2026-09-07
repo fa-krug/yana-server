@@ -73,8 +73,8 @@ export const jobs = sqliteTable(
     error: text("error").notNull().default(""),
     /**
      * Higher claims first (see `claim()`'s `ORDER BY`). `0` is every
-     * background kind (`aggregate`, `retention`, `feed.logo`, `feed.update`,
-     * `feed.restore`) -- nobody is watching those run. `article.reload` is
+     * background kind (`aggregate`, `retention`, `feed.logo`, `feed.update`)
+     * -- nobody is watching those run. `article.reload` is
      * enqueued from a user actively staring at a spinner for that one
      * article, so it is enqueued at `PRIORITY_IMMEDIATE` and jumps ahead of
      * whatever background work already sits in the queue, rather than

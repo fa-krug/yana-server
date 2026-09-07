@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { KEEP_EXISTING } from "@/lib/secrets";
 import { renderWithProviders } from "@/test/render";
 
-import { RedditSection } from "./reddit-section";
+import { RedditSectionForm } from "./reddit-section";
 
 const { removeReddit, saveReddit, testReddit } = vi.hoisted(() => ({
   removeReddit: vi.fn(),
@@ -46,7 +46,7 @@ function submit(): void {
   fireEvent.submit(screen.getByRole("button", { name: /Speichern|Save/ }).closest("form")!);
 }
 
-describe("<RedditSection>", () => {
+describe("<RedditSectionForm>", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     saveReddit.mockResolvedValue({ ok: true });
@@ -57,7 +57,7 @@ describe("<RedditSection>", () => {
   it("masks both secrets and shows the user agent in full", async () => {
     // The split this card exists to get right: two credentials that must never
     // reach the browser, and one identifier that must be readable and editable.
-    renderWithProviders(<RedditSection {...CONFIGURED} />, { locale: "de" });
+    renderWithProviders(<RedditSectionForm {...CONFIGURED} />, { locale: "de" });
 
     expect(field("Client-ID").value).toBe("");
     expect(field("Client-ID").placeholder).toBe(CONFIGURED.clientIdMasked);
@@ -75,7 +75,7 @@ describe("<RedditSection>", () => {
   it("keeps each stored secret independently of the other", async () => {
     // Rotating only the secret must not mean re-typing the client id, so the
     // untouched field carries the sentinel while the edited one carries a value.
-    renderWithProviders(<RedditSection {...CONFIGURED} />, { locale: "de" });
+    renderWithProviders(<RedditSectionForm {...CONFIGURED} />, { locale: "de" });
 
     fireEvent.change(field("Client-Secret"), { target: { value: "a-rotated-secret" } });
     submit();
@@ -91,7 +91,7 @@ describe("<RedditSection>", () => {
   });
 
   it("sends the edited user agent in full, never a sentinel", async () => {
-    renderWithProviders(<RedditSection {...CONFIGURED} />);
+    renderWithProviders(<RedditSectionForm {...CONFIGURED} />);
 
     fireEvent.change(field("User agent"), { target: { value: "Yana/1.0 (by u/someone)" } });
     submit();
@@ -107,7 +107,7 @@ describe("<RedditSection>", () => {
 
   it("reports a missing user agent with its own message", async () => {
     saveReddit.mockResolvedValue({ ok: false, errorKey: "reddit.userAgentRequired" });
-    renderWithProviders(<RedditSection {...CONFIGURED} />, { locale: "de" });
+    renderWithProviders(<RedditSectionForm {...CONFIGURED} />, { locale: "de" });
 
     fireEvent.change(field("User-Agent"), { target: { value: "  " } });
     submit();
@@ -122,7 +122,7 @@ describe("<RedditSection>", () => {
     // returned before the credentials are checked, so the save wrote nothing and
     // the operator has to try again. See `quotaMeansVerified` in the actions.
     saveReddit.mockResolvedValue({ ok: false, errorKey: "reddit.rateLimited" });
-    renderWithProviders(<RedditSection {...CONFIGURED} />, { locale: "de" });
+    renderWithProviders(<RedditSectionForm {...CONFIGURED} />, { locale: "de" });
 
     submit();
 
@@ -136,7 +136,7 @@ describe("<RedditSection>", () => {
   });
 
   it("tests without saving", async () => {
-    renderWithProviders(<RedditSection {...UNCONFIGURED} />, { locale: "de" });
+    renderWithProviders(<RedditSectionForm {...UNCONFIGURED} />, { locale: "de" });
 
     fireEvent.change(field("Client-ID"), { target: { value: "an-id" } });
     fireEvent.change(field("Client-Secret"), { target: { value: "a-secret" } });
@@ -153,7 +153,7 @@ describe("<RedditSection>", () => {
   });
 
   it("offers no remove button until something is stored", () => {
-    renderWithProviders(<RedditSection {...UNCONFIGURED} />, { locale: "de" });
+    renderWithProviders(<RedditSectionForm {...UNCONFIGURED} />, { locale: "de" });
 
     expect(screen.queryByRole("button", { name: "Zugangsdaten entfernen" })).toBe(null);
     expect(screen.getByText("Noch nicht eingerichtet.")).toBeTruthy();
@@ -164,7 +164,7 @@ describe("<RedditSection>", () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
     try {
-      renderWithProviders(<RedditSection {...CONFIGURED} />, { locale: "de" });
+      renderWithProviders(<RedditSectionForm {...CONFIGURED} />, { locale: "de" });
       fireEvent.click(screen.getByRole("button", { name: "Testen" }));
 
       await waitFor(() =>
@@ -175,5 +175,34 @@ describe("<RedditSection>", () => {
     } finally {
       logged.mockRestore();
     }
+  });
+
+  it("renders the real credential fields while the status is still loading", () => {
+    // The defect this whole migration exists to fix: a loading section used to
+    // be a skeleton block where the card was. The fields and both buttons need
+    // no data to exist -- only their values do -- so they must be on screen,
+    // disabled, from the first frame.
+    renderWithProviders(<RedditSectionForm pending />);
+
+    expect(field("Client ID").disabled).toBe(true);
+    expect(field("Client ID").value).toBe("");
+    expect(field("Client secret").disabled).toBe(true);
+    expect(field("Client secret").value).toBe("");
+    // No mask is known yet, so no placeholder is asserted -- see the
+    // masked-secret protocol in CLAUDE.md.
+    expect(field("User agent").disabled).toBe(true);
+    expect(field("User agent").value).toBe("");
+    expect(
+      (screen.getByRole("button", { name: "Save and verify" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect((screen.getByRole("button", { name: "Test" }) as HTMLButtonElement).disabled).toBe(true);
+    // The status badge is data-dependent (an unknown probe verdict), so it is
+    // omitted entirely rather than shown with a neutral frame.
+    expect(screen.queryByText("Active")).toBe(null);
+    expect(screen.queryByText("Inactive")).toBe(null);
+    // No remove button either: nothing is yet known to be stored.
+    expect(screen.queryByRole("button", { name: "Remove credentials" })).toBe(null);
+    // The chrome the shell used to guarantee is still here, from the same component.
+    expect(screen.getByText("Reddit")).toBeTruthy();
   });
 });

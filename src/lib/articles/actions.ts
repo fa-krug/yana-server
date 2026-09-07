@@ -4,9 +4,10 @@ import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import type { NamespaceKey } from "@/i18n/next-intl";
 import { currentUserId } from "@/lib/auth/session";
 import { getDb, writeTransaction } from "@/lib/db/client";
-import { articles, feeds } from "@/lib/db/schema";
+import { articles, articleTombstones, feeds } from "@/lib/db/schema";
 import { enqueueRun, PRIORITY_IMMEDIATE } from "@/lib/jobs/queue";
 
 const updateArticleSchema = z.object({
@@ -20,10 +21,23 @@ const updateArticleSchema = z.object({
 
 export type UpdateArticleInput = z.input<typeof updateArticleSchema>;
 
+/**
+ * A key under the `articles` catalog namespace -- never zod's own message,
+ * never a raw driver string. Typed at its source (see the `errorKey`
+ * convention in CLAUDE.md and `src/lib/settings/actions.ts`) so a key neither
+ * catalog defines fails `npm run typecheck` rather than rendering a raw key
+ * path into a toast. `updateArticle()` has exactly one case that needs it --
+ * see the `feedId` guard below -- so it is declared inline rather than
+ * pulled into a `result.ts` binding of its own; `article-form.tsx` already
+ * calls this action through `attemptCall()`, not a namespaced `attempt()`,
+ * for the same "one case doesn't earn a binding" reason.
+ */
+export type UpdateArticleErrorKey = NamespaceKey<"articles">;
+
 export async function updateArticle(
   id: number,
   input: unknown,
-): Promise<{ ok: boolean; error?: string; field?: string }> {
+): Promise<{ ok: boolean; error?: string; field?: string; errorKey?: UpdateArticleErrorKey }> {
   try {
     const userId = await currentUserId();
     const parsed = updateArticleSchema.safeParse(input);
@@ -50,32 +64,38 @@ export async function updateArticle(
       return { ok: false, error: "Article not found" };
     }
 
+    // `feedId` is half the key the aggregate handler looks a row up by --
+    // `(feedId, identifier)`, see `aggregate.ts` -- so letting it change here
+    // is not an ordinary edit: move this article to another feed and the
+    // original feed's next run finds no row for its identifier and inserts a
+    // fresh duplicate. There is no safe way to let the move stand without
+    // also teaching the original feed the row is gone (a tombstone), and a
+    // tombstone here would make a deliberate re-file indistinguishable from a
+    // deletion in the native client's sync `removed` stream. Forbidding the
+    // move is simpler and is what the article form's feed control now
+    // reflects: it renders disabled with an explanation rather than a control
+    // that always errors.
     if (feedId !== undefined && feedId !== existing.feedId) {
-      const targetFeed = db
-        .select({ id: feeds.id })
-        .from(feeds)
-        .where(and(eq(feeds.id, feedId), eq(feeds.userId, userId)))
-        .get();
-
-      if (!targetFeed) {
-        return { ok: false, field: "feedId", error: "Target feed not found or not owned" };
-      }
+      return { ok: false, field: "feedId", errorKey: "feedChangeForbidden" };
     }
 
     return writeTransaction((tx) => {
       tx.update(articles)
         .set({
           ...(name !== undefined && { name }),
-          ...(feedId !== undefined && { feedId }),
           ...(date !== undefined && { date }),
-          // `name` and `date` are both aggregator-fingerprint inputs, and
-          // `feedId` is half the key the aggregate handler looks a row up by,
-          // so after this edit the stored hash no longer describes the row.
-          // Nulling it keeps the pre-`contentHash` behaviour -- the next
-          // aggregation run re-derives the article from the feed -- instead of
-          // silently making a manual edit permanent, which is a product
-          // decision nobody made. See `@/lib/db/schema/articles`.
-          contentHash: null,
+          // `articles.contentHash` is deliberately left alone, so this edit
+          // stands. It used to be nulled because `name` and `date` are
+          // fingerprint inputs and the stored hash therefore no longer
+          // described the row -- true when the hash described the stored
+          // bytes. It is now taken over the article as *fetched from source*
+          // (see `rawArticleContentHash()`), which a local edit does not
+          // change, so the next aggregation run matches, skips, and the edit
+          // survives; a genuine upstream change still moves the fingerprint
+          // and replaces it. The old behaviour made every manual edit
+          // provisional until the next cycle silently reverted it. Same ruling
+          // as a successful `article.reload`, and for the same reason. `feedId`
+          // is never written here at all -- see the guard above.
         })
         .where(eq(articles.id, id))
         .run();
@@ -98,13 +118,34 @@ export async function deleteArticles(ids: number[]): Promise<{ ok: boolean; dele
   const userFeedIds = db.select({ id: feeds.id }).from(feeds).where(eq(feeds.userId, userId));
 
   return writeTransaction((tx) => {
-    const result = tx
-      .delete(articles)
+    // Tombstones must be written for exactly the rows that will actually be
+    // deleted, scoped by the same ownership condition as the delete below --
+    // never by `ids` directly, which may name articles the caller does not
+    // own. See articleTombstones' doc comment in schema/articles.ts: every
+    // hard-delete path on `articles` must insert one of these first, in the
+    // same transaction, or a client that already synced the row never learns
+    // it is gone.
+    const doomed = tx
+      .select({ id: articles.id })
+      .from(articles)
       .where(and(inArray(articles.id, ids), inArray(articles.feedId, userFeedIds)))
+      .all();
+
+    if (doomed.length === 0) {
+      revalidatePath("/articles");
+      return { ok: true, deleted: 0 };
+    }
+
+    const doomedIds = doomed.map((a) => a.id);
+
+    tx.insert(articleTombstones)
+      .values(doomedIds.map((articleId) => ({ articleId, userId })))
       .run();
 
+    tx.delete(articles).where(inArray(articles.id, doomedIds)).run();
+
     revalidatePath("/articles");
-    return { ok: true, deleted: result.changes };
+    return { ok: true, deleted: doomedIds.length };
   });
 }
 

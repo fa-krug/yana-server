@@ -1,11 +1,11 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { PasskeySummary } from "@/lib/account/queries";
+import type { AccountOverview, PasskeySummary } from "@/lib/account/queries";
 import { setRouter } from "@/test/next-navigation";
 import { renderWithProviders } from "@/test/render";
 
-import { PasskeySection } from "./passkey-section";
+import { PasskeySection, PasskeySectionForm } from "./passkey-section";
 
 const { removePasskey } = vi.hoisted(() => ({ removePasskey: vi.fn() }));
 vi.mock("@/lib/account/actions", () => ({ removePasskey }));
@@ -72,28 +72,31 @@ describe("<PasskeySection>", () => {
     // next-intl's formatter rather than through toLocaleDateString() or a
     // hand-rolled template: German writes 14.03.2026 and English Mar 14, 2026
     // for the same instant, so one assertion alone would not show it moved.
-    const german = renderWithProviders(<PasskeySection passkeys={[LAPTOP]} hasPassword />, {
+    const german = renderWithProviders(<PasskeySectionForm passkeys={[LAPTOP]} hasPassword />, {
       locale: "de",
     });
     expect(german.container.textContent).toContain("MacBook Touch ID");
     expect(german.container.textContent).toContain("Hinzugefügt am 14.03.2026");
     german.unmount();
 
-    const english = renderWithProviders(<PasskeySection passkeys={[LAPTOP]} hasPassword />);
+    const english = renderWithProviders(<PasskeySectionForm passkeys={[LAPTOP]} hasPassword />);
     expect(english.container.textContent).toContain("Added Mar 14, 2026");
   });
 
   it("gives an unnamed passkey a translated label instead of an empty row", () => {
     // `passkeys.name` is nullable -- a browser need not supply one.
-    const { container } = renderWithProviders(<PasskeySection passkeys={[PHONE]} hasPassword />, {
-      locale: "de",
-    });
+    const { container } = renderWithProviders(
+      <PasskeySectionForm passkeys={[PHONE]} hasPassword />,
+      {
+        locale: "de",
+      },
+    );
 
     expect(container.textContent).toContain("Passkey");
   });
 
   it("says so when there are none", () => {
-    const { container } = renderWithProviders(<PasskeySection passkeys={[]} hasPassword />);
+    const { container } = renderWithProviders(<PasskeySectionForm passkeys={[]} hasPassword />);
 
     expect(container.textContent).toContain("No passkeys yet.");
   });
@@ -104,7 +107,7 @@ describe("<PasskeySection>", () => {
    * toast is a worse answer than an explanation.
    */
   it("explains rather than offers to delete the only way back in", () => {
-    renderWithProviders(<PasskeySection passkeys={[LAPTOP]} hasPassword={false} />);
+    renderWithProviders(<PasskeySectionForm passkeys={[LAPTOP]} hasPassword={false} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
 
@@ -117,7 +120,7 @@ describe("<PasskeySection>", () => {
   it("does offer it when a password credential exists", () => {
     // The control: a guard that blocked every deletion would pass the test
     // above and break the feature.
-    renderWithProviders(<PasskeySection passkeys={[LAPTOP]} hasPassword />);
+    renderWithProviders(<PasskeySectionForm passkeys={[LAPTOP]} hasPassword />);
 
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
 
@@ -127,7 +130,7 @@ describe("<PasskeySection>", () => {
   });
 
   it("does offer it for a passkey that is not the last one, with no password", () => {
-    renderWithProviders(<PasskeySection passkeys={[LAPTOP, PHONE]} hasPassword={false} />);
+    renderWithProviders(<PasskeySectionForm passkeys={[LAPTOP, PHONE]} hasPassword={false} />);
 
     fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]);
 
@@ -137,7 +140,7 @@ describe("<PasskeySection>", () => {
   it("refuses to start a ceremony a browser cannot finish", () => {
     // Without PublicKeyCredential, addPasskey() rejects somewhere inside the
     // ceremony and the button appears to do nothing at all.
-    renderWithProviders(<PasskeySection passkeys={[]} hasPassword />);
+    renderWithProviders(<PasskeySectionForm passkeys={[]} hasPassword />);
 
     fireEvent.click(screen.getByRole("button", { name: "Add a passkey" }));
 
@@ -147,7 +150,7 @@ describe("<PasskeySection>", () => {
 
   it("refreshes the list after a registration the device completed", async () => {
     pretendWebAuthnExists();
-    renderWithProviders(<PasskeySection passkeys={[]} hasPassword />);
+    renderWithProviders(<PasskeySectionForm passkeys={[]} hasPassword />);
 
     fireEvent.click(screen.getByRole("button", { name: "Add a passkey" }));
 
@@ -161,7 +164,7 @@ describe("<PasskeySection>", () => {
     // broke". `passkeyErrorKey()` is the real mapper here, not a stub.
     pretendWebAuthnExists();
     addPasskey.mockResolvedValue({ data: null, error: { code: "ERROR_CEREMONY_ABORTED" } });
-    renderWithProviders(<PasskeySection passkeys={[]} hasPassword />);
+    renderWithProviders(<PasskeySectionForm passkeys={[]} hasPassword />);
 
     fireEvent.click(screen.getByRole("button", { name: "Add a passkey" }));
 
@@ -178,7 +181,7 @@ describe("<PasskeySection>", () => {
       data: null,
       error: { code: "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED", status: 400 },
     });
-    renderWithProviders(<PasskeySection passkeys={[LAPTOP]} hasPassword />, { locale: "de" });
+    renderWithProviders(<PasskeySectionForm passkeys={[LAPTOP]} hasPassword />, { locale: "de" });
 
     fireEvent.click(screen.getByRole("button", { name: "Passkey hinzufügen" }));
 
@@ -193,7 +196,7 @@ describe("<PasskeySection>", () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
     try {
-      renderWithProviders(<PasskeySection passkeys={[LAPTOP, PHONE]} hasPassword />);
+      renderWithProviders(<PasskeySectionForm passkeys={[LAPTOP, PHONE]} hasPassword />);
       // Open the confirmation, then press its action button. Both are labelled
       // "Remove"; the dialog's carries Base UI's data-slot, which is what tells
       // them apart without depending on document order.
@@ -229,7 +232,7 @@ describe("<PasskeySection>", () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
     try {
-      renderWithProviders(<PasskeySection passkeys={[]} hasPassword />);
+      renderWithProviders(<PasskeySectionForm passkeys={[]} hasPassword />);
       fireEvent.click(screen.getByRole("button", { name: "Add a passkey" }));
 
       await vi.waitFor(() =>
@@ -240,5 +243,49 @@ describe("<PasskeySection>", () => {
     } finally {
       logged.mockRestore();
     }
+  });
+
+  it("renders the real add button, disabled, while the list is still loading", () => {
+    // The defect this migration exists to fix: a loading section used to
+    // replace the button with a bar too. Only the list's row count is
+    // genuinely unknowable -- see the <Skeleton> assertion below -- so it is
+    // the one part of this card still allowed to show one.
+    renderWithProviders(<PasskeySectionForm pending />);
+
+    expect(
+      (screen.getByRole("button", { name: "Add a passkey" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(document.querySelector('[data-slot="skeleton"]')).toBeTruthy();
+    expect(screen.getByText("Passkeys")).toBeTruthy();
+  });
+
+  it("shows the resolved list once the promise settles", async () => {
+    // A deferred promise, resolved under an explicit `act()` -- React 19's
+    // `use()` registers its continuation as a bare promise `.then()`, which
+    // lands outside any `act()` scope unless the resolution itself is
+    // wrapped.
+    let resolveOverview!: (value: AccountOverview) => void;
+    const promise = new Promise<AccountOverview>((resolve) => {
+      resolveOverview = resolve;
+    });
+
+    await act(async () => {
+      renderWithProviders(<PasskeySection promise={promise} />);
+    });
+
+    expect(document.querySelector('[data-slot="skeleton"]')).toBeTruthy();
+
+    await act(async () => {
+      resolveOverview({
+        user: {} as unknown as AccountOverview["user"],
+        passkeys: [LAPTOP],
+        devices: [],
+        hasPassword: true,
+      });
+      await promise;
+    });
+
+    expect(screen.getByText("MacBook Touch ID")).toBeTruthy();
+    expect(document.querySelector('[data-slot="skeleton"]')).toBeNull();
   });
 });

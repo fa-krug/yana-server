@@ -450,6 +450,58 @@ describe("the users queries and actions", () => {
       expect(await queries.getUser(id)).toMatchObject({ id, email: "member@example.com" });
       expect(await queries.getUser("nobody")).toBe(null);
     });
+
+    it("is refused to a signed-in non-admin", async () => {
+      // `/users/[id]` no longer gates in its own page body (the
+      // instant-render migration removed that await), so this call is the
+      // only thing between a non-admin and another account's whole row --
+      // email, role, the ban columns. `requireAdmin()` answers 404 rather
+      // than 403, so the refusal does not even confirm the route exists.
+      await currentAdminId();
+      const member = await someNonAdminId();
+      requestAs(await signInCookie(auth, { email: "member@example.com", password: PASSWORD }));
+
+      await expect(queries.getUser(member)).rejects.toThrow(/NEXT_HTTP_ERROR_FALLBACK;404/);
+    });
+  });
+
+  /**
+   * The gate's *freshness*, not its existence.
+   *
+   * Every "is refused to a signed-in non-admin" case above signs in as
+   * somebody who was never an admin, and would pass against a gate that read
+   * `role` out of the five-minute session cookie cache. These two sign in as a
+   * real administrator, demote them behind their back, and re-call -- which is
+   * exactly what `requireAdmin()`'s `disableCookieCache: true` buys, and the
+   * only kind of case that can tell it is still there.
+   */
+  describe("the freshness of the admin gate", () => {
+    async function demoteActingAdmin(): Promise<void> {
+      const actor = await currentAdminId();
+      execute("UPDATE users SET role = ? WHERE id = ?", STANDARD_ROLE, actor);
+      requestAs(adminCookie);
+    }
+
+    it("refuses listUsers to a demoted admin whose cookie cache still says admin", async () => {
+      await currentAdminId();
+      // Asserted first, so a failure below cannot be the sign-in never having
+      // worked: the same reason session.test.ts checks the stale read.
+      await expect(queries.listUsers(listParams())).resolves.toMatchObject({ total: 1 });
+
+      await demoteActingAdmin();
+
+      await expect(queries.listUsers(listParams())).rejects.toThrow(/NEXT_HTTP_ERROR_FALLBACK;404/);
+    });
+
+    it("refuses a mutating action to a demoted admin", async () => {
+      const member = await someNonAdminId();
+      await demoteActingAdmin();
+
+      await expect(actions.updateUser(member, { firstName: "Nope" })).rejects.toThrow(
+        /NEXT_HTTP_ERROR_FALLBACK;404/,
+      );
+      await expect(actions.deleteUsers([member])).rejects.toThrow(/NEXT_HTTP_ERROR_FALLBACK;404/);
+    });
   });
 
   describe("userImpact", () => {

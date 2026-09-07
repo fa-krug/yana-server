@@ -1,9 +1,14 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { freshDatabase } from "@/lib/db/test-support";
 
 import { AI_COLUMNS } from "./columns";
 import { AI_PROVIDERS, OPENAI_DEFAULT_API_URL, providerByKey } from "./providers";
+
+const ROOT = path.resolve(import.meta.dirname, "../../..");
 
 /**
  * **The tripwire under a hand-maintained duplicate.**
@@ -93,5 +98,45 @@ describe("a freshly provisioned user_settings row", () => {
     expect(row.qwen_model).toBe("qwen3.5-flash");
     expect(row.deepseek_model).toBe("deepseek-v4-flash");
     expect(row.openrouter_model).toBe("openrouter/free");
+  });
+});
+
+/**
+ * **The tripwire under `run.ts`'s model resolution.**
+ *
+ * `run.ts` must resolve every stored model id through `resolveModel()` rather
+ * than falling back to a hardcoded literal, for the same reason a fresh row's
+ * default has to agree with `providers.ts`: a stored id absent from the
+ * current registry (any row written before a registry refresh) must not reach
+ * a provider verbatim. A hardcoded `?? "some-model-id"` tail defeats that --
+ * it silently reintroduces a fixed fallback that drifts from `providers.ts`'s
+ * `defaultModel` the next time a model list is refreshed, exactly as three of
+ * the seven literals this test replaces already had (`gpt-4o-mini` vs.
+ * `gpt-5.6-luna`, `claude-sonnet-4-20250514` vs. `claude-haiku-4-5`, and
+ * `gemini-3-flash-preview` vs. `gemini-3.5-flash-lite` -- the last of which
+ * `providers.ts` deliberately excludes from its registry as a withdrawn
+ * preview id).
+ *
+ * A specifier-style source tripwire, in the shape `src/lib/avatar.test.ts`
+ * pins its "imports nothing" rule with: read the real file's source (comments
+ * stripped, so a literal *mentioned* in a doc comment cannot trip it) and
+ * assert no quoted model-id literal survives in it. Without this, the next
+ * person to add an eighth provider (or to bump one of the current seven
+ * defaults) can reintroduce a hardcoded fallback and nothing else would catch
+ * it -- `defaults.test.ts`'s other cases only ever look at a freshly
+ * provisioned row, never at `run.ts`'s own fallback logic.
+ */
+describe("run.ts's model resolution has no hardcoded literal fallback", () => {
+  it("contains no quoted vendor model-id literal", () => {
+    const source = fs
+      .readFileSync(path.join(ROOT, "src/lib/ai/run.ts"), "utf8")
+      .replaceAll(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "");
+
+    // Widened past a plain `[-/]` separator so a vendor token followed
+    // directly by a digit -- "qwen3.5-flash", with no separator at all --
+    // still trips this, alongside every hyphen/slash-separated id.
+    const modelLiteral = /"(gpt|claude|gemini|mistral|qwen|deepseek|openrouter)[-/\d][a-z0-9.-]*"/;
+
+    expect(source).not.toMatch(modelLiteral);
   });
 });

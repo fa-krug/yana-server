@@ -1,14 +1,10 @@
-import { describe, it, expect, vi } from "vitest";
-import {
-  dailymotionIdFrom,
-  thumbnailUrlFor,
-  detectDailymotion,
-  convertDailymotion,
-} from "./dailymotion";
-import * as cheerio from "cheerio";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { dailymotionIdFrom, localizeThumbnail, thumbnailUrlFor } from "./dailymotion";
+import { storeImageRefFromUrl } from "../images/store";
 
+// Mock the image store to avoid actual network calls, as youtube.test.ts does.
 vi.mock("../images/store", () => ({
-  storeImageRefFromUrl: vi.fn(async () => "yana-img://dmhash123"),
+  storeImageRefFromUrl: vi.fn(async () => "yana-img://abc123hash"),
 }));
 
 describe("dailymotionIdFrom", () => {
@@ -31,42 +27,24 @@ describe("thumbnailUrlFor", () => {
   });
 });
 
-describe("detectDailymotion", () => {
-  it("detects dailymotion-embed class", () => {
-    const $ = cheerio.load(
-      '<div class="dailymotion-embed" data-embed="https://www.dailymotion.com/embed/video/x8abc12"></div>',
-    );
-    expect(detectDailymotion($("div").get(0)!, $)).toBe(true);
+describe("localizeThumbnail", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  it("detects data-embed with Dailymotion URL", () => {
-    const $ = cheerio.load(
-      '<div data-embed="https://www.dailymotion.com/embed/video/x8abc12"></div>',
-    );
-    expect(detectDailymotion($("div").get(0)!, $)).toBe(true);
+  it("returns the stored ref on success", async () => {
+    expect(await localizeThumbnail("x8abc12")).toBe("yana-img://abc123hash");
   });
 
-  it("rejects non-Dailymotion element", () => {
-    const $ = cheerio.load('<div><a href="https://example.com">Link</a></div>');
-    expect(detectDailymotion($("div").get(0)!, $)).toBe(false);
-  });
-});
+  it("logs a warning naming the video id when the fetch fails, instead of failing silently", async () => {
+    // `youtube.ts`'s twin already warns here and explains why the silence was
+    // the bug; this is the same function for the same failure.
+    vi.mocked(storeImageRefFromUrl).mockResolvedValueOnce(null);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-describe("convertDailymotion", () => {
-  it("converts a Dailymotion embed with canonical URL", async () => {
-    const $ = cheerio.load(
-      '<div class="dailymotion-embed" data-embed="https://www.dailymotion.com/embed/video/x8abc12"></div>',
-    );
-    const result = await convertDailymotion($("div").get(0)!, $, {});
-    expect(result).not.toBeNull();
-    expect(result!.provider).toBe("dailymotion");
-    expect(result!.externalUrl).toBe("https://www.dailymotion.com/video/x8abc12");
-    expect(result!.thumbnailRef).toMatch(/^yana-img:\/\//);
-  });
+    const ref = await localizeThumbnail("x8deadbeef");
 
-  it("returns null without a video ID", async () => {
-    const $ = cheerio.load('<div class="dailymotion-embed"></div>');
-    const result = await convertDailymotion($("div").get(0)!, $, {});
-    expect(result).toBeNull();
+    expect(ref).toBe("");
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("x8deadbeef"));
   });
 });

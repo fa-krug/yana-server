@@ -28,7 +28,6 @@ describe("response schemas accept real serializer output", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       // Remaining Article columns not read by serializeArticleSummary:
-      rawContent: "",
       plainText: "",
     } as never);
     expect(() => ArticleSummarySchema.parse(wire)).not.toThrow();

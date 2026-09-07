@@ -7,6 +7,7 @@ import {
   ArticlePatchBodySchema,
   ArticleSummarySchema,
   FeedSchema,
+  JobSchema,
   ReadingPositionPatchBodySchema,
   ReadingPositionSchema,
   RunSchema,
@@ -180,14 +181,24 @@ export const ENDPOINT_REGISTRY: EndpointDoc[] = [
     tag: "Runs",
     summary: "Trigger aggregation now",
     description:
-      "Enqueues one `aggregate` job per caller-owned enabled feed, grouped under a single " +
-      "run. A caller with zero enabled feeds still gets a run back, already completed with " +
-      "`totalJobs: 0` -- `runId` is always a real, non-null id.",
+      "Enqueues one `aggregate` job per caller-owned enabled feed that is ready to run, " +
+      "grouped under a single run. A feed whose AI options are on but whose owner has no " +
+      "working AI provider is excluded from the run rather than enqueued -- it is listed in " +
+      "`skippedFeeds` instead, with `reason: \"ai_no_provider\"`, since enqueueing it would " +
+      "silently lose every one of its articles rather than fail visibly. A caller with zero " +
+      "ready feeds (whether it owns none, or every enabled one was skipped) still gets a run " +
+      "back, already completed with `totalJobs: 0` -- `runId` is always a real, non-null id.",
     auth: "bearer-or-cookie",
     response: {
       status: 202,
-      schema: z.object({ runId: z.number().int() }),
-      description: "The id of the created run.",
+      schema: z.object({
+        runId: z.number().int(),
+        skippedFeeds: z.array(
+          z.object({ feedId: z.number().int(), reason: z.literal("ai_no_provider") }),
+        ),
+      }),
+      description:
+        "The id of the created run, and any caller-owned enabled feeds excluded from it.",
     },
     errors: [{ status: 401, code: "unauthorized", when: "no valid Bearer token or session." }],
   }),
@@ -208,6 +219,30 @@ export const ENDPOINT_REGISTRY: EndpointDoc[] = [
         status: 404,
         code: "not_found",
         when: "the run doesn't exist, or isn't owned by the caller.",
+      },
+    ],
+  }),
+
+  defineEndpoint({
+    method: "GET",
+    path: "/api/v1/jobs/{id}",
+    tag: "Jobs",
+    summary: "Poll one job's progress",
+    description:
+      "The durable state of a single job, including the `article.reload` job " +
+      "`POST /api/v1/articles/{id}/reload` returns. Such a job has `runId: null` and is " +
+      "invisible to `GET /api/v1/runs/{id}`. `progress` is the progress signal (0-100); " +
+      "`status` says whether the work has ended and whether it succeeded. Unlike the SSE " +
+      "stream this can be asked again at any time, so a client that was offline, or was " +
+      "restarted, can still learn how its job ended.",
+    auth: "bearer-or-cookie",
+    response: { status: 200, schema: JobSchema, description: "The job's current state." },
+    errors: [
+      { status: 401, code: "unauthorized", when: "no valid Bearer token or session." },
+      {
+        status: 404,
+        code: "not_found",
+        when: "the job doesn't exist, or isn't owned by the caller.",
       },
     ],
   }),
@@ -316,8 +351,8 @@ export const ENDPOINT_REGISTRY: EndpointDoc[] = [
     summary: "Run a free-form prompt against the caller's configured AI provider",
     description:
       "Runs `prompt` against the caller's active AI provider using their stored credentials " +
-      "and global tuning values -- no per-request overrides. Subject to the caller's daily " +
-      "and monthly AI request limits.",
+      "and global tuning values -- no per-request overrides. Yana imposes no call budget or " +
+      "prompt-length cap of its own; the only limits are the provider's.",
     auth: "bearer-or-cookie",
     request: { body: z.object({ prompt: z.string().min(1) }) },
     response: {
@@ -327,15 +362,8 @@ export const ENDPOINT_REGISTRY: EndpointDoc[] = [
     },
     errors: [
       { status: 400, code: "invalid_prompt", when: "prompt is missing or empty." },
-      { status: 400, code: "prompt_too_long", when: "prompt exceeds the configured length limit." },
       { status: 401, code: "unauthorized", when: "no valid Bearer token or session." },
       { status: 409, code: "no_active_provider", when: "no AI provider is configured." },
-      { status: 429, code: "daily_limit_exceeded", when: "the daily AI request limit is reached." },
-      {
-        status: 429,
-        code: "monthly_limit_exceeded",
-        when: "the monthly AI request limit is reached.",
-      },
       {
         status: 502,
         code: "provider_unauthorized",

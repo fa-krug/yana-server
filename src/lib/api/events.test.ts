@@ -31,7 +31,14 @@ describe("events", () => {
 
     publishUserEvent("user-c", {
       type: "run",
-      payload: { runId: 1, status: "completed", totalJobs: 1, completedJobs: 1, failedJobs: 0 },
+      payload: {
+        runId: 1,
+        status: "completed",
+        progress: 100,
+        totalJobs: 1,
+        completedJobs: 1,
+        failedJobs: 0,
+      },
     });
 
     expect(heard).not.toHaveBeenCalled();
@@ -60,7 +67,14 @@ describe("events", () => {
     const second = await import("./events");
     second.publishUserEvent("user-d", {
       type: "run",
-      payload: { runId: 1, status: "completed", totalJobs: 1, completedJobs: 1, failedJobs: 0 },
+      payload: {
+        runId: 1,
+        status: "completed",
+        progress: 100,
+        totalJobs: 1,
+        completedJobs: 1,
+        failedJobs: 0,
+      },
     });
 
     expect(heard).toHaveBeenCalledTimes(1);

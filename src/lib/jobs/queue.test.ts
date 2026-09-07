@@ -134,6 +134,62 @@ describe("src/lib/jobs/queue", () => {
       expect(queue.claim()?.id).toBe(olderLowPriority);
     });
 
+    it("stamps the feed's lastAggregationStartedAt when claiming an aggregate job", () => {
+      const userId = seedUserAndReturnId();
+      const db = client.getDb();
+      const feed = db
+        .insert(feeds)
+        .values({ name: "Feed", userId })
+        .returning({ id: feeds.id })
+        .get();
+      expect(
+        db.select().from(feeds).where(eq(feeds.id, feed.id)).get()?.lastAggregationStartedAt,
+      ).toBeNull();
+
+      queue.enqueue("aggregate", { feedId: feed.id });
+      const before = Date.now();
+      queue.claim();
+
+      const reread = db.select().from(feeds).where(eq(feeds.id, feed.id)).get();
+      expect(reread?.lastAggregationStartedAt).not.toBeNull();
+      expect(reread!.lastAggregationStartedAt!.getTime()).toBeGreaterThanOrEqual(before - 1000);
+    });
+
+    it("stamps the feed's lastAggregationStartedAt when claiming a feed.update job too", () => {
+      // feed.update delegates to handleAggregateJob (see
+      // src/lib/jobs/handlers/index.ts) and is covered by the scheduler's
+      // dedupe alongside "aggregate" -- claim() must stamp for it as well.
+      const userId = seedUserAndReturnId();
+      const db = client.getDb();
+      const feed = db
+        .insert(feeds)
+        .values({ name: "Feed", userId })
+        .returning({ id: feeds.id })
+        .get();
+
+      queue.enqueue("feed.update", { feedId: feed.id });
+      queue.claim();
+
+      const reread = db.select().from(feeds).where(eq(feeds.id, feed.id)).get();
+      expect(reread?.lastAggregationStartedAt).not.toBeNull();
+    });
+
+    it("does not stamp lastAggregationStartedAt for a job kind that is not an aggregation", () => {
+      const userId = seedUserAndReturnId();
+      const db = client.getDb();
+      const feed = db
+        .insert(feeds)
+        .values({ name: "Feed", userId })
+        .returning({ id: feeds.id })
+        .get();
+
+      queue.enqueue("feed.logo", { feedId: feed.id });
+      queue.claim();
+
+      const reread = db.select().from(feeds).where(eq(feeds.id, feed.id)).get();
+      expect(reread?.lastAggregationStartedAt).toBeNull();
+    });
+
     it("resets a job orphaned by a crash", () => {
       const id = queue.enqueue("noop", {});
       queue.claim();
@@ -186,6 +242,25 @@ describe("src/lib/jobs/queue", () => {
       expect(job?.status).toBe("pending");
       expect(job?.error).toBe("temporary error");
       expect(new Date(job!.runAt).getTime()).toBeGreaterThan(Date.now());
+    });
+
+    it("resets progress to 0 when backing off for a retry, not just status to pending", () => {
+      // A job that had already reported real progress on this attempt (e.g.
+      // a reload that reached 100 right before an AI-processing throw) must
+      // not keep polling at that stale percentage through its backoff --
+      // the iOS client shows this number verbatim, and a retry resuming
+      // from "pending" should read as freshly queued, not as a completed
+      // job about to un-complete itself.
+      const id = queue.enqueue("noop", {}, { maxAttempts: 3 });
+      queue.claim();
+      queue.progress(id, 100);
+      expect(queue.getJob(id)?.progress).toBe(100);
+
+      queue.fail(id, "temporary error");
+
+      const job = queue.getJob(id);
+      expect(job?.status).toBe("pending");
+      expect(job?.progress).toBe(0);
     });
 
     it("marks failed at maxAttempts and keeps the error", () => {
@@ -493,7 +568,14 @@ describe("src/lib/jobs/queue", () => {
         },
         {
           type: "run",
-          payload: { runId, status: "running", totalJobs: 2, completedJobs: 1, failedJobs: 0 },
+          payload: {
+            runId,
+            status: "running",
+            progress: 50,
+            totalJobs: 2,
+            completedJobs: 1,
+            failedJobs: 0,
+          },
         },
       ]);
     });
@@ -523,7 +605,14 @@ describe("src/lib/jobs/queue", () => {
         },
         {
           type: "run",
-          payload: { runId, status: "failed", totalJobs: 2, completedJobs: 1, failedJobs: 1 },
+          payload: {
+            runId,
+            status: "failed",
+            progress: 100,
+            totalJobs: 2,
+            completedJobs: 1,
+            failedJobs: 1,
+          },
         },
       ]);
     });
@@ -594,6 +683,73 @@ describe("src/lib/jobs/queue", () => {
 
       unsubscribe();
       expect(heard).toHaveLength(0);
+    });
+
+    // Uses a run's child job (not a bare enqueue()) so resolveJobUserId() has
+    // something to resolve: an "aggregate" job only carries an owner via its
+    // run (see resolveJobUserId's doc comment) -- a standalone job of that
+    // kind is never notified, matching the "kind other than article.reload"
+    // case just above.
+    it("publishes a job event carrying the new percentage when progress changes", () => {
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(userId, "aggregate", [{ feedId: 1 }]);
+      const jobId = client.getDb().select().from(jobs).where(eq(jobs.runId, runId)).get()!.id;
+      // claim() first so the row's real status is "running" -- progress()
+      // now reports whatever status is actually stored rather than
+      // asserting "running" by convention, so this test must put the row in
+      // that state itself instead of relying on the old hardcoded value.
+      queue.claim();
+
+      const heard: unknown[] = [];
+      const unsubscribe = events.subscribeUserEvents(userId, (event) => heard.push(event));
+      queue.progress(jobId, 42);
+      unsubscribe();
+
+      expect(heard).toEqual([
+        {
+          type: "job",
+          payload: { jobId, runId, kind: "aggregate", status: "running", progress: 42 },
+        },
+      ]);
+    });
+
+    it("reports the row's actual status rather than hardcoding running (e.g. a pending, unclaimed job)", () => {
+      // progress() has the full row in hand for resolveJobUserId() already,
+      // so it must publish that row's real status -- REST (GET
+      // /api/v1/jobs/:id) and this SSE event must describe the same job
+      // identically. Calling progress() on a job that was never claimed is
+      // not a real production path (only a claimed job's handler calls
+      // progress()), but it is the cheapest way to prove the published
+      // status is read from the row rather than asserted as a constant.
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(userId, "aggregate", [{ feedId: 1 }]);
+      const jobId = client.getDb().select().from(jobs).where(eq(jobs.runId, runId)).get()!.id;
+
+      const heard: unknown[] = [];
+      const unsubscribe = events.subscribeUserEvents(userId, (event) => heard.push(event));
+      queue.progress(jobId, 42);
+      unsubscribe();
+
+      expect(heard).toEqual([
+        {
+          type: "job",
+          payload: { jobId, runId, kind: "aggregate", status: "pending", progress: 42 },
+        },
+      ]);
+    });
+
+    it("publishes nothing when progress is set to the value already stored", () => {
+      const userId = seedUserAndReturnId();
+      const runId = queue.enqueueRun(userId, "aggregate", [{ feedId: 1 }]);
+      const jobId = client.getDb().select().from(jobs).where(eq(jobs.runId, runId)).get()!.id;
+      queue.progress(jobId, 42);
+
+      const heard: unknown[] = [];
+      const unsubscribe = events.subscribeUserEvents(userId, (event) => heard.push(event));
+      queue.progress(jobId, 42);
+      unsubscribe();
+
+      expect(heard).toEqual([]);
     });
   });
 
@@ -914,6 +1070,59 @@ describe("src/lib/jobs/queue", () => {
       const run = queue.getRun(runId);
       expect(run?.failedJobs).toBe(1);
       expect(heard).toEqual(["cancelled"]);
+    });
+  });
+
+  it("runProgressPercent reports 100 for a run with no jobs", async () => {
+    const { runProgressPercent } = await import("./queue");
+    expect(runProgressPercent(0, 0, 0)).toBe(100);
+  });
+
+  it("runProgressPercent rounds to the nearest whole percent", async () => {
+    const { runProgressPercent } = await import("./queue");
+    expect(runProgressPercent(3, 1, 0)).toBe(33);
+  });
+
+  // 7f: both were pure SELECTs wrapped in writeTransaction(), i.e.
+  // BEGIN IMMEDIATE -- so every /jobs page load asked for the exclusive write
+  // lock, contending with four worker loops and every progress()/
+  // appendLogLine() write for nothing. That is the cost claim()'s read-only
+  // pre-check exists to avoid, reintroduced two functions later.
+  describe("reads do not take the write lock", () => {
+    /**
+     * Holds the database's write lock on a second connection for the duration
+     * of `body`, with this process's own connection given a short
+     * busy_timeout so a read that *does* ask for the lock fails in
+     * milliseconds rather than waiting out the 30 s PRAGMA.
+     */
+    function whileAnotherConnectionIsWriting(body: () => void): void {
+      const db = client.getDb() as unknown as { $client: Database.Database };
+      const previousTimeout = db.$client.pragma("busy_timeout", { simple: true });
+      const writer = new Database(dbPath);
+      writer.pragma("busy_timeout = 50");
+      writer.exec("BEGIN IMMEDIATE");
+      db.$client.pragma("busy_timeout = 50");
+      try {
+        body();
+      } finally {
+        db.$client.pragma(`busy_timeout = ${previousTimeout}`);
+        writer.exec("ROLLBACK");
+        writer.close();
+      }
+    }
+
+    it("getJob() and listJobs() answer while another connection holds it", () => {
+      const userId = seedUserAndReturnId();
+      const id = queue.enqueue("test.read", { a: 1 }, { userId });
+
+      whileAnotherConnectionIsWriting(() => {
+        expect(queue.getJob(id)?.kind).toBe("test.read");
+
+        const listed = queue.listJobs({ kind: "test.read" });
+        expect(listed.total).toBe(1);
+        expect(listed.jobs[0].id).toBe(id);
+        expect(listed.jobs[0].ownerEmail).toBe(`${userId}@example.com`);
+      });
     });
   });
 });

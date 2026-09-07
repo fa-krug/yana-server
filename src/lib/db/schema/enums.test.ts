@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { BLOCK_KINDS as FORMAT_BLOCK_KINDS } from "@/lib/aggregators/blocks/types";
+
 import { AGGREGATOR_KEYS, BLOCK_KINDS, EMBED_PROVIDERS, JOB_STATUSES, STYLE_NAMES } from "./enums";
 
 describe("enums", () => {
@@ -17,6 +19,13 @@ describe("enums", () => {
     // list_item encodes a list's [[Block]] shape as rows. It never appears on
     // the wire -- see core/blocks/types.py.
     expect(BLOCK_KINDS).toContain("list_item");
+  });
+
+  it("agrees with the block format's own BLOCK_KINDS, which is a second copy", () => {
+    // `src/lib/aggregators/blocks/types.ts` declares the same list for the
+    // parser/wire side. Nothing but this test keeps the two from drifting, and
+    // a kind missing from either side is a row the other half cannot read.
+    expect([...BLOCK_KINDS]).toEqual([...FORMAT_BLOCK_KINDS]);
   });
 
   it("orders styles as the wire's styles array does", () => {

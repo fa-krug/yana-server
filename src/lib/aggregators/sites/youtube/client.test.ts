@@ -1,6 +1,23 @@
+/**
+ * Both halves of what `_get()` had to survive, in one file.
+ *
+ * The bounds cases (deadline, byte cap) came from the branch that gave every
+ * aggregator fetch a `withDeadline()` and a capped read; the quota and no-echo
+ * cases came from the branch that put this client onto
+ * `fetchTextThrottled()`. Neither set replaced the other: routing through the
+ * shared loop is what *keeps* the bounds, so they are still worth asserting
+ * from out here -- a future `_get()` that goes back to a bare `fetch` would
+ * pass every quota case and fail these.
+ */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { MAX_JSON_BYTES } from "@/lib/aggregators/http/fetcher";
 import { resetHostLimits } from "@/lib/aggregators/http/host-limiter";
+import {
+  countingStream,
+  settledAfterFakeTime,
+  stallingBodyResponse,
+} from "@/lib/aggregators/http/test-support";
 import { RATE_LIMIT_ATTEMPTS } from "@/lib/aggregators/http/throttled-fetch";
 
 import { YouTubeAPIError, YouTubeClient, YouTubeQuotaError } from "./client";
@@ -10,6 +27,7 @@ const KEY = "super-secret-api-key";
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  vi.useRealTimers();
   vi.restoreAllMocks();
   resetHostLimits({ minGapMs: 0, defaultCooldownMs: 0 });
 });
@@ -50,6 +68,64 @@ describe("YouTubeClient._get", () => {
     await new YouTubeClient(KEY)._get("channels", { part: "id" });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes an abort signal, so the call has a deadline at all", async () => {
+    // This fetch carried no `signal` whatsoever before 2026-09-04 -- the one
+    // fetch in the aggregator tree with no deadline of any kind. It reaches the
+    // signal by a different route now (the shared throttled loop rather than a
+    // `withDeadline()` written here), which is exactly why the assertion is
+    // still on the `init` the mock was handed rather than on the call shape.
+    const inits: RequestInit[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(((_url: string, init: RequestInit) => {
+      inits.push(init);
+      return Promise.resolve(
+        new Response(JSON.stringify({ items: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    }) as unknown as typeof fetch);
+
+    expect(await new YouTubeClient("k")._get("channels", { id: "c" })).toMatchObject({ items: [] });
+    expect(inits[0].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("settles when a server sends headers and then stalls", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(((_url: string, init: RequestInit) =>
+      Promise.resolve(
+        stallingBodyResponse(init.signal, {
+          "content-type": "application/json",
+        }),
+      )) as unknown as typeof fetch);
+    vi.useFakeTimers();
+
+    expect(
+      await settledAfterFakeTime(
+        new YouTubeClient("k")._get("channels", { id: "c" }).catch(() => null),
+        30_000,
+        (ms) => vi.advanceTimersByTimeAsync(ms),
+      ),
+    ).toBe("settled");
+  });
+
+  it("stops reading at the byte cap instead of buffering the whole body", async () => {
+    const { stream, state } = countingStream(20);
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(stream, { status: 200, headers: { "content-type": "application/json" } }),
+    );
+
+    // Still a `YouTubeAPIError`, but by a deliberately different route than it
+    // was: `fetchTextThrottled()` catches the `ResponseTooLarge` itself and
+    // reports `null`, the same answer it gives for a network failure, because
+    // no caller in the tree can act on the difference. So the message is the
+    // generic "no response" one rather than a cap-specific error -- what this
+    // case is here to pin is that the read stopped, not how it was named.
+    await expect(new YouTubeClient("k")._get("channels", { id: "c" })).rejects.toBeInstanceOf(
+      YouTubeAPIError,
+    );
+    expect(state.cancelled).toBe(true);
+    expect(state.pulls).toBeLessThanOrEqual(MAX_JSON_BYTES / (1024 * 1024) + 2);
   });
 
   it("throws a quota error on a 403 carrying quotaExceeded", async () => {

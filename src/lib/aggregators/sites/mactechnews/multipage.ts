@@ -1,5 +1,4 @@
 import * as cheerio from "cheerio";
-import { selectContentElements } from "../../extract/content";
 
 /**
  * Detect page numbers from MacTechNews pagination elements.
@@ -36,60 +35,14 @@ export function detectPagination(html: string): Set<number> {
 }
 
 /**
- * Build URL for a specific page number using query parameters.
+ * Build URL for a specific page number using query parameters -- the one
+ * genuine difference from Mein-MMO's path-segment pagination (`/N/`, see
+ * ../mein_mmo/multipage.ts's `buildPageUrl()`). Everything else about
+ * fetching and combining a paginated article's pages is shared, in
+ * `../../multipage.ts`.
  */
 export function buildPageUrl(baseUrl: string, pageNum: number): string {
   const url = new URL(baseUrl);
   url.searchParams.set("page", String(pageNum));
   return url.toString();
-}
-
-/**
- * Fetch all pages and combine content.
- *
- * @param baseUrl - Base article URL
- * @param pageNumbers - Set of page numbers to fetch
- * @param contentSelectors - CSS selectors for the content container
- * @param fetcher - Function to fetch HTML from URL
- * @param firstPageHtml - Already fetched HTML for the first page
- * @returns Combined HTML with content from all pages
- */
-export async function fetchAllPages(
-  baseUrl: string,
-  pageNumbers: Set<number>,
-  contentSelectors: string[],
-  fetcher: (url: string) => Promise<string>,
-  firstPageHtml?: string | null,
-): Promise<string> {
-  const sortedPages = Array.from(pageNumbers).sort((a, b) => a - b);
-  const contentParts: string[] = [];
-
-  for (const pageNum of sortedPages) {
-    const pageUrl = pageNum === 1 ? baseUrl : buildPageUrl(baseUrl, pageNum);
-
-    try {
-      let pageHtml: string;
-      if (pageNum === 1 && firstPageHtml) {
-        pageHtml = firstPageHtml;
-      } else {
-        pageHtml = await fetcher(pageUrl);
-      }
-
-      const $ = cheerio.load(pageHtml);
-      const matches = selectContentElements($, contentSelectors, true);
-
-      if (matches.length > 0) {
-        const contentHtml = $.html(matches[0]);
-        contentParts.push(contentHtml);
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  if (contentParts.length === 0) {
-    return "";
-  }
-
-  return contentParts.join("\n\n");
 }

@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { FeedLike, RawArticle } from "../../base";
 import { DEFAULT_CHROME_LABELS } from "../../chrome-labels";
+import { sanitizeUntrustedFragment } from "../../extract/clean";
+import { ARTICLE_COMMENTS_CLASS } from "../../extract/format";
 import { YouTubeAggregator } from "./aggregator";
-import type { YouTubeClient, YouTubeCommentThread } from "./client";
+import type { YouTubeClient, YouTubeCommentThread, YouTubeVideoItem } from "./client";
 
 // finalizeArticles() embeds a localized thumbnail via storeImageRefFromUrl,
 // which otherwise fetches a real YouTube thumbnail and writes to the real
@@ -148,6 +150,49 @@ describe("YouTubeAggregator.buildContentHtml", () => {
 
     expect(html).toContain("<strong>Unbekannt</strong>");
   });
+
+  // Characterisation pins (2026-09-03 pipeline-review-3 Task 2): the exact
+  // byte output of today's `buildCommentsHtml()`, captured before it is
+  // converted to an adapter over the shared `buildCommentsSection()` in
+  // `src/lib/aggregators/comments/section.ts` -- so the conversion cannot
+  // silently change the `<div class="youtube-comments">` wrapper, the
+  // header's lack of a link, the `target="_blank" rel="noopener"` link
+  // attributes, or the raw (un-re-escaped) `&` in the comment permalink.
+  it("pins the exact markup for one comment whose author links to their channel", () => {
+    const agg = aggregatorFor();
+    const comments: YouTubeCommentThread[] = [
+      {
+        id: "c1",
+        snippet: {
+          topLevelComment: {
+            snippet: {
+              authorDisplayName: "Someone",
+              authorChannelUrl: "https://www.youtube.com/channel/xyz",
+              textDisplay: "nice video",
+            },
+          },
+        },
+      },
+    ];
+
+    const html = agg.buildCommentsHtml(comments, "vid1", DEFAULT_CHROME_LABELS);
+
+    expect(html).toBe(
+      '<div class="youtube-comments"><h3>Comments</h3>\n<blockquote>\n<p>' +
+        '<strong><a href="https://www.youtube.com/channel/xyz">Someone</a></strong> | ' +
+        // `&amp;`, not a bare `&`: this href is interpolated into an
+        // attribute value, and `rawAnchorHref: true` means the section
+        // builder writes it through verbatim rather than escaping it.
+        '<a href="https://www.youtube.com/watch?v=vid1&amp;lc=c1" target="_blank" ' +
+        'rel="noopener">source</a></p>\n<div>nice video</div>\n</blockquote>\n</div>',
+    );
+  });
+
+  it("pins null (no comments section at all) when there are no comments", () => {
+    const agg = aggregatorFor();
+
+    expect(agg.buildCommentsHtml([], "vid1", DEFAULT_CHROME_LABELS)).toBeNull();
+  });
 });
 
 describe("YouTubeAggregator.finalizeArticles", () => {
@@ -224,6 +269,33 @@ describe("YouTubeAggregator.logoImageUrl", () => {
   });
 });
 
+describe("YouTubeAggregator.fetchArticleContent source title", () => {
+  it("reports the video's current title", async () => {
+    // What `reload.ts` sends to the AI stage instead of `articles.name`, which
+    // on a feed with an AI option on is the model's own previous answer -- see
+    // `noteSourceTitle()` in ../../base.
+    const feed: FeedLike = { identifier: "UCtest", dailyLimit: 20, options: {} };
+
+    class FakeClientAggregator extends YouTubeAggregator {
+      protected getClient(): YouTubeClient {
+        return {
+          fetchVideoDetails: async () => [
+            { id: "abc123", snippet: { title: "The video's current title", description: "desc" } },
+          ],
+          fetchVideoComments: async () => [] as YouTubeCommentThread[],
+        } as unknown as YouTubeClient;
+      }
+    }
+
+    const agg = new FakeClientAggregator(feed);
+    expect(agg.sourceTitle).toBeNull();
+
+    await agg.fetchArticleContent("https://www.youtube.com/watch?v=abc123");
+
+    expect(agg.sourceTitle).toBe("The video's current title");
+  });
+});
+
 describe("YouTubeAggregator.enrichArticles concurrency", () => {
   function aggregatorWithFakeClient(
     fetchVideoComments: YouTubeClient["fetchVideoComments"],
@@ -284,5 +356,191 @@ describe("YouTubeAggregator.enrichArticles concurrency", () => {
     // Confirms the pool actually parallelizes rather than degenerating to
     // sequential execution.
     expect(maxInFlight).toBeGreaterThan(1);
+  });
+});
+
+/**
+ * Finding 3/4 (2026-09-03 pipeline review 1): `fetchSourceData()`'s
+ * `limit || this.dailyLimit` reads an explicit `0` as "no limit given" --
+ * the same inversion `base.ts`'s contract forbids (see the
+ * `parseToRawArticles()` doc comment on `BaseAggregator`) -- and
+ * `parseToRawArticles()` had no `limit` parameter at all to defend against a
+ * source that returned more than intended.
+ */
+describe("YouTubeAggregator limit handling", () => {
+  it("requests by the given limit even when it is zero, never falling back to dailyLimit", async () => {
+    let requestedCount: number | null = null;
+
+    class FakeClientAggregator extends YouTubeAggregator {
+      protected getClient(): YouTubeClient {
+        return {
+          resolveChannelId: async () => ["UCtest", null],
+          fetchChannelData: async () => ({
+            channel_id: "UCtest",
+            title: "Some Channel",
+            custom_url: "@some-channel",
+            uploads_playlist_id: "UUtest",
+            channel_icon_url: null,
+          }),
+          fetchVideosFromPlaylist: async (_playlistId: string, maxResults: number) => {
+            requestedCount = maxResults;
+            return [];
+          },
+        } as unknown as YouTubeClient;
+      }
+    }
+
+    const feed: FeedLike = { identifier: "UCtest", dailyLimit: 20, options: {} };
+    const agg = new FakeClientAggregator(feed);
+
+    await agg.fetchSourceData(0);
+
+    expect(requestedCount).toBe(0);
+  });
+
+  it("slices parsed videos to the given limit, not to however many fetchSourceData returned", async () => {
+    const agg = aggregatorFor();
+    const videos = Array.from({ length: 10 }, (_, i) => ({
+      id: `v${i}`,
+      snippet: { title: `video ${i}`, description: "", publishedAt: "2026-01-01T00:00:00Z" },
+    }));
+
+    const articles = await agg.parseToRawArticles(
+      { videos, channel_id: "UCtest", channel_title: "Some Channel" },
+      3,
+    );
+
+    expect(articles).toHaveLength(3);
+  });
+});
+
+/**
+ * Finding 2 (2026-09-03 pipeline review 1): same gap as Reddit's -- Task 2's
+ * fix has no test on the live call path. This drives the real production
+ * wiring: `enrichArticles()` (which stashes `_youtube_comments_html`)
+ * followed by `finalizeArticles()` (which calls `processContent()`, the one
+ * place that reaches `formatArticleContent()`), exactly the path
+ * `aggregate()` runs. `content-hash.test.ts`'s cases cannot catch a
+ * regression here, since they never touch this aggregator.
+ */
+describe("YouTubeAggregator comments wrapper wiring", () => {
+  it("wraps the stitched-in comment section in ARTICLE_COMMENTS_CLASS on the real enrich+finalize path", async () => {
+    const feed: FeedLike = { identifier: "UCtest", dailyLimit: 20, options: { comment_limit: 5 } };
+
+    class FakeClientAggregator extends YouTubeAggregator {
+      protected getClient(): YouTubeClient {
+        return {
+          fetchVideoComments: async (): Promise<YouTubeCommentThread[]> => [
+            {
+              id: "c1",
+              snippet: {
+                topLevelComment: {
+                  snippet: {
+                    authorDisplayName: "Someone",
+                    textDisplay: "a real comment",
+                  },
+                },
+              },
+            },
+          ],
+        } as unknown as YouTubeClient;
+      }
+    }
+
+    const agg = new FakeClientAggregator(feed);
+    const article = enrichmentArticle("abc123");
+
+    const enriched = await agg.enrichArticles([article]);
+    const [finalized] = await agg.finalizeArticles(enriched);
+
+    expect(finalized!.content).toContain(
+      `<section data-sanitized-class="${ARTICLE_COMMENTS_CLASS}">`,
+    );
+    expect(finalized!.content).toContain("a real comment");
+  });
+
+  it("wraps it the same way on the reload path, which never runs enrichArticles()", async () => {
+    // The divergence this pins closed: reload calls fetchArticleContent() ->
+    // extractContent() -> processContent() and never enrichArticles(), so the
+    // `_youtube_comments_html` stash the assertion above relies on was never
+    // set and the comment section went into the stored block tree *unmarked*.
+    // The same video therefore had two block-tree shapes depending on which
+    // path produced it. extractContent() stashes the rendered section on the
+    // instance now and processContent() splits it back off the end of the
+    // description -- see splitTrailingComments() in ../../comments/section.
+    const feed: FeedLike = { identifier: "UCtest", dailyLimit: 20, options: {} };
+
+    class FakeClientAggregator extends YouTubeAggregator {
+      protected getClient(): YouTubeClient {
+        return {
+          fetchVideoDetails: async (): Promise<YouTubeVideoItem[]> => [
+            {
+              id: "abc123",
+              snippet: { title: "A video", description: "the description" },
+            } as unknown as YouTubeVideoItem,
+          ],
+          fetchVideoComments: async (): Promise<YouTubeCommentThread[]> => [
+            {
+              id: "c1",
+              snippet: {
+                topLevelComment: {
+                  snippet: { authorDisplayName: "Someone", textDisplay: "a real comment" },
+                },
+              },
+            },
+          ],
+        } as unknown as YouTubeClient;
+      }
+    }
+
+    const agg = new FakeClientAggregator(feed);
+    const article = enrichmentArticle("abc123");
+
+    // Exactly reload.ts's sequence, through enrichOne()'s three stages.
+    const raw = await agg.fetchArticleContent(article.identifier);
+    const extracted = await agg.extractContent(raw, article);
+    const processed = await agg.processContent(extracted, article);
+
+    expect(processed).toContain(`<section data-sanitized-class="${ARTICLE_COMMENTS_CLASS}">`);
+    expect(processed).toContain("a real comment");
+    // And exactly one marker -- the split removed the unmarked copy rather
+    // than leaving the section in the body *and* wrapping a second one.
+    expect(
+      processed.split(`<section data-sanitized-class="${ARTICLE_COMMENTS_CLASS}">`).length - 1,
+    ).toBe(1);
+  });
+});
+
+/**
+ * Finding 7 (2026-09-03 pipeline review 1): `sanitizeUntrustedFragment()`
+ * (used by the YouTube aggregator for every comment body -- see the
+ * 2026-09-03 pipeline-review-3 "one HTML sanitizer, not six" task, which
+ * consolidated what used to be this file's own `sanitizeCommentBodyHtml()`
+ * into the shared implementation in `extract/clean.ts`) runs
+ * `sanitizeHtmlAttributes()` -- which rewrites a `class` attribute into
+ * `data-sanitized-class` -- and then `removeSanitizedAttributes()`
+ * immediately afterward, which strips every `data-sanitized-*` attribute the
+ * previous call just produced. A comment whose body carries literal markup
+ * naming `<section class="article-comments">` -- the exact wrapper
+ * `formatArticleContent()` uses for the real comments section, and the marker
+ * `content-hash.ts`'s `withoutComments()` cuts on -- must never survive with
+ * that class intact, or a comment could forge a second marker inside the real
+ * wrapper and make `withoutComments()`'s `lastIndexOf` find the forged one
+ * instead of the real one, permanently defeating the comment exclusion for
+ * that article. This pins the current, correct behavior so a future
+ * "simplification" that drops the `removeSanitizedAttributes()` call cannot
+ * reopen it silently. It calls the shared `sanitizeUntrustedFragment()`
+ * directly, the same as its copy in `extract/clean.test.ts` -- it does not
+ * verify that YouTube's own comment path routes through it (that is covered
+ * separately: `comments/section.test.ts` pins that the shared comment-section
+ * builder sanitizes unconditionally, and a byte-exact `buildCommentsHtml`
+ * characterization pin proves YouTube delegates to that builder).
+ */
+describe("sanitizeUntrustedFragment comment-forged comments marker", () => {
+  it("never lets a comment body's own markup survive as a data-sanitized-class attribute", () => {
+    const html = sanitizeUntrustedFragment('hi <section class="article-comments">evil</section>');
+
+    expect(html).not.toContain("data-sanitized-class");
+    expect(html).not.toContain('class="article-comments"');
   });
 });

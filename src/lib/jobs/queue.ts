@@ -21,6 +21,30 @@ export interface EnqueueOptions {
  */
 export const PRIORITY_IMMEDIATE = 10;
 
+/**
+ * Every job kind that runs `handleAggregateJob`
+ * (`src/lib/jobs/handlers/aggregate.ts`). Both of them map to that one
+ * function directly: `"feed.update"` used to go through a six-line
+ * `handlers/update.ts` wrapper whose whole body was
+ * `await handleAggregateJob(job)`, which is gone.
+ *
+ * **This is the definition, and `handlers/index.ts` now reads it rather than
+ * restating its kinds as literals** -- so a kind added here is registered
+ * there by construction, closing the drift the wrapper created (two distinct
+ * function references made the registry's kind -> function mapping
+ * un-introspectable, so both halves were hand-maintained and nothing kept
+ * them agreed). Its other reader is `scheduler.ts`'s dedupe query.
+ *
+ * The alias kind itself is load-bearing beyond the handler and stays:
+ * `claim()` below stamps `feeds.lastAggregationStartedAt` for every kind in
+ * this list, and `/jobs` shows `feed.update` as its own user-visible kind
+ * (a user-triggered update, as against the scheduler's `aggregate`).
+ */
+export const AGGREGATE_HANDLER_JOB_KINDS = ["aggregate", "feed.update"] as const;
+
+/** Every `jobs.status` that has not yet reached a terminal outcome. */
+export const NON_TERMINAL_JOB_STATUSES = ["pending", "running", "cancelling"] as const;
+
 export function enqueue(
   kind: string,
   payload: Record<string, unknown> = {},
@@ -68,7 +92,7 @@ export function claim(): Job | null {
   return writeTransaction((db) => {
     const now = new Date();
     const candidate = db
-      .select({ id: jobs.id })
+      .select({ id: jobs.id, kind: jobs.kind, payload: jobs.payload })
       .from(jobs)
       .where(and(eq(jobs.status, "pending"), lte(jobs.runAt, now)))
       .orderBy(desc(jobs.priority), asc(jobs.runAt), asc(jobs.id))
@@ -94,6 +118,26 @@ export function claim(): Job | null {
 
     if (result.changes !== 1) {
       return null;
+    }
+
+    // The scheduler's own clock (see feeds.lastAggregationStartedAt's doc
+    // comment) is stamped here, at claim -- not at completion in
+    // handleAggregateJob. Claim time is what makes the scheduler's
+    // non-terminal-status dedupe (AGGREGATE_HANDLER_JOB_KINDS,
+    // NON_TERMINAL_JOB_STATUSES) actually work: a job stamped only on
+    // completion would still read as "not yet aggregated" for its entire
+    // run, so tick() would keep re-evaluating the feed as overdue by wall
+    // clock alone and rely solely on the dedupe query to hold it off.
+    // Stamping here means the feed genuinely looks "just started" the moment
+    // a worker picks the job up.
+    if (
+      (AGGREGATE_HANDLER_JOB_KINDS as readonly string[]).includes(candidate.kind) &&
+      typeof candidate.payload?.feedId === "number"
+    ) {
+      db.update(feeds)
+        .set({ lastAggregationStartedAt: now })
+        .where(eq(feeds.id, candidate.payload.feedId))
+        .run();
     }
 
     return db.select().from(jobs).where(eq(jobs.id, candidate.id)).get() ?? null;
@@ -130,7 +174,18 @@ export function complete(id: number): void {
   }
 }
 
-export function fail(id: number, error: string | Error): void {
+/**
+ * A job attempt failed.
+ *
+ * `options.permanent` skips the retry schedule and fails the job outright,
+ * for a cause no retry can change. Its one caller is `worker.ts`'s
+ * "no handler registered for this kind" branch: the registry is populated at
+ * module load and never grows at runtime, so a missing handler is
+ * deterministic -- retried, it burned all three attempts on two pointless
+ * `claim()`/`fail()` round trips over an exponential back-off, and only then
+ * showed the operator the error message it already had on the first one.
+ */
+export function fail(id: number, error: string | Error, options?: { permanent?: boolean }): void {
   const errMsg = typeof error === "string" ? error : error?.message || String(error);
   const now = new Date();
 
@@ -148,7 +203,7 @@ export function fail(id: number, error: string | Error): void {
       return { job, outcome: "cancelling" as const };
     }
 
-    if (job.attempts >= job.maxAttempts) {
+    if (options?.permanent || job.attempts >= job.maxAttempts) {
       db.update(jobs)
         .set({
           status: "failed",
@@ -174,6 +229,15 @@ export function fail(id: number, error: string | Error): void {
         startedAt: null,
         runAt: nextRunAt,
         error: errMsg,
+        // A retrying job goes back to "pending" -- the state a job is in
+        // before it has done any work -- so its progress must go back to 0
+        // with it. Without this, a job that had already reported real
+        // progress on this attempt (a reload that reached 100 right before
+        // an AI-processing throw, say) polls as "pending" at its old
+        // percentage through the whole backoff window, and a client
+        // displaying that number verbatim watches it sit at a stale high
+        // value and then fall backwards once the retry actually starts.
+        progress: 0,
       })
       .where(eq(jobs.id, id))
       .run();
@@ -207,18 +271,44 @@ export function progress(id: number, percent: number): void {
   // but twenty of those calls were a BEGIN IMMEDIATE that wrote the number
   // already sitting in the column. A stale read here is harmless: the worst
   // case is one redundant write, which is exactly what happened before.
-  const current = getDb()
-    .select({ progress: jobs.progress })
-    .from(jobs)
-    .where(eq(jobs.id, id))
-    .get();
-  if (current?.progress === clamped) {
+  //
+  // The full row comes back (not just `progress`) because resolveJobUserId()
+  // needs its runId/kind/payload/userId below, and because this dedupe
+  // doubles as the publish throttle: one event per distinct percentage, so a
+  // 200-article job emits about twenty events rather than two hundred.
+  const current = getDb().select().from(jobs).where(eq(jobs.id, id)).get();
+  if (!current || current.progress === clamped) {
     return;
   }
 
   writeTransaction((db) => {
     db.update(jobs).set({ progress: clamped }).where(eq(jobs.id, id)).run();
   });
+
+  // Best-effort, exactly like publishJobOutcome: a broken subscriber must not
+  // turn a successful progress write into a failed job.
+  try {
+    const userId = resolveJobUserId(current);
+    if (!userId) return;
+    publishUserEvent(userId, {
+      type: "job",
+      payload: {
+        jobId: id,
+        runId: current.runId,
+        kind: current.kind,
+        // The row's actual status, not a hardcoded "running": in practice
+        // this is always "running" (only a claimed job reaches a handler
+        // that calls progress()), but the row is already in hand here, and
+        // REST (GET /api/v1/jobs/:id) and SSE must describe the same row
+        // identically rather than one of them asserting a status by
+        // convention instead of reading it.
+        status: current.status,
+        progress: clamped,
+      },
+    });
+  } catch (err) {
+    console.error(`[queue] failed to publish progress for job ${id}:`, err);
+  }
 }
 
 export type CancelOutcome = "cancelled" | "cancelling" | "unchanged";
@@ -376,11 +466,26 @@ export function getRun(id: number): Run | null {
 }
 
 /**
+ * A run's completion as a whole percent. Computed here, once, rather than in
+ * each client: `GET /api/v1/runs/:id` and the `run` SSE event must agree, and
+ * the native client drives its progress display straight off this number.
+ * A run with no jobs is 100, not 0 -- there is nothing left to wait for.
+ */
+export function runProgressPercent(
+  totalJobs: number,
+  completedJobs: number,
+  failedJobs: number,
+): number {
+  if (totalJobs <= 0) return 100;
+  return Math.round(((completedJobs + failedJobs) / totalJobs) * 100);
+}
+
+/**
  * Which user a job's completion/failure should notify, or null if none
  * applies. A job belonging to a run always notifies that run's owner; a
  * standalone `article.reload` job (phase 12's reload action, no run) notifies
  * the owner of the feed its article belongs to. Every other kind (feed.logo,
- * feed.update, feed.restore, retention) is internal maintenance the client
+ * feed.update, retention) is internal maintenance the client
  * API never triggers and never needs to hear about.
  */
 function resolveJobUserId(job: Job): string | null {
@@ -410,6 +515,32 @@ function resolveJobUserId(job: Job): string | null {
 }
 
 /**
+ * Marks `runId` terminal once `completedJobs + failedJobs >= totalJobs` --
+ * the one rule that decides a run is done, shared by every caller that can
+ * change either side of that inequality (`bumpRunCounters()` below, and
+ * `decrementRunTotal()`, which changes `totalJobs` rather than the counters).
+ * Guarded on `status === "running"` so calling this against an
+ * already-terminal run is a no-op rather than re-stamping `finishedAt`.
+ *
+ * Returns the run's current row (after any transition this call made), or
+ * `null` if it does not exist, so a caller outside the transaction can tell
+ * whether *this* call is what flipped it and publish accordingly.
+ */
+function finalizeRunIfDone(tx: ReturnType<typeof getDb>, runId: number): Run | null {
+  const run = tx.select().from(runs).where(eq(runs.id, runId)).get();
+  if (!run) return null;
+
+  if (run.status === "running" && run.completedJobs + run.failedJobs >= run.totalJobs) {
+    const status = run.failedJobs > 0 ? "failed" : "completed";
+    const finishedAt = new Date();
+    tx.update(runs).set({ status, finishedAt }).where(eq(runs.id, runId)).run();
+    return { ...run, status, finishedAt };
+  }
+
+  return run;
+}
+
+/**
  * Bumps a run's completed/failed counter for one finished child job, then
  * marks the run terminal once every child has reported in. Called from
  * inside `complete()`/`fail()`'s `writeTransaction`, so the read-then-write
@@ -432,14 +563,68 @@ function bumpRunCounters(
       .run();
   }
 
-  const run = tx.select().from(runs).where(eq(runs.id, runId)).get();
-  if (!run) return;
+  finalizeRunIfDone(tx, runId);
+}
 
-  if (run.completedJobs + run.failedJobs >= run.totalJobs) {
-    tx.update(runs)
-      .set({ status: run.failedJobs > 0 ? "failed" : "completed", finishedAt: new Date() })
-      .where(eq(runs.id, runId))
-      .run();
+/**
+ * Removes `count` pending jobs from `runId`'s total and re-evaluates
+ * terminality through the same `finalizeRunIfDone()` rule `bumpRunCounters()`
+ * uses -- so deleting a run's last outstanding pending job flips it terminal
+ * right here, rather than leaving it to a completion event that will never
+ * come now that the job is gone (`deleteJobs()`, `@/lib/jobs/actions`).
+ *
+ * Must be called from inside the same transaction as the delete that made
+ * `count` of `runId`'s pending jobs disappear: `runs.totalJobs` and the
+ * surviving `jobs` rows must never be observably out of sync with each
+ * other. `count` covers only rows that were `pending` -- a deleted
+ * `completed`/`failed`/`cancelled` row already contributed to
+ * `completedJobs`/`failedJobs` and needs no adjustment here.
+ *
+ * A run whose `totalJobs` reaches 0 this way settles the same as
+ * `enqueueRun()`'s empty-`payloads` path: `0 >= 0` is true and no job
+ * failed, so it finalizes as `"completed"` rather than being left `"running"`
+ * with nothing left that could ever finish it.
+ *
+ * Returns the run's row after the decrement (and any resulting terminal
+ * transition) for the caller to inspect once its own transaction has
+ * committed, mirroring how `complete()`/`fail()` only publish afterward.
+ */
+export function decrementRunTotal(
+  tx: ReturnType<typeof getDb>,
+  runId: number,
+  count: number,
+): Run | null {
+  tx.update(runs)
+    .set({ totalJobs: sql`${runs.totalJobs} - ${count}` })
+    .where(eq(runs.id, runId))
+    .run();
+
+  return finalizeRunIfDone(tx, runId);
+}
+
+/**
+ * Publishes the `run` event for `run`'s current counters, best-effort like
+ * `publishJobOutcome()` below (never throws -- a broken subscriber must not
+ * turn a caller's already-committed write into a reported failure). For a
+ * caller that changed run state without a child job's own completed/failed
+ * transition running through `publishJobOutcome()` -- today, `deleteJobs()`
+ * flipping a run terminal by deleting its last pending job.
+ */
+export function publishRunUpdate(userId: string, run: Run): void {
+  try {
+    publishUserEvent(userId, {
+      type: "run",
+      payload: {
+        runId: run.id,
+        status: run.status,
+        progress: runProgressPercent(run.totalJobs, run.completedJobs, run.failedJobs),
+        totalJobs: run.totalJobs,
+        completedJobs: run.completedJobs,
+        failedJobs: run.failedJobs,
+      },
+    });
+  } catch (err) {
+    console.error(`[queue] failed to publish run update for run ${run.id}:`, err);
   }
 }
 
@@ -470,6 +655,9 @@ function publishJobOutcome(job: Job, status: "completed" | "failed" | "cancelled
         runId: job.runId,
         kind: job.kind,
         status,
+        // A completed job is 100 by definition. A failed or cancelled one
+        // reports how far it actually got, so the client's last displayed
+        // percentage does not jump to a number that never happened.
         progress: status === "completed" ? 100 : job.progress,
       },
     });
@@ -477,16 +665,7 @@ function publishJobOutcome(job: Job, status: "completed" | "failed" | "cancelled
     if (job.runId !== null) {
       const run = getRun(job.runId);
       if (run) {
-        publishUserEvent(userId, {
-          type: "run",
-          payload: {
-            runId: run.id,
-            status: run.status,
-            totalJobs: run.totalJobs,
-            completedJobs: run.completedJobs,
-            failedJobs: run.failedJobs,
-          },
-        });
+        publishRunUpdate(userId, run);
       }
     }
   } catch (err) {
@@ -494,10 +673,17 @@ function publishJobOutcome(job: Job, status: "completed" | "failed" | "cancelled
   }
 }
 
+/**
+ * A plain read, deliberately not wrapped in `writeTransaction()`. It used to
+ * be: a pure SELECT under `BEGIN IMMEDIATE`, which asks for the exclusive
+ * write lock and so contends with four worker loops and every
+ * `progress()`/`appendLogLine()` write -- on every `/jobs` page load, for a
+ * query that writes nothing. That is exactly the cost `claim()`'s read-only
+ * pre-check above exists to remove. There is no read-then-write here to keep
+ * atomic; a single statement is a consistent snapshot on its own.
+ */
 export function getJob(id: number): Job | null {
-  return writeTransaction((db) => {
-    return db.select().from(jobs).where(eq(jobs.id, id)).get() ?? null;
-  });
+  return getDb().select().from(jobs).where(eq(jobs.id, id)).get() ?? null;
 }
 
 export interface ListJobsOptions {
@@ -521,65 +707,76 @@ export interface JobWithOwner extends Job {
   ownerLastName: string | null;
 }
 
+/**
+ * Two plain reads, deliberately not wrapped in `writeTransaction()` -- see
+ * `getJob()` above for why a SELECT must not take the write lock, which this
+ * one made worse by running a LEFT JOIN and a COUNT(*) under it.
+ *
+ * The page and the count are therefore two separate snapshots, so a job
+ * inserted between them can make `total` disagree with `jobs.length` by one.
+ * That is what a paginated list already tolerates -- the count is stale the
+ * moment it is rendered anyway, and a worker inserting jobs continuously
+ * makes it stale again before the response is read -- and it is not worth
+ * every reader blocking every writer to avoid.
+ */
 export function listJobs(options: ListJobsOptions = {}): { jobs: JobWithOwner[]; total: number } {
   const limit = options.limit ?? 50;
   const offset = options.offset ?? 0;
 
-  return writeTransaction((db) => {
-    const conditions = [];
-    if (options.kind) {
-      conditions.push(eq(jobs.kind, options.kind));
-    }
-    if (options.status) {
-      // `options.status` comes from a URL filter param (parseListParams()), not
-      // a caller who already knows it's one of JobStatus -- an unrecognized value
-      // just matches no rows, same as before the column was typed.
-      conditions.push(eq(jobs.status, options.status as JobStatus));
-    }
-    if (options.userId) {
-      conditions.push(eq(jobs.userId, options.userId));
-    }
+  const db = getDb();
+  const conditions = [];
+  if (options.kind) {
+    conditions.push(eq(jobs.kind, options.kind));
+  }
+  if (options.status) {
+    // `options.status` comes from a URL filter param (parseListParams()), not
+    // a caller who already knows it's one of JobStatus -- an unrecognized value
+    // just matches no rows, same as before the column was typed.
+    conditions.push(eq(jobs.status, options.status as JobStatus));
+  }
+  if (options.userId) {
+    conditions.push(eq(jobs.userId, options.userId));
+  }
 
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    // Explicit column list rather than `db.select()`: the two tables both have
-    // an `id` column, which a wildcard select would collide on.
-    const items = db
-      .select({
-        id: jobs.id,
-        runId: jobs.runId,
-        userId: jobs.userId,
-        kind: jobs.kind,
-        payload: jobs.payload,
-        status: jobs.status,
-        attempts: jobs.attempts,
-        maxAttempts: jobs.maxAttempts,
-        priority: jobs.priority,
-        runAt: jobs.runAt,
-        startedAt: jobs.startedAt,
-        finishedAt: jobs.finishedAt,
-        progress: jobs.progress,
-        error: jobs.error,
-        createdAt: jobs.createdAt,
-        ownerEmail: users.email,
-        ownerFirstName: users.firstName,
-        ownerLastName: users.lastName,
-      })
-      .from(jobs)
-      .leftJoin(users, eq(jobs.userId, users.id))
-      .where(whereClause)
-      .orderBy(desc(jobs.createdAt), desc(jobs.id))
-      .limit(limit)
-      .offset(offset)
-      .all();
+  // Explicit column list rather than `db.select()`: the two tables both have
+  // an `id` column, which a wildcard select would collide on.
+  const items = db
+    .select({
+      id: jobs.id,
+      runId: jobs.runId,
+      userId: jobs.userId,
+      kind: jobs.kind,
+      payload: jobs.payload,
+      status: jobs.status,
+      attempts: jobs.attempts,
+      maxAttempts: jobs.maxAttempts,
+      priority: jobs.priority,
+      runAt: jobs.runAt,
+      startedAt: jobs.startedAt,
+      finishedAt: jobs.finishedAt,
+      progress: jobs.progress,
+      error: jobs.error,
+      createdAt: jobs.createdAt,
+      ownerEmail: users.email,
+      ownerFirstName: users.firstName,
+      ownerLastName: users.lastName,
+    })
+    .from(jobs)
+    .leftJoin(users, eq(jobs.userId, users.id))
+    .where(whereClause)
+    .orderBy(desc(jobs.createdAt), desc(jobs.id))
+    .limit(limit)
+    .offset(offset)
+    .all();
 
-    const countResult = db.select({ value: count() }).from(jobs).where(whereClause).get();
+  const countResult = db.select({ value: count() }).from(jobs).where(whereClause).get();
 
-    return {
-      jobs: items,
-      total: countResult?.value ?? 0,
-    };
-  });
+  return {
+    jobs: items,
+    total: countResult?.value ?? 0,
+  };
 }
 
 export type JobLogStream = "stdout" | "stderr";

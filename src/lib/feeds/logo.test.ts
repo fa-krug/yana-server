@@ -9,6 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { applyMigrationsAt } from "@/lib/db/test-support";
 
+import { MAX_DECODE_PIXELS } from "@/lib/aggregators/images/compression";
+
 import { pickBestIcon, removeWhiteBackground } from "./logo";
 
 async function solidWhitePng() {
@@ -203,6 +205,41 @@ describe("storeLogo", () => {
       .where(eq(schema.articleImages.contentHash, hashA))
       .all();
     expect(rows).toHaveLength(1);
+  });
+
+  // `storeLogo()`'s resize ran on a bare `sharp()` -- sharp's 268 MP default,
+  // which is no protection -- over bytes `fetchIconBytes()` pulls from a URL a
+  // site's own `<link rel="icon">` or web manifest declared, under nothing but
+  // a 2 MB byte cap. `removeWhiteBackground()` above it is only accidentally
+  // safe: its MAX_FILL_PIXELS bail returns *before* decoding, and what it
+  // returns is the full-size original, which is exactly what reached the
+  // unguarded resize. This is the worker-executed `feed.logo` path, with
+  // WORKER_CONCURRENCY peers.
+  it("refuses an icon whose pixel count exceeds the decode limit", async () => {
+    // 36 MP of flat colour: ~1 MB of PNG, hundreds of MB decoded. Past
+    // MAX_DECODE_PIXELS and comfortably inside the 2 MB icon byte cap, so no
+    // byte-level check can see it.
+    const bomb = await sharp({
+      create: { width: 6000, height: 6000, channels: 3, background: { r: 4, g: 5, b: 6 } },
+    })
+      .png({ compressionLevel: 1 })
+      .toBuffer();
+
+    expect(6000 * 6000).toBeGreaterThan(MAX_DECODE_PIXELS);
+    expect(bomb.length).toBeLessThan(2 * 1024 * 1024);
+
+    // Unguarded, sharp resizes this to 128x128 happily and returns a hash --
+    // having decoded the whole raster first. A feed with no logo is the cost
+    // of refusing, and the `feed.logo` handler already treats null that way.
+    expect(await logo.storeLogo(feedId, bomb, "https://example.com/huge.png")).toBeNull();
+
+    const feed = client
+      .getDb()
+      .select()
+      .from(schema.feeds)
+      .where(eq(schema.feeds.id, feedId))
+      .get();
+    expect(feed?.logoImageHash).toBeNull();
   });
 
   it("returns null instead of throwing when the icon isn't a format sharp can decode", async () => {

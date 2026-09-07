@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "@/test/render";
 import { setPathname, setSearchParams } from "@/test/next-navigation";
 
-import { Pagination } from "./pagination";
+import { Pagination, PaginationPlaceholder } from "./pagination";
 
 vi.mock("next/navigation", () => import("@/test/next-navigation"));
 
@@ -49,5 +49,21 @@ describe("<Pagination>", () => {
     const { container } = renderWithProviders(<Pagination page={1} pageSize={25} total={0} />);
 
     expect(container.textContent).toBe("");
+  });
+});
+
+describe("<PaginationPlaceholder>", () => {
+  it("reserves the row's space with both controls disabled and hidden from a11y", () => {
+    renderWithProviders(<PaginationPlaceholder />);
+
+    const nav = document.querySelector("nav")!;
+    expect(nav.getAttribute("aria-hidden")).toBe("true");
+
+    // `aria-hidden` removes these from the accessibility tree, so they are
+    // queried directly rather than through `getByRole` -- which is the point:
+    // nothing here should be independently discoverable or focusable.
+    const buttons = Array.from(nav.querySelectorAll("button")) as HTMLButtonElement[];
+    expect(buttons).toHaveLength(2);
+    expect(buttons.every((button) => button.disabled)).toBe(true);
   });
 });

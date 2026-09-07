@@ -100,6 +100,10 @@ describe("GET /api/v1/images/[hash]", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/webp");
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    // A sub-MIN_IMAGE_SIZE SVG is stored verbatim, so these bytes can be an
+    // active document and this URL is navigable from a browser (cookie
+    // fallback). The CSP is what stops direct navigation executing it.
+    expect(response.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
     expect(Buffer.from(await response.arrayBuffer())).toEqual(Buffer.from([1, 2, 3]));
   });
 
@@ -333,8 +337,8 @@ describe("GET /api/v1/images/[hash]", () => {
     // lookup in userForBearerToken()); resolving the caller before validating
     // the hash is deliberate (see requireApiUser's doc comment on ordering).
     // Spying here proves the *hash* is never used in a query: a call count of
-    // 1 means only that auth lookup ran, and neither ownsHash()'s two queries
-    // nor the final articleImages lookup ever executed.
+    // 1 means only that auth lookup ran, and neither ownsImageHash()'s three
+    // queries nor the final articleImages lookup ever executed.
     const getDbSpy = vi.spyOn(client, "getDb");
 
     const response = await get(encodeURIComponent(hash), { authorization: `Bearer ${token}` });

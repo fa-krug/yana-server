@@ -16,12 +16,18 @@
  *   reach an error message: these propagate into job logs and error-notification
  *   emails, and Google echoes a rejected key back in `error.message`. Only the
  *   endpoint name and the status number are ever reported.
+ *
+ * The deadline and the body cap this call needs are *not* extra work here:
+ * `fetchTextThrottled()` is itself built on `withDeadline()` and
+ * `readCappedText()`, so routing through it keeps the guarantees this fetch
+ * gained on 2026-09-04 -- it had no deadline of any kind before then, and a
+ * stalled googleapis connection held the worker loop running it open
+ * indefinitely (`worker.ts`'s budget timer only asks for cooperative
+ * cancellation and has no checkpoint inside a fetch) -- and adds the throttle
+ * and the 429 retry on top.
  */
 
 import { fetchTextThrottled, type ThrottledTextResponse } from "../../http/throttled-fetch";
-
-/** Per-attempt budget for one Data API call. */
-export const YOUTUBE_API_TIMEOUT_MS = 10_000;
 
 export class YouTubeAPIError extends Error {
   originalError?: unknown;
@@ -172,6 +178,21 @@ export interface YouTubeCommentThread {
   [key: string]: unknown;
 }
 
+/**
+ * Deadline for one attempt at an API call, covering the body rather than only
+ * the headers. `fetchTextThrottled()` builds the signal from it *inside* the
+ * throttle slot, so time spent queued behind the host cap or a cooldown is not
+ * charged against it.
+ *
+ * There is no separate error-body cap any more. When this fetch read its own
+ * bodies, a refusal was read through a tighter `MAX_ERROR_BYTES` than a success
+ * because the text was only ever interpolated into a message. The shared loop
+ * reads one body whichever the status is, and the message no longer quotes it
+ * at all (see the no-echo rule above), so the one `MAX_JSON_BYTES` default is
+ * the only cap left with a job.
+ */
+const API_TIMEOUT_MS = 30_000;
+
 export class YouTubeClient {
   static BASE_URL = "https://www.googleapis.com/youtube/v3";
   public apiKey: string;
@@ -192,13 +213,13 @@ export class YouTubeClient {
 
     const response = await fetchTextThrottled(url.toString(), {
       headers: { Accept: "application/json" },
-      timeoutMs: YOUTUBE_API_TIMEOUT_MS,
+      timeoutMs: API_TIMEOUT_MS,
     });
 
     if (!response) {
-      // No answer at all: network, DNS, timeout. The old code had no timeout
-      // of any kind, so a hung googleapis connection stalled a worker loop
-      // for as long as the socket stayed open.
+      // No answer this caller can act on: network, DNS, the deadline, or a body
+      // that ran past the cap -- `fetchTextThrottled()` collapses all four to
+      // `null`, because no caller in the tree can act on the difference.
       throw new YouTubeAPIError(`YouTube API request failed: no response from ${endpoint}`);
     }
 

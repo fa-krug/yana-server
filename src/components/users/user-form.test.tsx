@@ -190,4 +190,30 @@ describe("<UserForm>", () => {
     expect(screen.getByLabelText<HTMLInputElement>("Vorname").value).toBe("Ada");
     expect(consoleError).toHaveBeenCalled();
   });
+
+  it("renders every field, disabled, while pending", () => {
+    // The defect this migration exists to fix: `/users/new`'s fallback used to
+    // be the unrelated generic table skeleton. The real chassis now renders
+    // disabled instead, with no value -- see `/users/new/loading.tsx`. `user`
+    // is absent (create mode), so the password field is present too.
+    renderWithProviders(<UserForm pending />);
+
+    const email = screen.getByLabelText("Email") as HTMLInputElement;
+    expect(email.disabled).toBe(true);
+    expect(email.value).toBe("");
+
+    expect((screen.getByLabelText("First name") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText("Last name") as HTMLInputElement).disabled).toBe(true);
+
+    const roleTrigger = screen.getByLabelText("Role") as HTMLButtonElement;
+    expect(roleTrigger.disabled).toBe(true);
+
+    const password = screen.getByLabelText("Password") as HTMLInputElement;
+    expect(password.disabled).toBe(true);
+    expect(password.value).toBe("");
+
+    expect(
+      (screen.getByRole("button", { name: "Create user" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
 });

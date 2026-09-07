@@ -25,6 +25,7 @@ export interface ChromeLabels {
   viewOnBluesky: string;
   viewOnReddit: string;
   viewOnTwitter: string;
+  crosspost: string;
 }
 
 export const DEFAULT_CHROME_LABELS: ChromeLabels = Object.freeze({
@@ -43,6 +44,7 @@ export const DEFAULT_CHROME_LABELS: ChromeLabels = Object.freeze({
   viewOnBluesky: "View on Bluesky",
   viewOnReddit: "View on Reddit",
   viewOnTwitter: "View on X/Twitter",
+  crosspost: "Crosspost",
 });
 
 /**
@@ -93,5 +95,6 @@ export async function resolveChromeLabels(
     viewOnBluesky: t("viewOnBluesky"),
     viewOnReddit: t("viewOnReddit"),
     viewOnTwitter: t("viewOnTwitter"),
+    crosspost: t("crosspost"),
   };
 }

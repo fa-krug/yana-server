@@ -6,7 +6,7 @@ import type { AiProviderStatus } from "@/lib/ai/queries";
 import { KEEP_EXISTING } from "@/lib/secrets";
 import { renderWithProviders } from "@/test/render";
 
-import { ProviderSection } from "./provider-section";
+import { ProviderSectionForm } from "./provider-section";
 
 const { listOpenrouterModels, removeProvider, saveProvider, setActiveProvider, testProvider } =
   vi.hoisted(() => ({
@@ -56,7 +56,9 @@ const PROVIDERS: Record<AiProviderKey, AiProviderStatus> = {
 };
 
 function render(active: AiProviderKey | "", locale: "en" | "de" = "de") {
-  return renderWithProviders(<ProviderSection active={active} providers={PROVIDERS} />, { locale });
+  return renderWithProviders(<ProviderSectionForm active={active} providers={PROVIDERS} />, {
+    locale,
+  });
 }
 
 /**
@@ -639,6 +641,65 @@ describe("<ProviderSection>", () => {
 
       await waitFor(() => expect(removeProvider).toHaveBeenCalledWith("anthropic"));
       expect(toastSuccess).toHaveBeenCalledWith("Zugangsdaten entfernt.");
+    });
+  });
+
+  describe("pending", () => {
+    it("renders the provider picker disabled, with no selection", () => {
+      // A disabled trigger cannot be opened to inspect its popup (Base UI
+      // does not respond to a click on it, correctly), so what is asserted
+      // here is what a disabled trigger can honestly show: no value at all --
+      // `data-placeholder` -- rather than a specific label. Base UI's own
+      // `hasSelectedValue` reads `""` as unselected too, so a wrongly-passed
+      // `value=""` would look identical here; the interactive tests elsewhere
+      // in this file are what pin that no `value` prop is passed at all
+      // (CLAUDE.md's Base UI trap).
+      renderWithProviders(<ProviderSectionForm pending />);
+
+      const trigger = document.querySelector<HTMLButtonElement>("#ai-provider")!;
+      expect(trigger.disabled).toBe(true);
+      expect(trigger.dataset.placeholder).toBe("");
+    });
+
+    it("renders the model picker disabled and empty, never a guessed list", () => {
+      renderWithProviders(<ProviderSectionForm pending />);
+
+      const trigger = document.querySelector<HTMLButtonElement>("#ai-model")!;
+      expect(trigger.disabled).toBe(true);
+      expect(screen.queryAllByRole("option").length).toBe(0);
+    });
+
+    it("renders a real, disabled, empty API key field and both buttons", () => {
+      renderWithProviders(<ProviderSectionForm pending />);
+
+      const apiKey = screen.getByLabelText("API key") as HTMLInputElement;
+      expect(apiKey.disabled).toBe(true);
+      expect(apiKey.value).toBe("");
+
+      expect(
+        (screen.getByRole("button", { name: "Save and verify" }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+      expect((screen.getByRole("button", { name: "Test" }) as HTMLButtonElement).disabled).toBe(
+        true,
+      );
+    });
+
+    it("omits the status badge, the base URL field and the remove button", () => {
+      renderWithProviders(<ProviderSectionForm pending />);
+
+      // Data-dependent verdicts with no honest pending value -- see
+      // YoutubeSectionForm's own doc comment for the same reasoning.
+      expect(screen.queryByText("Verified")).toBe(null);
+      expect(screen.queryByText("Not verified")).toBe(null);
+      expect(screen.queryByLabelText("Base URL")).toBe(null);
+      expect(screen.queryByRole("button", { name: "Remove credentials" })).toBe(null);
+      expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBe(0);
+    });
+
+    it("still shows the card heading", () => {
+      renderWithProviders(<ProviderSectionForm pending />);
+
+      expect(screen.getByText("Provider")).toBeTruthy();
     });
   });
 });

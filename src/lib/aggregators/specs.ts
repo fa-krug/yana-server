@@ -65,11 +65,30 @@ export type AggregatorSpec = {
   identifierLabel: string;
   identifierHelp: string;
   /**
-   * Fixed feed variants, ported verbatim from the aggregator's own
-   * `getIdentifierChoices()` in `src/lib/aggregators/sites/*` — see the
-   * cross-check test in `registry.test.ts` that keeps this hand-kept copy
-   * honest. Empty for the two free-form-URL aggregators and the two
-   * live-search aggregators.
+   * Fixed feed variants for this aggregator. Used to be a hand-kept copy of
+   * each site class's own `getIdentifierChoices()` static, cross-checked
+   * byte-for-byte by a `registry.test.ts` test -- both the site-class method
+   * and that test are gone now (2026-09-03 pipeline-review-4 cleanup, Task 2:
+   * `getConfigurationFields()`/`getIdentifierChoices()` and the rest of that
+   * configuration API had no production caller). `specs.ts` is the single
+   * source for this data now, with nothing left to cross-check it against.
+   * It is also read at *runtime* now, not only by the feed form:
+   * `defineSite()` (`./define-site`) resolves a site class's default
+   * identifier -- the URL each constructor used to repeat as a literal --
+   * through `defaultIdentifierFor()` below, so the constructor default and
+   * this list cannot drift apart.
+   * `registry.test.ts` asserts one invariant about this field directly --
+   * every choice has a non-empty value and label -- and covers "a
+   * choice-mode aggregator has at least two choices" only *indirectly*,
+   * through `identifierModeFor()`'s own mode-derivation test: that function
+   * returns `"choice"` precisely when this array has two or more entries
+   * (see its doc comment below), so a spec whose `identifierChoices` shrank
+   * enough to flip its mode away from `"choice"` fails that test instead. A
+   * test asserting the length threshold directly, filtered on the mode it
+   * derives from that same threshold, would be true by construction --
+   * which is why there isn't one. Empty for `full_website`, `feed_content`
+   * and `podcast`, which take a free-form URL, and for `youtube` and
+   * `reddit`, which search live instead of offering a fixed list.
    */
   identifierChoices: { value: string; label: string }[];
   /** Set only for the two aggregators with a live search-as-you-type identifier field. */
@@ -101,6 +120,11 @@ export function identifierModeFor(spec: AggregatorSpec): IdentifierMode {
  * The identifier value a `none`/`choice`-mode aggregator starts with (its
  * first — for `none`, only — choice), or `""` for `url`/`search` modes,
  * where there's nothing to default to.
+ *
+ * Two consumers: the feed form pre-fills with it, and `defineSite()`
+ * (`./define-site`) uses it as the identifier a site aggregator falls back to
+ * when the feed carries none — which is why this module has a server-side
+ * reader despite being the client-safe half of the registry.
  */
 export function defaultIdentifierFor(spec: AggregatorSpec): string {
   return spec.identifierChoices[0]?.value ?? "";
@@ -137,7 +161,7 @@ const AI_OPTIONS: OptionSpec[] = [
   },
   /**
    * The checkbox/value pair mirrors `ai_translate` + `ai_translate_language`:
-   * the flag is what `applyAiOptions()` gates on, the text is what it sends.
+   * the flag is what `applyAiToBlocks()` gates on, the text is what it sends.
    * Checked with empty text is a no-op, exactly as an unchecked box is —
    * see the gating comment in `src/lib/ai/run.ts`.
    */
@@ -160,6 +184,33 @@ const AI_OPTIONS: OptionSpec[] = [
 ];
 
 /**
+ * Every aggregator carries this, because the advertising filter it switches off
+ * is in `BaseAggregator.filterArticles()` rather than in any one site's
+ * aggregator -- a publisher's own "Anzeige"/"Advertorial" label is read from
+ * the entry's categories or its title, and both are channels every feed has.
+ *
+ * Default on, and the check itself reads `!== false`, so a feed created before
+ * this option existed also gets the filter. It is a *visible* switch for the
+ * same reason the drop is logged: this filter deletes articles rather than
+ * flagging them, and a reader who subscribed to a feed *for* its deal articles
+ * has to be able to find the thing that is removing them.
+ *
+ * The key is `skip_ads` because `sites/caschys_blog.ts` already had exactly
+ * this option, as a title-only test for "(Anzeige)"; keeping the name means the
+ * feeds that already have it stored keep their setting.
+ */
+const SKIP_ADS_OPTION: OptionSpec = {
+  key: "skip_ads",
+  label: "Skip Advertising",
+  kind: "boolean",
+  default: true,
+  help: 'Drop articles the source labels as advertising ("Anzeige", "Advertorial", "Sponsored Post").',
+};
+
+/** What every aggregator offers, whatever its source. */
+const COMMON_OPTIONS: OptionSpec[] = [SKIP_ADS_OPTION, ...AI_OPTIONS];
+
+/**
  * `content_selectors`/`ignore_selectors` -- for `full_website` only, the one
  * aggregator with no site of its own and therefore no curated selectors to
  * fall back on. Every site-specific aggregator (Heise, Merkur, Tagesschau,
@@ -171,7 +222,7 @@ const AI_OPTIONS: OptionSpec[] = [
  * its `extractContent` override never even reads.
  */
 const WEBSITE_OPTIONS: OptionSpec[] = [
-  ...AI_OPTIONS,
+  ...COMMON_OPTIONS,
   {
     key: "content_selectors",
     label: "Content Selectors",
@@ -209,7 +260,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierLabel: "URL",
     identifierHelp: "RSS Feed URL",
     identifierChoices: [],
-    options: AI_OPTIONS,
+    options: COMMON_OPTIONS,
   },
   heise: {
     key: "heise",
@@ -226,7 +277,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       { value: "https://www.heise.de/rss/heise-top.rdf", label: "Top News" },
     ],
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       { key: "include_comments", label: "Include Comments", kind: "boolean", default: true },
       { key: "max_comments", label: "Max Comments", kind: "number", default: 5 },
     ],
@@ -275,7 +326,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       { value: "https://www.merkur.de/lokales/schongau/rssfeed.rdf", label: "Schongau" },
     ],
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       {
         key: "remove_empty_elements",
         label: "Remove Empty Elements",
@@ -421,7 +472,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       },
     ],
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       { key: "skip_livestreams", label: "Skip Livestreams", kind: "boolean", default: true },
       { key: "skip_videos", label: "Skip Videos", kind: "boolean", default: true },
     ],
@@ -438,7 +489,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       { value: "https://explosm.net/rss.xml", label: "Cyanide & Happiness (Main RSS)" },
     ],
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       { key: "show_alt_text", label: "Show Alt Text", kind: "boolean", default: true },
     ],
   },
@@ -454,7 +505,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       { value: "https://darklegacycomics.com/feed.xml", label: "Dark Legacy Comics (Main Feed)" },
     ],
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       { key: "show_alt_text", label: "Show Alt Text", kind: "boolean", default: true },
     ],
   },
@@ -469,10 +520,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierChoices: [
       { value: "https://stadt-bremerhaven.de/feed/", label: "Caschy's Blog (Main Feed)" },
     ],
-    options: [
-      ...AI_OPTIONS,
-      { key: "skip_ads", label: "Skip Ads", kind: "boolean", default: true },
-    ],
+    options: COMMON_OPTIONS,
   },
   mactechnews: {
     key: "mactechnews",
@@ -488,7 +536,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       { value: "https://www.mactechnews.de/Rss/Journals.x", label: "Journals" },
     ],
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       { key: "combine_pages", label: "Combine Pages", kind: "boolean", default: true },
       { key: "include_comments", label: "Include Comments", kind: "boolean", default: true },
       { key: "max_comments", label: "Max Comments", kind: "number", default: 5 },
@@ -504,7 +552,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierHelp: "Select Oglaf feed",
     identifierChoices: [{ value: "https://www.oglaf.com/feeds/rss/", label: "Oglaf (Main Feed)" }],
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       { key: "show_alt_text", label: "Show Alt Text", kind: "boolean", default: true },
     ],
   },
@@ -518,10 +566,21 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierHelp: "Select Mein MMO feed",
     identifierChoices: [{ value: "https://mein-mmo.de/feed/", label: "Main Feed (All Articles)" }],
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       { key: "combine_pages", label: "Combine Pages", kind: "boolean", default: true },
       { key: "include_comments", label: "Include Comments", kind: "boolean", default: true },
       { key: "max_comments", label: "Max Comments", kind: "number", default: 5 },
+      // Off by default, unlike every other boolean option here: this is the
+      // Dailymotion player Mein-MMO's CMS auto-inserts into article bodies,
+      // not an author's embed -- see processDailymotionBlocks() in
+      // sites/mein_mmo/content.ts. The label has to carry the whole
+      // explanation, because feed-form.tsx renders no `help` for a boolean.
+      {
+        key: "include_videos",
+        label: "Include Auto-Inserted Videos",
+        kind: "boolean",
+        default: false,
+      },
     ],
   },
   the_verge: {
@@ -533,7 +592,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierLabel: "Feed",
     identifierHelp: "Select The Verge feed",
     identifierChoices: [{ value: "https://www.theverge.com/rss/index.xml", label: "Main Feed" }],
-    options: AI_OPTIONS,
+    options: COMMON_OPTIONS,
   },
   ars_technica: {
     key: "ars_technica",
@@ -549,7 +608,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
       { value: "https://arstechnica.com/science/feed/", label: "Science" },
       { value: "https://arstechnica.com/gaming/feed/", label: "Gaming" },
     ],
-    options: AI_OPTIONS,
+    options: COMMON_OPTIONS,
   },
   youtube: {
     key: "youtube",
@@ -562,7 +621,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierChoices: [],
     identifierSearch: "youtube",
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       { key: "comment_limit", label: "Comment Limit", kind: "number", default: 10 },
     ],
   },
@@ -577,7 +636,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierChoices: [],
     identifierSearch: "reddit",
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       {
         key: "subreddit_sort",
         label: "Sort Order",
@@ -611,7 +670,7 @@ export const AGGREGATOR_SPECS: Record<AggregatorKey, AggregatorSpec> = {
     identifierHelp: "Podcast RSS Feed",
     identifierChoices: [],
     options: [
-      ...AI_OPTIONS,
+      ...COMMON_OPTIONS,
       { key: "include_player", label: "Include Player", kind: "boolean", default: true },
       {
         key: "include_download_link",

@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
+import { Suspense, use, useEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { UserAvatar } from "@/components/user-avatar";
 import { removeAvatar, updateProfile, uploadAvatar } from "@/lib/account/actions";
 import { attempt, type AccountKey, type AccountResult } from "@/lib/account/result";
+import type { AccountOverview } from "@/lib/account/queries";
 import {
   AVATAR_FOREGROUND,
   AVATAR_MAX_BYTES,
@@ -22,6 +23,9 @@ import {
   colourFor,
   initialsFor,
 } from "@/lib/avatar";
+
+/** What the card needs of a user row -- never the whole `User`. */
+type ProfileUser = AvatarUser & { image: string | null };
 
 /**
  * Name, address and picture.
@@ -37,13 +41,26 @@ import {
  * again. Showing the file the user just picked is both the immediate feedback
  * and the only honest way to prove the upload landed without inventing a
  * cache-buster that `safeAvatarSrc()` would then refuse.
+ *
+ * `user === undefined` (paired with `pending`) is the "not loaded yet" state:
+ * the real card renders -- heading, help text, avatar frame, all three fields
+ * and Save, all disabled -- rather than a `<Skeleton>` standing in for each of
+ * them. Only the avatar picker (which needs the real id to derive a colour and
+ * to compare against `safeAvatarSrc()`) has nothing to show but an empty frame
+ * until then.
  */
-export function ProfileSection({ user }: { user: AvatarUser & { image: string | null } }) {
+export function ProfileSectionForm({
+  user,
+  pending = false,
+}: {
+  user?: ProfileUser;
+  pending?: boolean;
+}) {
   const t = useTranslations("account");
-  const [email, setEmail] = useState(user.email);
-  const [firstName, setFirstName] = useState(user.firstName);
-  const [lastName, setLastName] = useState(user.lastName);
-  const [pending, start] = useTransition();
+  const [email, setEmail] = useState(user?.email ?? "");
+  const [firstName, setFirstName] = useState(user?.firstName ?? "");
+  const [lastName, setLastName] = useState(user?.lastName ?? "");
+  const [saving, start] = useTransition();
   const [preview, setPreview] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -140,10 +157,15 @@ export function ProfileSection({ user }: { user: AvatarUser & { image: string | 
     });
   }
 
+  const disabled = pending || saving;
+
   return (
-    <ProfileSectionShell
-      onSubmit={saveProfile}
-      avatarControl={
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("profile.title")}</CardTitle>
+        <CardDescription>{t("profile.description")}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
         <div className="flex flex-wrap items-center gap-4">
           {preview ? (
             /* A plain <Avatar> and not <UserAvatar>: this src is a blob: URL
@@ -157,26 +179,39 @@ export function ProfileSection({ user }: { user: AvatarUser & { image: string | 
                   frame would read as a failed upload. */}
               <AvatarFallback
                 aria-hidden="true"
-                style={{ backgroundColor: colourFor(user.id), color: AVATAR_FOREGROUND }}
+                style={
+                  user
+                    ? { backgroundColor: colourFor(user.id), color: AVATAR_FOREGROUND }
+                    : undefined
+                }
               >
-                {initialsFor(user)}
+                {user ? initialsFor(user) : null}
               </AvatarFallback>
             </Avatar>
-          ) : (
+          ) : user ? (
             <UserAvatar user={user} size="lg" />
+          ) : (
+            // No row yet: an empty frame rather than a coloured one -- the
+            // colour and the initials both come from the id, which is not
+            // known until the promise resolves. The frame itself still
+            // renders, disabled, so nothing visually appears or disappears
+            // once the real avatar mounts.
+            <Avatar size="lg" aria-hidden="true">
+              <AvatarFallback />
+            </Avatar>
           )}
 
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
               variant="secondary"
-              disabled={pending}
+              disabled={disabled}
               onClick={() => fileInput.current?.click()}
             >
-              {pending ? t("avatar.uploading") : t("avatar.choose")}
+              {saving ? t("avatar.uploading") : t("avatar.choose")}
             </Button>
-            {user.image ? (
-              <Button type="button" variant="ghost" disabled={pending} onClick={discardPicture}>
+            {user?.image ? (
+              <Button type="button" variant="ghost" disabled={disabled} onClick={discardPicture}>
                 {t("avatar.remove")}
               </Button>
             ) : null}
@@ -193,87 +228,10 @@ export function ProfileSection({ user }: { user: AvatarUser & { image: string | 
             className="hidden"
             aria-hidden="true"
             tabIndex={-1}
+            disabled={disabled}
             onChange={pickFile}
           />
         </div>
-      }
-      emailControl={
-        <Input
-          id="account-email"
-          type="email"
-          required
-          autoComplete="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-        />
-      }
-      firstNameControl={
-        <Input
-          id="account-first-name"
-          autoComplete="given-name"
-          value={firstName}
-          onChange={(event) => setFirstName(event.target.value)}
-        />
-      }
-      lastNameControl={
-        <Input
-          id="account-last-name"
-          autoComplete="family-name"
-          value={lastName}
-          onChange={(event) => setLastName(event.target.value)}
-        />
-      }
-      saveControl={
-        <Button type="submit" disabled={pending}>
-          {t("profile.save")}
-        </Button>
-      }
-    />
-  );
-}
-
-/**
- * The section's chrome alone: the card heading, the avatar-limits help text
- * and the three field labels, with no dependency on `user` or any pending
- * state -- see the doc comment on `GeneralSectionShell` in
- * `../settings/general-section.tsx` for why `account/page.tsx` renders this
- * directly as its own `<Suspense>` fallback (with skeletons standing in for
- * the avatar area and each field) instead of a generic skeleton block. The
- * avatar block is one slot rather than several: every piece of it (the image,
- * the choose/remove buttons, the hidden input) depends on `user` or local
- * state, so there is no static chrome left to split out of it.
- */
-export function ProfileSectionShell({
-  avatarControl,
-  emailControl,
-  firstNameControl,
-  lastNameControl,
-  saveControl,
-  // Optional, and defaulted here rather than by the caller -- see the same
-  // comment on `YoutubeSectionShell` in
-  // `../integrations/youtube-section.tsx`: `account/page.tsx`'s Suspense
-  // fallback and `account/loading.tsx` are Server Components and cannot pass
-  // a function across the RSC boundary, so they pass nothing and this
-  // "use client" module supplies the no-op.
-  onSubmit = (event) => event.preventDefault(),
-}: {
-  avatarControl: ReactNode;
-  emailControl: ReactNode;
-  firstNameControl: ReactNode;
-  lastNameControl: ReactNode;
-  saveControl: ReactNode;
-  onSubmit?: React.FormEventHandler<HTMLFormElement>;
-}) {
-  const t = useTranslations("account");
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("profile.title")}</CardTitle>
-        <CardDescription>{t("profile.description")}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {avatarControl}
 
         <p className="text-sm text-muted-foreground">
           {t("avatar.help", {
@@ -283,26 +241,78 @@ export function ProfileSectionShell({
           })}
         </p>
 
-        <form onSubmit={onSubmit} className="space-y-4">
+        <form onSubmit={saveProfile} className="space-y-4">
           <div className="grid gap-2">
             <Label htmlFor="account-email">{t("profile.email")}</Label>
-            {emailControl}
+            <Input
+              id="account-email"
+              type="email"
+              required
+              autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              disabled={disabled}
+            />
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
               <Label htmlFor="account-first-name">{t("profile.firstName")}</Label>
-              {firstNameControl}
+              <Input
+                id="account-first-name"
+                autoComplete="given-name"
+                value={firstName}
+                onChange={(event) => setFirstName(event.target.value)}
+                disabled={disabled}
+              />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="account-last-name">{t("profile.lastName")}</Label>
-              {lastNameControl}
+              <Input
+                id="account-last-name"
+                autoComplete="family-name"
+                value={lastName}
+                onChange={(event) => setLastName(event.target.value)}
+                disabled={disabled}
+              />
             </div>
           </div>
 
-          {saveControl}
+          <Button type="submit" disabled={disabled}>
+            {t("profile.save")}
+          </Button>
         </form>
       </CardContent>
     </Card>
+  );
+}
+
+/** Calls use(); suspends until the promise resolves; renders the form for real. */
+function ProfileSectionResolved({ promise }: { promise: Promise<AccountOverview> }) {
+  // `AccountOverview.user` is already the five named columns this card
+  // renders, not the whole `User` row -- narrowed in `getAccountOverview()`
+  // (see `AccountUser` in `@/lib/account/queries`), *before* this promise was
+  // ever constructed. That is deliberate, not merely convenient: React
+  // serializes a promise's resolved value, not the type this parameter
+  // declares, so narrowing here -- after `use()` has already resolved it --
+  // would be too late. The whole row (`role`, the three ban columns,
+  // `emailVerified`, the timestamps) would already have crossed into
+  // `/account`'s RSC payload by the time this destructure ran.
+  const { user } = use(promise);
+  return <ProfileSectionForm user={user} />;
+}
+
+/**
+ * What the page renders. The fallback is the real form, in its pending
+ * state -- see the Design Reference in
+ * docs/superpowers/plans/2026-08-16-streaming-controls-migration.md -- so the
+ * heading, help text, avatar frame and all three field labels are on screen
+ * from the first frame and only the values stream in afterward.
+ */
+export function ProfileSection({ promise }: { promise: Promise<AccountOverview> }) {
+  return (
+    <Suspense fallback={<ProfileSectionForm pending />}>
+      <ProfileSectionResolved promise={promise} />
+    </Suspense>
   );
 }

@@ -136,7 +136,13 @@ export async function runWorkerLoop(options?: {
 
     const handler = getHandler(job.kind);
     if (!handler) {
-      fail(job.id, `No handler registered for job kind '${job.kind}'`);
+      // `permanent: true`: the handler registry is filled at module load
+      // (`handlers/index.ts`) and never grows at runtime, so "no handler for
+      // this kind" is the same answer on every attempt. Without it this job
+      // went back to `pending` twice on an exponential back-off and reached
+      // the operator's `/jobs` list, as a real failure with the message it
+      // already had, only minutes later.
+      fail(job.id, `No handler registered for job kind '${job.kind}'`, { permanent: true });
       continue;
     }
 

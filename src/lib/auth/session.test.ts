@@ -242,6 +242,49 @@ describe("the session helpers", () => {
     });
   });
 
+  describe("isNotFoundError", () => {
+    it("recognises what this version of Next's notFound() actually throws", async () => {
+      // Pinned against a real thrown `notFound()` -- here, `requireAdmin()`'s
+      // own gate for a signed-in non-admin -- rather than a hand-built error,
+      // for the same reason `isLoginRedirect`'s test is. This is the sentinel
+      // `/users/[id]/page.tsx` catches so `getUser()`'s internal
+      // `requireAdmin()` rejection folds into the same not-found state a
+      // missing id already produces, instead of surfacing through `use()` as
+      // an uncaught rejection alongside it.
+      const member = await seedMember();
+      requestAs(member.cookie);
+
+      let thrown: unknown;
+      try {
+        await session.requireAdmin();
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(session.isNotFoundError(thrown)).toBe(true);
+    });
+
+    it("does not mistake a login redirect for a not-found", async () => {
+      // The two control-flow errors must stay distinguishable: a signed-out
+      // caller should still be redirected to /login, not folded into a
+      // not-found state meant only for "this id doesn't exist or isn't yours".
+      let thrown: unknown;
+      try {
+        await session.requireAdmin();
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(session.isNotFoundError(thrown)).toBe(false);
+    });
+
+    it("does not swallow an ordinary error", async () => {
+      expect(session.isNotFoundError(new Error("database is locked"))).toBe(false);
+      expect(session.isNotFoundError(null)).toBe(false);
+      expect(session.isNotFoundError(undefined)).toBe(false);
+    });
+  });
+
   describe("currentUserRow", () => {
     it("returns the signed-in user's row", async () => {
       requestAs(await signInCookie(auth, ADMIN));

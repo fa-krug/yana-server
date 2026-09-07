@@ -6,11 +6,86 @@
 
 import { ArticleSkipError } from "../../errors";
 import type { ChromeLabels } from "../../chrome-labels";
-import { fetchPostComments, formatCommentHtml } from "./comments";
+import { buildCommentsSection, type CommentSpec } from "../../comments/section";
+import { fetchPostComments } from "./comments";
 import { extractAnimatedGifUrl, extractGiphyGifUrl } from "./images";
 import { convertRedditMarkdown, escapeHtml, safeImgHtml, safeLinkHtml } from "./markdown";
 import { RedditComment, RedditGalleryItem, RedditPostData } from "./types";
 import { decodeHtmlEntitiesInUrl, fixRedditMediaUrl } from "./urls";
+
+/**
+ * Reddit's own comment descriptor for the shared `buildCommentsSection()`
+ * (`src/lib/aggregators/comments/section.ts`): no timestamp, a
+ * `target="_blank" rel="noopener"` source link, and no outer wrap -- the
+ * heading and comments ride bare inside `formatArticleContent()`'s own
+ * `ARTICLE_COMMENTS_CLASS` wrapper, so this must not add a second one.
+ */
+const REDDIT_COMMENT_SPEC: CommentSpec<RedditComment[], RedditComment> = {
+  list: (comments) => comments,
+  author: (c) => c.author || "[deleted]",
+  bodyHtml: (c) => convertRedditMarkdown(c.body || ""),
+  anchorUrl: (c) => `https://reddit.com${c.permalink}`,
+  linkAttrs: 'target="_blank" rel="noopener"',
+  multiline: true,
+};
+
+/**
+ * What a crosspost is, spelled out for the reader. A crosspost's article body
+ * is built from the *original* post -- its title, selftext, media, comments
+ * and permalink all belong to the subreddit it was first submitted to -- so
+ * without this nothing in the finished article says the post reached the feed
+ * by way of a crosspost, nor which subreddit it actually came from. That was
+ * true of the retired Django implementation too: `is_cross_post` only ever
+ * suppressed the bare link `addLinkMedia()` would otherwise append (the
+ * crosspost's `url` is the original post, so the link would point the reader
+ * back at the article they are already reading).
+ *
+ * The subreddit the crosspost itself appeared in is deliberately *not* part of
+ * this: it is the feed's own subreddit, which the reader already knows -- the
+ * one thing the article does not carry is where the post came *from*.
+ * `originalSubreddit` is `""` when Reddit's `crosspost_parent_list` entry
+ * carries no `subreddit` (rare), which is distinct from a null attribution
+ * meaning "not a crosspost at all".
+ */
+export interface CrosspostAttribution {
+  originalSubreddit: string;
+}
+
+/**
+ * The one-line "Crosspost: r/from" notice that opens a crosspost's body, the
+ * subreddit name linking to that subreddit.
+ *
+ * With no origin known the notice degrades to the bare word, which still
+ * answers the question the whole notice exists for -- is this a crosspost.
+ */
+export function buildCrosspostNoticeHtml(
+  crosspost: CrosspostAttribution,
+  labels: ChromeLabels,
+): string {
+  const origin = crosspost.originalSubreddit
+    ? `: ${safeLinkHtml(
+        `https://reddit.com/r/${crosspost.originalSubreddit}`,
+        `r/${crosspost.originalSubreddit}`,
+      )}`
+    : "";
+
+  return `<p><em>${escapeHtml(labels.crosspost)}${origin}</em></p>`;
+}
+
+/**
+ * `buildPostContent()`'s return: the post's own body, and its comment section
+ * kept separate rather than concatenated in. Callers that fingerprint or
+ * render this content must pass `comments` through `formatArticleContent()`'s
+ * `commentsContent` parameter -- never splice it into `body` themselves -- or
+ * `articleContentHash()`'s comment exclusion
+ * (`src/lib/aggregators/content-hash.ts`) cannot find it and a busy thread
+ * rewrites the row on every aggregation cycle. See `ARTICLE_COMMENTS_CLASS` in
+ * `../../extract/format` for the one place that wrapper is written.
+ */
+export interface RedditPostContent {
+  body: string;
+  comments: string | null;
+}
 
 export async function buildPostContent(
   post: RedditPostData,
@@ -18,35 +93,43 @@ export async function buildPostContent(
   subreddit: string,
   labels: ChromeLabels,
   userId?: number | string | null,
-  isCrossPost = false,
+  crosspost: CrosspostAttribution | null = null,
   commentsList?: RedditComment[],
-): Promise<string> {
+  onLog?: (message: string) => void,
+): Promise<RedditPostContent> {
   const contentParts: string[] = [];
 
-  // 1. Selftext
+  // 1. Crosspost notice -- first, so the reader knows what they are looking at
+  // before the original post's own body starts.
+  if (crosspost) {
+    contentParts.push(buildCrosspostNoticeHtml(crosspost, labels));
+  }
+
+  // 2. Selftext
   if (post.selftext) {
     const selftextHtml = convertRedditMarkdown(post.selftext);
     contentParts.push(`<div>${selftextHtml}</div>`);
   }
 
-  // 2. Gallery media
+  // 3. Gallery media
   addGalleryMedia(post, contentParts);
 
-  // 3. Link media
-  addLinkMedia(post, contentParts, isCrossPost, labels);
+  // 4. Link media
+  addLinkMedia(post, contentParts, Boolean(crosspost), labels);
 
-  // 4. Comments section
-  await addCommentsSection(
+  // 5. Comments section -- built separately, not pushed into contentParts. See
+  // `RedditPostContent` above for why.
+  const comments = await buildPostCommentsSection(
     post,
     commentLimit,
     subreddit,
     userId,
-    contentParts,
     labels,
     commentsList,
+    onLog,
   );
 
-  return contentParts.join("");
+  return { body: contentParts.join(""), comments };
 }
 
 function processGalleryItem(item: RedditGalleryItem, post: RedditPostData): string | null {
@@ -165,47 +248,79 @@ function processLinkMedia(
   return urlLower.includes("twitter.com") || urlLower.includes("x.com");
 }
 
-async function addCommentsSection(
+/**
+ * Builds the comment section's own inner markup -- the caller wraps it (or
+ * doesn't); this delegates to the shared `buildCommentsSection()`
+ * (`src/lib/aggregators/comments/section.ts`) with `REDDIT_COMMENT_SPEC`
+ * carrying no `wrapTag`, so the only `ARTICLE_COMMENTS_CLASS` wrapper in the
+ * whole pipeline stays the one `formatArticleContent()` writes.
+ *
+ * Reddit's three empty states -- disabled, fetched-but-empty, and
+ * fetch-failed -- are three separate calls into the shared builder, each with
+ * its own `emptyLabel`, decided here before the (synchronous) shared builder
+ * ever runs: which message applies depends on *why* there is no list, not
+ * just on the list being empty.
+ */
+async function buildPostCommentsSection(
   post: RedditPostData,
   commentLimit: number,
   subreddit: string,
   userId: number | string | null | undefined,
-  contentParts: string[],
   labels: ChromeLabels,
   providedComments?: RedditComment[],
-): Promise<void> {
+  onLog?: (message: string) => void,
+): Promise<string> {
   const decodedPermalink = decodeHtmlEntitiesInUrl(post.permalink);
   const permalink = `https://reddit.com${decodedPermalink}`;
-  const commentSectionParts: string[] = [`<h3>${safeLinkHtml(permalink, labels.comments)}</h3>`];
 
-  if (commentLimit > 0) {
-    try {
-      const comments =
-        providedComments !== undefined
-          ? providedComments
-          : await fetchPostComments(subreddit, post.id, commentLimit, userId);
-
-      if (comments && comments.length > 0) {
-        const commentHtmls = comments.map((comment) => formatCommentHtml(comment, labels));
-        commentSectionParts.push(commentHtmls.join(""));
-      } else {
-        commentSectionParts.push(`<p><em>${labels.noCommentsYet}</em></p>`);
-      }
-    } catch (err) {
-      // A 403/404 from the comments endpoint means the post itself is private,
-      // removed or gone -- `fetchPostComments()` reports that as an
-      // `ArticleSkipError` and the caller drops the article. Swallowing it here
-      // would silently reinstate the bug that fix by degrading a skipped post
-      // into one whose body says "Comments unavailable." Production always
-      // pre-fetches (`aggregator.ts` passes `commentsList`), so this path is
-      // reachable only from a future caller that does not -- which is exactly
-      // when the guard has to already be here.
-      if (err instanceof ArticleSkipError) throw err;
-      commentSectionParts.push(`<p><em>${labels.commentsUnavailable}</em></p>`);
-    }
-  } else {
-    commentSectionParts.push(`<p><em>${labels.commentsDisabled}</em></p>`);
+  if (commentLimit <= 0) {
+    return (
+      buildCommentsSection(
+        { ...REDDIT_COMMENT_SPEC, emptyLabel: "commentsDisabled" },
+        [],
+        permalink,
+        0,
+        labels,
+        onLog,
+      ) ?? ""
+    );
   }
 
-  contentParts.push(`<section>${commentSectionParts.join("")}</section>`);
+  try {
+    const comments =
+      providedComments !== undefined
+        ? providedComments
+        : await fetchPostComments(subreddit, post.id, commentLimit, userId);
+
+    return (
+      buildCommentsSection(
+        { ...REDDIT_COMMENT_SPEC, emptyLabel: "noCommentsYet" },
+        comments ?? [],
+        permalink,
+        commentLimit,
+        labels,
+        onLog,
+      ) ?? ""
+    );
+  } catch (err) {
+    // A 403/404 from the comments endpoint means the post itself is private,
+    // removed or gone -- `fetchPostComments()` reports that as an
+    // `ArticleSkipError` and the caller drops the article. Swallowing it here
+    // would silently reinstate the bug that fix by degrading a skipped post
+    // into one whose body says "Comments unavailable." Production always
+    // pre-fetches (`aggregator.ts` passes `commentsList`), so this path is
+    // reachable only from a future caller that does not -- which is exactly
+    // when the guard has to already be here.
+    if (err instanceof ArticleSkipError) throw err;
+    return (
+      buildCommentsSection(
+        { ...REDDIT_COMMENT_SPEC, emptyLabel: "commentsUnavailable" },
+        [],
+        permalink,
+        0,
+        labels,
+        onLog,
+      ) ?? ""
+    );
+  }
 }

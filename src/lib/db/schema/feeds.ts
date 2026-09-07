@@ -115,11 +115,39 @@ export const feeds = sqliteTable(
      * through Drizzle for it to hold -- which the writeTransaction() convention
      * already requires. Declared here rather than at a dozen call sites across
      * phases 3-13, none of which would remember.
+     *
+     * **Not the scheduler's clock, on purpose.** `$onUpdate` fires on *any*
+     * write to this row -- a `/feeds` name edit, `storeLogo()` writing
+     * `logoImageHash`, `refreshLogos()` touching every feed at once -- none of
+     * which means "this feed was just aggregated". `scheduler.ts`'s `tick()`
+     * used to read this column as "last aggregation time" regardless, which
+     * meant any of those unrelated writes silently postponed the feed's next
+     * scheduled run by a full interval. `lastAggregationStartedAt`, below, is
+     * the dedicated column that exists so the scheduler no longer has to
+     * overload this one.
      */
     updatedAt: integer("updated_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`)
       .$onUpdate(() => new Date()),
+    /**
+     * The scheduler's own clock, read by `scheduler.ts`'s `tick()` in place
+     * of `updatedAt` (see that column's comment for why). Stamped by
+     * `claim()` (`src/lib/jobs/queue.ts`), at the moment a job that runs
+     * `handleAggregateJob` -- `"aggregate"` or `"feed.update"`, see
+     * `AGGREGATE_HANDLER_JOB_KINDS` -- is claimed for this feed, never at
+     * completion: stamping at claim is what makes the scheduler's
+     * non-terminal-status dedupe (widened in plan 1) robust rather than
+     * merely wider -- a long-running aggregation's feed reads as "just
+     * started", not "still due", for the whole time it is in flight.
+     * Nullable, and deliberately never backfilled: a `NULL` here means "this
+     * feed has never been aggregated by this mechanism" -- true for every row
+     * that predates the column -- and the scheduler treats that the same as
+     * an aggregation from the epoch, so such a feed is picked up on the very
+     * next tick rather than skipped or, if it were defaulted to "now"
+     * instead, stampeding every existing feed's next run to line up.
+     */
+    lastAggregationStartedAt: integer("last_aggregation_started_at", { mode: "timestamp" }),
   },
   (table) => [
     index("feeds_user_idx").on(table.userId),

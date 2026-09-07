@@ -1,12 +1,7 @@
 import * as cheerio from "cheerio";
 import { RawArticle } from "../base";
 import { isSafeUrl } from "../blocks/parser";
-import {
-  cleanHtml,
-  removeSanitizedAttributes,
-  sanitizeClassNames,
-  sanitizeHtmlAttributes,
-} from "../extract/clean";
+import { cleanHtml, sanitizeClassNames, sanitizeUntrustedFragment } from "../extract/clean";
 import { escapeHtml, formatArticleContent } from "../extract/format";
 import { RssAggregator } from "../rss";
 import { FeedEntry, ParsedFeed, unescapeEntities } from "../rss-parser";
@@ -17,68 +12,7 @@ function safeUrlAttr(url?: string | null): string | null {
   return escapeHtml(url);
 }
 
-function sanitizeShowNotesHtml(contentHtml: string): string {
-  const cleaned = cleanHtml(contentHtml);
-  const $ = cheerio.load(cleaned);
-
-  sanitizeHtmlAttributes($);
-  removeSanitizedAttributes($);
-
-  $("a").each((_, elem) => {
-    const href = $(elem).attr("href");
-    if (href && !isSafeUrl(href)) {
-      $(elem).removeAttr("href");
-    }
-  });
-
-  $("img").each((_, elem) => {
-    const src = $(elem).attr("src");
-    if (src && !isSafeUrl(src)) {
-      $(elem).remove();
-    }
-  });
-
-  const body = $("body");
-  return body.length > 0 ? body.html() || "" : $.html();
-}
-
 export class PodcastAggregator extends RssAggregator {
-  static getIdentifierChoices(): Array<[string, string]> {
-    return [];
-  }
-
-  static getDefaultIdentifier(): string {
-    return "";
-  }
-
-  static getConfigurationFields(): Record<string, unknown> {
-    return {
-      include_player: {
-        type: "boolean",
-        initial: true,
-        label: "Include Audio Player",
-        help_text: "Include an HTML5 audio player in the article.",
-        required: false,
-      },
-      include_download_link: {
-        type: "boolean",
-        initial: true,
-        label: "Include Download Link",
-        help_text: "Include a direct download link for the audio file.",
-        required: false,
-      },
-      artwork_size: {
-        type: "integer",
-        initial: 300,
-        label: "Artwork Max Width",
-        help_text: "Maximum width of the podcast artwork in pixels.",
-        required: false,
-        min_value: 50,
-        max_value: 1000,
-      },
-    };
-  }
-
   protected parseDurationToSeconds(durationStr: string): number | null {
     if (!durationStr) return null;
     const str = durationStr.trim();
@@ -111,13 +45,17 @@ export class PodcastAggregator extends RssAggregator {
     return `${minutes}:${pad(secs)}`;
   }
 
-  override async parseToRawArticles(sourceData: unknown): Promise<RawArticle[]> {
+  // `limit` is the caller's already-paced allowance -- see the abstract
+  // signature's doc comment in ../base, including what `limit === 0` must
+  // mean. Required, not optional, for the same reason as
+  // `RssAggregator.parseToRawArticles()`: a direct call must state its bound
+  // explicitly rather than getting "no limit" by omitting the argument.
+  override async parseToRawArticles(sourceData: unknown, limit: number): Promise<RawArticle[]> {
     const feed = sourceData as ParsedFeed;
     const entries = feed?.entries || [];
     const articles: RawArticle[] = [];
-    const limit = this.getCurrentRunLimit();
 
-    const sliced = entries.slice(0, limit > 0 ? limit : entries.length);
+    const sliced = entries.slice(0, limit);
 
     for (const entry of sliced) {
       let mediaUrl = "";
@@ -176,6 +114,10 @@ export class PodcastAggregator extends RssAggregator {
         date: this.parseDate(entry.published),
         author: unescapeEntities(entry.author || ""),
         icon: null,
+        // Same reason as `RssAggregator.parseToRawArticles()`: the advertising
+        // check in `filterArticles()` reads these. A sponsored episode is
+        // labelled the same way a sponsored article is.
+        categories: entry.categories,
         _media_url: mediaUrl,
         _media_type: mediaType,
         _duration: duration,
@@ -267,7 +209,7 @@ export class PodcastAggregator extends RssAggregator {
       if (description) {
         htmlParts.push(`<div data-sanitized-class="podcast-description">`);
         htmlParts.push(`<h4>${labels.showNotes}</h4>`);
-        htmlParts.push(sanitizeShowNotesHtml(description));
+        htmlParts.push(sanitizeUntrustedFragment(description));
         htmlParts.push(`</div>`);
       }
 

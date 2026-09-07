@@ -1,65 +1,29 @@
 import * as cheerio from "cheerio";
-import { FeedLike, RawArticle } from "../base";
-import { isSafeUrl } from "../blocks/parser";
+import { RawArticle } from "../base";
+import { resolveIfRelative } from "../extract/clean";
 import { escapeHtml } from "../extract/format";
-import { HeaderElementData } from "../header/context";
-import { storeImageRefFromUrl } from "../images/store";
+import {
+  COMIC_CAPTION_STYLE,
+  COMIC_MAX_DIMENSIONS,
+  resolveComicImageSrc,
+  wantsComicAltText,
+} from "./comic-support";
+import { defineSite } from "../define-site";
 import { FullWebsiteAggregator } from "../website";
 
-// Comics here are tall vertical strips; the default 600x600 body-image cap
-// (src/lib/aggregators/images/compression.ts) crushes them down to an
-// unreadable width. This aggregator alone gets a taller ceiling.
-const COMIC_MAX_DIMENSIONS = { width: 1600, height: 4800 };
-
-export class DarkLegacyAggregator extends FullWebsiteAggregator {
-  static brandSiteUrl = "https://darklegacycomics.com/";
-
-  static getDefaultIdentifier(): string {
-    return "https://darklegacycomics.com/feed.xml";
-  }
-
-  static getIdentifierChoices(): Array<[string, string]> {
-    return [["https://darklegacycomics.com/feed.xml", "Dark Legacy Comics (Main Feed)"]];
-  }
-
-  static getConfigurationFields(): Record<string, unknown> {
-    return {
-      show_alt_text: {
-        type: "boolean",
-        initial: true,
-        label: "Show Alt Text",
-        help_text: "Display the comic's alt text below the image.",
-        required: false,
-      },
-    };
-  }
-
-  static contentSelectors = ["#gallery"];
-  protected contentSelectors = [...DarkLegacyAggregator.contentSelectors];
-
-  static selectorsToRemove = ["script", "style", "iframe", "noscript"];
-  protected selectorsToRemove = [...DarkLegacyAggregator.selectorsToRemove];
-
-  usesFirstContentMatch = true;
-
-  constructor(feed: FeedLike) {
-    super(feed);
-    if (!this.identifier) {
-      this.identifier = "https://darklegacycomics.com/feed.xml";
-    }
-  }
-
-  override getSourceUrl(): string {
-    return "https://darklegacycomics.com";
-  }
-
-  override async extractHeaderElement(_article: RawArticle): Promise<HeaderElementData | null> {
-    return null;
-  }
+export class DarkLegacyAggregator extends defineSite(FullWebsiteAggregator, {
+  key: "dark_legacy",
+  siteUrl: "https://darklegacycomics.com",
+  content: ["#gallery"],
+  remove: ["script", "style", "iframe", "noscript"],
+  firstMatchOnly: true,
+}) {
+  // The comic panel *is* the article's content, not something with a
+  // separate header image to fetch -- see BaseAggregator.
+  static suppressesHeaderExtraction = true;
 
   override async processContent(htmlContent: string, article: RawArticle): Promise<string> {
-    const options = (this.feed.options as Record<string, unknown> | null) || {};
-    const showAltText = options.show_alt_text !== false;
+    const showAltText = wantsComicAltText(this.feed);
 
     const $ = cheerio.load(htmlContent);
     const images = $("img").toArray();
@@ -72,25 +36,8 @@ export class DarkLegacyAggregator extends FullWebsiteAggregator {
       // awaited, and a comic page can carry more than one image.
       for (const imgEl of images) {
         const $img = $(imgEl);
-        let src = ($img.attr("src") || "").trim();
-        if (
-          src &&
-          !src.startsWith("http://") &&
-          !src.startsWith("https://") &&
-          !src.startsWith("data:")
-        ) {
-          try {
-            src = new URL(src, article.identifier).href;
-          } catch {
-            // Keep original src if URL resolution fails
-          }
-        }
-
-        let imgSrc = src;
-        if (isSafeUrl(src)) {
-          const ref = await storeImageRefFromUrl(src, { maxDimensions: COMIC_MAX_DIMENSIONS });
-          imgSrc = ref || src;
-        }
+        const src = resolveIfRelative(($img.attr("src") || "").trim(), article.identifier);
+        const imgSrc = await resolveComicImageSrc(src, { maxDimensions: COMIC_MAX_DIMENSIONS });
 
         const alt = $img.attr("alt");
         const altText = alt !== undefined && alt !== null && alt !== "" ? alt : "";
@@ -102,7 +49,7 @@ export class DarkLegacyAggregator extends FullWebsiteAggregator {
         htmlBuilder += ">";
 
         if (showAltText && altText) {
-          htmlBuilder += `<p style="font-style: italic; margin-top: 1em; color: #666; text-align: center;">${escapeHtml(altText)}</p>`;
+          htmlBuilder += `<p style="${COMIC_CAPTION_STYLE} text-align: center;">${escapeHtml(altText)}</p>`;
         }
       }
       htmlBuilder += "</div>";

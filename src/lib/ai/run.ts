@@ -1,66 +1,40 @@
-import * as cheerio from "cheerio";
-
-import { writeTransaction } from "@/lib/db/client";
+import { plainTextOf } from "@/lib/aggregators/blocks/plain-text";
+import type { Block } from "@/lib/aggregators/blocks/types";
 import type { UserSettings } from "@/lib/db/schema";
 
-import { DEEPSEEK_API_URL, MISTRAL_API_URL, OPENROUTER_API_URL, QWEN_API_URL } from "./providers";
-import { checkAndRecordAiUsage } from "./usage";
-
-export interface ArticleInput {
-  name?: string;
-  content?: string;
-  [key: string]: unknown;
-}
+import { blocksToText, textToBlocks } from "./block-text";
+import { AI_COLUMNS, activeProvider, resolveModel } from "./columns";
+import type { AiProviderKey } from "./providers";
+import {
+  DEEPSEEK_API_URL,
+  GEMINI_API_BASE_URL,
+  MISTRAL_API_URL,
+  OPENAI_DEFAULT_API_URL,
+  OPENROUTER_API_URL,
+  QWEN_API_URL,
+  providerByKey,
+} from "./providers";
 
 /**
- * What `AIClient` and `applyAiOptions` accept for a user's AI configuration.
+ * What `AIClient` and `applyAiToBlocks` accept for a user's AI configuration.
  *
  * `getSettings()`'s real row is `UserSettings` -- camelCase, one field per
- * column -- so `Partial<UserSettings>` covers every production caller. Every
- * field is also read under its snake_case column name (`this.settings.aiMaxRetries
- * ?? this.settings.ai_max_retries`), which nothing in this codebase's own
- * callers produces today; it is kept because dropping it would be a behavior
- * change for whatever *does* hand this a snake_case row (a raw query result, a
- * fixture ported from `old/core/ai_client.py`'s Django settings object).
+ * column -- so `Partial<UserSettings>` covers every production caller:
+ * `aggregate.ts`, `reload.ts` and `POST /api/v1/ai/prompt` all pass a full
+ * Drizzle `UserSettings` row.
  *
- * `aiMaxRetryTime`/`ai_max_retry_time` (the retry-budget cap read in
- * `requestWithRetry()`) has no `user_settings` column at all -- `old/core/ai_client.py`
- * reads it with `getattr(self.settings, "ai_max_retry_time", 60)`, always falling
- * back to its default -- so both spellings are declared here rather than on
- * `UserSettings`.
+ * **There used to be a parallel snake_case surface here too** -- every field
+ * also readable under its snake_case column name
+ * (`this.settings.aiMaxRetries ?? this.settings.ai_max_retries`), 29 fields and
+ * 38 fallback chains, kept "for whatever *does* hand this a snake_case row."
+ * Nothing does: every production caller reads a Drizzle row, camelCase by
+ * construction, and the only object literals using the snake_case keys were
+ * raw-SQL row assertions in tests (reading a column back from SQLite, not
+ * constructing an `AiRuntimeSettings`). Deleted along with it:
+ * `aiMaxRetryTime`/`ai_max_retry_time` had **no column in either spelling** --
+ * see `MAX_RETRY_TIME_SECONDS` below for where that budget lives now.
  */
-export type AiRuntimeSettings = Partial<UserSettings> & {
-  active_ai_provider?: string;
-  aiMaxRetryTime?: number;
-  ai_max_retries?: number;
-  ai_retry_delay?: number;
-  ai_max_retry_time?: number;
-  ai_temperature?: number;
-  ai_max_tokens?: number;
-  ai_request_timeout?: number;
-  openai_enabled?: boolean;
-  openai_api_key?: string;
-  openai_api_url?: string;
-  openai_model?: string;
-  anthropic_enabled?: boolean;
-  anthropic_api_key?: string;
-  anthropic_model?: string;
-  gemini_enabled?: boolean;
-  gemini_api_key?: string;
-  gemini_model?: string;
-  mistral_enabled?: boolean;
-  mistral_api_key?: string;
-  mistral_model?: string;
-  qwen_enabled?: boolean;
-  qwen_api_key?: string;
-  qwen_model?: string;
-  deepseek_enabled?: boolean;
-  deepseek_api_key?: string;
-  deepseek_model?: string;
-  openrouter_enabled?: boolean;
-  openrouter_api_key?: string;
-  openrouter_model?: string;
-};
+export type AiRuntimeSettings = Partial<UserSettings>;
 
 /** The JSON body an AI provider's chat/completion endpoint is POSTed. */
 export type AiRequestBody = Record<string, unknown>;
@@ -77,28 +51,45 @@ export class ProviderUnauthorizedError extends Error {}
 
 export type AiGenerationResult =
   | { ok: true; text: string }
-  | {
-      ok: false;
-      reason:
-        | "noProvider"
-        | "dailyLimitExceeded"
-        | "monthlyLimitExceeded"
-        | "providerUnauthorized"
-        | "providerError";
-    };
+  | { ok: false; reason: "noProvider" | "providerUnauthorized" | "providerError" };
+
+/**
+ * The `max_tokens` Anthropic's Messages API requires, since it is the one
+ * provider here that will not accept a request without a ceiling. 16000 rather
+ * than a model's full output limit because these requests are not streamed, and
+ * a non-streaming request that asks for a very large answer can exceed the
+ * API's own request timeout before any of it comes back. It is deliberately far
+ * above the longest article this stage sends, so it is a safety limit and never
+ * a truncation point.
+ */
+const ANTHROPIC_MAX_TOKENS = 16000;
+
+/**
+ * The fixed ceiling on how long `requestWithRetry()` will keep backing off a
+ * 429 before giving up, in seconds.
+ *
+ * **A named constant, not a `user_settings` column, and that is a deliberate
+ * ruling.** There is no `aiMaxRetryTime`/`ai_max_retry_time` column in either
+ * spelling -- the setting-shaped surface that used to read one always fell
+ * back to this same value, so the "setting" never actually varied. Adding a
+ * column now would reverse the direction the rest of this module's tuning
+ * values already went: the per-user request caps and `aiMaxTokens` were both
+ * removed outright (see `generateResponse()`'s doc comment) on the owner's
+ * explicit instruction that AI, once switched on, runs without knobs refusing
+ * work. A seventh retry-budget knob would be exactly that kind of knob. `60` is
+ * also the only value this has ever had in production: the Django original
+ * this was ported from read it as `getattr(self.settings, "ai_max_retry_time",
+ * 60)`, always falling through to the default.
+ *
+ * **It does not bound `aiMaxRetries` on its own.** The check below is
+ * `waitSeconds > 0 && elapsed + waitSeconds > maxRetryTime`, so with
+ * `aiRetryDelay = 0` (a legal setting) this budget is never consulted and
+ * every configured retry runs. That is why `./bounds`' ceiling of 10 on
+ * `maxRetries` is load-bearing rather than redundant -- see its own note.
+ */
+const MAX_RETRY_TIME_SECONDS = 60;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/** Narrows a caught value to the numeric `.status` some rejections carry. */
-function errorStatus(err: unknown): number | undefined {
-  if (typeof err === "object" && err !== null && "status" in err) {
-    const status = (err as Record<string, unknown>).status;
-    if (typeof status === "number") {
-      return status;
-    }
-  }
-  return undefined;
-}
 
 /** Mirrors `err?.message || err` for a caught value of unknown shape. */
 function describeError(err: unknown): string {
@@ -111,14 +102,82 @@ function describeError(err: unknown): string {
   return String(err);
 }
 
+/**
+ * Which request/response envelope a provider speaks. `AIClient.callProvider()`
+ * switches on this to decide which method actually issues the call; the
+ * `openai-compatible` five all end up in the one `callOpenaiCompatible()`
+ * shared body, while `anthropic` and `gemini` keep methods of their own.
+ */
+type ProviderRequestShape = "openai-compatible" | "anthropic" | "gemini";
+
+/**
+ * One row per provider: where its request goes, and which envelope it speaks.
+ *
+ * **This is the table Task 4 exists to build.** Five of the seven `callXxx()`
+ * methods this replaced were the same twelve-line shape -- read `enabled`,
+ * read `apiKey`, warn-and-return, read `model`, read `timeout`, call
+ * `callOpenaiCompatible` with a base URL -- differing only in which columns
+ * and which constant URL they read. Declaring that difference as data here,
+ * once, is what `AIClient.callProvider()` now reads instead of an
+ * `if (this.provider === "openai") … else if …` chain of seven branches.
+ *
+ * `url` is a function only for OpenAI, whose base URL is the one
+ * operator-configurable setting among the seven (`openaiApiUrl`); every other
+ * provider's endpoint is the fixed constant from `./providers`.
+ *
+ * A plain type annotation, not `satisfies`, is enough here to make a missing
+ * provider a compile error -- unlike `AI_COLUMNS` in `./columns`, no entry's
+ * shape needs to differ from its neighbours' (there is no optional field the
+ * way `apiUrl` is optional there), so there is nothing a wider inferred type
+ * would lose.
+ */
+const PROVIDER_REQUESTS: Record<
+  AiProviderKey,
+  { url: string | ((settings: AiRuntimeSettings) => string); shape: ProviderRequestShape }
+> = {
+  openai: {
+    // `?.trim() || DEFAULT`, matching `testOpenaiKey()` in `./openai` --
+    // `??` alone does not catch an *empty* stored `openaiApiUrl` (an operator
+    // who cleared the field rather than leaving it untouched), which would
+    // otherwise send every request to `https://` with nothing after it.
+    url: (settings) => settings.openaiApiUrl?.trim() || OPENAI_DEFAULT_API_URL,
+    shape: "openai-compatible",
+  },
+  anthropic: { url: "https://api.anthropic.com/v1/messages", shape: "anthropic" },
+  // `GEMINI_API_BASE_URL` is the *base* -- `callGemini()` appends
+  // `/<model>:generateContent?key=<apiKey>` to whatever this resolves to. It
+  // used to be a second, independent copy of the same host string
+  // (`callGemini()` hardcoded it directly, and this table carried a third,
+  // unread copy purely to satisfy the shared `{ url, shape }` shape) -- now
+  // there is exactly one literal, in `./providers`, and both this table and
+  // `./gemini`'s probe import it.
+  gemini: { url: GEMINI_API_BASE_URL, shape: "gemini" },
+  mistral: { url: MISTRAL_API_URL, shape: "openai-compatible" },
+  qwen: { url: QWEN_API_URL, shape: "openai-compatible" },
+  deepseek: { url: DEEPSEEK_API_URL, shape: "openai-compatible" },
+  openrouter: { url: OPENROUTER_API_URL, shape: "openai-compatible" },
+};
+
 export class AIClient {
   private settings: AiRuntimeSettings;
-  private provider: string;
+  private provider: AiProviderKey | "";
   private onLog?: (message: string) => void;
 
   constructor(settings: AiRuntimeSettings, onLog?: (message: string) => void) {
     this.settings = settings || {};
-    this.provider = this.settings.activeAiProvider ?? this.settings.active_ai_provider ?? "";
+    // **Routed through `activeProvider()`, not the raw `activeAiProvider`
+    // column.** That function (`./columns`, re-exported from `./queries` for
+    // `/ai` and `POST /api/v1/ai/prompt`) is documented as "the *only* place
+    // this decision is made" -- it requires the provider's own probe-derived
+    // `*Enabled` flag to agree with the stored preference, which a bare
+    // truthiness read on the column does not. Without this, a re-probe that
+    // classified a key `unauthorized`, or an operator pressing Remove -- both
+    // of which deliberately leave `activeAiProvider` in place -- left `/ai`
+    // correctly reporting no active provider while this client still passed
+    // its guard, dispatched, hit the provider's own `!enabled` check and
+    // reported `providerError`: "the provider failed" for a request that was
+    // never sent.
+    this.provider = activeProvider(this.settings);
     this.onLog = onLog;
   }
 
@@ -137,17 +196,14 @@ export class AIClient {
     data: AiRequestBody,
     timeoutSeconds: number,
   ): Promise<Response | null> {
-    const maxRetries = this.settings.aiMaxRetries ?? this.settings.ai_max_retries ?? 3;
-    const retryDelay = this.settings.aiRetryDelay ?? this.settings.ai_retry_delay ?? 2;
-    const maxRetryTime = this.settings.aiMaxRetryTime ?? this.settings.ai_max_retry_time ?? 60;
+    const maxRetries = this.settings.aiMaxRetries ?? 3;
+    const retryDelay = this.settings.aiRetryDelay ?? 2;
+    const maxRetryTime = MAX_RETRY_TIME_SECONDS;
 
     const startTime = Date.now();
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
-
         const response = await fetch(url, {
           method: "POST",
           headers,
@@ -158,10 +214,20 @@ export class AIClient {
           // call past whatever host validation exists. No real provider
           // endpoint redirects a POST.
           redirect: "error",
-          signal: controller.signal,
+          // `AbortSignal.timeout()`, as every probe already does, rather than
+          // a hand-rolled `AbortController` + `setTimeout` pair. That
+          // combination had two problems: `clearTimeout` was skipped whenever
+          // `fetch` threw, leaving an armed timer behind on every failed
+          // attempt, and it only ever bounded the headers -- `clearTimeout`
+          // fired the moment `fetch()` resolved, before any of the three
+          // `callXxx()` shapes calls `response.json()`, so a provider that
+          // sent headers and then stalled the body could hang the job
+          // indefinitely. A self-cleaning, self-expiring signal fixes both:
+          // nothing to leak on a throw, and the deadline still covers the
+          // body, since aborting the signal after `fetch()` resolves but
+          // before the body is fully read aborts that read too.
+          signal: AbortSignal.timeout(timeoutSeconds * 1000),
         });
-
-        clearTimeout(timeoutId);
 
         if (response.ok) {
           return response;
@@ -200,26 +266,19 @@ export class AIClient {
         return null;
       } catch (err: unknown) {
         if (err instanceof ProviderUnauthorizedError) throw err;
-        if (attempt < maxRetries && errorStatus(err) === 429) {
-          const waitSeconds = retryDelay ? retryDelay * Math.pow(2, attempt) : 0;
-          const elapsedSeconds = (Date.now() - startTime) / 1000;
-          if (waitSeconds > 0 && elapsedSeconds + waitSeconds > maxRetryTime) {
-            this.warn(
-              `Rate limited (429), but retrying would exceed time budget (${Math.round(
-                elapsedSeconds,
-              )}s elapsed, ${waitSeconds}s wait, ${maxRetryTime}s max). Giving up.`,
-            );
-            return null;
-          }
-          this.warn(
-            `Rate limited (429), retrying in ${waitSeconds}s (attempt ${attempt + 1}/${maxRetries})`,
-          );
-          if (waitSeconds > 0) {
-            await sleep(waitSeconds * 1000);
-          }
-          continue;
-        }
 
+        // **No caught-error 429 branch here**, unlike the response-status one
+        // above. A `fetch()` rejection is a `TypeError` (undici's
+        // `"fetch failed"`, carrying the real transport cause) or a
+        // `DOMException` from `AbortSignal.timeout()` firing -- neither ever
+        // carries a `.status`, which only exists on a `Response`, and a
+        // response with a status is the `response.ok`/`response.status`
+        // branch above, never this `catch`. There is therefore no rejection
+        // shape that reaches here with `.status === 429`; the code that used
+        // to check for one was a literal port of Python `requests`'
+        // `raise_for_status()` idiom, where a non-2xx response *is* a raised
+        // exception carrying `.response.status_code` -- a shape `fetch`
+        // does not share.
         this.warn(`AI API request error: ${describeError(err)}`);
         return null;
       }
@@ -229,71 +288,38 @@ export class AIClient {
   }
 
   /**
-   * `bypassUsageLimit` skips both the check and the recording of this call
-   * against the daily/monthly caps -- used for a user-triggered single-article
-   * reload (see `applyAiOptions()`'s own `bypassUsageLimit` parameter), which
-   * is a deliberate, one-off action the operator asked for right now, not the
-   * unattended bulk processing those caps exist to bound. It must not merely
-   * skip *enforcement* while still recording the call: doing so would spend
-   * part of the same budget background aggregation relies on, silently
-   * tightening the effective cap for every other AI call that day.
+   * **There is no request cap in front of this, by design.** A per-user
+   * daily/monthly counter used to gate every call here, and it was removed on
+   * the owner's explicit instruction: when AI is switched on it is expected to
+   * run without a quota refusing it. Cost control is the caller's job instead,
+   * and it is structural rather than a ceiling -- `handleAggregateJob()`'s
+   * `contentHash` comparison never reaches this for an article the feed already
+   * has unchanged, and `applyAiToBlocks()` below asks only for the fields the
+   * feed's options actually need. A cap only ever refused work that had already
+   * been decided to be worth doing; not asking in the first place costs
+   * nothing.
+   *
+   * The same reasoning removed `aiMaxTokens`, and that one was worse than a
+   * ceiling nobody wanted: guessed low it truncated the JSON envelope this
+   * stage asks for, so the whole paid request was spent on an unparseable
+   * answer. Every provider branch below now sends no output cap at all, except
+   * Anthropic's, whose API requires the field (`ANTHROPIC_MAX_TOKENS`).
+   *
+   * Do not reintroduce either without that decision being revisited.
    */
   public async generateResponse(
     prompt: string,
     jsonMode = false,
     jsonSchema?: Record<string, unknown>,
-    bypassUsageLimit = false,
   ): Promise<AiGenerationResult> {
-    if (!this.provider) {
+    const provider = this.provider;
+    if (!provider) {
       this.warn("No AI provider selected.");
       return { ok: false, reason: "noProvider" };
     }
 
-    const userId = this.settings.userId;
-    if (userId && !bypassUsageLimit) {
-      const dailyLimit = this.settings.aiDefaultDailyLimit ?? 200;
-      const monthlyLimit = this.settings.aiDefaultMonthlyLimit ?? 2000;
-      let usage: ReturnType<typeof checkAndRecordAiUsage>;
-      try {
-        usage = writeTransaction((tx) =>
-          checkAndRecordAiUsage(tx, userId, dailyLimit, monthlyLimit),
-        );
-      } catch (error) {
-        this.warn(`AI usage check failed: ${describeError(error)}`);
-        return { ok: false, reason: "providerError" };
-      }
-      if (usage === "dailyLimitExceeded" || usage === "monthlyLimitExceeded") {
-        return { ok: false, reason: usage };
-      }
-    } else if (!userId) {
-      // No settings row carried a userId (nothing in production hits this
-      // today -- both real call sites read a full `user_settings` row --
-      // but a caller that omits one gets the call through unmetered rather
-      // than a thrown error, matching this class's warn-and-continue style
-      // for misconfiguration elsewhere).
-      this.warn("No user id on AI settings; usage limit not enforced for this call.");
-    }
-
     try {
-      let text: string | null;
-      if (this.provider === "openai") {
-        text = await this.callOpenai(prompt, jsonMode);
-      } else if (this.provider === "anthropic") {
-        text = await this.callAnthropic(prompt);
-      } else if (this.provider === "gemini") {
-        text = await this.callGemini(prompt, jsonMode, jsonSchema);
-      } else if (this.provider === "mistral") {
-        text = await this.callMistral(prompt, jsonMode);
-      } else if (this.provider === "qwen") {
-        text = await this.callQwen(prompt, jsonMode);
-      } else if (this.provider === "deepseek") {
-        text = await this.callDeepseek(prompt, jsonMode);
-      } else if (this.provider === "openrouter") {
-        text = await this.callOpenrouter(prompt, jsonMode);
-      } else {
-        this.warn(`Unknown AI provider: ${this.provider}`);
-        return { ok: false, reason: "providerError" };
-      }
+      const text = await this.callProvider(provider, prompt, jsonMode, jsonSchema);
       return text === null ? { ok: false, reason: "providerError" } : { ok: true, text };
     } catch (e: unknown) {
       if (e instanceof ProviderUnauthorizedError) {
@@ -306,11 +332,62 @@ export class AIClient {
   }
 
   /**
+   * Dispatches to the one provider `generateResponse()` already confirmed is
+   * active, reading everything provider-specific -- its enabled flag, its
+   * credential column, its model column, and which request URL and envelope
+   * it uses -- out of {@link PROVIDER_REQUESTS} and `AI_COLUMNS`
+   * (`./columns`) rather than out of seven near-identical methods.
+   *
+   * **Anthropic and Gemini keep their own request/response envelopes**
+   * (`callAnthropic`/`callGemini`, below) -- neither speaks the shared
+   * `/chat/completions` shape -- but both read their column names and base
+   * URL from this same table, so a provider cannot end up with its enabled
+   * flag checked against one column and its API key against another's.
+   */
+  private async callProvider(
+    key: AiProviderKey,
+    prompt: string,
+    jsonMode: boolean,
+    jsonSchema?: Record<string, unknown>,
+  ): Promise<string | null> {
+    const provider = providerByKey(key);
+    const entry = PROVIDER_REQUESTS[key];
+    if (!provider || !entry) {
+      this.warn(`Unknown AI provider: ${key}`);
+      return null;
+    }
+
+    const columns = AI_COLUMNS[key];
+    const enabled = Boolean(this.settings[columns.enabled]);
+    const apiKey = this.settings[columns.apiKey];
+    if (!enabled || !apiKey) {
+      this.warn(`${provider.label} is not enabled or configured.`);
+      return null;
+    }
+
+    const model = resolveModel(provider, this.settings[columns.model] ?? "");
+    const timeout = this.settings.aiRequestTimeout ?? 30;
+    // Resolved once, not once per branch: every shape reads its base URL
+    // from this same `entry.url`, whether that entry is a fixed string
+    // (every provider but OpenAI) or a function of the settings (OpenAI's
+    // operator-configurable `openaiApiUrl`).
+    const baseUrl = typeof entry.url === "function" ? entry.url(this.settings) : entry.url;
+
+    switch (entry.shape) {
+      case "anthropic":
+        return this.callAnthropic(baseUrl, apiKey, model, prompt, timeout);
+      case "gemini":
+        return this.callGemini(baseUrl, apiKey, model, prompt, jsonMode, jsonSchema, timeout);
+      case "openai-compatible":
+        return this.callOpenaiCompatible(baseUrl, apiKey, model, prompt, jsonMode, timeout);
+    }
+  }
+
+  /**
    * The `/chat/completions` request/response shape every OpenAI-compatible
-   * provider shares. `callOpenai()` and the Mistral/Qwen/DeepSeek branches
-   * all call this with their own resolved base URL, key and model — only
-   * OpenAI's base URL is an operator setting, so only `callOpenai()` needs
-   * to resolve one before calling in.
+   * provider shares -- OpenAI itself, plus Mistral, Qwen, DeepSeek and
+   * OpenRouter, all five routed here by {@link callProvider} through
+   * {@link PROVIDER_REQUESTS}.
    */
   private async callOpenaiCompatible(
     baseUrl: string,
@@ -326,14 +403,20 @@ export class AIClient {
       "Content-Type": "application/json",
     };
 
-    const temperature = this.settings.aiTemperature ?? this.settings.ai_temperature ?? 0.7;
-    const maxTokens = this.settings.aiMaxTokens ?? this.settings.ai_max_tokens ?? 1000;
+    const temperature = this.settings.aiTemperature ?? 0.7;
 
+    // No `max_tokens`. Every OpenAI-compatible provider treats it as optional
+    // and defaults to "as much as the model can answer with", which is the
+    // only correct ceiling for a request whose output length is the article's
+    // length: the setting this replaced defaulted to 1000, and the moment the
+    // stage asked for a rewritten document back, a longer article came back
+    // truncated mid-JSON, failed to parse, and the whole paid request was
+    // spent on an `invalidJson` failure. A cap cannot be set correctly here
+    // without knowing the answer's length in advance, so none is sent.
     const data: AiRequestBody = {
       model,
       messages: [{ role: "user", content: prompt }],
       temperature,
-      max_tokens: maxTokens,
     };
     if (jsonMode) {
       data.response_format = { type: "json_object" };
@@ -345,47 +428,33 @@ export class AIClient {
     return result?.choices?.[0]?.message?.content ?? null;
   }
 
-  private async callOpenai(prompt: string, jsonMode: boolean): Promise<string | null> {
-    const enabled = this.settings.openaiEnabled ?? this.settings.openai_enabled;
-    const apiKey = this.settings.openaiApiKey ?? this.settings.openai_api_key;
-    if (!enabled || !apiKey) {
-      console.warn("OpenAI is not enabled or configured.");
-      return null;
-    }
-
-    const baseUrl =
-      this.settings.openaiApiUrl ?? this.settings.openai_api_url ?? "https://api.openai.com/v1";
-    const model = this.settings.openaiModel ?? this.settings.openai_model ?? "gpt-4o-mini";
-    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
-
-    return this.callOpenaiCompatible(baseUrl, apiKey, model, prompt, jsonMode, timeout);
-  }
-
-  private async callAnthropic(prompt: string): Promise<string | null> {
-    const enabled = this.settings.anthropicEnabled ?? this.settings.anthropic_enabled;
-    const apiKey = this.settings.anthropicApiKey ?? this.settings.anthropic_api_key;
-    if (!enabled || !apiKey) {
-      console.warn("Anthropic is not enabled or configured.");
-      return null;
-    }
-
-    const url = "https://api.anthropic.com/v1/messages";
+  /** Anthropic's Messages API envelope -- distinct from every other provider's. */
+  private async callAnthropic(
+    url: string,
+    apiKey: string,
+    model: string,
+    prompt: string,
+    timeout: number,
+  ): Promise<string | null> {
     const headers = {
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
       "Content-Type": "application/json",
     };
 
-    const model =
-      this.settings.anthropicModel ?? this.settings.anthropic_model ?? "claude-sonnet-4-20250514";
-    const temperature = this.settings.aiTemperature ?? this.settings.ai_temperature ?? 0.7;
-    const maxTokens = this.settings.aiMaxTokens ?? this.settings.ai_max_tokens ?? 1000;
-    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
+    const temperature = this.settings.aiTemperature ?? 0.7;
 
     const data = {
       model,
       messages: [{ role: "user", content: prompt }],
-      max_tokens: maxTokens,
+      // The one provider that cannot be sent without a ceiling: Anthropic's
+      // Messages API declares `max_tokens` **required**, so unlike every
+      // OpenAI-compatible branch and Gemini's -- which simply omit theirs --
+      // this one has to name a number. It is a constant rather than a setting
+      // for the reason the setting was removed: an operator cannot know an
+      // article's answer length in advance, and guessing low truncates the
+      // JSON envelope and wastes the whole request.
+      max_tokens: ANTHROPIC_MAX_TOKENS,
       temperature,
     };
 
@@ -395,32 +464,36 @@ export class AIClient {
     return result?.content?.[0]?.text ?? null;
   }
 
+  /**
+   * Gemini's `generateContent` envelope -- distinct from every other
+   * provider's. `baseUrl` is `entry.url` resolved by `callProvider()`
+   * (`GEMINI_API_BASE_URL` from `./providers`), not a second, independently
+   * hardcoded copy of the host -- that duplication (this method, the table
+   * entry, and the characterisation test all carrying their own copy of the
+   * same string) is exactly the class of drift Task 4 exists to remove.
+   */
   private async callGemini(
+    baseUrl: string,
+    apiKey: string,
+    model: string,
     prompt: string,
     jsonMode: boolean,
-    jsonSchema?: Record<string, unknown>,
+    jsonSchema: Record<string, unknown> | undefined,
+    timeout: number,
   ): Promise<string | null> {
-    const enabled = this.settings.geminiEnabled ?? this.settings.gemini_enabled;
-    const apiKey = this.settings.geminiApiKey ?? this.settings.gemini_api_key;
-    if (!enabled || !apiKey) {
-      console.warn("Gemini is not enabled or configured.");
-      return null;
-    }
-
-    const model =
-      this.settings.geminiModel ?? this.settings.gemini_model ?? "gemini-3-flash-preview";
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const url = `${baseUrl}/${model}:generateContent?key=${apiKey}`;
     const headers = {
       "Content-Type": "application/json",
     };
 
-    const temperature = this.settings.aiTemperature ?? this.settings.ai_temperature ?? 0.7;
-    const maxTokens = this.settings.aiMaxTokens ?? this.settings.ai_max_tokens ?? 1000;
-    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
+    const temperature = this.settings.aiTemperature ?? 0.7;
 
+    // No `maxOutputTokens`, for the reason spelled out in
+    // `callOpenaiCompatible()`: omitted, Gemini answers up to the model's own
+    // output limit, which is the only ceiling that cannot truncate a document
+    // this stage asked for in full.
     const generationConfig: Record<string, unknown> = {
       temperature,
-      maxOutputTokens: maxTokens,
     };
 
     if (jsonMode) {
@@ -440,87 +513,256 @@ export class AIClient {
     const result = await response.json();
     const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (text === undefined) {
-      console.warn(`Unexpected Gemini response format: ${JSON.stringify(result)}`);
+      this.warn(`Unexpected Gemini response format: ${JSON.stringify(result)}`);
       return null;
     }
     return text;
   }
-
-  private async callMistral(prompt: string, jsonMode: boolean): Promise<string | null> {
-    const enabled = this.settings.mistralEnabled ?? this.settings.mistral_enabled;
-    const apiKey = this.settings.mistralApiKey ?? this.settings.mistral_api_key;
-    if (!enabled || !apiKey) {
-      console.warn("Mistral is not enabled or configured.");
-      return null;
-    }
-    const model =
-      this.settings.mistralModel ?? this.settings.mistral_model ?? "mistral-small-latest";
-    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
-    return this.callOpenaiCompatible(MISTRAL_API_URL, apiKey, model, prompt, jsonMode, timeout);
-  }
-
-  private async callQwen(prompt: string, jsonMode: boolean): Promise<string | null> {
-    const enabled = this.settings.qwenEnabled ?? this.settings.qwen_enabled;
-    const apiKey = this.settings.qwenApiKey ?? this.settings.qwen_api_key;
-    if (!enabled || !apiKey) {
-      console.warn("Qwen is not enabled or configured.");
-      return null;
-    }
-    const model = this.settings.qwenModel ?? this.settings.qwen_model ?? "qwen3.5-flash";
-    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
-    return this.callOpenaiCompatible(QWEN_API_URL, apiKey, model, prompt, jsonMode, timeout);
-  }
-
-  private async callDeepseek(prompt: string, jsonMode: boolean): Promise<string | null> {
-    const enabled = this.settings.deepseekEnabled ?? this.settings.deepseek_enabled;
-    const apiKey = this.settings.deepseekApiKey ?? this.settings.deepseek_api_key;
-    if (!enabled || !apiKey) {
-      console.warn("DeepSeek is not enabled or configured.");
-      return null;
-    }
-    const model =
-      this.settings.deepseekModel ?? this.settings.deepseek_model ?? "deepseek-v4-flash";
-    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
-    return this.callOpenaiCompatible(DEEPSEEK_API_URL, apiKey, model, prompt, jsonMode, timeout);
-  }
-
-  private async callOpenrouter(prompt: string, jsonMode: boolean): Promise<string | null> {
-    const enabled = this.settings.openrouterEnabled ?? this.settings.openrouter_enabled;
-    const apiKey = this.settings.openrouterApiKey ?? this.settings.openrouter_api_key;
-    if (!enabled || !apiKey) {
-      console.warn("OpenRouter is not enabled or configured.");
-      return null;
-    }
-    const model =
-      this.settings.openrouterModel ?? this.settings.openrouter_model ?? "openrouter/free";
-    const timeout = this.settings.aiRequestTimeout ?? this.settings.ai_request_timeout ?? 30;
-    return this.callOpenaiCompatible(OPENROUTER_API_URL, apiKey, model, prompt, jsonMode, timeout);
-  }
 }
 
 /**
- * What `applyAiOptions()` actually did, distinct from the `ArticleInput` it
- * mutates in place -- a caller that asked for AI processing (a feed's
+ * What the AI stage actually did, distinct from the block tree it returns -- a
+ * caller that asked for AI processing (a feed's
  * summarize/improve-writing/translate options) and didn't get it needs to be
  * able to tell that apart from "no AI options were configured at all," which
  * is a normal, silent no-op rather than a failure.
+ *
+ * **`degraded` is a fourth arm, not a footnote on `failed`.** `failed` means
+ * `blocks`/`title` on the result are `input` verbatim -- every `unchanged()`
+ * return below is exactly that. `missingSummary` breaks that rule on purpose
+ * when a rewrite was also requested and *did* come back (see the doc comment
+ * where it is returned): the tree is a genuine, applied rewrite, just missing
+ * the summary the feed also asked for. That distinction used to live only in
+ * a comment, which is exactly why the two callers disagreed about it --
+ * `aggregate.ts` discarded the kept rewrite along with every real failure, and
+ * `reload.ts` wrote it and then failed the job over the one missing field,
+ * mailing the owner a failure notice for a run that was mostly a success.
+ * `degraded` makes the distinction something a caller has to handle rather
+ * than infer: treat it as a stored, successful write with a caveat, never as
+ * the "write nothing at all" case `failed` is.
  */
 export type ApplyAiOutcome =
-  { status: "skipped" } | { status: "applied" } | { status: "failed"; reason: string };
+  | { status: "skipped" }
+  | { status: "applied" }
+  | { status: "degraded"; reason: string }
+  | { status: "failed"; reason: string };
 
-export async function applyAiOptions(
-  article: ArticleInput,
+/**
+ * The notation spec the model is given, once per request.
+ *
+ * Short on purpose: it is paid for on every article, and every line of it is a
+ * rule the parser actually enforces. `[[M<n>]]` and `(L<n>)` are the two that
+ * matter most -- they are the reason a rewrite cannot corrupt an image ref, an
+ * embed, a line of code or a URL, because none of those is in the document to
+ * corrupt.
+ */
+const NOTATION_SPEC = [
+  "The document uses this notation. Answer in the same notation, and nothing else:",
+  "- A blank line separates blocks.",
+  '- "# " to "###### " begin a heading. "- " begins a list item, "1. " an ordered one. "> " begins a quoted line.',
+  "- Inline styles are <b>bold</b>, <i>italic</i>, <s>struck</s>, <code>code</code>.",
+  '- "[label](L3)" is a link. Rewrite the label, never the "(L3)", and never invent an index.',
+  '- "[[M7]]" stands for an image, video, embed or code block. Reproduce every one of them exactly, on its own line. You may move them; never edit, duplicate or drop one.',
+  "- A backslash escapes the character after it.",
+].join("\n");
+
+/** A tolerant read of a model's JSON answer: bare, fenced, or embedded. */
+function parseJsonAnswer(raw: string): Record<string, unknown> | null {
+  const attempt = (text: string): Record<string, unknown> | null => {
+    try {
+      const value: unknown = JSON.parse(text);
+      return typeof value === "object" && value !== null
+        ? (value as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const direct = attempt(raw);
+  if (direct) return direct;
+
+  const fenced = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/.exec(raw);
+  if (fenced) {
+    const parsed = attempt(fenced[1]);
+    if (parsed) return parsed;
+  }
+
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start !== -1 && end > start) {
+    return attempt(raw.substring(start, end + 1));
+  }
+  return null;
+}
+
+/** The article's lead media: block 0, when it is an image or an embed. */
+function leadMediaOf(blocks: Block[]): Block | null {
+  const first = blocks[0];
+  return first && (first.kind === "image" || first.kind === "embed") ? first : null;
+}
+
+/**
+ * Whether two opaque blocks are the same piece of media, **by content rather
+ * than by reference**.
+ *
+ * The distinction is the whole point. `textToBlocks()` returns the *same object*
+ * for an embed but a **fresh** one for an image, because an image's caption is
+ * prose a rewrite may have changed (`{ ...block, caption }` in `./block-text`).
+ * So an identity test -- which is what this used to do -- was always false for
+ * an image: the lead was prepended *and* the model's copy stayed, and every AI
+ * rewrite of an article with a lead image stored that image twice. Reproduced
+ * against the real module (one image in, two out) before this existed, and
+ * missed by the three lead-media tests because each asserted only `blocks[0]`.
+ */
+function sameMedia(a: Block, b: Block): boolean {
+  if (a.kind === "image" && b.kind === "image") return a.ref === b.ref;
+  if (a.kind === "embed" && b.kind === "embed") {
+    return a.externalUrl === b.externalUrl && a.thumbnailRef === b.thumbnailRef;
+  }
+  return false;
+}
+
+/**
+ * Put the article's lead media back at index 0, exactly once.
+ *
+ * Restructuring is prose freedom, not licence to move the article's thumbnail:
+ * clients hoist block 0 when it is an image (`ArticleBlockView.leadImageRef`),
+ * so a relocated, dropped **or duplicated** lead image silently changes what a
+ * timeline shows. Every case collapses to the same rule -- drop every copy the
+ * answer contains, then prepend the one from the input -- which is also why a
+ * model that emits `[[M0]]` twice cannot produce two lead images.
+ *
+ * The *input's* block is the one kept, not the answer's: only the input's is
+ * guaranteed to carry the ref this article actually stores.
+ */
+function pinLeadMedia(lead: Block, blocks: Block[]): Block[] {
+  return [lead, ...blocks.filter((block) => !sameMedia(block, lead))];
+}
+
+/**
+ * Turn the model's summary prose into the `summary` block, placed after the
+ * lead media when there is one and first otherwise.
+ *
+ * The prose is split on blank lines into paragraphs *inside* the one block --
+ * the shape `SummaryBlock` exists for, so a two-paragraph answer does not push
+ * the article down the document.
+ */
+function withSummary(blocks: Block[], summary: string): Block[] {
+  const paragraphs = summary
+    .split(/\n\s*\n|\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (paragraphs.length === 0) return blocks;
+
+  const block: Block = {
+    kind: "summary",
+    blocks: paragraphs.map((text) => ({
+      kind: "paragraph" as const,
+      runs: [{ text, bold: false, italic: false, code: false, strikethrough: false, link: "" }],
+    })),
+  };
+
+  const at = leadMediaOf(blocks) ? 1 : 0;
+  return [...blocks.slice(0, at), block, ...blocks.slice(at)];
+}
+
+/** What the AI stage was given, and what it hands back. */
+export interface AiBlockDocument {
+  title: string;
+  blocks: Block[];
+}
+
+export interface AiBlockResult extends AiBlockDocument {
+  outcome: ApplyAiOutcome;
+  /**
+   * Whether a provider request was actually issued.
+   *
+   * The caller paces its inter-request delay on this rather than on "did this
+   * article reach the stage": three arms return without touching the network
+   * (no AI options, no active provider, an article with no blocks), and pacing
+   * on article count slept two seconds before each of them -- ~100s per run on
+   * a 50-article feed whose provider was simply not configured.
+   */
+  requested: boolean;
+  /**
+   * Whether the model dropped a media/code placeholder from the rewrite
+   * (`textToBlocks()`'s `droppedOpaque`). `false` on every arm that returns
+   * `input.blocks` untouched, and on a summarize-only request, which never
+   * serializes the document at all.
+   *
+   * This is what `handleAggregateJob()` reads to withhold the `contentHash`
+   * write even though the article and its (possibly degraded) blocks are
+   * still stored: the hash is a fingerprint of the unchanged *source*, so
+   * writing it here would make the next cycle match, skip, and leave the
+   * dropped media gone for the life of that source article. Withholding it
+   * costs a retry (and, if the model drops the same media reliably, a
+   * recurring provider request on every cycle) rather than a permanent loss.
+   */
+  droppedMedia: boolean;
+}
+
+/**
+ * Run a feed's AI options over an article's **block tree**, not its HTML.
+ *
+ * The block tree is what gets stored -- there is no `articles.content` column
+ * -- so this is the format the stage should always have worked in.
+ * `blocksToText()` (`./block-text`) renders it as compact prose in which every
+ * URL and every non-prose block is an opaque index, and `textToBlocks()` reads
+ * the answer back. Three things follow, and each was a real failure mode of the
+ * HTML round trip this replaces:
+ *
+ * - **The model can restructure.** Merging, splitting and reordering blocks is
+ *   allowed and expected for an improve-writing request, because the answer is
+ *   read on its own terms rather than checked against the shape that went out.
+ *   The HTML form forbade it in the prompt ("the exact same structure as the
+ *   input") and had no way to enforce it.
+ * - **It cannot damage what it cannot see.** An image ref, an embed, a line of
+ *   code and every URL are indices, so a rewrite cannot alter one, and a
+ *   truncated answer cannot produce unparseable markup -- the parser is total.
+ * - **It costs a fraction as much.** Measured on real pages, the document is
+ *   12-19% the size of the HTML it replaces, in *and* out.
+ *
+ * **The lead media stays the lead media.** Restructuring is prose freedom, not
+ * licence to move the article's thumbnail: clients hoist block 0 when it is an
+ * image (`ArticleBlockView.leadImageRef`), so an image the model relocated or
+ * dropped would silently change what a timeline shows. If the input led with
+ * one, the output does too.
+ */
+/**
+ * Whether a feed's options ask for AI at all.
+ *
+ * Exported because `handleAggregateJob()` needs the same answer to pace its
+ * inter-request delay, and it used to carry its own copy -- under a comment
+ * asserting there was no second copy to drift from. The two already disagreed:
+ * a custom prompt of only whitespace is truthy there and `.trim()`-empty here,
+ * so the handler slept `aiRequestDelay` per article for requests it never made.
+ */
+export function wantsAi(options?: Record<string, unknown> | null): boolean {
+  const opts = options ?? {};
+  return Boolean(
+    opts.ai_summarize ||
+    opts.ai_improve_writing ||
+    opts.ai_translate ||
+    (opts.ai_custom_prompt &&
+      typeof opts.ai_custom_prompt_text === "string" &&
+      opts.ai_custom_prompt_text.trim()),
+  );
+}
+
+export async function applyAiToBlocks(
+  input: AiBlockDocument,
   options?: Record<string, unknown> | null,
   userSettings?: AiRuntimeSettings,
   onLog?: (message: string) => void,
-  /**
-   * Set by `reload.ts` for a user-triggered single-article reload -- see the
-   * doc comment on `AIClient.generateResponse()`'s own parameter of the same
-   * name for why a reload doesn't count against the daily/monthly caps the
-   * way unattended aggregation does.
-   */
-  bypassUsageLimit = false,
-): Promise<ApplyAiOutcome> {
+): Promise<AiBlockResult> {
+  const unchanged = (outcome: ApplyAiOutcome, requested = false): AiBlockResult => ({
+    ...input,
+    outcome,
+    requested,
+    droppedMedia: false,
+  });
+
   const opts = options || {};
   /**
    * The feed's own extra instruction (`ai_custom_prompt` +
@@ -532,149 +774,380 @@ export async function applyAiOptions(
     opts.ai_custom_prompt && typeof opts.ai_custom_prompt_text === "string"
       ? opts.ai_custom_prompt_text.trim()
       : "";
-  const aiEnabled = Boolean(
-    opts.ai_summarize || opts.ai_improve_writing || opts.ai_translate || customPrompt,
-  );
+  const wantsSummary = Boolean(opts.ai_summarize);
+  /**
+   * Whether the article body has to come back at all. Only three options
+   * rewrite it -- improve-writing, translate, and a custom instruction, which
+   * is free-form and so has to be assumed to. `ai_summarize` alone needs
+   * nothing but the summary, so it sends plain text and gets three sentences
+   * back rather than paying for a copy of a document we already hold.
+   */
+  const wantsRewrite = Boolean(opts.ai_improve_writing || opts.ai_translate || customPrompt);
 
-  if (!aiEnabled) {
-    return { status: "skipped" };
+  /** What this feed asked for, for the log line on the applied path below. */
+  const asked = [
+    opts.ai_summarize ? "summarize" : null,
+    opts.ai_improve_writing ? "improve" : null,
+    opts.ai_translate ? "translate" : null,
+    customPrompt ? "custom" : null,
+  ].filter((label): label is string => label !== null);
+
+  if (!wantsSummary && !wantsRewrite) {
+    return unchanged({ status: "skipped" });
   }
 
   if (!userSettings) {
     console.warn("No userSettings provided for AI processing.");
-    return { status: "failed", reason: "noProvider" };
+    return unchanged({ status: "failed", reason: "noProvider" });
   }
-
-  const provider = userSettings.activeAiProvider ?? userSettings.active_ai_provider;
-  if (!provider) {
+  // Routed through `activeProvider()`, the same function `AIClient`'s
+  // constructor now uses, rather than a bare truthiness read of
+  // `activeAiProvider` -- the raw column agrees with this function everywhere
+  // except the one state it exists to catch: a stored preference whose
+  // provider has since been probed as unauthorized, or explicitly removed
+  // (both leave the preference in place, see `activeProvider()`'s doc comment
+  // in `./columns`). In that state the raw-column check here used to pass
+  // (the column is still truthy), `AIClient` would dispatch anyway and hit
+  // the provider's own `!enabled` guard, and the article was reported
+  // `{ status: "failed", reason: "providerError" }` -- "the provider failed"
+  // for a request that never left this process, one layer above the
+  // identical bug in `AIClient` itself.
+  if (!activeProvider(userSettings)) {
     console.warn("No active AI provider selected.");
-    return { status: "failed", reason: "noProvider" };
+    return unchanged({ status: "failed", reason: "noProvider" });
+  }
+  if (input.blocks.length === 0) {
+    return unchanged({ status: "skipped" });
   }
 
   const client = new AIClient(userSettings, onLog);
-
-  const content = article.content || "";
-  if (!content) {
-    return { status: "skipped" };
-  }
-
-  // Parse HTML and strip headers, footers, navs, scripts, styles
-  const $ = cheerio.load(content, null, false);
-  $("header, footer, nav, script, style").remove();
-  const cleanHtml = $.html();
+  const document = blocksToText(input.blocks);
 
   const promptParts: string[] = [];
+  const responseKeys = [
+    ...(wantsRewrite ? ["'title'", "'document'"] : []),
+    ...(wantsSummary ? ["'summary'"] : []),
+  ];
 
   promptParts.push(
     "You are an AI assistant that processes article content. " +
-      "You will receive an article title and content in HTML format. " +
-      "You must return the result as a JSON object with keys 'title' and 'content'. " +
-      "Do not include any markdown formatting (like ```json) in the response, just the raw JSON string.",
+      `You must answer with a JSON object with ${responseKeys.length > 1 ? "keys" : "the key"} ` +
+      responseKeys.join(" and ") +
+      ". Do not wrap it in markdown fences; return the raw JSON.",
   );
 
-  if (opts.ai_summarize) {
-    promptParts.push("Summarize the article content concisely.");
-  }
-
-  if (opts.ai_improve_writing) {
+  if (wantsSummary) {
     promptParts.push(
-      "Rewrite the content to improve clarity, flow, and style. " +
-        "IMPORTANT: Preserve the complete HTML structure including all tags. " +
-        "Keep all links (<a> tags) exactly as they are - do not modify href attributes or remove any links. " +
-        "Only improve the text content itself.",
+      "Write a concise summary of the article, 2-3 sentences, into the 'summary' field. " +
+        "Plain prose only: no notation, no markdown, no leading label." +
+        (wantsRewrite ? "" : " Return the summary only; do not reproduce the article."),
     );
   }
 
-  if (opts.ai_translate) {
-    const targetLang =
-      typeof opts.ai_translate_language === "string" ? opts.ai_translate_language : "English";
+  if (wantsRewrite) {
+    promptParts.push(NOTATION_SPEC);
+
+    if (opts.ai_improve_writing) {
+      promptParts.push(
+        "Rewrite the document to improve clarity, flow and style. " +
+          "You may merge, split and reorder blocks where that reads better -- the structure is " +
+          "yours to change. Keep every link label meaningful and keep every [[M...]] placeholder.",
+      );
+    }
+
+    if (opts.ai_translate) {
+      const targetLang =
+        typeof opts.ai_translate_language === "string" ? opts.ai_translate_language : "English";
+      // Spelled out to the point of redundancy, and every clause is here
+      // because the short version ("Translate the title and document to X")
+      // produced answers that translated the title and handed the document
+      // back untouched -- reported by a user for a Reddit article, whose
+      // document is long and mostly quoted comments, which is exactly the
+      // shape a model shortcuts on. The notation spec above is seven lines of
+      // "keep this exactly", so the one line asking for a *changed* document
+      // has to say so unmistakably, and has to name the parts a model
+      // otherwise skips: a quoted line looks like a citation to leave alone.
+      promptParts.push(
+        `Translate the title${wantsSummary ? ", the summary" : ""} and the whole document into ` +
+          `${targetLang}. Every line of the document must come back in ${targetLang}: headings, ` +
+          "list items, quoted lines and image captions included. Translate link labels too, but " +
+          "never the (L...) index inside them, and never the [[M...]] placeholders. Returning " +
+          "the document in its original language is not an acceptable answer.",
+      );
+    }
+
+    if (customPrompt) {
+      // Delimited and labelled as the user's own text, and placed before the
+      // closing contract below: the JSON/notation shape the parser depends on
+      // has to be the final word, or a custom prompt (deliberately or not)
+      // reshapes the output into something unreadable.
+      promptParts.push(
+        "The user of this feed has supplied the following additional instruction. " +
+          "Follow it where it does not conflict with the output format required below:\n" +
+          `"""\n${customPrompt}\n"""`,
+      );
+    }
+
     promptParts.push(
-      `Translate the title and content to ${targetLang}. ` +
-        "IMPORTANT: Do NOT translate link labels (the text inside <a> tags). " +
-        "Keep link text in the original language. Only translate regular text content.",
+      "Put the rewritten document in the 'document' field, in the notation described above, " +
+        "and the article title in 'title'.",
     );
   }
 
-  if (customPrompt) {
-    // Delimited and labelled as the user's own text, and placed *before* the
-    // structural paragraph below rather than last: the JSON/HTML contract the
-    // response parser depends on has to be the final word, or a custom prompt
-    // (deliberately or not) reshapes the output into something unparseable.
-    promptParts.push(
-      "The user of this feed has supplied the following additional instruction. " +
-        "Follow it where it does not conflict with the output format required below:\n" +
-        `"""\n${customPrompt}\n"""`,
-    );
-  }
-
-  promptParts.push(
-    "The input content is HTML with stripped headers/footers. " +
-      "CRITICAL: Preserve ALL HTML tags and structure in your output. " +
-      "This includes: links (<a>), paragraphs (<p>), headings (<h1>-<h6>), lists (<ul>, <ol>, <li>), " +
-      "images (<img>), divs, spans, and all other HTML elements. " +
-      "Your output 'content' field must be valid HTML with the exact same structure as the input.",
-  );
-
-  const inputData = { title: article.name || "", content: cleanHtml };
-  const fullPrompt = promptParts.join("\n") + "\n\nInput Data:\n" + JSON.stringify(inputData);
+  const payload = wantsRewrite
+    ? { title: input.title, document: document.text }
+    : { title: input.title, text: plainTextOf(input.blocks) };
 
   const jsonSchema = {
     type: "OBJECT",
     properties: {
-      title: { type: "STRING" },
-      content: { type: "STRING" },
+      ...(wantsRewrite ? { title: { type: "STRING" }, document: { type: "STRING" } } : {}),
+      ...(wantsSummary ? { summary: { type: "STRING" } } : {}),
     },
-    required: ["title", "content"],
+    required: [
+      ...(wantsRewrite ? ["title", "document"] : []),
+      ...(wantsSummary ? ["summary"] : []),
+    ],
   };
 
-  const generation = await client.generateResponse(fullPrompt, true, jsonSchema, bypassUsageLimit);
+  const generation = await client.generateResponse(
+    promptParts.join("\n") + "\n\nInput:\n" + JSON.stringify(payload),
+    true,
+    jsonSchema,
+  );
 
-  if (generation.ok) {
-    const result = generation.text;
-    let parsedResult: { title?: string; content?: string } | null = null;
-    try {
-      parsedResult = JSON.parse(result);
-    } catch {
-      const match = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/.exec(result);
-      if (match) {
-        try {
-          parsedResult = JSON.parse(match[1]);
-        } catch {}
-      }
-      if (!parsedResult) {
-        const start = result.indexOf("{");
-        const end = result.lastIndexOf("}");
-        if (start !== -1 && end !== -1 && end > start) {
-          try {
-            parsedResult = JSON.parse(result.substring(start, end + 1));
-          } catch {}
+  if (!generation.ok) {
+    const message = `AI processing failed for article '${input.title}' (${generation.reason}). Keeping original content.`;
+    console.warn(message);
+    onLog?.(message);
+    return unchanged({ status: "failed", reason: generation.reason }, true);
+  }
+
+  const answer = parseJsonAnswer(generation.text);
+  if (!answer) {
+    const message = `AI returned invalid JSON for article '${input.title}': ${generation.text.slice(0, 100)}...`;
+    console.warn(message);
+    onLog?.(message);
+    return unchanged({ status: "failed", reason: "invalidJson" }, true);
+  }
+
+  let title = input.title;
+  // Not canonicalized here: on the rewrite path this value is always either
+  // overwritten by the actual rewritten blocks (once the model's answer
+  // parses) or bypassed entirely by an early `unchanged()` return, so a
+  // canonicalized copy assigned here would never be read -- a dead full-tree
+  // copy on every rewritten article. `canonicalBlocks()` is still what makes
+  // `textToBlocks(answer.document)` comparable against the sent document (see
+  // the `echoed` check below), it is just never applied to *this* variable.
+  let blocks = input.blocks;
+  /** How many blocks the rewrite came back as, before any summary block. */
+  let rewrittenCount = blocks.length;
+  /** See `AiBlockResult.droppedMedia` -- set below when the rewrite dropped one. */
+  let droppedMedia = false;
+
+  if (wantsRewrite) {
+    let rewritten: Block[] | null = null;
+
+    if (typeof answer.document === "string") {
+      const parsed = textToBlocks(answer.document, document);
+      if (parsed.blocks.length > 0) {
+        // **Did the model change anything at all?** Asked in the one place it
+        // can be asked cheaply and exactly: `blocksToText()` of the answer's
+        // tree is byte-identical to what was sent precisely when the answer is
+        // the input echoed back, because the notation is a normal form (the
+        // round-trip contract in `./block-text`). Comparing the serialized
+        // forms rather than the trees is deliberate -- a deep compare would
+        // have to know that `canonicalBlocks()` and `textToBlocks()` build
+        // their objects with different key order, and would miss an echo whose
+        // whitespace differed.
+        //
+        // A model that reproduces the document instead of rewriting it is not
+        // a hypothetical: it is what a user saw as "reload only translates the
+        // title", with the (unchanged) English body stored over the English
+        // body, the title stored translated, and the job green. An echo parses
+        // perfectly, so nothing downstream could tell.
+        const echoed =
+          plainTextOf(input.blocks).trim() !== "" &&
+          blocksToText(parsed.blocks).text === document.text;
+
+        if (echoed && opts.ai_translate) {
+          // For a translation this is not a judgement call: a document
+          // identical to the one sent is, by definition, not translated. Fails
+          // rather than warns, for the same reason `missingDocument` does --
+          // a translated title over an untranslated body is the broken article
+          // this whole arm exists to stop storing.
+          //
+          // The one false positive is a feed whose source is *already* in the
+          // target language, where an unchanged document is the right answer.
+          // The message says so, because the fix there is to turn translation
+          // off for that feed rather than to make this quieter.
+          const message =
+            `AI returned the document unchanged for article '${input.title}', so it was not ` +
+            `translated. Nothing was stored. (If this feed's articles are already in the ` +
+            `target language, turn translation off for it.)`;
+          console.warn(message);
+          onLog?.(message);
+          return unchanged({ status: "failed", reason: "documentUnchanged" }, true);
+        }
+
+        if (echoed) {
+          // Improve-writing and a custom instruction are a different matter:
+          // "this reads fine as it is" is a legitimate answer, so this is a
+          // note in the job's own log rather than a failure.
+          const message = `AI returned the document unchanged for article '${input.title}'.`;
+          console.warn(message);
+          onLog?.(message);
+        }
+
+        rewritten = parsed.blocks;
+
+        const lead = leadMediaOf(input.blocks);
+        if (lead) {
+          rewritten = pinLeadMedia(lead, rewritten);
+        }
+
+        // **Whether the model's handling of the lead media -- dropped,
+        // duplicated or caption-cleared -- still counts as a real loss
+        // excludes the lead itself, and `droppedOpaque`/`clearedCaptions`
+        // share this one exclusion rather than each recomputing it.**
+        // `pinLeadMedia()` above unconditionally throws away whatever the
+        // model returned for the lead slot -- caption included -- and
+        // substitutes the *input's* own lead block verbatim. So a model that
+        // omits the lead placeholder entirely (which the notation spec does
+        // not forbid any more strictly than dropping any other placeholder,
+        // and is common enough in practice) or reproduces it with its
+        // caption stripped ends up with a fully correct, fully captioned
+        // document anyway: nothing the model did to that one slot survives
+        // into what is actually stored. Counting either as a real loss would
+        // be wrong in both directions -- it would withhold the content
+        // fingerprint (see `AiBlockResult.droppedMedia`) on an article that
+        // is not actually missing anything, and it would log a caption loss
+        // for a caption that is, in the stored article, fully intact. A
+        // *non*-lead placeholder has no such recovery, so it is the only
+        // thing either report still counts.
+        const leadIndex = lead ? document.opaque.findIndex((block) => sameMedia(block, lead)) : -1;
+
+        if (parsed.droppedOpaque.length > 0) {
+          if (parsed.droppedOpaque.some((index) => index !== leadIndex)) {
+            droppedMedia = true;
+          }
+
+          const message =
+            `AI dropped ${parsed.droppedOpaque.length} media/code block(s) from article ` +
+            `'${input.title}'; the rest of the rewrite was kept.` +
+            (droppedMedia
+              ? " The content fingerprint will be withheld so the next aggregation run " +
+                "retries this article."
+              : "");
+          console.warn(message);
+          onLog?.(message);
+        }
+
+        if (parsed.duplicatedOpaque.length > 0) {
+          // Only the first occurrence made it into `rewritten` (see
+          // `parseLines()` in `./block-text`); this is purely a report that the
+          // model repeated a placeholder rather than moving it.
+          const message =
+            `AI repeated ${parsed.duplicatedOpaque.length} media/code placeholder(s) in ` +
+            `article '${input.title}'; only the first occurrence was kept.`;
+          console.warn(message);
+          onLog?.(message);
+        }
+
+        const reportableClearedCaptions = parsed.clearedCaptions.filter(
+          (index) => index !== leadIndex,
+        );
+        if (reportableClearedCaptions.length > 0) {
+          const message =
+            `AI dropped the caption on ${reportableClearedCaptions.length} image(s) in ` +
+            `article '${input.title}'; the image itself was kept.`;
+          console.warn(message);
+          onLog?.(message);
         }
       }
     }
 
-    if (parsedResult) {
-      if (typeof parsedResult.title === "string") {
-        article.name = parsedResult.title;
-      }
-      if (typeof parsedResult.content === "string") {
-        article.content = parsedResult.content;
-      }
-      return { status: "applied" };
-    } else {
-      const message = `AI returned invalid JSON for article '${article.name || ""}': ${result.slice(0, 100)}...`;
+    if (!rewritten) {
+      // A rewrite was asked for and the document did not come back -- absent,
+      // not a string, empty, or notation that read as no blocks at all.
+      //
+      // **Reported, and the title left alone with it.** This arm used to fall
+      // through: the answer's `title` was applied and the source blocks were
+      // stored beside it, on an outcome of `applied`. That is a translated
+      // title over an untranslated body -- the article a user reported after
+      // reloading a Reddit post -- stored silently, with the job green and
+      // nothing in its log. A title and a body are one answer to one rewrite
+      // request, so half of it is not partial success: the article stays wholly
+      // as the source has it, the job reports the failure, and (in
+      // `handleAggregateJob`) no `contentHash` is stored, so the next cycle
+      // tries again. Deliberately *not* symmetrical with `missingSummary`
+      // below, which keeps a rewrite that did come back: a summary is an
+      // addition an article reads fine without, where a rewritten title over an
+      // untouched body is a visibly broken article.
+      const message = `AI returned no rewritten document for article '${input.title}'.`;
       console.warn(message);
       onLog?.(message);
-      return { status: "failed", reason: "invalidJson" };
+      return unchanged({ status: "failed", reason: "missingDocument" }, true);
     }
-  } else {
-    // `generation.reason` is one of noProvider/dailyLimitExceeded/
-    // monthlyLimitExceeded/providerUnauthorized/providerError -- surfacing it
-    // (not just "failed") is what tells an operator a 429 apart from a
-    // misconfigured key, without which this looked identical to AI silently
-    // doing nothing.
-    const message = `AI processing failed for article '${article.name || ""}' (${generation.reason}). Keeping original content.`;
-    console.warn(message);
-    onLog?.(message);
-    return { status: "failed", reason: generation.reason };
+
+    blocks = rewritten;
+    rewrittenCount = rewritten.length;
+
+    // Only a request that asked for a rewrite may change the title. A model
+    // that volunteers one for a summarize-only request is renaming an article
+    // nobody asked to have renamed.
+    if (typeof answer.title === "string" && answer.title.trim()) {
+      title = answer.title;
+    }
   }
+
+  if (wantsSummary) {
+    if (typeof answer.summary === "string" && answer.summary.trim()) {
+      blocks = withSummary(blocks, answer.summary);
+    } else {
+      // Summarization was asked for and did not happen. Reported rather than
+      // swallowed, for the reason every other arm here is: AI features failing
+      // silently are indistinguishable from AI never having run. A rewrite that
+      // did come back is still applied; a summarize-only request has nothing
+      // else to keep, so it is returned untouched.
+      const message = `AI returned no summary for article '${title}'.`;
+      console.warn(message);
+      onLog?.(message);
+      // `degraded`, not `failed`, when a rewrite came back: `blocks`/`title`
+      // here are the applied rewrite, not `input` echoed back, and a caller
+      // that treated this like `missingDocument` (write nothing, fail the
+      // job) would throw away a good rewrite and mail the owner a failure
+      // notice for a run that was mostly a success. With no rewrite requested
+      // there is nothing to keep, so that case still reports plain `failed`
+      // with `input` untouched, via `unchanged()`.
+      return wantsRewrite
+        ? {
+            title,
+            blocks,
+            outcome: { status: "degraded", reason: "missingSummary" },
+            requested: true,
+            droppedMedia,
+          }
+        : unchanged({ status: "failed", reason: "missingSummary" }, true);
+    }
+  }
+
+  // **One line on the applied path, and it is worth its space.** Every failure
+  // arm above logs; success logged nothing at all -- so a reload whose job log
+  // read "reloaded article content" and nothing else was indistinguishable
+  // between "this feed never asked for AI", "the provider was never called"
+  // and "the model answered and its answer changed nothing". That ambiguity is
+  // what made the "reload only translates the title" report take a round of
+  // guessing to place: the one question the log could not answer was whether
+  // the stage had run. It can now, per article, in one line.
+  onLog?.(
+    `AI (${asked.join("+")}) applied to '${input.title}': ` +
+      (wantsRewrite
+        ? `document ${input.blocks.length} -> ${rewrittenCount} blocks, ` +
+          `title ${title === input.title ? "unchanged" : "rewritten"}`
+        : "summary only") +
+      (wantsSummary ? ", summary added" : ""),
+  );
+
+  return { title, blocks, outcome: { status: "applied" }, requested: true, droppedMedia };
 }

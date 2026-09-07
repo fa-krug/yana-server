@@ -12,15 +12,17 @@ import { ListSelectionProvider, useListSelection } from "@/components/crud/list-
 import { Pagination } from "@/components/crud/pagination";
 import { Table } from "@/components/ui/table";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { TagBadge } from "@/components/tags/tag-badge";
-import { CheckIcon, XIcon } from "lucide-react";
-import { attempt } from "@/lib/tags/result";
+import { CheckIcon, TriangleAlertIcon, XIcon } from "lucide-react";
+import { attempt } from "@/lib/feeds/result";
 import { deleteFeeds, refreshLogos, updateFeedsBulk } from "@/lib/feeds/actions";
 import { useTrackRun } from "@/components/jobs/active-runs-context";
 import { AGGREGATOR_SPECS } from "@/lib/aggregators/specs";
+import type { AiReadiness } from "@/lib/ai/readiness";
 import type { Feed, Tag } from "@/lib/db/schema";
 
-type FeedListRow = Feed & { tags: Tag[]; articleCount: number };
+type FeedListRow = Feed & { tags: Tag[]; articleCount: number; aiReadiness: AiReadiness };
 
 /** Shared between the header (rendered immediately) and the body (rendered once rows arrive). */
 function useFeedsColumns(): Column<FeedListRow>[] {
@@ -45,9 +47,19 @@ function useFeedsColumns(): Column<FeedListRow>[] {
       header: t("columns.name"),
       sortable: true,
       cell: (row) => (
-        <Link href={`/feeds/${row.id}`} className="font-medium hover:underline">
-          {row.name}
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href={`/feeds/${row.id}`} className="font-medium hover:underline">
+            {row.name}
+          </Link>
+          {row.aiReadiness === "noProvider" ? (
+            <Link href="/ai" title={t("aiNoProvider")}>
+              <Badge variant="destructive">
+                <TriangleAlertIcon />
+                {t("aiNoProviderBadge")}
+              </Badge>
+            </Link>
+          ) : null}
+        </div>
       ),
     },
     {
@@ -175,7 +187,11 @@ function FeedsTableChrome({ children }: { children: React.ReactNode }) {
 
     const result = await attempt(() => updateFeedsBulk(selected.map(Number)));
     if (!result.ok) {
-      toast.error(t("saveFailed"));
+      // A catalog key, never provider prose -- `result.errorKey` names why
+      // the run was refused (e.g. every selected feed's AI options are on
+      // with no AI provider configured), falling back to the generic
+      // message only for an unattributed failure.
+      toast.error(t(result.errorKey ?? "saveFailed"));
       return false;
     }
 

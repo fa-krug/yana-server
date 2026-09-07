@@ -70,12 +70,11 @@ export async function buildVideoHeaderHtml(
 
   let posterAttr = "";
   if (posterUrl) {
-    // `storeImageRefFromUrl` can throw (an `ImageHashCollisionError`, a
-    // filesystem failure), and since the aggregation pipeline stopped
-    // swallowing errors that would fail the whole feed run over one bad
-    // poster. A poster is decoration: degrade to none, exactly as for a
-    // falsy ref. Same defensive shape as `_storeHeaderImage()` in
-    // `./aggregator.ts`.
+    // `storeImageRefFromUrl` can throw (a filesystem failure, a network
+    // failure), and since the aggregation pipeline stopped swallowing errors
+    // that would fail the whole feed run over one bad poster. A poster is
+    // decoration: degrade to none, exactly as for a falsy ref. Same
+    // defensive shape as `_storeHeaderImage()` in `./aggregator.ts`.
     try {
       const ref = await storeImageRefFromUrl(posterUrl, { isHeader: true });
       // The ref is a `yana-img://` URL, so it is escaped but not run through

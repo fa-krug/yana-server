@@ -6,7 +6,6 @@ import type { HeaderElementContext, HeaderElementData } from "./context";
 import {
   GenericImageStrategy,
   HeaderElementStrategy,
-  RedditEmbedStrategy,
   RedditPostStrategy,
   YouTubeStrategy,
 } from "./strategies";
@@ -15,19 +14,18 @@ export class HeaderElementExtractor {
   public strategies: HeaderElementStrategy[];
 
   constructor() {
-    // CRITICAL: Strategy order MUST be RedditEmbedStrategy -> RedditPostStrategy -> YouTubeStrategy -> GenericImageStrategy
-    this.strategies = [
-      new RedditEmbedStrategy(),
-      new RedditPostStrategy(),
-      new YouTubeStrategy(),
-      new GenericImageStrategy(),
-    ];
+    // CRITICAL: Strategy order MUST be RedditPostStrategy -> YouTubeStrategy -> GenericImageStrategy.
+    // A dedicated RedditEmbedStrategy used to run ahead of GenericImageStrategy, but every URL it
+    // accepted was also accepted by GenericImageStrategy (see that class's canHandle), so it only
+    // ran the generic pipeline a second time on failure -- and its bare catch swallowed
+    // ArticleSkipError before it could reach the loop below. Removed; GenericImageStrategy now
+    // handles reddit-embed URLs directly, and this loop's own catch is what rethrows the skip.
+    this.strategies = [new RedditPostStrategy(), new YouTubeStrategy(), new GenericImageStrategy()];
   }
 
   async extractHeaderElement(
     url: string,
     alt = "Article image",
-    userId?: number | null,
     onLog?: (message: string) => void,
     html?: string,
   ): Promise<HeaderElementData | null> {
@@ -38,7 +36,7 @@ export class HeaderElementExtractor {
       return overrideResult;
     }
 
-    const context: HeaderElementContext = { url, alt, userId, onLog, html };
+    const context: HeaderElementContext = { url, alt, onLog, html };
 
     for (const strategy of this.strategies) {
       if (!strategy.canHandle(url)) continue;
@@ -92,10 +90,9 @@ export class HeaderElementExtractor {
 export async function extractHeaderElement(
   url: string,
   alt = "Article image",
-  userId?: number | null,
   onLog?: (message: string) => void,
   html?: string,
 ): Promise<HeaderElementData | null> {
   const extractor = new HeaderElementExtractor();
-  return extractor.extractHeaderElement(url, alt, userId, onLog, html);
+  return extractor.extractHeaderElement(url, alt, onLog, html);
 }

@@ -4,6 +4,7 @@ import { connection } from "next/server";
 import { ApiError, apiErrorResponse, requireApiUser } from "@/lib/api/auth";
 import { getDb } from "@/lib/db/client";
 import { runs } from "@/lib/db/schema";
+import { runProgressPercent } from "@/lib/jobs/queue";
 
 /**
  * The native client's poll target for a run created by
@@ -44,6 +45,7 @@ export async function GET(
     return Response.json({
       runId: run.id,
       status: run.status,
+      progress: runProgressPercent(run.totalJobs, run.completedJobs, run.failedJobs),
       totalJobs: run.totalJobs,
       completedJobs: run.completedJobs,
       failedJobs: run.failedJobs,

@@ -1,5 +1,8 @@
+"use client";
+
 import { useTranslations } from "next-intl";
 import Link from "next/link";
+import { Suspense, use } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { CatalogKey } from "@/i18n/next-intl";
@@ -40,8 +43,9 @@ const DESCRIPTIONS: Partial<Record<string, DescriptionKey>> = {
  * dashboard's own future nav entry (Task 3 adds it): a card linking to the
  * page it is already rendered on is noise, not navigation.
  *
- * Deliberately not `"use client"` -- see {@link StatCards} for why a
- * synchronous server component can still call `useTranslations()`.
+ * `"use client"` since the instant-render-no-fallback migration -- see
+ * {@link SectionCardsGate} below, which needs `use()` to read `isAdmin` off a
+ * promise the page hands it without awaiting.
  */
 export function SectionCards({ isAdmin }: { isAdmin: boolean }) {
   const t = useTranslations();
@@ -72,5 +76,43 @@ export function SectionCards({ isAdmin }: { isAdmin: boolean }) {
         })}
       </div>
     </div>
+  );
+}
+
+/** Calls use(); suspends until the promise resolves; renders the real grid. */
+function SectionCardsResolved({ promise }: { promise: Promise<boolean> }) {
+  const isAdmin = use(promise);
+  return <SectionCards isAdmin={isAdmin} />;
+}
+
+/**
+ * What the dashboard page renders, in place of a bare `<SectionCards
+ * isAdmin={isAdmin} />` computed from an awaited role.
+ *
+ * `promise` resolves to a plain `boolean`, never the `User` row
+ * `requireUserFreshRole()` actually returns -- narrowed by the page **before**
+ * the promise crosses to this Client Component (`requireUserFreshRole().then((u)
+ * => isAdminRole(u.role))`), the same reason `getSettingsSummary()` narrows
+ * before `/settings` hands a promise down: React serializes whatever a
+ * promise handed to a Client Component *resolves to*, not its declared type,
+ * so a promise typed `Promise<boolean>` but actually resolving to a whole
+ * `User` would still serialize the row -- email, ban fields, timestamps --
+ * into the page's flight payload regardless of what this file imports.
+ *
+ * The fallback renders the **non-admin** subset unconditionally
+ * (`isAdmin={false}`), never a whole-section skeleton: whether a route is
+ * admin-only is static (`NAV_ITEMS`), so every non-admin card's frame, icon,
+ * label and description are known before the role resolves. It is not itself
+ * a role read -- `requireUserFreshRole()` is called exactly once, by the page
+ * -- and it never falls back to `requireUser()`'s cached role: an admin
+ * demoted a moment ago must not keep seeing admin-only cards here off a stale
+ * cookie-cached role, the reason `requireUserFreshRole()` exists at all (see
+ * `src/lib/auth/session.ts`).
+ */
+export function SectionCardsGate({ promise }: { promise: Promise<boolean> }) {
+  return (
+    <Suspense fallback={<SectionCards isAdmin={false} />}>
+      <SectionCardsResolved promise={promise} />
+    </Suspense>
   );
 }

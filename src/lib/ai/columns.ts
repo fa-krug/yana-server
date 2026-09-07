@@ -1,6 +1,22 @@
+import type { UserSettings } from "@/lib/db/schema";
 import type { FlagColumn, TextColumn } from "@/lib/integrations/define";
 
-import { type AiProvider, type AiProviderKey, AI_PROVIDERS } from "./providers";
+import { type AiProvider, type AiProviderKey, AI_PROVIDERS, providerByKey } from "./providers";
+
+/**
+ * The one `UserSettings`-shaped structural type `providerEnabled()`/
+ * `activeProvider()` need -- `activeAiProvider` plus every provider's
+ * `*Enabled` flag column -- rather than the full row.
+ *
+ * **Deliberately `Partial<UserSettings>`, not `UserSettings`.** `./queries`'s
+ * `getAiStatus()` always has a full row (`getSettings()`'s return), but
+ * `./run`'s `AIClient` -- the other caller, per the ruling that moved these two
+ * functions here rather than having `run.ts` import `./queries` and drag
+ * `getDb()` into its module graph -- is handed `Partial<UserSettings>`
+ * (`AiRuntimeSettings`). A full `UserSettings` satisfies `Partial<UserSettings>`
+ * trivially, so this widening costs the `/ai` call site nothing.
+ */
+type ActiveProviderSettings = Partial<UserSettings>;
 
 /**
  * Which `user_settings` columns belong to which AI provider.
@@ -134,4 +150,52 @@ export function resolveModel(provider: AiProvider, stored: string): string {
 /** Every provider, paired with its columns -- the shape both halves iterate. */
 export function providersWithColumns(): { provider: AiProvider; columns: AiColumns }[] {
   return AI_PROVIDERS.map((provider) => ({ provider, columns: AI_COLUMNS[provider.key] }));
+}
+
+/**
+ * Is the provider this key names switched on in this row?
+ *
+ * **Moved here from `./queries`, by a human ruling, so `./run` can read it
+ * without importing that module.** `./queries` reaches `getDb()` through
+ * `getSettings()`, and `AIClient` (`./run`) must not drag that into its module
+ * graph -- the same reason `plainTextOf()` was pulled out of
+ * `blocks/parser.ts` into its own module, so `POST /api/v1/ai/prompt` stopped
+ * pulling in cheerio for a function that never touches HTML. `providerEnabled()`
+ * and `activeProvider()` below are pure row predicates with no session or
+ * database dependency of their own, so moving them costs nothing; `./queries`
+ * re-exports both so `/ai` and every existing caller is unchanged.
+ */
+export function providerEnabled(settings: ActiveProviderSettings, key: AiProviderKey): boolean {
+  return Boolean(settings[AI_COLUMNS[key].enabled]);
+}
+
+/**
+ * The provider AI actually runs on, or `""` for none.
+ *
+ * **Derived, not read straight out of the column, and this is the *only*
+ * place that decision is made.** `active_ai_provider` is a preference; a
+ * provider is only active if its probe-derived `*Enabled` flag agrees. Nothing
+ * on the write side erases the preference when a flag goes false -- see
+ * `setActiveProvider()` in `./actions` for why not, in short: OpenAI's unpaid
+ * bill classifies as `unauthorized`, so clearing would permanently drop a
+ * selection the operator never changed, and paying the bill would not bring it
+ * back. Deriving here brings it back by itself.
+ *
+ * That also covers every route a write-side clear could not reach anyway: a
+ * hand-edited database, an import, a later phase flipping a flag without going
+ * through these actions, and a key the registry has since dropped. Same
+ * argument `safeAvatarSrc()` rests on -- check the value you are about to
+ * *use*, rather than trusting that every writer remembered.
+ *
+ * **`AIClient` (`./run`) routes through this too, not a bare truthiness read
+ * of `activeAiProvider`.** It used to set its own provider from the raw
+ * column, which agreed with this function everywhere except the one state
+ * this function exists to handle -- a stored preference whose flag has since
+ * gone false -- where the client dispatched anyway, hit the provider's own
+ * `!enabled` guard, and reported `providerError` ("the provider failed") for a
+ * request nothing ever sent, while `/ai` correctly showed no active provider.
+ */
+export function activeProvider(settings: ActiveProviderSettings): AiProviderKey | "" {
+  const provider = providerByKey(settings.activeAiProvider ?? "");
+  return provider && providerEnabled(settings, provider.key) ? provider.key : "";
 }

@@ -1,90 +1,50 @@
 import { connection } from "next/server";
-import { Suspense } from "react";
-import { getTranslations } from "next-intl/server";
 
-import { RedditSection, RedditSectionShell } from "@/components/integrations/reddit-section";
-import { YoutubeSection, YoutubeSectionShell } from "@/components/integrations/youtube-section";
-import { Skeleton } from "@/components/ui/skeleton";
+import { IntegrationsDescription } from "@/components/integrations/integrations-description";
+import { RedditSection } from "@/components/integrations/reddit-section";
+import { YoutubeSection } from "@/components/integrations/youtube-section";
 import { getIntegrationStatus } from "@/lib/integrations/queries";
 
 /**
- * The `<Suspense>` fallback for `<Sections>` below: the same two section
- * shells `<Sections>` itself renders once `getIntegrationStatus()` resolves,
- * with a skeleton standing in for each control -- so the card titles,
- * descriptions and field labels are never replaced by an anonymous skeleton
- * block, only the values nobody can know yet. Neither shell can submit
- * anything real here, so both take their default no-op `onSubmit` and get no
- * remove button. `onSubmit` is deliberately omitted rather than passed as a
- * function value: this is a Server Component, and a function it created here
- * cannot cross into the Client Component shells below (it isn't a Server
- * Action) -- the shells default it themselves instead.
- */
-function SectionsFallback() {
-  return (
-    <div className="space-y-6">
-      <YoutubeSectionShell
-        statusControl={<Skeleton className="h-5 w-16" />}
-        apiKeyControl={<Skeleton className="h-9 w-full" />}
-        apiKeyHintControl={<Skeleton className="h-4 w-48" />}
-        saveControl={<Skeleton className="h-9 w-full sm:w-24" />}
-        testControl={<Skeleton className="h-9 w-full sm:w-24" />}
-        removeControl={null}
-      />
-      <RedditSectionShell
-        statusControl={<Skeleton className="h-5 w-16" />}
-        clientIdControl={<Skeleton className="h-9 w-full" />}
-        clientSecretControl={<Skeleton className="h-9 w-full" />}
-        secretsHintControl={<Skeleton className="h-4 w-48" />}
-        userAgentControl={<Skeleton className="h-9 w-full" />}
-        saveControl={<Skeleton className="h-9 w-full sm:w-24" />}
-        testControl={<Skeleton className="h-9 w-full sm:w-24" />}
-        removeControl={null}
-      />
-    </div>
-  );
-}
-
-/**
- * The data region: one read, projected to masked credentials before it leaves the
- * server.
+ * The instant-render-no-fallback migration (see
+ * `src/app/(app)/settings/page.tsx`): this page body awaits nothing, so it
+ * cannot suspend and `loading.tsx` -- deleted along with this rewrite -- is
+ * unreachable.
  *
- * Inside `<Suspense>` because an absent credential is an empty form rather than a
- * 404 -- nothing here decides the response *status*, so nothing here has to be
- * awaited in the page body (CLAUDE.md's streaming pattern). The error boundary
- * the pattern also requires is the (app) group's own `error.tsx`, one level up;
- * a second one here would only make the failure smaller than the page it breaks.
+ * `await getTranslations()` is gone, replaced by `<IntegrationsDescription>`
+ * -- a client component reading `useTranslations("integrations")` off the
+ * `NextIntlClientProvider` the root layout already renders, so nothing
+ * crosses the RSC boundary for the description and nothing here suspends on
+ * it. The page `<h1>` is gone entirely: the breadcrumb already names the
+ * page, so the per-page heading was removed everywhere.
  */
-async function Sections() {
-  const status = await getIntegrationStatus();
-  return (
-    <div className="space-y-6">
-      <YoutubeSection {...status.youtube} />
-      <RedditSection {...status.reddit} />
-    </div>
-  );
-}
-
-export default async function IntegrationsPage() {
+export default function IntegrationsPage() {
   /**
-   * Opt this route out of prerendering, **before** the first line that can reach
-   * SQLite -- exactly as `/settings` does, and for the same reason. This page has
-   * no `requireAdmin()` to await, so nothing else opts it out: without this call
-   * `getTranslations()` below resolves the next-intl request config ->
-   * `getSettings()` -> `getDb()` during `next build`, which creates an empty,
-   * unmigrated `data/yana.db` on the build machine. The (app) layout's
-   * `requireUser()` does not cover it: layout and page are sibling render scopes.
+   * Opt this route out of prerendering -- **called, not awaited**, exactly as
+   * `SettingsPage` does and for the same reason: `getIntegrationStatus()`
+   * below is never awaited by this page body (it is handed straight to both
+   * client sections), so there is no other awaited Dynamic API left here to
+   * do this job. See CLAUDE.md's `connection()` bullet for why calling it,
+   * unawaited, is enough today -- and the `cacheComponents` precondition
+   * that fact rests on.
    */
-  await connection();
-  const t = await getTranslations("integrations");
+  connection();
+
+  // Not awaited: the promise is handed to both client components, which
+  // render their real controls immediately and fill in the values when it
+  // resolves. Awaiting here is what made the whole page suspend behind one
+  // read. `getIntegrationStatus()` is backed by the same `cache()`d
+  // `getSettings()` read the root layout already made, so passing the same
+  // promise to both sections below is still exactly one read.
+  const status = getIntegrationStatus();
+
   return (
     <div className="max-w-2xl space-y-6">
-      <div className="space-y-2">
-        <h1 className="text-2xl font-semibold">{t("title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("description")}</p>
+      <IntegrationsDescription />
+      <div className="space-y-6">
+        <YoutubeSection promise={status} />
+        <RedditSection promise={status} />
       </div>
-      <Suspense fallback={<SectionsFallback />}>
-        <Sections />
-      </Suspense>
     </div>
   );
 }

@@ -7,8 +7,9 @@ import { z } from "zod";
 
 import { currentUserId } from "@/lib/auth/session";
 import { getDb, writeTransaction } from "@/lib/db/client";
-import { feeds, feedTags, tags, jobs, articles, articleTombstones } from "@/lib/db/schema";
-import { enqueueRun } from "@/lib/jobs/queue";
+import { feeds, feedTags, tags, articles, articleTombstones, userSettings } from "@/lib/db/schema";
+import { aiReadinessFor } from "@/lib/ai/readiness";
+import { enqueue, enqueueRun } from "@/lib/jobs/queue";
 import { getSettings } from "@/lib/settings/queries";
 import type { ListParams } from "@/lib/crud/params";
 import {
@@ -72,12 +73,33 @@ function normalizeIdentifier(spec: AggregatorSpec, identifier: string): string {
   return validValues.has(identifier) ? identifier : defaultIdentifierFor(spec);
 }
 
+/**
+ * The columns `/feeds/[id]`'s form actually renders (see `FeedListRow` in
+ * `src/components/feeds/feed-form.tsx`) plus `id`/`aggregator`/`identifier`,
+ * which `updateFeed()` below also reads off this same read. Not selected:
+ * `userId` (only ever a `WHERE`, never rendered), `dailyLimit`,
+ * `redditSubredditId`, `youtubeChannelId`, `logoSourceUrl`, `logoImageHash`,
+ * `createdAt`, `updatedAt` -- none of them read by the edit form or by
+ * `updateFeed()`, so a bare `db.select()` was serializing eight unused
+ * columns into the RSC payload of every render of this route (CLAUDE.md's "a
+ * component gets the columns it renders, never the row").
+ */
 export async function getFeed(id: number) {
   const userId = await currentUserId();
   const db = getDb();
 
   const feed = db
-    .select()
+    .select({
+      id: feeds.id,
+      name: feeds.name,
+      aggregator: feeds.aggregator,
+      identifier: feeds.identifier,
+      enabled: feeds.enabled,
+      options: feeds.options,
+      updateIntervalMinutes: feeds.updateIntervalMinutes,
+      concurrency: feeds.concurrency,
+      maxArticleAgeDays: feeds.maxArticleAgeDays,
+    })
     .from(feeds)
     .where(and(eq(feeds.id, id), eq(feeds.userId, userId)))
     .get();
@@ -285,13 +307,15 @@ export async function createFeed(
           .run();
       }
 
-      tx.insert(jobs)
-        .values({
-          kind: "feed.logo",
-          payload: { feedId: feed.id },
-          userId,
-        })
-        .run();
+      // `enqueue()` rather than a hand-rolled `tx.insert(jobs)`. It opens its
+      // own `writeTransaction()`, which is re-entrant (see
+      // `db/client.ts`), so the insert still joins *this* transaction and
+      // still rolls back with the feed if anything below fails -- while
+      // picking up every default `enqueue()` applies (`maxAttempts`,
+      // `priority`, `runAt`) and any future enqueue-side logic. The three
+      // hand-rolled copies this replaces are why `feed.update` drifted from
+      // `aggregate` in the first place.
+      enqueue("feed.logo", { feedId: feed.id }, { userId });
 
       revalidatePath("/feeds");
       return { ok: true, id: feed.id };
@@ -500,52 +524,55 @@ export async function refreshLogos(
   return { ok: true, enqueued: validFeeds.length, runId };
 }
 
-export async function updateFeedsBulk(
-  ids: number[],
-): Promise<{ ok: boolean; enqueued: number; runId: number }> {
+export type UpdateFeedsBulkResult =
+  { ok: true; enqueued: number; runId: number } | { ok: false; errorKey: NamespaceKey<"feeds"> };
+
+/**
+ * Enqueues a `feed.update` job (which runs the same `handleAggregateJob` as
+ * `"aggregate"` -- see `AGGREGATE_HANDLER_JOB_KINDS`) for every caller-owned
+ * id, whether this is a bulk run from the feed table or a single feed's own
+ * "Update now" (`feed-form.tsx` calls this with a one-element array).
+ *
+ * **Refuses a feed whose AI options are on but whose owner has no working AI
+ * provider**, via `aiReadinessFor()` (`@/lib/ai/readiness`) -- see its doc
+ * comment for why: enqueueing anyway would run every article through
+ * `applyAiToBlocks()`'s permanent `noProvider` failure, which
+ * `handleAggregateJob` treats as transient and skips-and-retries forever,
+ * silently losing every article as it ages out of the feed's window.
+ *
+ * A batch that is *entirely* blocked this way reports a refusal --
+ * `{ ok: false, errorKey: "aiNoProvider" }`, never provider prose -- rather
+ * than enqueueing nothing and calling that success. A batch that is only
+ * partly blocked still runs for the feeds that are ready; the blocked ones
+ * are silently excluded, the same way the scheduler skips them on its own
+ * tick.
+ */
+export async function updateFeedsBulk(ids: number[]): Promise<UpdateFeedsBulkResult> {
   const userId = await currentUserId();
 
   const validFeeds = getDb()
-    .select({ id: feeds.id })
+    .select({ id: feeds.id, options: feeds.options })
     .from(feeds)
     .where(and(inArray(feeds.id, ids), eq(feeds.userId, userId)))
     .all();
 
+  const settings = getDb().select().from(userSettings).where(eq(userSettings.userId, userId)).get();
+
+  const readyFeeds = validFeeds.filter(
+    (feed) => aiReadinessFor(feed.options, settings) !== "noProvider",
+  );
+
+  if (validFeeds.length > 0 && readyFeeds.length === 0) {
+    return { ok: false, errorKey: "aiNoProvider" };
+  }
+
   const runId = enqueueRun(
     userId,
     "feed.update",
-    validFeeds.map((f) => ({ feedId: f.id })),
+    readyFeeds.map((f) => ({ feedId: f.id })),
   );
 
-  return { ok: true, enqueued: validFeeds.length, runId };
-}
-
-export async function restoreFeedsBulk(ids: number[]): Promise<{ ok: boolean; enqueued: number }> {
-  if (ids.length === 0) return { ok: true, enqueued: 0 };
-
-  const userId = await currentUserId();
-
-  return writeTransaction((tx) => {
-    const validFeeds = tx
-      .select({ id: feeds.id })
-      .from(feeds)
-      .where(and(inArray(feeds.id, ids), eq(feeds.userId, userId)))
-      .all();
-
-    if (validFeeds.length > 0) {
-      tx.insert(jobs)
-        .values(
-          validFeeds.map((f) => ({
-            kind: "feed.restore",
-            payload: { feedId: f.id },
-            userId,
-          })),
-        )
-        .run();
-    }
-
-    return { ok: true, enqueued: validFeeds.length };
-  });
+  return { ok: true, enqueued: readyFeeds.length, runId };
 }
 
 type FeedsKey = NamespaceKey<"feeds">;
@@ -771,9 +798,9 @@ export async function importOpmlFeeds(
           .run();
       }
 
-      tx.insert(jobs)
-        .values({ kind: "feed.logo", payload: { feedId: feed.id }, userId })
-        .run();
+      // Inside the import's own transaction, for the reason `createFeed()`
+      // above spells out: `enqueue()` nests rather than opening a second one.
+      enqueue("feed.logo", { feedId: feed.id }, { userId });
     }
 
     revalidatePath("/feeds");

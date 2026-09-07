@@ -50,3 +50,39 @@ export const getSettings = cache(async (): Promise<UserSettings> => {
   }
   return row;
 });
+
+/** What `/settings`' two client sections render -- the general and library
+ * cards' three fields, never the whole row. */
+export type SettingsSummary = {
+  theme: string;
+  language: string;
+  articleRetentionDays: number;
+};
+
+/**
+ * `getSettings()`, narrowed to `SettingsSummary` -- the single function
+ * `src/app/(app)/settings/page.tsx` must call to build the promise it hands,
+ * unawaited, to `GeneralSection`/`LibrarySection`.
+ *
+ * This narrowing cannot be left to the page's own inline `.then()`, or to
+ * either client component's `use(promise)`: React serializes a promise's
+ * *resolved value*, not the type a Client Component's prop is annotated with,
+ * so a promise that resolves to the whole `UserSettings` row -- nine provider
+ * secrets included -- crosses the RSC boundary in full the instant it
+ * resolves, whatever the prop's declared type says and whatever the
+ * component destructures afterward. Giving the narrowing its own name and
+ * export, rather than inlining it at the call site, is what lets
+ * `settings.test.ts` exercise the *actual* function the page calls: a test
+ * that re-typed this expression locally, rather than importing it, would keep
+ * passing even if the page reverted to handing down `getSettings()` itself --
+ * which is exactly the gap a mutation check against this repository's own
+ * history found.
+ *
+ * Still exactly one `cache()`d read: `getSettings()` underneath is the same
+ * memoized call every other reader of this row already shares within the
+ * request.
+ */
+export async function getSettingsSummary(): Promise<SettingsSummary> {
+  const { theme, language, articleRetentionDays } = await getSettings();
+  return { theme, language, articleRetentionDays };
+}

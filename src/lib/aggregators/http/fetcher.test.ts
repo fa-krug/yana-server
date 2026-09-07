@@ -13,6 +13,7 @@ import {
   USER_AGENT,
 } from "./fetcher";
 import { hostCooldownMs, resetHostLimits } from "./host-limiter";
+import { stallingBodyResponse } from "./test-support";
 
 describe("http/fetcher constants & errors", () => {
   it("exports expected constants", () => {
@@ -39,6 +40,25 @@ describe("http/fetcher constants & errors", () => {
   });
 });
 
+/** Resolves to "HUNG" if `promise` has not settled within `ms`. */
+async function settledWithin(promise: Promise<unknown>, ms: number): Promise<"settled" | "HUNG"> {
+  let timer: NodeJS.Timeout | undefined;
+  const hung = new Promise<"HUNG">((resolve) => {
+    timer = setTimeout(() => resolve("HUNG"), ms);
+  });
+  try {
+    return await Promise.race([
+      promise.then(
+        () => "settled" as const,
+        () => "settled" as const,
+      ),
+      hung,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 describe("fetchHtml", () => {
   const originalFetch = globalThis.fetch;
 
@@ -64,6 +84,28 @@ describe("fetchHtml", () => {
 
     return new Response(stream, { status, statusText, headers });
   }
+
+  // 7e: the timer used to be cleared the moment headers arrived, so
+  // readCapped() drained the body with no deadline at all. A server that
+  // sends headers and then stalls blocked the calling worker loop forever --
+  // and the worker's budget timer only *requests* cooperative cancellation,
+  // with no checkpoint inside a fetch, so four such feeds deadlock every
+  // background job on the instance.
+  it("aborts a body that stalls after the headers arrive", async () => {
+    const fetchMock = vi.fn((_url: string, init: { signal: AbortSignal }) =>
+      Promise.resolve(stallingBodyResponse(init.signal)),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const call = fetchHtml("https://example.com/stall", {
+      timeout: 50,
+      retries: 1,
+      retryDelayMs: 0,
+    });
+
+    expect(await settledWithin(call, 2000)).toBe("settled");
+    await expect(call).rejects.toThrow(NetworkError);
+  });
 
   it("fetches HTML content successfully on 200 OK", async () => {
     const htmlContent = "<html><body><h1>Hello World</h1></body></html>";
@@ -275,6 +317,76 @@ describe("fetchBinary", () => {
 
     return new Response(stream, { status, statusText, headers });
   }
+
+  // 7e, the same defect in the other fetcher.
+  it("aborts a body that stalls after the headers arrive", async () => {
+    const fetchMock = vi.fn((_url: string, init: { signal: AbortSignal }) =>
+      Promise.resolve(stallingBodyResponse(init.signal)),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const call = fetchBinary("https://example.com/stall.png", { timeout: 50 });
+
+    expect(await settledWithin(call, 2000)).toBe("settled");
+    await expect(call).rejects.toThrow();
+  });
+
+  // 7e: one deadline for the whole call, not one per redirect hop. A fresh
+  // timer per hop made the real worst case MAX_REDIRECTS + 1 times the
+  // configured timeout.
+  //
+  // **This used to assert that every hop saw the identical `AbortSignal`, and
+  // that is deliberately no longer true.** Each hop now runs inside its own
+  // `withHostLimit()` slot -- a redirect chain can cross hosts, and the cap
+  // belongs to whichever host is being asked next -- and a signal armed
+  // before that queue wait would be spent on politeness rather than on the
+  // request, up to `maxCooldownMs` of it, then abort a request that was never
+  // sent. So the signal is per hop and the *budget* is shared: `fetchBinary()`
+  // deadlines each hop with what is left and deducts only time spent in
+  // flight. Signal identity was a proxy for the ceiling; this asserts the
+  // ceiling itself, which is what 7e was actually about.
+  it("spends one shared timeout across every redirect hop, not one per hop", async () => {
+    const HOP_MS = 120;
+    const signals: AbortSignal[] = [];
+    let hops = 0;
+
+    const fetchMock = vi.fn((_url: string, init: { signal: AbortSignal }) => {
+      signals.push(init.signal);
+      hops++;
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(
+          () =>
+            resolve(
+              hops <= 3
+                ? new Response(null, {
+                    status: 302,
+                    headers: { location: "https://example.com/next" },
+                  })
+                : mockStreamResponse(new Uint8Array([1, 2, 3])),
+            ),
+          HOP_MS,
+        );
+        init.signal.addEventListener("abort", () => {
+          clearTimeout(timer);
+          reject(new Error("aborted"));
+        });
+      });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    // Two hops' worth of in-flight time, against a four-hop chain. Per-hop
+    // timers would let all four through and resolve; one shared budget runs
+    // out partway.
+    await expect(
+      fetchBinary("https://example.com/start.png", { timeout: HOP_MS * 2 }),
+    ).rejects.toThrow();
+
+    expect(hops).toBeLessThan(4);
+    // Per hop, for the throttling reason above -- stated so a future reader
+    // does not "restore" a single hoisted signal and reintroduce the abort of
+    // a request that was never sent.
+    expect(signals[1]).not.toBe(signals[0]);
+  });
 
   it("fetches binary Buffer successfully", async () => {
     const rawData = new Uint8Array([1, 2, 3, 4, 5]);

@@ -44,11 +44,19 @@ export async function listTags(params: ListParams): Promise<{
   };
 }
 
-export async function getTag(id: number): Promise<Tag | null> {
+/**
+ * The columns `/tags/[id]`'s form actually renders -- not the whole `Tag`
+ * row, which also carries `userId` (only ever a `WHERE`, never rendered) and
+ * the two timestamps, neither read by `<TagForm>` (CLAUDE.md's "a component
+ * gets the columns it renders, never the row").
+ */
+export type TagDetailRow = Pick<Tag, "id" | "name" | "color">;
+
+export async function getTag(id: number): Promise<TagDetailRow | null> {
   const session = await requireUser();
   return (
     getDb()
-      .select()
+      .select({ id: tags.id, name: tags.name, color: tags.color })
       .from(tags)
       .where(and(eq(tags.id, id), eq(tags.userId, session.id)))
       .get() ?? null

@@ -55,7 +55,7 @@ export const StatusBadge = statusBadgeIn(useAiTranslate, {
  *
  * **The save fallback is `credentialsSaveFailed`, not the `saveFailed` the
  * actions return.** This namespace serves two cards with two subjects: a
- * credential probe, and nine numbers. `saveFailed` is worded for the numbers
+ * credential probe, and five numbers. `saveFailed` is worded for the numbers
  * ("Could not save these settings.") because `saveAdvanced()` and
  * `setActiveProvider()` name it explicitly; a `{ ok: false }` with no key of its
  * own from a *credential* save wants "Could not save these credentials." The two

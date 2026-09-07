@@ -3,6 +3,7 @@
  */
 
 import type { ChromeLabels } from "../chrome-labels";
+import { youtubeIdFrom } from "../embeds/youtube-url";
 
 export function escapeHtml(str: string): string {
   return str
@@ -11,32 +12,6 @@ export function escapeHtml(str: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
-}
-
-export function extractYoutubeVideoId(url: string): string | null {
-  if (!url) {
-    return null;
-  }
-
-  const patterns = [
-    /youtu\.be\/([A-Za-z0-9_-]+)/,
-    /youtube\.com\/watch\?.*v=([A-Za-z0-9_-]+)/,
-    /youtube\.com\/embed\/([A-Za-z0-9_-]+)/,
-    /youtube\.com\/v\/([A-Za-z0-9_-]+)/,
-    /youtube\.com\/shorts\/([A-Za-z0-9_-]+)/,
-  ];
-
-  for (const pattern of patterns) {
-    const match = url.match(pattern);
-    if (match && match[1]) {
-      const videoId = match[1];
-      if (/^[A-Za-z0-9_-]+$/.test(videoId)) {
-        return videoId;
-      }
-    }
-  }
-
-  return null;
 }
 
 export function buildYoutubeFacadeHtml(
@@ -68,15 +43,43 @@ export function createYoutubeEmbedHtml(
   if (!caption) {
     return facade;
   }
-  return facade.replace("</div>", `${caption}</div>`);
+  // **A function replacement, not a string one, and that is the whole point.**
+  // `caption` is `headerCaptionHtml` -- markup scraped straight off the source
+  // page -- and in a *replacement string* `$&`, "$`", `$'` and `$1` are
+  // substitution patterns, not literal text. A caption reading
+  // `<p>Cost: $100 &amp; $& more</p>` expanded `$&` to the matched `</div>`
+  // and produced `...<p>Cost: $100 &amp; </div> more</p></div>`: the closing
+  // tag moved into the middle of the caption and the document structure was
+  // destroyed, for markup no code here chose. A replacer *function*'s return
+  // value is used verbatim, so nothing in the caption can be interpreted.
+  return facade.replace("</div>", () => `${caption}</div>`);
 }
 
+/**
+ * Check whether a URL's *hostname* is a Twitter/X domain.
+ *
+ * Deliberately hostname-based, not `url.includes(domain)`: the substring
+ * check that used to live here (and in `images/strategies.ts`) read
+ * `https://evil.example.com/?ref=twitter.com` as a Twitter URL, because the
+ * domain appeared somewhere in the string. `blocks/parser.ts`'s `tweetEmbed()`
+ * already parsed the hostname correctly; this is that same approach, factored
+ * out so both callers share it instead of one carrying the bug.
+ */
 export function isTwitterUrl(url: string): boolean {
   if (!url) {
     return false;
   }
   const twitterDomains = ["twitter.com", "x.com", "mobile.twitter.com"];
-  return twitterDomains.some((domain) => url.includes(domain));
+  let host = "";
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (!host) {
+    return false;
+  }
+  return twitterDomains.some((domain) => host === domain || host.endsWith(`.${domain}`));
 }
 
 export function extractTweetId(url: string): string | null {
@@ -120,7 +123,7 @@ export function buildHeaderHtml(
     return null;
   }
 
-  const youtubeVideoId = extractYoutubeVideoId(headerImageUrl);
+  const youtubeVideoId = youtubeIdFrom(headerImageUrl);
   if (youtubeVideoId) {
     const youtubeEmbed = createYoutubeEmbedHtml(
       youtubeVideoId,
@@ -159,6 +162,20 @@ export function buildHeaderHtml(
 }
 
 /**
+ * The `data-sanitized-class` values on the two wrappers this module builds.
+ *
+ * **`ARTICLE_COMMENTS_CLASS` is imported by `../content-hash`**, which cuts
+ * that section off before fingerprinting so a new comment does not count as
+ * the article changing. The wrapper is written here and matched there, and
+ * this constant is the only thing tying the two together: renaming the value
+ * inside a template literal would silently stop the cut, and every commented
+ * article would go back to rewriting itself on every cycle -- with an AI
+ * request each time -- and nothing would fail.
+ */
+export const ARTICLE_CONTENT_CLASS = "article-content";
+export const ARTICLE_COMMENTS_CLASS = "article-comments";
+
+/**
  * Format article content with an optional header, the main content, and optional comments.
  */
 export function formatArticleContent(
@@ -182,10 +199,12 @@ export function formatArticleContent(
     parts.push(header);
   }
 
-  parts.push(`<section data-sanitized-class="article-content">${content}</section>`);
+  parts.push(`<section data-sanitized-class="${ARTICLE_CONTENT_CLASS}">${content}</section>`);
 
   if (commentsContent) {
-    parts.push(`<section data-sanitized-class="article-comments">${commentsContent}</section>`);
+    parts.push(
+      `<section data-sanitized-class="${ARTICLE_COMMENTS_CLASS}">${commentsContent}</section>`,
+    );
   }
 
   return parts.join("\n\n");

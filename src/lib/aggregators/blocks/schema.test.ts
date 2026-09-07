@@ -45,6 +45,25 @@ describe("block schema encoding / decoding", () => {
     ]);
   });
 
+  it("round-trips a summary block through the wire format", () => {
+    const wire = {
+      version: 1,
+      blocks: [
+        {
+          type: "summary",
+          blocks: [{ type: "paragraph", runs: [{ text: "The gist.", styles: [], link: null }] }],
+        },
+      ],
+    };
+
+    const decoded = decodeDocument(wire);
+    expect(decoded[0]).toMatchObject({ kind: "summary", blocks: [{ kind: "paragraph" }] });
+    // Version stays 1: a new type is additive under this format's own
+    // extensibility rule (an unknown type is skipped, never fatal), and
+    // bumping it would make every existing client reject the whole document.
+    expect(encodeDocument(decoded)).toEqual(wire);
+  });
+
   it("ignores unknown style names while preserving known styles", () => {
     const runsInput = [
       {
@@ -65,6 +84,19 @@ describe("block schema encoding / decoding", () => {
         link: "",
       },
     ]);
+  });
+
+  it("clamps a heading's level off the wire to 1-6, via the shared clampHeadingLevel()", () => {
+    // The bound itself lives in `clampHeadingLevel()` (`./types`) -- this
+    // covers that `decodeBlock()`'s own coercion (float truncation, string
+    // parsing, NaN defaulting to 1) still lands on that one shared clamp
+    // rather than a local copy of the arithmetic.
+    expect(decodeBlock({ type: "heading", level: 7, runs: [] })).toMatchObject({ level: 6 });
+    expect(decodeBlock({ type: "heading", level: 0, runs: [] })).toMatchObject({ level: 1 });
+    expect(decodeBlock({ type: "heading", level: -3, runs: [] })).toMatchObject({ level: 1 });
+    expect(decodeBlock({ type: "heading", level: "not a number", runs: [] })).toMatchObject({
+      level: 1,
+    });
   });
 
   it("throws UnsupportedFormatVersion for versions other than 1", () => {

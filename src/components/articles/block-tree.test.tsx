@@ -239,6 +239,35 @@ describe("BlockNode", () => {
     expect(bq?.textContent).toContain("Nested paragraph inside quote");
   });
 
+  it("renders the summary as its own labelled section, not as body prose", () => {
+    const summaryNode = makeBlock({
+      kind: "summary",
+      children: [
+        makeBlock({
+          id: 2,
+          kind: "paragraph",
+          runs: [
+            {
+              blockId: 2,
+              position: 0,
+              text: "The gist of it.",
+              bold: false,
+              italic: false,
+              code: false,
+              strikethrough: false,
+              link: "",
+            },
+          ],
+        }),
+      ],
+    });
+
+    const { container } = render(<BlockNodeComponent node={summaryNode} />);
+    const section = container.querySelector('[data-slot="yana-ai-summary"]');
+    expect(section).not.toBeNull();
+    expect(section?.textContent).toContain("The gist of it.");
+  });
+
   it("renders blockquote and list_item content from child blocks", () => {
     const bqNode = makeBlock({
       id: 1,
@@ -360,6 +389,32 @@ describe("BlockNode", () => {
       kind: "embed",
       embedProvider: "youtube",
       embedExternalUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    });
+
+    const { container } = render(<BlockNodeComponent node={embedNode} />);
+    const iframe = container.querySelector("iframe");
+    expect(iframe?.getAttribute("src")).toBe("https://www.youtube.com/embed/dQw4w9WgXcQ");
+    expect(container.querySelector("a")).toBeNull();
+  });
+
+  it("renders a youtube-nocookie (privacy-embed) embed as a real iframe", () => {
+    const embedNode = makeBlock({
+      kind: "embed",
+      embedProvider: "youtube",
+      embedExternalUrl: "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
+    });
+
+    const { container } = render(<BlockNodeComponent node={embedNode} />);
+    const iframe = container.querySelector("iframe");
+    expect(iframe?.getAttribute("src")).toBe("https://www.youtube.com/embed/dQw4w9WgXcQ");
+    expect(container.querySelector("a")).toBeNull();
+  });
+
+  it("renders a youtube.com/live/ embed as a real iframe", () => {
+    const embedNode = makeBlock({
+      kind: "embed",
+      embedProvider: "youtube",
+      embedExternalUrl: "https://www.youtube.com/live/dQw4w9WgXcQ",
     });
 
     const { container } = render(<BlockNodeComponent node={embedNode} />);

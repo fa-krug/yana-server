@@ -3,6 +3,7 @@ import { DEFAULT_CHROME_LABELS } from "../chrome-labels";
 import { buildHeaderHtml } from "../extract/format";
 import { isSafeUrl, parseBlocks, plainTextOf } from "./parser";
 import type {
+  Block,
   Blockquote,
   CodeBlock,
   EmbedBlock,
@@ -10,6 +11,7 @@ import type {
   ImageBlock,
   ListBlock,
   Paragraph,
+  SummaryBlock,
 } from "./types";
 
 describe("isSafeUrl", () => {
@@ -70,6 +72,128 @@ describe("parseBlocks", () => {
     expect(p.runs[2].link).toBe("");
   });
 
+  describe("inline styling and links survive as a direct child of any container", () => {
+    /**
+     * The regression this covers: `inlineRuns()` reads a tag only while
+     * descending *into* it, and `convert()` used to hand it an inline element
+     * with no styling context -- so the element's own `<b>`/`<i>`/`<a href>`
+     * was ignored. It worked in a `<p>` (that branch passes the paragraph, so
+     * the styled tag is a child) and nowhere else.
+     */
+    const styleFlags = (blocks: Block[]) =>
+      (JSON.stringify(blocks).match(/"(bold|italic|code|strikethrough)":true/g) || []).length;
+
+    it.each([
+      ["a list item", "<ul><li>a <b>x</b></li></ul>"],
+      ["an ordered list item", "<ol><li>a <i>x</i></li></ol>"],
+      ["a bare blockquote", "<blockquote>a <b>x</b></blockquote>"],
+      ["a bare div", "<div>a <b>x</b></div>"],
+      ["a paragraph, as it always did", "<p>a <b>x</b></p>"],
+    ])("keeps styling inside %s", (_label, html) => {
+      expect(styleFlags(parseBlocks(html, "https://example.com/"))).toBe(1);
+    });
+
+    it("keeps a link's href inside a list item", () => {
+      // The more serious half: the href was dropped outright, so every
+      // bulleted list of links in every article stored plain text.
+      const blocks = parseBlocks(
+        '<ul><li>See <a href="https://example.com/target">the docs</a> here</li></ul>',
+        "https://example.com/",
+      );
+
+      const item = (blocks[0] as ListBlock).items[0][0] as Paragraph;
+      expect(item.runs.map((r) => r.link)).toEqual(["", "https://example.com/target", ""]);
+    });
+
+    it("still refuses an unsafe href in that position", () => {
+      // The fix routes through the same `resolveUrl`/`isSafeUrl` path as a
+      // link in a paragraph, so it must not have opened a hole.
+      const blocks = parseBlocks(
+        '<ul><li><a href="javascript:alert(1)">x</a></li></ul>',
+        "https://example.com/",
+      );
+
+      const item = (blocks[0] as ListBlock).items[0][0] as Paragraph;
+      expect(item.runs.every((r) => r.link === "")).toBe(true);
+    });
+
+    it("combines an element's own styling with its children's", () => {
+      const blocks = parseBlocks(
+        '<ul><li><a href="https://example.com/z"><b>bold link</b></a></li></ul>',
+        "https://example.com/",
+      );
+
+      const item = (blocks[0] as ListBlock).items[0][0] as Paragraph;
+      expect(item.runs[0]).toMatchObject({
+        text: "bold link",
+        bold: true,
+        link: "https://example.com/z",
+      });
+    });
+  });
+
+  // A `<br>` parses as a "\n" run, so the `<br><br>` a great many CMSs use to
+  // separate paragraphs inside a single `<p>` stored two breaks in a row and
+  // every client rendered the blank line they add. Reported against a
+  // Mein-MMO article whose body does it twice.
+  it("collapses consecutive line breaks down to a single one", () => {
+    const p = parseBlocks(`<p>Above<br><br>Below</p>`)[0] as Paragraph;
+    expect(p.runs.map((r) => r.text)).toEqual(["Above", "\n", "Below"]);
+  });
+
+  it("collapses a longer stretch of breaks the same way", () => {
+    const p = parseBlocks(`<p>Above<br><br><br><br>Below</p>`)[0] as Paragraph;
+    expect(p.runs.map((r) => r.text)).toEqual(["Above", "\n", "Below"]);
+  });
+
+  // Whitespace between two breaks survives normalize() as its own " " run, so
+  // a collapse that only grouped adjacent newline runs would leave two breaks.
+  it("collapses breaks that whitespace runs sit between", () => {
+    const p = parseBlocks(`<p>Above<br> <br>\n<br>Below</p>`)[0] as Paragraph;
+    expect(p.runs.map((r) => r.text)).toEqual(["Above", "\n", "Below"]);
+  });
+
+  it("keeps a single line break, and leaves ordinary spacing alone", () => {
+    const p = parseBlocks(`<p>Above<br>Below and <b>bold</b></p>`)[0] as Paragraph;
+    expect(p.runs.map((r) => r.text)).toEqual(["Above", "\n", "Below and ", "bold"]);
+  });
+
+  it("collapses breaks in any container, not only a paragraph", () => {
+    const list = parseBlocks(`<ul><li>Above<br><br>Below</li></ul>`)[0] as ListBlock;
+    const item = list.items[0][0] as Paragraph;
+    expect(item.runs.map((r) => r.text)).toEqual(["Above", "\n", "Below"]);
+  });
+
+  it("drops leading and trailing breaks entirely", () => {
+    const p = parseBlocks(`<p><br><br>Only<br><br></p>`)[0] as Paragraph;
+    expect(p.runs.map((r) => r.text)).toEqual(["Only"]);
+  });
+
+  it("emits the collapsed break unstyled, whatever the runs around it carry", () => {
+    const p = parseBlocks(
+      `<p><b><a href="https://example.com">Above<br><br>Below</a></b></p>`,
+    )[0] as Paragraph;
+    expect(p.runs).toEqual([
+      {
+        text: "Above",
+        bold: true,
+        italic: false,
+        code: false,
+        strikethrough: false,
+        link: "https://example.com",
+      },
+      { text: "\n", bold: false, italic: false, code: false, strikethrough: false, link: "" },
+      {
+        text: "Below",
+        bold: true,
+        italic: false,
+        code: false,
+        strikethrough: false,
+        link: "https://example.com",
+      },
+    ]);
+  });
+
   it("parses headings h1-h6", () => {
     const html = `<h1>Title 1</h1><h2>Title 2</h2><h3>Title 3</h3><h4>Title 4</h4><h5>Title 5</h5><h6>Title 6</h6>`;
     const blocks = parseBlocks(html);
@@ -110,6 +234,33 @@ describe("parseBlocks", () => {
     expect(bq.kind).toBe("blockquote");
     expect(bq.blocks).toHaveLength(1);
     expect((bq.blocks[0] as Paragraph).runs[0].text).toBe("A wise quote.");
+  });
+
+  it("parses the AI summary's section into a summary block of its own", () => {
+    const html = `<section data-sanitized-class="yana-ai-summary"><p>The gist.</p></section>`;
+    const blocks = parseBlocks(html);
+    expect(blocks).toHaveLength(1);
+    const summary = blocks[0] as SummaryBlock;
+    expect(summary.kind).toBe("summary");
+    expect((summary.blocks[0] as Paragraph).runs[0].text).toBe("The gist.");
+  });
+
+  it("recognizes the summary by an unsanitized class too, as the aggregation path emits it", () => {
+    const html = `<section class="yana-ai-summary"><p>One.</p><p>Two.</p></section>`;
+    const blocks = parseBlocks(html);
+    // Two paragraphs of prose stay inside the one summary block rather than
+    // pushing the article down the document.
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({
+      kind: "summary",
+      blocks: [{ kind: "paragraph" }, { kind: "paragraph" }],
+    });
+  });
+
+  it("drops an empty summary section rather than emitting a childless block", () => {
+    expect(parseBlocks(`<section data-sanitized-class="yana-ai-summary">   </section>`)).toEqual(
+      [],
+    );
   });
 
   it("preserves code block whitespace verbatim in pre tags", () => {

@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import type { Element } from "domhandler";
 
 import { fetchHtml } from "./http/fetcher";
 
@@ -8,6 +9,18 @@ export interface FeedEntry {
   summary: string;
   published?: string;
   author?: string;
+  /**
+   * The entry's own `<category>` values, in feed order.
+   *
+   * Read for one reason: a publisher's advertising label lives here
+   * (`<category>Anzeige</category>` on a Mein-MMO deal article,
+   * `<category>Advertorial</category>` on a WinFuture one), which is what lets
+   * `filterArticles()` drop paid content before anything is fetched -- see
+   * `@/lib/aggregators/promotional`. Nothing else consumes them yet, and they
+   * are deliberately *not* mapped onto this app's own `tags` table: those are
+   * per-feed and user-owned, where these are per-entry and the publisher's.
+   */
+  categories?: string[];
   enclosures?: Array<{ url?: string; type?: string; length?: string }>;
   itunes_duration?: string;
   "itunes:duration"?: string;
@@ -105,6 +118,35 @@ export function discoverFeedUrl(pageUrl: string): Promise<string | null> {
 }
 
 /**
+ * The `<category>` values of one `<item>`/`<entry>`, de-duplicated, in feed
+ * order.
+ *
+ * Both spellings are read because both are in the wild and a feed only ever
+ * uses one: RSS puts the value in the element's text, Atom in a `term`
+ * attribute (with an optional human-readable `label`, preferred when present
+ * because that is the spelling a publisher's label is written in). A
+ * `<category>` nested in some *other* element of the item cannot be told from a
+ * direct child by cheerio's `find`, which is why this takes the item scope from
+ * its caller rather than searching the whole document.
+ */
+function entryCategories(
+  $: cheerio.CheerioAPI,
+  scope: cheerio.Cheerio<Element>,
+): string[] | undefined {
+  const seen = new Set<string>();
+  scope.find("category").each((_, elem) => {
+    const $elem = $(elem);
+    const value = (
+      $elem.attr("label")?.trim() ||
+      $elem.attr("term")?.trim() ||
+      $elem.text().trim()
+    ).trim();
+    if (value) seen.add(value);
+  });
+  return seen.size > 0 ? [...seen] : undefined;
+}
+
+/**
  * Parse an XML string representing an RSS 2.0 or Atom feed.
  */
 export function parseXmlFeed(xml: string): ParsedFeed {
@@ -136,6 +178,8 @@ export function parseXmlFeed(xml: string): ParsedFeed {
       const author =
         $item.find("dc\\:creator").first().text().trim() ||
         $item.find("author").first().text().trim();
+
+      const categories = entryCategories($, $item);
 
       const enclosures: Array<{ url?: string; type?: string; length?: string }> = [];
       $item.find("enclosure").each((_, enc) => {
@@ -178,6 +222,7 @@ export function parseXmlFeed(xml: string): ParsedFeed {
         summary,
         published,
         author,
+        categories,
         enclosures: enclosures.length > 0 ? enclosures : undefined,
         itunes_duration: itunesDuration,
         "itunes:duration": itunesDuration,
@@ -224,6 +269,7 @@ export function parseXmlFeed(xml: string): ParsedFeed {
           summary,
           published,
           author,
+          categories: entryCategories($, $entry),
           enclosures: enclosures.length > 0 ? enclosures : undefined,
         });
       });

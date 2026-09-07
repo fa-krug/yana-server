@@ -159,8 +159,8 @@ function cursorExpired(userId: string, cursor: SyncCursor): boolean {
 
 /**
  * Exactly the columns `serializeArticleSummary` reads, and no more. A bare
- * `db.select()` here would additionally pull `rawContent` -- a whole fetched
- * HTML page -- and `plainText` for every row in both streams, only for the
+ * `db.select()` here would additionally pull `plainText` -- the largest
+ * column on the table -- for every row in both streams, only for the
  * serializer to discard them. `listArticles` in `@/lib/articles/queries`
  * avoids the same trap for the same reason.
  */

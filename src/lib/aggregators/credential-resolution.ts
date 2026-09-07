@@ -39,7 +39,7 @@ import { type Feed, type UserSettings, userSettings } from "@/lib/db/schema";
  *
  * `knownSettings` lets a caller that already has the owner's `user_settings`
  * row (both `aggregate.ts` and `reload.ts` read it themselves, to hand a real
- * one to `applyAiOptions()`) pass it in instead of this function re-querying
+ * one to `applyAiToBlocks()`) pass it in instead of this function re-querying
  * the same row a second time in the same handler invocation. Omit it and this
  * queries for itself, as every existing caller and test still does.
  */

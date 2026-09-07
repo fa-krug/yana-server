@@ -95,6 +95,63 @@ describe("FullWebsiteAggregator", () => {
     // button on black -- see localizeThumbnail() in ./embeds/youtube.ts.
     expect(processed).toContain('<img src="yana-img://abc123hash"');
   });
+
+  /**
+   * One half of the live bug this task fixes: isYoutubeUrl() (in
+   * embeds/youtube-url.ts) already accepted youtube-nocookie.com, but the
+   * extractor it fed used to disagree and return null, so proxyYoutubeEmbeds()
+   * left a nocookie iframe untouched here regardless of what called it.
+   *
+   * This test exercises only that recognition bug, against a bare
+   * FullWebsiteAggregator whose default selectorsToRemove is
+   * `[IFRAME_SANITIZE_SELECTOR]` -- it carries no
+   * `iframe:not([src*='youtube.com']):not([src*='youtu.be'])` rule at all,
+   * so it says nothing about whether an iframe survives a site's own
+   * *extraction* step. That second half of the bug -- Heise, Merkur and
+   * Mein-MMO's own selectorsToRemove deleting a nocookie iframe during
+   * extractContent(), one stage *before* processContent() (and therefore
+   * this function) ever runs -- is covered end-to-end against those three
+   * real subclasses in heise.test.ts, merkur.test.ts and
+   * mein_mmo/aggregator.test.ts, not here.
+   */
+  it("replaces a youtube-nocookie.com (privacy-embed) iframe with a facade", async () => {
+    const feed: FeedLike = { identifier: "https://example.com", dailyLimit: 20 };
+    const agg = new FullWebsiteAggregator(feed);
+
+    const html = `<article><iframe src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"></iframe></article>`;
+    const article: RawArticle = {
+      name: "Privacy-Embedded Video Post",
+      identifier: "https://example.com/video-privacy",
+      raw_content: "",
+      content: "",
+      date: new Date(),
+    };
+
+    const processed = await agg.processContent(html, article);
+    expect(processed).toContain("youtube-embed-container");
+    expect(processed).toContain("dQw4w9WgXcQ");
+    expect(processed).not.toContain("<iframe");
+  });
+
+  /** Same bug, same fix, for the livestream URL form (`youtube.com/live/<id>`). */
+  it("replaces a youtube.com/live/ iframe with a facade", async () => {
+    const feed: FeedLike = { identifier: "https://example.com", dailyLimit: 20 };
+    const agg = new FullWebsiteAggregator(feed);
+
+    const html = `<article><iframe src="https://www.youtube.com/live/dQw4w9WgXcQ"></iframe></article>`;
+    const article: RawArticle = {
+      name: "Livestream Post",
+      identifier: "https://example.com/video-live",
+      raw_content: "",
+      content: "",
+      date: new Date(),
+    };
+
+    const processed = await agg.processContent(html, article);
+    expect(processed).toContain("youtube-embed-container");
+    expect(processed).toContain("dQw4w9WgXcQ");
+    expect(processed).not.toContain("<iframe");
+  });
 });
 
 describe("RssSummaryFallbackAggregator", () => {
@@ -246,6 +303,45 @@ describe("FullWebsiteAggregator.enrichArticles", () => {
     expect(headerRanAfterFetch).toBe(true);
   });
 
+  it("still attempts header extraction when the page fetch fails", async () => {
+    // The reorder put `extractHeaderElement()` after the fetch, and this is
+    // the case that ordering could have silently dropped. `enrichArticles()`'s
+    // onFetchFailed *keeps* the article with its RSS body, and before the
+    // reorder it already had a header image by then -- so a fetch failure has
+    // to fall back to a header attempt with nothing to hand over, not skip it.
+    let headerCalls = 0;
+    let headerHtml: string | undefined = "not called";
+
+    class FailingFetchAggregator extends FullWebsiteAggregator {
+      async extractHeaderElement(_article: RawArticle, html?: string): Promise<null> {
+        headerCalls++;
+        headerHtml = html;
+        return null;
+      }
+
+      async fetchArticleContent(): Promise<string> {
+        throw new Error("page is gone");
+      }
+
+      extractContent(html: string): string {
+        return html;
+      }
+
+      async processContent(html: string): Promise<string> {
+        return html;
+      }
+    }
+
+    const kept = await new FailingFetchAggregator(feed).enrichArticles([
+      makeArticle("https://example.com/1"),
+    ]);
+
+    expect(headerCalls).toBe(1);
+    expect(headerHtml).toBeUndefined();
+    // Kept with its original body, which is why the header still matters.
+    expect(kept).toHaveLength(1);
+  });
+
   it("still sets header_data before extractContent runs, despite the reordering", async () => {
     const seen: string[] = [];
 
@@ -316,5 +412,83 @@ describe("FullWebsiteAggregator.enrichArticles", () => {
     // Confirms the pool actually parallelizes rather than degenerating to
     // sequential execution.
     expect(maxInFlight).toBeGreaterThan(1);
+  });
+});
+
+describe("FullWebsiteAggregator.enrichArticles empty-body skip", () => {
+  const feed: FeedLike = { identifier: "https://example.com", dailyLimit: 20 };
+
+  class ExtractingAggregator extends FullWebsiteAggregator {
+    constructor(
+      feedLike: FeedLike,
+      private readonly extracted: Record<string, string>,
+    ) {
+      super(feedLike);
+    }
+
+    async extractHeaderElement(): Promise<null> {
+      return null;
+    }
+
+    async fetchArticleContent(url: string): Promise<string> {
+      return `<html><body>page for ${url}</body></html>`;
+    }
+
+    extractContent(_html: string, article: RawArticle): string {
+      return this.extracted[article.identifier] ?? "";
+    }
+
+    async processContent(html: string): Promise<string> {
+      // Stand in for the real chrome-adding processContent: a header is
+      // prepended whether or not there is a body, which is exactly how an
+      // empty extraction used to reach the database as an image-only article.
+      return `<figure><img src="https://example.com/header.jpg"></figure>${html}`;
+    }
+  }
+
+  it("drops an article whose extracted content has neither text nor media", async () => {
+    const agg = new ExtractingAggregator(feed, {
+      "https://example.com/empty": "<div>  </div>\n<p></p>",
+      "https://example.com/real": "<p>A real body.</p>",
+    });
+
+    const result = await agg.enrichArticles([
+      makeArticle("https://example.com/empty"),
+      makeArticle("https://example.com/real"),
+    ]);
+
+    expect(result.map((a) => a.identifier)).toEqual(["https://example.com/real"]);
+  });
+
+  it("reports the drop through onLog rather than dropping it silently", async () => {
+    const logged: string[] = [];
+    const agg = new ExtractingAggregator(feed, { "https://example.com/empty": "" });
+    agg.onLog = (message) => logged.push(message);
+
+    await agg.enrichArticles([makeArticle("https://example.com/empty")]);
+
+    expect(logged.some((line) => line.includes("https://example.com/empty"))).toBe(true);
+    expect(logged.join("\n")).toMatch(/no body/i);
+  });
+
+  it("keeps an image-only body, which is what a comic feed legitimately extracts", async () => {
+    const agg = new ExtractingAggregator(feed, {
+      "https://example.com/comic": '<div><img src="https://example.com/strip.png"></div>',
+    });
+
+    const result = await agg.enrichArticles([makeArticle("https://example.com/comic")]);
+
+    expect(result.map((a) => a.identifier)).toEqual(["https://example.com/comic"]);
+  });
+
+  it("keeps a media-only body carried by an iframe embed", async () => {
+    const agg = new ExtractingAggregator(feed, {
+      "https://example.com/video":
+        '<div><iframe src="https://www.youtube.com/embed/x"></iframe></div>',
+    });
+
+    const result = await agg.enrichArticles([makeArticle("https://example.com/video")]);
+
+    expect(result.map((a) => a.identifier)).toEqual(["https://example.com/video"]);
   });
 });

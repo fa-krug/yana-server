@@ -24,6 +24,14 @@
  * - **The body is read inside the slot.** Releasing at the response headers
  *   bounds the number of open sockets at nothing.
  *
+ * The deadline itself comes from `withDeadline()` and the body from
+ * `readCappedText()`, so this shares one implementation of both precautions
+ * with `fetchHtml()`/`fetchBinary()` rather than hand-rolling the timer pair
+ * that four call sites in this tree each got wrong once. An oversized body is
+ * therefore a `ResponseTooLarge` thrown inside the slot, which this reports as
+ * `null` -- the same answer as a network failure, because no caller here can
+ * act on the difference.
+ *
  * The body comes back as text rather than parsed, because the callers disagree
  * about what to do with it (`JSON.parse`, cheerio, or nothing) and a helper
  * that parsed would have to invent an error for a body that is not JSON --
@@ -31,6 +39,7 @@
  * pages with a 200.
  */
 
+import { MAX_JSON_BYTES, readCappedText, withDeadline } from "./fetcher";
 import { noteRateLimited, parseRetryAfterMs, withHostLimit } from "./host-limiter";
 
 export const DEFAULT_TEXT_TIMEOUT_MS = 10_000;
@@ -59,6 +68,8 @@ export interface ThrottledFetchOptions {
   timeoutMs?: number;
   /** Total attempts on a 429. `1` disables the retry. */
   attempts?: number;
+  /** Body cap. Defaults to `MAX_JSON_BYTES`; the one HTML caller raises it. */
+  maxBytes?: number;
 }
 
 /**
@@ -74,6 +85,7 @@ export async function fetchTextThrottled(
 ): Promise<ThrottledTextResponse | null> {
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TEXT_TIMEOUT_MS;
   const attempts = Math.max(1, options?.attempts ?? RATE_LIMIT_ATTEMPTS);
+  const maxBytes = options?.maxBytes ?? MAX_JSON_BYTES;
 
   let last: ThrottledTextResponse | null = null;
 
@@ -83,27 +95,23 @@ export async function fetchTextThrottled(
   for (let attempt = 0; attempt < attempts; attempt++) {
     let outcome: ThrottledTextResponse | null;
     try {
-      outcome = await withHostLimit(url, async () => {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
-        try {
+      outcome = await withHostLimit(url, () =>
+        withDeadline(timeoutMs, async (signal) => {
           const response = await fetch(url, {
             method: options?.method,
             headers: options?.headers,
             body: options?.body,
             redirect: options?.redirect,
-            signal: controller.signal,
+            signal,
           });
           return {
             status: response.status,
             ok: response.ok,
             headers: response.headers,
-            body: await response.text(),
+            body: await readCappedText(response, url, maxBytes),
           };
-        } finally {
-          clearTimeout(timer);
-        }
-      });
+        }),
+      );
     } catch {
       return null;
     }
