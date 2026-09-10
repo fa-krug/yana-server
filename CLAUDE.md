@@ -291,7 +291,6 @@ npm run lint && npm run format:check && npm run typecheck && npm test
 
   Two rules that the phase-4 whole-branch review turned from theory into
   history, because together they could brick an instance permanently:
-
   - **`role` is a comma-separated _list_, and `isAdminRole()` splits it.** The
     plugin's `hasPermission()` does `(role || defaultRole).split(",")` and
     grants if any part matches, so `"user,admin"` is an administrator to Better
@@ -1142,7 +1141,7 @@ null`, none was throttled, and none told a 429 from a DNS failure.
   aggregation happened (the `/api/v1/feeds` wire form serializes whatever
   `updatedAt` holds, but as an ordinary "row last modified" field, the same
   meaning every other REST resource on this API gives it — not as evidence of
-  a completed aggregation).- **`feeds.maxArticleAgeDays` (default `30`) is an ingestion filter, not a
+  a completed aggregation).- \*\*`feeds.maxArticleAgeDays` (default `30`) is an ingestion filter, not a
   retention policy — that's `userSettings.articleRetentionDays` (default
   `60`), a separate column enforced by the nightly `retention` job. This one
   is read by `BaseAggregator.filterArticles()` (`src/lib/aggregators/base.ts`)
@@ -1169,7 +1168,7 @@ null`, none was throttled, and none told a 429 from a DNS failure.
   with `collectedToday = 0`, discarding the pacing `aggregate()` had already
   worked out, and a feed on `dailyLimit: 20` could store roughly 3x that in a
   day. **This is a real behaviour change for existing installs, not just a bug
-  fix**: a fast feed on a small `dailyLimit` now genuinely caps at that number
+  fix\*\*: a fast feed on a small `dailyLimit` now genuinely caps at that number
   per day, and any entries beyond it are simply lost once the source's own
   window rolls past them — there is no backfill. `limit === 0` means zero
   articles, never "unbounded"; treat it as `?? `, not `||`, wherever it is read,
@@ -1184,7 +1183,6 @@ null`, none was throttled, and none told a 429 from a DNS failure.
   `caschys_blog`, whose title-only `(Anzeige)` test this generalises. Four
   things about it, three of them measured against live feeds rather than
   reasoned about:
-
   - **It reads _declared_ labels only — the publisher's own categories
     (`<category>Anzeige</category>` on a Mein-MMO deal article,
     `<category>Advertorial</category>` on a WinFuture one) and a delimited label
@@ -1678,7 +1676,7 @@ null`, none was throttled, and none told a 429 from a DNS failure.
   sanitizes on the way to HTML, so that pass runs twice for Reddit; it is
   idempotent, and an unconditional call is worth more than a saved pass.) What
   survives as descriptor _data_ is real, observed per-site difference, kept
-  rather than normalised away: mactechnews and mein_mmo wrap the section in a
+  rather than normalised away: mactechnews and mein*mmo wrap the section in a
   bare `<section>`, YouTube in a `div.youtube-comments`, and Reddit in
   **nothing at all** — its heading rides bare inside
   `formatArticleContent()`'s own `ARTICLE_COMMENTS_CLASS` wrapper, so a
@@ -1693,7 +1691,7 @@ null`, none was throttled, and none told a 429 from a DNS failure.
   total — but not for a uniform reason, and one of its two renderers really
   is a remaining duplicate rather than a structurally different case.
   `processListItemComment()` (heise.ts:101-106) is the genuine exception: its
-  per-comment body is the posting's _subject line_ rather than markup, which
+  per-comment body is the posting's \_subject line* rather than markup, which
   the builder has no shape for. `processFullViewComment()` (heise.ts:151-158)
   is not — it emits the exact same
   `<blockquote><p><strong>author</strong> | link</p><div>{sanitized
@@ -1794,10 +1792,10 @@ markup}</div></blockquote>` shape the builder's non-`multiline` branch
   a live bug rather than untidiness.** `website.ts` gated on `isYoutubeUrl()`,
   which accepts `youtube-nocookie.com`, and then called an extractor with no
   nocookie pattern — so a privacy-embedded video yielded `null`, was left
-  untouched, and heise/merkur/mein_mmo's `selectorsToRemove` then **deleted it
+  untouched, and heise/merkur/mein*mmo's `selectorsToRemove` then **deleted it
   outright**. `youtube.com/live/<id>` went the same way. Fixing it took two
   halves and the second is the non-obvious one: the deletion happens inside
-  `extractContent()`, one stage _before_ `processContent()` proxies embeds, so
+  `extractContent()`, one stage \_before* `processContent()` proxies embeds, so
   a complete extractor is not enough on its own. The three sites' literal
   `iframe:not([src*='youtube.com']):not([src*='youtu.be'])` copies are now one
   shared `YOUTUBE_IFRAME_KEEP_SELECTOR` in the same module, which does name the
@@ -1945,10 +1943,9 @@ retention.ts`) runs once per run, after that run's own article deletions,
     `/api/v1/images` always did — recorded so a later reader does not read the
     `private` above as more than it is.
 
-- **Every `fetch()` under `src/lib/aggregators/**` must pass an `AbortSignal`
-  whose deadline covers the _body_, not just the headers.** In practice that
-  means `clearTimeout` below the body read, never above it — or, better, not
-  holding the timer at all: `withDeadline()`
+- **Every `fetch()` under `src/lib/aggregators/**`must pass an`AbortSignal`whose deadline covers the _body_, not just the headers.** In practice that
+  means`clearTimeout`below the body read, never above it — or, better, not
+  holding the timer at all:`withDeadline()`
   (`src/lib/aggregators/http/fetcher.ts`) owns it for its caller, so a caller
   that never holds it cannot disarm it early. **The reason this is a rule and
   not a nicety is the failure mode.** A server that sends headers and then
@@ -1956,7 +1953,7 @@ retention.ts`) runs once per run, after that run's own article deletions,
   could interrupt the drain is that signal and it has already been cleared —
   and `worker.ts`'s budget timer only **requests** cooperative cancellation,
   with no checkpoint inside a fetch, so it cannot recover the loop. Four such
-  feeds at the default `WORKER_CONCURRENCY` of `4` therefore deadlock every
+  feeds at the default `WORKER_CONCURRENCY`of`4` therefore deadlock every
   background job on the instance with no way back. The same mistake was made at
   four separate call sites, twice with no signal at all.
   - **`readCapped()` (same module, with `readCappedText()`/`readCappedJson()`
@@ -2446,7 +2443,6 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
     in one deliberate step.
 
   Three more things that are easy to get wrong here:
-
   - **The media root** is `process.env.MEDIA_PATH ?? ./media` (`/app/media` in
     the image), read **per call** rather than pinned at module load like
     `DB_PATH` — there is no connection to cache, and a test can then point it at
@@ -3086,9 +3082,63 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
     hand-rolled `AbortController` + `setTimeout` pair it replaced skipped
     `clearTimeout` whenever `fetch` threw, leaving an armed timer behind on
     every failed attempt, and cleared it the moment `fetch()` resolved — before
-    any of the three shapes reads `response.json()` — so a provider that sent
-    headers and then stalled the body hung the job indefinitely. A
-    self-expiring signal fixes both halves at once.
+    the body was read — so a provider that sent headers and then stalled the
+    body hung the job indefinitely. A self-expiring signal fixes both halves at
+    once.
+  - **The body is read _inside_ `requestWithRetry()`, which returns the parsed
+    JSON rather than a `Response`, and a timeout or transport failure is
+    retried like a 429.** Covering the body with the deadline created a second
+    defect the moment it fixed the first: on a rewrite request the slow part
+    is the model streaming a whole article back, so the deadline fires during
+    `response.json()` — and while each of the three shapes read the body
+    itself, _after_ the retry loop had returned, that rejection escaped to
+    `generateResponse()`'s catch as "AI API call failed: The operation was
+    aborted due to timeout" and was never retried. Measured on a real
+    `openrouter/free` reload: three job attempts, the first timed out mid-body
+    with the retry budget never consulted. Now `isTransientRequestError()` (a
+    `TimeoutError`/`AbortError` `DOMException`, or undici's `TypeError`) from
+    either the request or the body read retries up to `aiMaxRetries` with no
+    sleep, and a `SyntaxError` — the body arrived whole and was not JSON — does
+    not. **A timeout retry is deliberately not charged to
+    `MAX_RETRY_TIME_SECONDS`** (next bullet): that budget bounds back-off
+    _sleeps_, and charging `aiRequestTimeout` against it would make a timeout
+    unretryable at exactly the values an operator raises it to (120s, twice
+    the budget) to give a slow model room; the bound on that path is
+    `(aiMaxRetries + 1) × aiRequestTimeout`, both operator-set.
+  - **A 200 is not an answer until it has a message in it, and every refusal
+    logs the provider's own `error.message`.** `callOpenaiCompatible()` used to
+    end in `result?.choices?.[0]?.message?.content ?? null`, which collapsed
+    two real OpenRouter shapes into a bare `providerError` with nothing in the
+    job log: an upstream model's failure reported as a **200** carrying
+    `{ error: { code, message } }` and no `choices`, and a reasoning model
+    answering with an empty `content` beside a populated `reasoning` field
+    (the empty string then reached `parseJsonAnswer()` and was reported as
+    "invalid JSON: ..." with nothing after the colon). Both are named in the
+    log now (`providerErrorIn()`, truncated to `MAX_PROVIDER_MESSAGE_CHARS`);
+    the reason stays `providerError`, since neither is this stage's fault or
+    the credential's. Non-2xx statuses read the same envelope through
+    `readErrorDetail()`, which never throws — the existing status tests mock
+    no `json()` at all, and an error-body read failing must not be mistaken
+    for a transient failure of the request proper and retried.
+  - **OpenRouter is sent `provider: { require_parameters: true }` in
+    `jsonMode`, and only then** — the `jsonModeBody` field on its
+    `PROVIDER_REQUESTS` entry. OpenRouter _drops_ a parameter the routed-to
+    model does not support rather than refusing the request, and
+    `openrouter/free` picks a different free model per request, so a
+    `response_format: json_object` request that landed on a model without
+    structured-output support answered in prose and the whole paid attempt
+    died as `invalidJson` ("User Safety: safe..." was one real answer — the
+    third of those three job attempts). `require_parameters` restricts routing
+    to endpoints honouring every parameter sent, so `response_format` is
+    either obeyed or refused outright with a 404 whose `error.message` names
+    the parameter, which the bullet above now logs. Not sent without
+    `jsonMode`, because `POST /api/v1/ai/prompt` calls without it and a pinned
+    model whose endpoint lacks `temperature` support must keep working there.
+    This is also why the three job attempts in that log were three _unrelated_
+    failures rather than three tries at one thing: each reload re-ran the AI
+    stage against a different random free model. The reload retry cannot fix
+    that; pinning a model can, and these three changes make each draw either
+    succeed, retry, or say why it did not.
   - **`MAX_RETRY_TIME_SECONDS = 60` is a named constant, not a knob.**
     `aiMaxRetryTime` was read from settings in two spellings and had a column
     in neither, so the default was the only value it ever took. It is a fixed
@@ -3411,10 +3461,10 @@ new.plain_text`. Without it the trigger fires on _every_ column write —
   `FullWebsiteAggregator.fetchArticleContent()` overrode `RssAggregator`'s
   **without calling it**, so the noting was silently dropped for every site
   built on that class — which is most of them. Selectors are supplied for
-  heise, merkur, tagesschau, caschys_blog, mein_mmo and mactechnews;
+  heise, merkur, tagesschau, caschys*blog, mein_mmo and mactechnews;
   ars_technica and the_verge read `og:title` off the already-fetched page,
   because they are `RssSummaryFallbackAggregator`s and never reach
-  `RssAggregator.fetchArticleContent()` (which refetches the whole _feed_ and
+  `RssAggregator.fetchArticleContent()` (which refetches the whole \_feed* and
   looks the entry up by link), so "just stop dropping the noting" was not
   available to them and `og:title` costs no extra request. The three comics
   stay `null`: they have no headline distinct from the feed's. **A selector

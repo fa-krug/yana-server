@@ -103,6 +103,62 @@ function describeError(err: unknown): string {
 }
 
 /**
+ * Whether a rejection from `fetch()` or from reading its body is one a second
+ * attempt can reasonably answer differently: the per-attempt deadline firing
+ * (`AbortSignal.timeout()` rejects with a `DOMException` named `TimeoutError`,
+ * an already-aborted signal with `AbortError`), or a transport failure (undici
+ * rejects with a `TypeError` -- `"fetch failed"` for a connection that never
+ * opened, `"terminated"` for one that dropped mid-body). A `SyntaxError` from
+ * `response.json()` is deliberately **not** one: the body arrived whole and
+ * was not JSON, and asking again does not change what the provider meant by
+ * it. Checked by `name` rather than `instanceof DOMException` so a test's
+ * hand-built rejection classifies the same way undici's does.
+ */
+function isTransientRequestError(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  if (typeof err !== "object" || err === null || !("name" in err)) return false;
+  const name = (err as { name: unknown }).name;
+  return name === "TimeoutError" || name === "AbortError";
+}
+
+/**
+ * How much of a provider's own `error.message` reaches the log: enough to name
+ * the cause ("No endpoints found that support the requested parameters",
+ * "Provider returned error"), not enough to carry a whole echoed prompt or
+ * document should a provider put one there.
+ */
+const MAX_PROVIDER_MESSAGE_CHARS = 200;
+
+/**
+ * The `{ error: { code, message } }` envelope every provider here puts in a
+ * failing body -- and which OpenRouter also puts in a **200** body when the
+ * upstream model it routed to failed after the response had begun -- read
+ * defensively, since nothing about the shape is guaranteed. `null` when the
+ * body carries no such envelope.
+ */
+function providerErrorIn(body: unknown): string | null {
+  if (typeof body !== "object" || body === null || !("error" in body)) return null;
+  const error = (body as { error: unknown }).error;
+  if (typeof error === "string") return error.slice(0, MAX_PROVIDER_MESSAGE_CHARS) || null;
+  if (typeof error !== "object" || error === null) return null;
+  const { code, message } = error as { code?: unknown; message?: unknown };
+  const parts: string[] = [];
+  if (typeof code === "string" || typeof code === "number") parts.push(`code ${code}`);
+  if (typeof message === "string" && message) {
+    parts.push(message.slice(0, MAX_PROVIDER_MESSAGE_CHARS));
+  }
+  return parts.length > 0 ? parts.join(": ") : null;
+}
+
+/** The `/chat/completions` answer envelope, as far as this module reads it. */
+type ChatCompletionBody = {
+  choices?: Array<{
+    finish_reason?: unknown;
+    message?: { content?: unknown; reasoning?: unknown };
+  }>;
+};
+
+/**
  * Which request/response envelope a provider speaks. `AIClient.callProvider()`
  * switches on this to decide which method actually issues the call; the
  * `openai-compatible` five all end up in the one `callOpenaiCompatible()`
@@ -133,7 +189,17 @@ type ProviderRequestShape = "openai-compatible" | "anthropic" | "gemini";
  */
 const PROVIDER_REQUESTS: Record<
   AiProviderKey,
-  { url: string | ((settings: AiRuntimeSettings) => string); shape: ProviderRequestShape }
+  {
+    url: string | ((settings: AiRuntimeSettings) => string);
+    shape: ProviderRequestShape;
+    /**
+     * Extra top-level request fields sent **only when `jsonMode` is on**, for
+     * an `openai-compatible` provider whose routing needs telling that the
+     * `response_format` it is being sent is a requirement rather than a hint.
+     * See the `openrouter` entry.
+     */
+    jsonModeBody?: AiRequestBody;
+  }
 > = {
   openai: {
     // `?.trim() || DEFAULT`, matching `testOpenaiKey()` in `./openai` --
@@ -155,7 +221,24 @@ const PROVIDER_REQUESTS: Record<
   mistral: { url: MISTRAL_API_URL, shape: "openai-compatible" },
   qwen: { url: QWEN_API_URL, shape: "openai-compatible" },
   deepseek: { url: DEEPSEEK_API_URL, shape: "openai-compatible" },
-  openrouter: { url: OPENROUTER_API_URL, shape: "openai-compatible" },
+  openrouter: {
+    url: OPENROUTER_API_URL,
+    shape: "openai-compatible",
+    // OpenRouter **drops** a request parameter the routed-to model does not
+    // support rather than refusing the request, and its `openrouter/free`
+    // default picks a different free model per request -- so a `jsonMode`
+    // request landed on a model with no `response_format` support answered
+    // in prose and the whole paid attempt died in `parseJsonAnswer()` as
+    // `invalidJson` ("User Safety: safe..." was one real answer). Its
+    // provider-routing option `require_parameters` restricts routing to
+    // endpoints that honour every parameter sent, so `response_format` is
+    // either obeyed or the request is refused outright (a 404 whose
+    // `error.message` names the unsupported parameter, which
+    // `requestWithRetry()` now logs). Sent only in `jsonMode`: the plain
+    // request carries nothing a model could lack, and a pinned model without
+    // `temperature` support must keep working on `POST /api/v1/ai/prompt`.
+    jsonModeBody: { provider: { require_parameters: true } },
+  },
 };
 
 export class AIClient {
@@ -190,12 +273,47 @@ export class AIClient {
     this.onLog?.(message);
   }
 
+  /**
+   * POSTs `data` and returns the **parsed JSON body**, or `null` when no usable
+   * answer came back after every retry.
+   *
+   * **The body is read in here, inside the retry loop, and that placement is
+   * the point.** `AbortSignal.timeout()` covers the body as well as the
+   * headers (see the `signal` comment below), and on a rewrite request the
+   * slow part is not the headers -- it is the model streaming a whole article
+   * back -- so the deadline fires *during* `response.json()`. While each
+   * `callXxx()` shape read the body itself, after this method had returned,
+   * that rejection escaped straight to `generateResponse()`'s catch as
+   * "AI API call failed: The operation was aborted due to timeout" and was
+   * never retried, while the one failure this loop did retry (a 429) is the
+   * one a slow free-tier model never produces. Measured against OpenRouter's
+   * `openrouter/free`: the first attempt at a Reddit article timed out
+   * mid-body and the retry budget was never consulted.
+   *
+   * What is retried, up to `aiMaxRetries` times: a 429, with exponential
+   * back-off under `MAX_RETRY_TIME_SECONDS`; and any transient rejection from
+   * the request or its body read (`isTransientRequestError()` -- the deadline
+   * firing, or a transport failure), with no sleep, since the time was
+   * already spent waiting. A timeout retry is deliberately **not** charged to
+   * `MAX_RETRY_TIME_SECONDS`: that budget bounds back-off *sleeps*, and
+   * charging the request's own `aiRequestTimeout` against it would make a
+   * timeout unretryable at exactly the timeouts an operator raises it to
+   * (120s, twice the budget) to give a slow model room. The bound on that
+   * path is `(aiMaxRetries + 1) * aiRequestTimeout` instead, both of them
+   * operator-set.
+   *
+   * Not retried: a 401/403 (thrown as `ProviderUnauthorizedError`); any other
+   * status, logged with the provider's own `error.message` when the body
+   * carries one, so OpenRouter's 404 "No endpoints found that support the
+   * requested parameters" reaches the job log as that and not as "Not
+   * Found"; and a 2xx body that is not JSON.
+   */
   private async requestWithRetry(
     url: string,
     headers: Record<string, string>,
     data: AiRequestBody,
     timeoutSeconds: number,
-  ): Promise<Response | null> {
+  ): Promise<unknown> {
     const maxRetries = this.settings.aiMaxRetries ?? 3;
     const retryDelay = this.settings.aiRetryDelay ?? 2;
     const maxRetryTime = MAX_RETRY_TIME_SECONDS;
@@ -203,8 +321,9 @@ export class AIClient {
     const startTime = Date.now();
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      let response: Response;
       try {
-        const response = await fetch(url, {
+        response = await fetch(url, {
           method: "POST",
           headers,
           body: JSON.stringify(data),
@@ -219,72 +338,99 @@ export class AIClient {
           // combination had two problems: `clearTimeout` was skipped whenever
           // `fetch` threw, leaving an armed timer behind on every failed
           // attempt, and it only ever bounded the headers -- `clearTimeout`
-          // fired the moment `fetch()` resolved, before any of the three
-          // `callXxx()` shapes calls `response.json()`, so a provider that
-          // sent headers and then stalled the body could hang the job
-          // indefinitely. A self-cleaning, self-expiring signal fixes both:
-          // nothing to leak on a throw, and the deadline still covers the
-          // body, since aborting the signal after `fetch()` resolves but
-          // before the body is fully read aborts that read too.
+          // fired the moment `fetch()` resolved, before the body was read, so
+          // a provider that sent headers and then stalled the body could hang
+          // the job indefinitely. A self-cleaning, self-expiring signal fixes
+          // both: nothing to leak on a throw, and the deadline still covers
+          // the body, since aborting the signal after `fetch()` resolves but
+          // before the body is fully read aborts that read too -- which is
+          // why that read happens below, inside this loop.
           signal: AbortSignal.timeout(timeoutSeconds * 1000),
         });
-
-        if (response.ok) {
-          return response;
-        }
-
-        if (response.status === 429 && attempt < maxRetries) {
-          const waitSeconds = retryDelay ? retryDelay * Math.pow(2, attempt) : 0;
-          const elapsedSeconds = (Date.now() - startTime) / 1000;
-
-          if (waitSeconds > 0 && elapsedSeconds + waitSeconds > maxRetryTime) {
-            this.warn(
-              `Rate limited (429), but retrying would exceed time budget (${Math.round(
-                elapsedSeconds,
-              )}s elapsed, ${waitSeconds}s wait, ${maxRetryTime}s max). Giving up.`,
-            );
-            return null;
-          }
-
+      } catch (err: unknown) {
+        // A `fetch()` rejection is a `TypeError` (undici's `"fetch failed"`,
+        // carrying the real transport cause) or a `DOMException` from
+        // `AbortSignal.timeout()` firing -- neither ever carries a `.status`,
+        // which only exists on a `Response`, so there is no 429 to look for
+        // here (the code that used to was a literal port of Python
+        // `requests`' `raise_for_status()` idiom, where a non-2xx response
+        // *is* a raised exception). Both are transient, so both retry.
+        if (isTransientRequestError(err) && attempt < maxRetries) {
           this.warn(
-            `Rate limited (429), retrying in ${waitSeconds}s (attempt ${attempt + 1}/${maxRetries})`,
+            `AI API request error: ${describeError(err)}; retrying (attempt ${attempt + 1}/${maxRetries})`,
           );
-
-          if (waitSeconds > 0) {
-            await sleep(waitSeconds * 1000);
-          }
           continue;
         }
-
-        if (response.status === 401 || response.status === 403) {
-          throw new ProviderUnauthorizedError(
-            `AI provider rejected the credentials (status ${response.status}).`,
-          );
-        }
-
-        this.warn(`AI API call failed with status ${response.status}: ${response.statusText}`);
-        return null;
-      } catch (err: unknown) {
-        if (err instanceof ProviderUnauthorizedError) throw err;
-
-        // **No caught-error 429 branch here**, unlike the response-status one
-        // above. A `fetch()` rejection is a `TypeError` (undici's
-        // `"fetch failed"`, carrying the real transport cause) or a
-        // `DOMException` from `AbortSignal.timeout()` firing -- neither ever
-        // carries a `.status`, which only exists on a `Response`, and a
-        // response with a status is the `response.ok`/`response.status`
-        // branch above, never this `catch`. There is therefore no rejection
-        // shape that reaches here with `.status === 429`; the code that used
-        // to check for one was a literal port of Python `requests`'
-        // `raise_for_status()` idiom, where a non-2xx response *is* a raised
-        // exception carrying `.response.status_code` -- a shape `fetch`
-        // does not share.
         this.warn(`AI API request error: ${describeError(err)}`);
         return null;
       }
+
+      if (response.ok) {
+        try {
+          return await response.json();
+        } catch (err: unknown) {
+          if (isTransientRequestError(err) && attempt < maxRetries) {
+            this.warn(
+              `AI API response body could not be read: ${describeError(err)}; retrying (attempt ${attempt + 1}/${maxRetries})`,
+            );
+            continue;
+          }
+          this.warn(`AI API response body could not be read: ${describeError(err)}`);
+          return null;
+        }
+      }
+
+      if (response.status === 429 && attempt < maxRetries) {
+        const waitSeconds = retryDelay ? retryDelay * Math.pow(2, attempt) : 0;
+        const elapsedSeconds = (Date.now() - startTime) / 1000;
+
+        if (waitSeconds > 0 && elapsedSeconds + waitSeconds > maxRetryTime) {
+          this.warn(
+            `Rate limited (429), but retrying would exceed time budget (${Math.round(
+              elapsedSeconds,
+            )}s elapsed, ${waitSeconds}s wait, ${maxRetryTime}s max). Giving up.`,
+          );
+          return null;
+        }
+
+        this.warn(
+          `Rate limited (429), retrying in ${waitSeconds}s (attempt ${attempt + 1}/${maxRetries})`,
+        );
+
+        if (waitSeconds > 0) {
+          await sleep(waitSeconds * 1000);
+        }
+        continue;
+      }
+
+      if (response.status === 401 || response.status === 403) {
+        throw new ProviderUnauthorizedError(
+          `AI provider rejected the credentials (status ${response.status}).`,
+        );
+      }
+
+      const detail = await this.readErrorDetail(response);
+      this.warn(
+        `AI API call failed with status ${response.status}: ${detail ?? response.statusText}`,
+      );
+      return null;
     }
 
     return null;
+  }
+
+  /**
+   * The provider's own `error.message` out of a failing response, when its
+   * body is JSON and carries one. Never throws and never retries: a body that
+   * cannot be read here just leaves the status line to speak for itself, and
+   * it must not be mistaken for a transient failure of the request proper.
+   */
+  private async readErrorDetail(response: Response): Promise<string | null> {
+    try {
+      return providerErrorIn(await response.json());
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -379,7 +525,15 @@ export class AIClient {
       case "gemini":
         return this.callGemini(baseUrl, apiKey, model, prompt, jsonMode, jsonSchema, timeout);
       case "openai-compatible":
-        return this.callOpenaiCompatible(baseUrl, apiKey, model, prompt, jsonMode, timeout);
+        return this.callOpenaiCompatible(
+          baseUrl,
+          apiKey,
+          model,
+          prompt,
+          jsonMode,
+          timeout,
+          entry.jsonModeBody,
+        );
     }
   }
 
@@ -396,6 +550,7 @@ export class AIClient {
     prompt: string,
     jsonMode: boolean,
     timeout: number,
+    jsonModeBody?: AiRequestBody,
   ): Promise<string | null> {
     const url = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
     const headers = {
@@ -420,12 +575,42 @@ export class AIClient {
     };
     if (jsonMode) {
       data.response_format = { type: "json_object" };
+      Object.assign(data, jsonModeBody);
     }
 
-    const response = await this.requestWithRetry(url, headers, data, timeout);
-    if (!response) return null;
-    const result = await response.json();
-    return result?.choices?.[0]?.message?.content ?? null;
+    const body = await this.requestWithRetry(url, headers, data, timeout);
+    if (body === null) return null;
+
+    // **A 200 is not an answer until it has a message in it.** Both of these
+    // used to collapse into `result?.choices?.[0]?.message?.content ?? null`
+    // -- a bare `providerError` with nothing in the job log to say why, which
+    // is what made a failing `openrouter/free` article a guessing game.
+    // OpenRouter reports an upstream model's failure as a **200** carrying
+    // `{ error: { code, message } }` and no `choices` at all; and some
+    // reasoning models answer with an empty `content` beside a populated
+    // `reasoning` field, or with `finish_reason: "length"` and nothing
+    // after it. Each is named in the log; the reason stays `providerError`,
+    // since none of them is this stage's fault or the credential's.
+    const inBodyError = providerErrorIn(body);
+    if (inBodyError !== null) {
+      this.warn(`AI provider answered 200 but reported an error: ${inBodyError}`);
+      return null;
+    }
+    const choice = (body as ChatCompletionBody).choices?.[0];
+    const content = choice?.message?.content;
+    if (typeof content !== "string" || content.length === 0) {
+      const finishReason = choice?.finish_reason;
+      const reasoning =
+        typeof choice?.message?.reasoning === "string" && choice.message.reasoning.length > 0;
+      this.warn(
+        "AI provider answered with no message content" +
+          (typeof finishReason === "string" ? ` (finish_reason: ${finishReason})` : "") +
+          (reasoning ? "; the answer carried only a 'reasoning' field" : "") +
+          ".",
+      );
+      return null;
+    }
+    return content;
   }
 
   /** Anthropic's Messages API envelope -- distinct from every other provider's. */
@@ -458,10 +643,10 @@ export class AIClient {
       temperature,
     };
 
-    const response = await this.requestWithRetry(url, headers, data, timeout);
-    if (!response) return null;
-    const result = await response.json();
-    return result?.content?.[0]?.text ?? null;
+    const body = await this.requestWithRetry(url, headers, data, timeout);
+    if (body === null) return null;
+    const text = (body as { content?: Array<{ text?: unknown }> }).content?.[0]?.text;
+    return typeof text === "string" ? text : null;
   }
 
   /**
@@ -508,11 +693,12 @@ export class AIClient {
       generationConfig,
     };
 
-    const response = await this.requestWithRetry(url, headers, data, timeout);
-    if (!response) return null;
-    const result = await response.json();
-    const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (text === undefined) {
+    const result = await this.requestWithRetry(url, headers, data, timeout);
+    if (result === null) return null;
+    const text = (
+      result as { candidates?: Array<{ content?: { parts?: Array<{ text?: unknown }> } }> }
+    ).candidates?.[0]?.content?.parts?.[0]?.text;
+    if (typeof text !== "string") {
       this.warn(`Unexpected Gemini response format: ${JSON.stringify(result)}`);
       return null;
     }

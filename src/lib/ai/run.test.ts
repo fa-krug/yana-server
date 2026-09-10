@@ -707,6 +707,181 @@ describe("applyAiToBlocks & AIClient processing", () => {
   });
 
   /**
+   * The body read lives *inside* `requestWithRetry()`'s loop, and every case
+   * here is a failure that used to escape it. Read against the log a real
+   * `openrouter/free` reload produced -- three attempts, three unrelated
+   * failures, none of them retried or explained.
+   */
+  describe("the body read is inside the retry loop, and a 200 is explained", () => {
+    const openrouter = (overrides: Partial<AiRuntimeSettings> = {}) =>
+      makeSettings({
+        activeAiProvider: "openrouter",
+        openrouterEnabled: true,
+        openrouterApiKey: "sk-or-test",
+        aiMaxRetries: 3,
+        aiRetryDelay: 0,
+        ...overrides,
+      } as Partial<AiRuntimeSettings>);
+
+    /** What undici rejects a body read with once `AbortSignal.timeout()` fires. */
+    const timedOut = () =>
+      new DOMException("The operation was aborted due to timeout", "TimeoutError");
+
+    const answer = (content: string) =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content } }] }),
+      }) as unknown as Response;
+
+    it("retries a request whose body read times out, instead of failing the article", async () => {
+      // Attempt 1 of the real log: headers arrived, the free model streamed
+      // the rewritten article too slowly, the deadline fired *during*
+      // `response.json()`. With the read outside the loop that rejection
+      // reached `generateResponse()`'s catch as "AI API call failed: The
+      // operation was aborted due to timeout" and no retry ever happened.
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () => Promise.reject(timedOut()),
+        } as unknown as Response)
+        .mockResolvedValueOnce(answer("second attempt"));
+      globalThis.fetch = fetchMock;
+
+      const result = await new AIClient(openrouter()).generateResponse("test prompt");
+
+      expect(result).toEqual({ ok: true, text: "second attempt" });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("retries a request that times out before any headers arrive", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(timedOut())
+        .mockResolvedValueOnce(answer("second attempt"));
+      globalThis.fetch = fetchMock;
+
+      const result = await new AIClient(openrouter()).generateResponse("test prompt");
+
+      expect(result).toEqual({ ok: true, text: "second attempt" });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("retries a transport failure, and gives up after aiMaxRetries", async () => {
+      const fetchMock = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+      globalThis.fetch = fetchMock;
+
+      const result = await new AIClient(openrouter({ aiMaxRetries: 2 })).generateResponse("p");
+
+      expect(result).toEqual({ ok: false, reason: "providerError" });
+      // 1 initial attempt + 2 retries.
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it("does not retry a 2xx body that is not JSON", async () => {
+      // The body arrived whole; asking again does not change what the
+      // provider meant by it. Distinct from the timeout above, which is
+      // about *when*, not *whether*.
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(new SyntaxError("Unexpected token < in JSON")),
+      } as unknown as Response);
+      globalThis.fetch = fetchMock;
+      const log: string[] = [];
+
+      const result = await new AIClient(openrouter(), (m) => log.push(m)).generateResponse("p");
+
+      expect(result).toEqual({ ok: false, reason: "providerError" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(log.join("\n")).toContain("Unexpected token");
+    });
+
+    it("names OpenRouter's in-body error on a 200, instead of a bare providerError", async () => {
+      // Attempt 2 of the real log: `providerError` with nothing in the job
+      // log to say why. OpenRouter reports an upstream model's failure as a
+      // 200 carrying `{ error: { code, message } }` and no `choices`.
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ error: { code: 502, message: "Provider returned error" } }),
+      } as unknown as Response);
+      const log: string[] = [];
+
+      const result = await new AIClient(openrouter(), (m) => log.push(m)).generateResponse("p");
+
+      expect(result).toEqual({ ok: false, reason: "providerError" });
+      expect(log.join("\n")).toContain("code 502: Provider returned error");
+    });
+
+    it("explains a 200 whose message has no content", async () => {
+      // A reasoning model that spent its answer in `reasoning` and stopped
+      // on length. `"" ?? null` used to hand the empty string on to
+      // `parseJsonAnswer()`, which reported "invalid JSON: ..." with nothing
+      // after the colon.
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ finish_reason: "length", message: { content: "", reasoning: "Let me..." } }],
+        }),
+      } as unknown as Response);
+      const log: string[] = [];
+
+      const result = await new AIClient(openrouter(), (m) => log.push(m)).generateResponse("p");
+
+      expect(result).toEqual({ ok: false, reason: "providerError" });
+      const line = log.join("\n");
+      expect(line).toContain("no message content");
+      expect(line).toContain("finish_reason: length");
+      expect(line).toContain("reasoning");
+    });
+
+    it("logs the provider's own error.message on a refused status", async () => {
+      // What `require_parameters` produces for a pinned model whose endpoint
+      // lacks `response_format`: a 404 whose body says which parameter. The
+      // status line alone ("Not Found") told the operator nothing.
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+        json: async () => ({
+          error: { code: 404, message: "No endpoints found that support the requested parameters" },
+        }),
+      } as unknown as Response);
+      const log: string[] = [];
+
+      const result = await new AIClient(openrouter(), (m) => log.push(m)).generateResponse("p");
+
+      expect(result).toEqual({ ok: false, reason: "providerError" });
+      expect(log.join("\n")).toContain(
+        "status 404: code 404: No endpoints found that support the requested parameters",
+      );
+    });
+
+    it("still fails over a refused status whose body cannot be read", async () => {
+      // The existing status tests mock no `json()` at all; reading the error
+      // body must never turn that into a thrown -- let alone retried --
+      // failure of the request proper.
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: "Internal Server Error",
+      } as unknown as Response);
+      globalThis.fetch = fetchMock;
+      const log: string[] = [];
+
+      const result = await new AIClient(openrouter(), (m) => log.push(m)).generateResponse("p");
+
+      expect(result).toEqual({ ok: false, reason: "providerError" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(log.join("\n")).toContain("status 500: Internal Server Error");
+    });
+  });
+
+  /**
    * **Every one of the seven registered providers, actually exercised.**
    *
    * Nothing before this block ever called `callMistral()`, `callQwen()` or
@@ -920,8 +1095,48 @@ describe("applyAiToBlocks & AIClient processing", () => {
         } else {
           expect(body).toMatchObject({ response_format: { type: "json_object" } });
         }
+
+        // OpenRouter alone also has to be *told* that `response_format` is a
+        // requirement -- its `require_parameters` routing option -- because
+        // it drops a parameter the routed-to model lacks rather than
+        // refusing, and `openrouter/free` lands on a different model every
+        // request. Nobody else's routing has the concept, so nobody else's
+        // body may carry the field.
+        if (key === "openrouter") {
+          expect(body).toMatchObject({ provider: { require_parameters: true } });
+        } else {
+          expect(body).not.toHaveProperty("provider");
+        }
       },
     );
+
+    it("openrouter: require_parameters is sent only in jsonMode", async () => {
+      // `POST /api/v1/ai/prompt` calls `generateResponse()` without
+      // `jsonMode`, and a pinned model whose endpoint lacks `temperature`
+      // support must keep working there: with `require_parameters` on such a
+      // request OpenRouter would refuse it outright ("No endpoints found")
+      // where today it drops the parameter and answers.
+      const settings = makeSettings({
+        activeAiProvider: "openrouter",
+        openrouterEnabled: true,
+        openrouterApiKey: "sk-or-test",
+      } as Partial<AiRuntimeSettings>);
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: "ok" } }] }),
+      } as Response);
+      globalThis.fetch = fetchMock;
+
+      await new AIClient(settings).generateResponse("test prompt");
+
+      const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as { body: string }).body) as Record<
+        string,
+        unknown
+      >;
+      expect(body).not.toHaveProperty("response_format");
+      expect(body).not.toHaveProperty("provider");
+    });
   });
 
   /**
