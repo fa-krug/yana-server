@@ -372,18 +372,43 @@ export function linkifyHtml(htmlContent: string): string {
   }
 }
 
+/**
+ * Reddit's "invisible paragraph spacer" idiom -- the zero-width space its
+ * editor writes between blocks -- in every spelling that can reach this
+ * function.
+ *
+ * The escaped one is the spelling that actually arrives. The editor writes the
+ * literal seven characters `&#x200B;` into the markdown source, and Reddit's
+ * JSON escapes that source's ampersands on the way out (the same escaping the
+ * quote markers further down have to undo), so what a post's `selftext` really
+ * carries is `&amp;#x200B;`. Matching the bare entity alone therefore never
+ * matched anything Reddit sends, and a post whose author used the editor's
+ * spacer opened with a paragraph reading the literal text "&#x200B;". The
+ * decimal spelling and the bare character are matched too, because a body
+ * pasted from somewhere else can carry either.
+ *
+ * It is removed rather than decoded. Decoded it is invisible anyway, and left
+ * in place it round-trips through escapeHtml() inside a code span or block
+ * (markdownToHtml(), below) as a double-escaped entity that the browser
+ * decodes only one level, printing the entity as text instead of vanishing.
+ * The cost is that a body genuinely discussing the entity loses it: Reddit
+ * escapes an author's own `&#x200B;` to exactly the same bytes as the
+ * editor's spacer, so the two are indistinguishable here. An author who
+ * escapes the ampersand themselves (`&amp;#x200B;`, arriving as
+ * `&amp;amp;#x200B;`) keeps their text.
+ */
+const ZERO_WIDTH_SPACE = /(?:&amp;|&)#(?:[xX]0*200[bB]|0*8203);|\u200B/g;
+
 export function convertRedditMarkdown(text: string): string {
   if (!text) return "";
 
   const MAX_TEXT_LENGTH = 100000;
   let input = text.length > MAX_TEXT_LENGTH ? text.slice(0, MAX_TEXT_LENGTH) : text;
 
-  // Reddit's "invisible paragraph spacer" idiom. Left in place, it round-trips
-  // through escapeHtml() inside a code span/block (below) as a double-escaped
-  // entity that decodes only one level in the browser, printing the literal
-  // text "&#x200B;" instead of vanishing. It adds no visual value either way,
-  // so it's removed outright rather than decoded.
-  input = input.replace(/&#x200[Bb];|\u200B/g, "");
+  // Reddit's "invisible paragraph spacer" idiom, in every spelling it can
+  // arrive in -- see ZERO_WIDTH_SPACE for why the escaped one is the spelling
+  // that matters.
+  input = input.replace(ZERO_WIDTH_SPACE, "");
 
   // A Private Use Area character in the source would be indistinguishable from
   // the placeholder protectBackslashEscapes() writes below, so it goes for the

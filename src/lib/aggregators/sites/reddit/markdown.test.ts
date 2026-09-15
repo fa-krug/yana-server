@@ -110,6 +110,34 @@ describe("convertRedditMarkdown zero-width-space entity", () => {
     const html = convertRedditMarkdown("before​after");
     expect(html).not.toContain("​");
   });
+
+  /**
+   * The escaped spelling is the one Reddit actually sends: its editor writes
+   * the literal text `&#x200B;` into the markdown source and the JSON escapes
+   * that source's ampersands, so a post written in the editor opened with a
+   * paragraph reading the entity as text.
+   */
+  it("removes the escaped spacer Reddit's JSON really delivers", () => {
+    const html = convertRedditMarkdown(
+      "&amp;#x200B;\n\nVor etwa einem Jahr habe ich meinen Arbeitgeber gewechselt.",
+    );
+    expect(html).toBe("<p>Vor etwa einem Jahr habe ich meinen Arbeitgeber gewechselt.</p>");
+  });
+
+  it("removes the escaped spacer from inside a line", () => {
+    expect(convertRedditMarkdown("erste&amp;#x200B;zweite")).toBe("<p>erstezweite</p>");
+  });
+
+  it("removes the decimal spelling in either escaping", () => {
+    expect(convertRedditMarkdown("a&#8203;b")).toBe("<p>ab</p>");
+    expect(convertRedditMarkdown("a&amp;#8203;b")).toBe("<p>ab</p>");
+  });
+
+  it("keeps an ampersand the author escaped themselves", () => {
+    // `&amp;#x200B;` typed by hand arrives with its own ampersand escaped
+    // again, which is not the editor's spacer and stays as written.
+    expect(convertRedditMarkdown("&amp;amp;#x200B; im Text")).toContain("#x200B;");
+  });
 });
 
 describe("convertRedditMarkdown backslash escapes", () => {
