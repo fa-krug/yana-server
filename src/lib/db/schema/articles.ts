@@ -30,6 +30,27 @@ export const articles = sqliteTable(
     name: text("name").notNull(),
     /** URL or external id. */
     identifier: text("identifier").notNull(),
+    /**
+     * The feed item's own `<guid>`/`<id>`, when it had one, and the *first* key
+     * the aggregate handler looks a row up by -- `identifier` is only the
+     * fallback now.
+     *
+     * The two are not redundant. `identifier` stays what it always was, the
+     * article's URL: it is what the UI shows as the source link and what
+     * `reload.ts` re-fetches, so it has to track wherever the publisher moved
+     * the article to. That is exactly why it is a poor identity, and why
+     * storing one article under two paths used to store it twice (see
+     * `@/lib/aggregators/external-id`). This column is the identity and does
+     * not move.
+     *
+     * Nullable, and empty for three reasons that are all normal: a source that
+     * is not a feed (YouTube, Reddit), a feed entry with no guid, and every row
+     * written before this column existed. A miss here always falls through to
+     * an `identifier` match, which is what lets those rows be adopted rather
+     * than duplicated -- the handler backfills this column onto a row it
+     * matched the old way, so the set of rows without one only ever shrinks.
+     */
+    externalId: text("external_id"),
     /** Block tree flattened to visible text, for search. */
     plainText: text("plain_text").notNull().default(""),
     /**
@@ -112,6 +133,13 @@ export const articles = sqliteTable(
   },
   (table) => [
     index("articles_feed_identifier_idx").on(table.feedId, table.identifier),
+    // The aggregate handler's primary lookup, asked once per article per run.
+    // Deliberately a plain index and not a unique one: the column is null for
+    // every source that has no guid, and SQLite treats nulls as distinct, so a
+    // unique index would buy nothing for exactly the rows most at risk while
+    // making a legitimately-reused guid a hard insert failure mid-run rather
+    // than a matched row.
+    index("articles_feed_external_id_idx").on(table.feedId, table.externalId),
     index("articles_feed_date_idx").on(table.feedId, table.date),
     index("articles_date_idx").on(table.date),
     index("articles_read_idx").on(table.read),

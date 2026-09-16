@@ -30,6 +30,16 @@ export interface RawArticle {
    * had one.
    */
   categories?: string[];
+  /**
+   * The feed item's own identity -- `<guid>` (RSS) or `<id>` (Atom) -- when the
+   * source has one. `handleAggregateJob()` matches on this ahead of
+   * `identifier`, because a publisher can move an article's URL without it
+   * being a different article; see `@/lib/aggregators/external-id` for the full
+   * reasoning and for the guard that decides whether a run's guids are
+   * believed at all. An aggregator whose source is not a feed (YouTube, Reddit)
+   * leaves it undefined and keeps link-only identity.
+   */
+  externalId?: string;
   icon?: string | null;
   header_data?: HeaderElementData | null;
   [key: string]: unknown;

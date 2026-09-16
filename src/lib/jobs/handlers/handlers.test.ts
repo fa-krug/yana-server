@@ -696,6 +696,132 @@ describe("src/lib/jobs/handlers", () => {
      * the job handler, independent of which aggregator produced the raw
      * article.
      */
+    /**
+     * The duplicate-article fix. A publisher can serve one document under more
+     * than one path -- Tagesschau listed an article as
+     * `/ausland/italien-meloni-124.html` and, two hours later, as
+     * `/ausland/europa/italien-meloni-124.html`, both answering 200, neither
+     * redirecting, both declaring the same canonical -- and with the URL as the
+     * only identity this handler stored it twice. These pin that the feed
+     * item's own guid is what identifies an article now, and the several ways
+     * that must NOT go wrong.
+     */
+    describe("article identity", () => {
+      async function runAggregation(feedId: number, rawArticles: unknown[]) {
+        const factory = await import("@/lib/aggregators/factory");
+        vi.mocked(factory.createAggregator).mockReturnValue({
+          aggregate: async () => rawArticles,
+        } as unknown as ReturnType<typeof factory.createAggregator>);
+        const job = makeJob("aggregate", { feedId });
+        await handlers.getHandler("aggregate")!(job);
+        return job;
+      }
+
+      const storedArticles = (feedId: number) =>
+        client
+          .getDb()
+          .select()
+          .from(schema.articles)
+          .where(eq(schema.articles.feedId, feedId))
+          .all();
+
+      const entry = (identifier: string, externalId: string | undefined, body: string) => ({
+        name: "Meloni stellt Regierungsrekord auf",
+        identifier,
+        externalId,
+        raw_content: body,
+        content: body,
+        date: new Date("2026-09-04T05:10:01Z"),
+      });
+
+      it("matches an article by its guid after the publisher moves its URL", async () => {
+        const feedId = seedAggregateFeed();
+        const guid = "9b55f055-dc5d-4666-9f91-839cc4dc1da0";
+
+        await runAggregation(feedId, [
+          entry("https://www.tagesschau.de/ausland/italien-meloni-124.html", guid, "<p>first</p>"),
+        ]);
+        await runAggregation(feedId, [
+          entry(
+            "https://www.tagesschau.de/ausland/europa/italien-meloni-124.html",
+            guid,
+            "<p>revised</p>",
+          ),
+        ]);
+
+        const stored = storedArticles(feedId);
+        expect(stored).toHaveLength(1);
+        // And it tracks the URL the feed lists it under now, which is what
+        // reload.ts re-fetches and what the UI shows as the source link.
+        expect(stored[0].identifier).toBe(
+          "https://www.tagesschau.de/ausland/europa/italien-meloni-124.html",
+        );
+      });
+
+      it("adopts the moved URL even when the content did not change", async () => {
+        // The move lands in the contentHash skip branch, not the write below
+        // it: the hash fingerprints the content and the URL is no part of it.
+        // Left unhandled there, every later run would keep matching this row by
+        // a URL the feed no longer lists.
+        const feedId = seedAggregateFeed();
+        const guid = "uuid-1";
+        const body = "<p>unchanged prose</p>";
+
+        await runAggregation(feedId, [entry("https://x.de/ausland/a-124.html", guid, body)]);
+        const job = await runAggregation(feedId, [
+          entry("https://x.de/ausland/europa/a-124.html", guid, body),
+        ]);
+
+        const stored = storedArticles(feedId);
+        expect(stored).toHaveLength(1);
+        expect(stored[0].identifier).toBe("https://x.de/ausland/europa/a-124.html");
+        expect(logLines(job.id).join("\n")).toContain("moved to a new URL");
+        expect(logLines(job.id)).toContain("upserted articles: 0 created, 0 updated, 1 unchanged");
+      });
+
+      it("adopts a row written before guids were stored, rather than duplicating it", async () => {
+        // The migration hazard, and the reason the URL is still a fallback key:
+        // every row predating `articles.external_id` has none, so a guid-only
+        // lookup would miss each of them exactly once and re-insert it -- the
+        // very bug, caused by the fix for it.
+        const feedId = seedAggregateFeed();
+        const url = "https://x.de/ausland/a-124.html";
+
+        await runAggregation(feedId, [entry(url, undefined, "<p>body</p>")]);
+        expect(storedArticles(feedId)[0].externalId).toBeNull();
+
+        await runAggregation(feedId, [entry(url, "uuid-2", "<p>body changed</p>")]);
+
+        const stored = storedArticles(feedId);
+        expect(stored).toHaveLength(1);
+        // Backfilled, so the set of rows with no identity only ever shrinks.
+        expect(stored[0].externalId).toBe("uuid-2");
+      });
+
+      it("falls back to URL identity for a run that gives one guid to two links", async () => {
+        // A constant or templated guid identifies nothing, and believing it
+        // would merge two articles into one row -- which, unlike a duplicate,
+        // destroys content with nothing left to repair it from.
+        const feedId = seedAggregateFeed();
+        const job = await runAggregation(feedId, [
+          entry("https://x.de/a-100.html", "shared", "<p>a</p>"),
+          entry("https://x.de/b-100.html", "shared", "<p>b</p>"),
+        ]);
+
+        expect(storedArticles(feedId)).toHaveLength(2);
+        expect(logLines(job.id).join("\n")).toContain("identify nothing");
+      });
+
+      it("still collapses an entry the feed lists twice in one run", async () => {
+        // Tagesschau ships 10 such pairs in 79 items -- identical guid and
+        // identical link. One link per guid, so the run stays trusted.
+        const feedId = seedAggregateFeed();
+        const one = entry("https://x.de/a-100.html", "uuid-3", "<p>a</p>");
+        await runAggregation(feedId, [one, { ...one }]);
+        expect(storedArticles(feedId)).toHaveLength(1);
+      });
+    });
+
     it("skips an article with neither text nor media, and stores nothing for it", async () => {
       const feedId = seedAggregateFeed();
 

@@ -3,6 +3,7 @@ import { and, count, eq, gte } from "drizzle-orm";
 import { parseBlocks, plainTextOf } from "@/lib/aggregators/blocks/parser";
 import { writeBlocksIn } from "@/lib/aggregators/blocks/storage";
 import { rawArticleContentHash } from "@/lib/aggregators/content-hash";
+import { externalIdsAreTrustworthy, normalizeExternalId } from "@/lib/aggregators/external-id";
 import { hasBodyContent } from "@/lib/aggregators/website";
 import { applyAiToBlocks, wantsAi } from "@/lib/ai/run";
 import { resolveFeedCredentials } from "@/lib/aggregators/credential-resolution";
@@ -55,23 +56,68 @@ export async function handleAggregateJob(job: Job): Promise<void> {
   appendLogLine(job.id, "stdout", `aggregating feed "${feed.name}" (${feed.aggregator})`);
   const aggregator = createAggregator(resolveFeedCredentials(feed, settings ?? null));
   aggregator.onLog = (message) => appendLogLine(job.id, "stdout", message);
-  // One narrow indexed read per identifier -- one small column, never
-  // `plainText`, the largest column on the table, which is the whole point:
-  // comparing the content directly would cost the very I/O the skip saves. Asked exactly once
-  // per article, by the loop below, so there is nothing here to memoize; the
-  // one case where the same identifier comes round twice in a single run is a
-  // feed that listed it twice, and reading the hash the first copy just wrote
-  // is what makes the second one skip.
-  const storedContentHash = (identifier: string): string | null =>
-    db
-      .select({ contentHash: articles.contentHash })
+  // The row this feed already has for one of the aggregator's articles, or
+  // undefined. Two keys, tried in that order, and the order is the fix:
+  //
+  //   1. the feed item's own guid (`externalId`), which does not move when the
+  //      publisher moves the article's URL, and
+  //   2. the URL (`identifier`), which is what this used to key on alone --
+  //      and which stored one Tagesschau document as two articles when it was
+  //      listed first as `/ausland/x-124.html` and later as
+  //      `/ausland/europa/x-124.html`.
+  //
+  // The fallback is not just for sources with no guid (YouTube, Reddit, a feed
+  // that ships none). It is also what makes this change need no backfill: every
+  // row written before `externalId` existed has none, so a guid lookup misses
+  // it, and without the second key each of those would be re-inserted once as a
+  // duplicate -- the very bug, caused by the fix for it. A row matched the old
+  // way has its guid written on below, so the set of rows without one only ever
+  // shrinks.
+  //
+  // Narrow columns on purpose: never `plainText`, the largest on the table, and
+  // never the block tree. Comparing content directly would cost exactly the I/O
+  // the contentHash skip exists to save.
+  const findStored = (scope: typeof db, externalId: string, identifier: string) => {
+    const columns = {
+      id: articles.id,
+      date: articles.date,
+      identifier: articles.identifier,
+      externalId: articles.externalId,
+      contentHash: articles.contentHash,
+    };
+    if (externalId) {
+      const byExternalId = scope
+        .select(columns)
+        .from(articles)
+        .where(and(eq(articles.feedId, feedId), eq(articles.externalId, externalId)))
+        .get();
+      if (byExternalId) return byExternalId;
+    }
+    return scope
+      .select(columns)
       .from(articles)
       .where(and(eq(articles.feedId, feedId), eq(articles.identifier, identifier)))
-      .get()?.contentHash ?? null;
+      .get();
+  };
   const rawArticles = await aggregator.aggregate(undefined, collectedToday, (percent) =>
     progress(job.id, percent),
   );
   appendLogLine(job.id, "stdout", `fetched ${rawArticles.length} articles`);
+
+  // Whether this run's guids may be used as identity at all -- see
+  // `@/lib/aggregators/external-id` for why a guid is earned per run rather
+  // than assumed. Decided once, over the whole run, because the check is a
+  // property of the snapshot and not of any one article. A feed that fails it
+  // falls back to link-only matching, i.e. the behaviour that predates this.
+  const trustExternalIds = externalIdsAreTrustworthy(rawArticles);
+  if (!trustExternalIds) {
+    appendLogLine(
+      job.id,
+      "stdout",
+      "this feed gave one guid to more than one link in a single run, so its guids " +
+        "identify nothing; matching articles by URL alone for this run",
+    );
+  }
 
   if (rawArticles.length === 0) {
     // No `feeds` touch here: that used to be a bare `set({ updatedAt: new
@@ -170,7 +216,10 @@ export async function handleAggregateJob(job: Job): Promise<void> {
       icon: raw.icon,
     });
 
-    if (storedContentHash(raw.identifier) === hash) {
+    const externalId = trustExternalIds ? normalizeExternalId(raw.externalId) : "";
+    const stored = findStored(db, externalId, raw.identifier);
+
+    if (stored?.contentHash === hash) {
       // Nothing about this article changed since the last run. Skipping is
       // not just cheaper: `articles.updatedAt` carries `$onUpdate`, so an
       // unconditional rewrite would put every unchanged article back into
@@ -180,6 +229,38 @@ export async function handleAggregateJob(job: Job): Promise<void> {
       // returning the same top entries costs nothing per cycle instead of one
       // paid request per article per run.
       unchanged++;
+      // The article's *content* is unchanged, but the publisher may still have
+      // moved it: that is precisely the case this feature exists for, and it
+      // reaches this branch rather than the write below, because the hash
+      // fingerprints the content and the URL is not part of it. So adopt the
+      // current URL and, for a row matched the old way, write its guid on --
+      // without which every later run would keep matching it by a URL that is
+      // no longer the one the feed lists. Conditional, so the ordinary
+      // unchanged article still costs no write at all: `updatedAt` carries
+      // `$onUpdate`, and an unconditional touch here would put the whole feed
+      // back into /api/v1's sync `updated` stream every cycle.
+      if (
+        stored &&
+        (stored.identifier !== raw.identifier || (externalId && stored.externalId !== externalId))
+      ) {
+        const to = stored.id;
+        writeTransaction((tx) =>
+          tx
+            .update(articles)
+            .set({
+              identifier: raw.identifier,
+              ...(externalId ? { externalId } : {}),
+            })
+            .where(eq(articles.id, to))
+            .run(),
+        );
+        appendLogLine(
+          job.id,
+          "stdout",
+          `"${raw.name || raw.identifier}" moved to a new URL; matched the stored article ` +
+            `by its feed guid rather than storing it again`,
+        );
+      }
       progress(job.id, 80 + Math.floor(((i + 1) / total) * 20));
       continue;
     }
@@ -304,15 +385,13 @@ export async function handleAggregateJob(job: Job): Promise<void> {
     // skips the hash write itself, below, rather than skipping the whole
     // transaction.
     writeTransaction((tx) => {
-      // Re-read inside the transaction rather than trusting `known` above:
-      // that read was outside the write lock, and two worker loops can be
-      // running an aggregate job for the same feed. The select/insert pair
-      // has to stay atomic, exactly as it was before.
-      const existing = tx
-        .select({ id: articles.id, date: articles.date })
-        .from(articles)
-        .where(and(eq(articles.feedId, feedId), eq(articles.identifier, raw.identifier)))
-        .get();
+      // Re-read inside the transaction rather than trusting the `stored`
+      // lookup above: that read was outside the write lock, and two worker
+      // loops can be running an aggregate job for the same feed. The
+      // select/insert pair has to stay atomic, exactly as it was before --
+      // which is also why this resolves both keys again rather than carrying
+      // a row id across the lock boundary.
+      const existing = findStored(tx, externalId, raw.identifier);
 
       let articleId: number;
 
@@ -322,6 +401,15 @@ export async function handleAggregateJob(job: Job): Promise<void> {
         tx.update(articles)
           .set({
             name,
+            // Adopt whatever URL the feed lists this article under now. It is
+            // not a fingerprint input, so this cannot make the hash disagree
+            // with the row; it is what keeps the stored source link (and so
+            // what `reload.ts` re-fetches) pointing at the live document after
+            // the publisher moves it.
+            identifier: raw.identifier,
+            // Backfilled onto a row that was matched by URL, which is how a
+            // pre-existing row acquires the identity it was written without.
+            ...(externalId ? { externalId } : {}),
             plainText,
             // Keep the stored date when the feed supplied none. Re-stamping
             // `new Date()` here would rewrite the column on every run and,
@@ -340,6 +428,7 @@ export async function handleAggregateJob(job: Job): Promise<void> {
             feedId,
             name,
             identifier: raw.identifier,
+            externalId: externalId || null,
             plainText,
             date: rawDate ?? new Date(),
             author: raw.author || "",
