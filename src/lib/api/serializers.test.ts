@@ -7,6 +7,7 @@ const baseArticle: Article = {
   id: 1,
   name: "Title",
   identifier: "https://example.com/a",
+  externalId: null,
   plainText: "",
   contentHash: null,
   date: new Date("2026-01-01T00:00:00Z"),

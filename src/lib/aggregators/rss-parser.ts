@@ -21,6 +21,24 @@ export interface FeedEntry {
    * per-feed and user-owned, where these are per-entry and the publisher's.
    */
   categories?: string[];
+  /**
+   * The entry's own `<guid>` (RSS) or `<id>` (Atom), verbatim and unresolved.
+   *
+   * This is the feed's own answer to "which article is this", and it is read
+   * for exactly one reason: it is a stabler identity than `link`. A publisher
+   * can serve one document under more than one path -- Tagesschau lists an
+   * article as `/ausland/x-124.html` and later as `/ausland/europa/x-124.html`,
+   * both 200, both declaring the same canonical -- and with `link` as the only
+   * identity the aggregate handler stored that as two articles. Its guid is a
+   * document UUID and does not move when the path does. See
+   * `externalIdentityOf()` in `@/lib/aggregators/external-id` for what is done
+   * with it, including why a guid is *not* trusted unconditionally.
+   *
+   * Left undefined when the entry carries none, which is not the same as an
+   * empty string: the handler falls back to link-only matching for the whole
+   * run in that case, which is exactly the behaviour that predates this field.
+   */
+  guid?: string;
   enclosures?: Array<{ url?: string; type?: string; length?: string }>;
   itunes_duration?: string;
   "itunes:duration"?: string;
@@ -180,6 +198,10 @@ export function parseXmlFeed(xml: string): ParsedFeed {
         $item.find("author").first().text().trim();
 
       const categories = entryCategories($, $item);
+      // `.first()` for the same reason `entryCategories()` takes its scope
+      // from the caller: cheerio's `find` cannot tell a direct child from one
+      // nested deeper in the item.
+      const guid = $item.find("guid").first().text().trim();
 
       const enclosures: Array<{ url?: string; type?: string; length?: string }> = [];
       $item.find("enclosure").each((_, enc) => {
@@ -223,6 +245,7 @@ export function parseXmlFeed(xml: string): ParsedFeed {
         published,
         author,
         categories,
+        guid: guid || undefined,
         enclosures: enclosures.length > 0 ? enclosures : undefined,
         itunes_duration: itunesDuration,
         "itunes:duration": itunesDuration,
@@ -270,6 +293,9 @@ export function parseXmlFeed(xml: string): ParsedFeed {
           published,
           author,
           categories: entryCategories($, $entry),
+          // Atom's `<id>` is the same thing RSS spells `<guid>`: the entry's
+          // own permanent identity.
+          guid: $entry.find("id").first().text().trim() || undefined,
           enclosures: enclosures.length > 0 ? enclosures : undefined,
         });
       });

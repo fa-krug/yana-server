@@ -109,6 +109,10 @@ export class PodcastAggregator extends RssAggregator {
       const article: RawArticle = {
         name: unescapeEntities(entry.title || "Untitled"),
         identifier: entry.link || "",
+        // Same as `RssAggregator.parseToRawArticles()`: an episode's guid is a
+        // stabler identity than its link, and an episode's URL moves for the
+        // same reasons an article's does.
+        externalId: entry.guid,
         raw_content: entry.summary || "",
         content: entry.summary || "",
         date: this.parseDate(entry.published),

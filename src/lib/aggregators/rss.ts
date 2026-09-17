@@ -78,6 +78,10 @@ export class RssAggregator extends BaseAggregator {
       articles.push({
         name: unescapeEntities(entry.title || ""),
         identifier: entry.link || "",
+        // Not unescaped, for the same reason `categories` is not: this is
+        // compared, never displayed, so running it through a fixed entity list
+        // would only add a way for two spellings of one guid to disagree.
+        externalId: entry.guid,
         raw_content: "",
         content: entry.summary || "",
         date: this.parseDate(entry.published),

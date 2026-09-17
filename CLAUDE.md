@@ -1233,6 +1233,77 @@ null`, none was throttled, and none told a 429 from a DNS failure.
   check — which is not nothing, since a sponsored YouTube video is labelled in
   its title.
 
+- **An article's identity is the feed item's own guid, and its URL is only the
+  fallback.** `handleAggregateJob()` looks a row up by `(feedId, externalId)`
+  first and by `(feedId, identifier)` second; `articles.external_id` holds
+  `<guid>` (RSS) / `<id>` (Atom), verbatim, populated by `RssAggregator` and
+  `PodcastAggregator` and therefore by everything built on them. Keying on the
+  URL alone was wrong whenever a publisher serves one document under two paths:
+  Tagesschau listed an article as `/ausland/italien-meloni-124.html` and, two
+  hours later, as `/ausland/europa/italien-meloni-124.html` -- both answering
+  200, neither redirecting, **both declaring the same
+  `<link rel="canonical">`** -- and the handler stored it twice, which the
+  reader saw as two identical articles. Its guid is a document UUID and does not
+  move when the path does. Five things to keep straight:
+  - **Reading the page's canonical URL was the other candidate and was
+    rejected.** It only works for the aggregators that fetch the article page,
+    leaving plain RSS and podcast feeds -- the ones with no page to read --
+    exposed to the very same thing, and it needs a same-host-and-same-final-
+    segment guard of its own or a CMS that canonicalizes every article to its
+    section index silently merges them. The guid comes off the feed the
+    aggregator has already parsed, so it costs no request and covers 14 of the
+    16 registered aggregators. It remains the answer if a site is ever found
+    moving articles _without_ a stable guid; nothing here forecloses it.
+  - **A guid is trusted per run, never assumed** -- `externalIdsAreTrustworthy()`
+    in `src/lib/aggregators/external-id.ts`. The two failure modes are not
+    symmetrical: keying on a link that moved **duplicates** an article, which is
+    visible and repairable, while keying on a guid that is reused across
+    articles **merges** them, overwriting one article's content with another's
+    with nothing left behind to repair it from. So the check is the narrowest
+    one that catches that shape -- within a single run a guid may name at most
+    one link -- and a run that fails it falls back to link-only matching, i.e.
+    the behaviour that predates all of this. It deliberately does **not** refuse
+    the same guid under two links in two _different_ runs, which is the case
+    this whole thing exists to fix and which no single run can see; a feed that
+    lists one entry twice verbatim (Tagesschau ships 10 such pairs in 79 items,
+    identical guid _and_ identical link) is one link per guid and stays trusted.
+  - **The URL fallback is what makes this need no backfill.** Every row written
+    before the column existed has no guid, so a guid-only lookup would miss each
+    one exactly once and re-insert it -- the very bug, caused by the fix for it.
+    A row matched by URL has its guid written on, so the set of rows without one
+    only ever shrinks. Do not "simplify" the second lookup away.
+  - **A matched row adopts the URL the feed lists it under now**, in the update
+    branch _and_ in the `contentHash` skip branch. The move reaches the skip
+    branch whenever the content did not change, because the hash fingerprints
+    content and the URL is no part of it -- so handling it only in the write
+    path leaves every later run matching that row by a URL the feed abandoned.
+    The skip branch's write is conditional on something having actually moved,
+    since `updatedAt` carries `$onUpdate` and an unconditional touch there would
+    put the whole feed back into `/api/v1`'s sync `updated` stream every cycle.
+  - **`external_id` is a plain index, not a unique one.** It is null for every
+    source that has no guid (YouTube, Reddit, a feed shipping none) and SQLite
+    treats nulls as distinct, so a unique index would buy nothing for exactly
+    the rows most at risk, while turning a legitimately-reused guid into a hard
+    insert failure mid-run instead of a matched row.
+
+  `drizzle/0024_merge_duplicate_articles.sql` is the one-shot cleanup for rows
+  already stored twice, and it identifies a pair by **feed + title + final path
+  segment**, all three, because those rows have no guid to go on. Its own header
+  carries the reasoning; two things in it are load-bearing and easy to undo. The
+  survivor is the **oldest** row, since `createdAt` is the timeline's ordering
+  key and the sync cursor and its id is what paired clients already hold, and it
+  adopts the newest duplicate's URL. And the grouping test is `count(*) > 1`,
+  **not** `count(DISTINCT identifier) > 1`: the survivor adopts a loser's URL in
+  the first statement, so a DISTINCT test re-evaluates to false and leaves the
+  tombstone and delete statements matching nothing at all, silently keeping
+  every duplicate. The two are equivalent to begin with, `(feedId, identifier)`
+  having been the uniqueness the handler already enforced.
+  `src/lib/db/merge-duplicate-articles.test.ts` pins both, and most of it is
+  what the migration must _not_ merge -- across feeds, a recurring title whose
+  documents differ, different articles sharing a document name,
+  directory-style URLs whose final segment is empty, and query-string URLs whose
+  last `/` sits inside the query.
+
 - **An aggregated article is only rewritten when its content actually changed**,
   decided by `articles.contentHash` (`articleContentHash()` in
   `src/lib/aggregators/content-hash.ts`). Three things about that hash are
