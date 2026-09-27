@@ -291,3 +291,39 @@ describe("HeiseAggregator YouTube iframe survives extraction into a facade", () 
     expect(extracted).not.toContain("<iframe");
   });
 });
+
+describe("HeiseAggregator image gallery", () => {
+  it("drops the inline <a-bilderstrecke> gallery widget during extraction", () => {
+    const agg = aggregatorFor();
+    const html = `
+      <html><body>
+        <div class="StoryContent">
+          <p>Before the gallery.</p>
+          <a-bilderstrecke class="gallery compact" data-content-id="11460265">
+            <span class="image-num" style="display:none">Bild <span class="cur-image">1</span> von <span class="image-count">5</span></span>
+            <h2><a href="/bilderstrecke/5168661.html?back=11459716">"Silent Hill: Townfall" angespielt (5 Bilder)</a></h2>
+            <a href="/bilderstrecke/5168661.html?back=11459716"><div class="gallery-inner"><figure><img src="https://heise.cloudimg.io/v7/_www-heise-de_/imgs/18/5/1/6/8/6/6/1/1Bild.jpg"></figure></div></a>
+            <figcaption>Simon Ordell betritt St. Amelia. (Bild: <p>heise medien</p>)</figcaption>
+          </a-bilderstrecke>
+          <p>After the gallery.</p>
+        </div>
+      </body></html>
+    `;
+    const article: RawArticle = {
+      name: "Silent Hill",
+      identifier: "https://www.heise.de/tests/x-11459716.html",
+      raw_content: "",
+      content: "",
+      date: new Date(),
+    };
+
+    const extracted = agg.extractContent(html, article);
+
+    expect(extracted).toContain("Before the gallery.");
+    expect(extracted).toContain("After the gallery.");
+    expect(extracted).not.toContain("Bild");
+    expect(extracted).not.toContain("5 Bilder");
+    expect(extracted).not.toContain("bilderstrecke");
+    expect(extracted).not.toContain("<img");
+  });
+});

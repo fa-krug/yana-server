@@ -176,6 +176,11 @@ export class HeiseAggregator extends defineSite(FullWebsiteAggregator, {
     ".a-article-header__service",
     "a-lightbox.article-image", // Main article header image
     "figure.a-article-header__image", // Main article header image (fallback)
+    // Inline image gallery widget: one teaser image plus "Bild 1 von N", a
+    // heading linking to the separate gallery page and a split caption --
+    // it renders as a broken stack of blocks, and the images are not the
+    // article's own content anyway.
+    "a-bilderstrecke",
     "div[data-component='RecommendationBox']",
     ".opt-in__content-container",
     ".a-box",
