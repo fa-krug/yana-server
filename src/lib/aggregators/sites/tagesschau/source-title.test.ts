@@ -35,6 +35,22 @@ describe("TagesschauAggregator sourceTitle", () => {
     expect(agg.sourceTitle).toBe("Eine echte Tagesschau-Überschrift");
   });
 
+  it("reports the headline of a regional story redirected to BR24", async () => {
+    const { fetchHtml } = await import("../../http/fetcher");
+    vi.mocked(fetchHtml).mockResolvedValue(
+      `<html><body><section class="ArticleModuleTeaser-module-scss-module__Y44zPW__wrapper">` +
+        `<h2 class="heading1 ArticleModuleTeaser-module-scss-module__Y44zPW__title">BR24-Überschrift </h2>` +
+        `</section><section class="ArticleBody-module-scss-module__oQZvRW__section">` +
+        `<div class="RichText-module-scss-module__ZDJi6a__richText"><p>Text.</p></div>` +
+        `</section></body></html>`,
+    );
+
+    const agg = aggregatorFor();
+    await agg.fetchArticleContent("https://www.tagesschau.de/inland/oktoberfest-unfall-104.html");
+
+    expect(agg.sourceTitle).toBe("BR24-Überschrift");
+  });
+
   it("reports no source title when the page carries no matching headline", async () => {
     const { fetchHtml } = await import("../../http/fetcher");
     vi.mocked(fetchHtml).mockResolvedValue(`<html><body><p>No headline here.</p></body></html>`);
