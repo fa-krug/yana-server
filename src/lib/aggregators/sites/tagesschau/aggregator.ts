@@ -4,7 +4,7 @@ import { escapeHtml } from "../../extract/format";
 import { storeImageRefFromUrl } from "../../images/store";
 import { defineSite } from "../../define-site";
 import { IFRAME_SANITIZE_SELECTOR, FullWebsiteAggregator } from "../../website";
-import { extractTagesschauContent } from "./extraction";
+import { extractTagesschauContent, isBr24Page } from "./extraction";
 import { extractMediaHeader, type MediaHeaderResult } from "./media";
 
 export class TagesschauAggregator extends defineSite(FullWebsiteAggregator, {
@@ -30,7 +30,13 @@ export class TagesschauAggregator extends defineSite(FullWebsiteAggregator, {
   firstMatchOnly: true,
 }) {
   protected override sourceTitleFrom($: cheerio.CheerioAPI): string | null {
-    const title = $("span.seitenkopf__headline--text").first().text().trim();
+    const title =
+      $("span.seitenkopf__headline--text").first().text().trim() ||
+      // A regional story redirected to BR24 (see `isBr24Page()` in
+      // ./extraction): its headline is the teaser module's title.
+      (isBr24Page($)
+        ? $('h2[class*="ArticleModuleTeaser-module"][class*="__title"]').first().text().trim()
+        : "");
     return title || null;
   }
 
