@@ -3,7 +3,7 @@ import { RawArticle } from "../../base";
 import { isSafeUrl } from "../../blocks/parser";
 import { cleanHtml, removeImageByUrl } from "../../extract/clean";
 import { formatArticleContent } from "../../extract/format";
-import { getHeaderImageRef } from "../../header/context";
+import { getHeaderImageRef, type HeaderElementData } from "../../header/context";
 import { storeImageRefFromUrl } from "../../images/store";
 import { defineSite } from "../../define-site";
 import { FirstPageStash, fetchAllPages } from "../../multipage";
@@ -96,6 +96,21 @@ export class MeinMmoAggregator extends defineSite(FullWebsiteAggregator, {
   // ../mactechnews/aggregator.ts -- rather than a second, hand-rolled copy
   // of this same map.)
   private firstPages = new FirstPageStash();
+
+  /**
+   * Header extraction reads the stashed **first page**, never the `html`
+   * `enrichOne()` hands over: on a paginated article that is
+   * `fetchAllPages()`'s `combined` -- content containers only, no `<head>`,
+   * so no `og:image` -- and the page-image fallback then took the first body
+   * `<img>` it found as the header. Falls back to `html` when nothing was
+   * stashed (a failed fetch, or a caller that never fetched).
+   */
+  override async extractHeaderElement(
+    article: RawArticle,
+    html?: string,
+  ): Promise<HeaderElementData | null> {
+    return super.extractHeaderElement(article, this.firstPages.peek(article.identifier) ?? html);
+  }
 
   override async fetchArticleContent(url: string): Promise<string> {
     const options = (this.feed.options as Record<string, unknown> | null) || {};

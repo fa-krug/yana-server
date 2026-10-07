@@ -8,6 +8,13 @@ vi.mock("../../http/fetcher", async (importOriginal) => ({
   fetchHtml: vi.fn(),
 }));
 
+vi.mock("../../header/extractor", () => ({
+  extractHeaderElement: vi.fn(async () => null),
+}));
+
+import { fetchHtml } from "../../http/fetcher";
+import { extractHeaderElement } from "../../header/extractor";
+
 const FEED: FeedLike = {
   identifier: "https://www.mactechnews.de/Rss/News.x",
   dailyLimit: 20,
@@ -136,6 +143,40 @@ describe("MactechnewsAggregator multi-page comments", () => {
  * instance field, is what keeps two concurrently-enriched articles from
  * reading each other's first page for their comments.
  */
+describe("MactechnewsAggregator.extractHeaderElement", () => {
+  // Same defect as Mein-MMO's: the combined `.MtnArticle` containers carry no
+  // <head>, so header extraction handed them found no og:image and fell back
+  // to the first body <img>. It must read the stashed first page instead.
+  it("reads the first page, not the combined content, on a paginated article", async () => {
+    const page1 =
+      '<html><head><meta property="og:image" content="https://www.mactechnews.de/title.jpg">' +
+      '</head><body><div class="MtnArticle"><p>Page 1 body.</p><a href="?page=2">2</a></div>' +
+      "</body></html>";
+    const page2 = '<html><body><div class="MtnArticle"><p>Page 2 body.</p></div></body></html>';
+    vi.mocked(fetchHtml).mockImplementation(async (url: string) =>
+      url.includes("page=2") ? page2 : page1,
+    );
+    vi.mocked(extractHeaderElement).mockClear();
+
+    const agg = new MactechnewsAggregator({ ...FEED, options: { combine_pages: true } });
+    const url = "https://www.mactechnews.de/news/article/A-two-page-article-123.html";
+    const article: RawArticle = {
+      name: "A two-page article",
+      identifier: url,
+      raw_content: "",
+      content: "",
+      date: new Date(),
+    };
+    const combined = await agg.fetchArticleContent(url);
+    expect(combined).not.toContain("og:image");
+
+    await agg.extractHeaderElement(article, combined);
+
+    const html = vi.mocked(extractHeaderElement).mock.calls[0][3];
+    expect(html).toContain("https://www.mactechnews.de/title.jpg");
+  });
+});
+
 describe("MactechnewsAggregator.enrichArticles", () => {
   it("attaches each article's own comments, not a sibling's, when enrichment runs concurrently", async () => {
     const fetchDelays: Record<string, number> = {

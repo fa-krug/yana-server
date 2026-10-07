@@ -25,6 +25,12 @@ export interface CombinedPages {
    * structurally impossible to combine pages and lose the one page a
    * comment extractor needs (see `FirstPageStash` below for how a call site
    * carries it forward to `processContent()`).
+   *
+   * Header extraction needs it for the same reason: `combined` has no
+   * `<head>`, so no `og:image`, and the generic page-image fallback then
+   * picks whatever `<img>` comes first in the article body -- on Mein-MMO
+   * that was the theme's "like" ninja SVG, stored as the header image of
+   * every paginated article. See `extractHeaderElement()` on both sites.
    */
   firstPage: string;
 }
@@ -123,5 +129,14 @@ export class FirstPageStash {
     const html = this.byUrl.get(url);
     this.byUrl.delete(url);
     return html ?? null;
+  }
+
+  /**
+   * Reads this URL's stashed page *without* clearing it -- for header
+   * extraction, which runs between `fetchArticleContent()` and
+   * `processContent()` and so must leave the entry for the latter's `take()`.
+   */
+  peek(url: string): string | null {
+    return this.byUrl.get(url) ?? null;
   }
 }

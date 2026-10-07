@@ -10,7 +10,12 @@ vi.mock("../../images/store", () => ({
   storeImageRefFromUrl: vi.fn(),
 }));
 
+vi.mock("../../header/extractor", () => ({
+  extractHeaderElement: vi.fn(async () => null),
+}));
+
 import { fetchHtml } from "../../http/fetcher";
+import { extractHeaderElement } from "../../header/extractor";
 import { storeImageRefFromUrl } from "../../images/store";
 
 function delay(ms: number): Promise<void> {
@@ -202,6 +207,57 @@ describe("MeinMmoAggregator sourceTitle", () => {
     await agg.fetchArticleContent("https://mein-mmo.de/test-article/");
 
     expect(agg.sourceTitle).toBe("Page 1 has the real headline");
+  });
+});
+
+describe("MeinMmoAggregator.extractHeaderElement", () => {
+  // A paginated article's fetchArticleContent() returns fetchAllPages()'s
+  // `combined` -- the entry-content containers only, no <head> -- and
+  // enrichOne() hands that to header extraction. With no og:image to read,
+  // the page-image fallback took the first <img> in the body: the theme's
+  // "Verliebter Ninja" like-button SVG, stored as the header of every
+  // multi-page article. Header extraction must see the real first page.
+  it("reads the first page, not the combined content, on a paginated article", async () => {
+    const page1 =
+      '<html><head><meta property="og:image" content="https://images.mein-mmo.de/title.jpg">' +
+      "</head><body>" +
+      '<div class="entry-content"><p>Page 1 body.</p>' +
+      '<img src="https://mein-mmo.de/wp-content/themes/wp-rig-mmo/assets/svg/ninja-like.svg">' +
+      '<div class="page-links"><span class="post-page-numbers">1</span>' +
+      '<a class="post-page-numbers" href="https://mein-mmo.de/test-article/2/">2</a>' +
+      "</div></div></body></html>";
+    const page2 = '<html><body><div class="entry-content"><p>Page 2 body.</p></div></body></html>';
+    vi.mocked(fetchHtml).mockImplementation(async (url: string) =>
+      url.includes("/2/") ? page2 : page1,
+    );
+    vi.mocked(extractHeaderElement).mockClear();
+
+    const agg = new MeinMmoAggregator({ ...FEED, options: { combine_pages: true } });
+    const combined = await agg.fetchArticleContent(ARTICLE.identifier);
+    expect(combined).not.toContain("og:image");
+
+    // Exactly what enrichOne() does: hand over the html fetchArticleContent() returned.
+    await agg.extractHeaderElement(ARTICLE, combined);
+
+    const html = vi.mocked(extractHeaderElement).mock.calls[0][3];
+    expect(html).toContain('property="og:image"');
+    expect(html).toContain("https://images.mein-mmo.de/title.jpg");
+  });
+
+  it("leaves the stashed first page for processContent()'s comment extraction", async () => {
+    vi.mocked(fetchHtml).mockResolvedValue(pageHtmlWithComment("PEEK-MARKER"));
+    vi.mocked(storeImageRefFromUrl).mockResolvedValue(null);
+
+    const agg = new MeinMmoAggregator({
+      ...FEED,
+      options: { combine_pages: false, include_comments: true },
+    });
+    const html = await agg.fetchArticleContent(ARTICLE.identifier);
+    await agg.extractHeaderElement(ARTICLE, html);
+    const extracted = await agg.extractContent(html, ARTICLE);
+    const processed = await agg.processContent(extracted, ARTICLE);
+
+    expect(processed).toContain("Comment for PEEK-MARKER");
   });
 });
 
