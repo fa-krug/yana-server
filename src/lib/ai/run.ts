@@ -746,7 +746,7 @@ const NOTATION_SPEC = [
   "The document uses this notation. Answer in the same notation, and nothing else:",
   "- A blank line separates blocks.",
   '- "# " to "###### " begin a heading. "- " begins a list item, "1. " an ordered one. "> " begins a quoted line.',
-  "- Inline styles are <b>bold</b>, <i>italic</i>, <s>struck</s>, <code>code</code>.",
+  "- Inline styles are <b>bold</b>, <i>italic</i>, <s>struck</s>, <code>code</code>. Never use Markdown styling such as **bold**, *italic* or `code`.",
   '- "[label](L3)" is a link. Rewrite the label, never the "(L3)", and never invent an index.',
   '- "[[M7]]" stands for an image, video, embed or code block. Reproduce every one of them exactly, on its own line. You may move them; never edit, duplicate or drop one.',
   "- A backslash escapes the character after it.",

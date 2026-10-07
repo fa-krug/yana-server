@@ -237,6 +237,10 @@ describe("blocksToText / textToBlocks", () => {
       ["a placeholder-looking string", "<p>The token [[M0]] typed by hand.</p>"],
       ["a backslash", "<p>A path like C:\\Users\\me here.</p>"],
       ["tildes", "<p>Roughly ~~ two of them.</p>"],
+      ["an italic-looking pair", "<p>Read *the* manual.</p>"],
+      ["underscores", "<p>The _config_ file and snake_case_name.</p>"],
+      ["a code-looking span", "<p>Type `npm test` to run.</p>"],
+      ["a strike-looking pair", "<p>It was ~~gone~~ back.</p>"],
       ["a leading hash", "<p># not a heading</p>"],
       ["a leading dash", "<p>- not a list item</p>"],
       ["a leading angle bracket", "<p>&gt; not a quote</p>"],
@@ -246,8 +250,8 @@ describe("blocksToText / textToBlocks", () => {
       expect(roundTrip(blocks)).toEqual(canonicalBlocks(blocks));
     });
 
-    // Backticks are not delimiters in this notation -- a code run is `<code>`
-    // tags -- so they are ordinary text inside one and need no escaping at all.
+    // A code run is `<code>` tags, so the backticks inside one are ordinary
+    // text -- escaped like any Markdown marker, and restored exactly.
     it("keeps backticks inside a code span literal", () => {
       const blocks = fromHtml("<p><code>a ` b `` c</code></p>");
       expect(roundTrip(blocks)).toEqual(canonicalBlocks(blocks));
@@ -419,10 +423,8 @@ describe("blocksToText / textToBlocks", () => {
       const { blocks } = textToBlocks("A **stray marker and *another one", d);
 
       // What a total parser owes: no throw, one block, and no prose lost.
-      // Markdown emphasis is not notation here -- inline styling is `<b>`/`<i>`
-      // tags precisely so that two adjacent styled runs cannot serialize to a
-      // row of asterisks nobody can split the same way twice -- so these
-      // asterisks come back as the literal characters the model wrote.
+      // An unmatched `**` and a lone `*` are not emphasis, so these asterisks
+      // come back as the literal characters the model wrote.
       expect(blocks).toHaveLength(1);
       const runs = (blocks[0] as { runs: { text: string }[] }).runs;
       const words = runs
@@ -430,6 +432,98 @@ describe("blocksToText / textToBlocks", () => {
         .join("")
         .replace(/[*]/g, "");
       expect(words).toBe("A stray marker and another one");
+    });
+
+    describe("Markdown styling the model wrote instead of tags", () => {
+      // Seen on a translated Reddit thread: each comment author went out as
+      // `<b>name</b>` and came back as `**name**`, stored with the asterisks
+      // as visible text.
+      type Run = {
+        text: string;
+        bold: boolean;
+        italic: boolean;
+        code: boolean;
+        strikethrough: boolean;
+        link: string;
+      };
+      const runsOf = (text: string, html = "<p>x</p>"): Run[] => {
+        const d = blocksToText(fromHtml(html));
+        const { blocks } = textToBlocks(text, d);
+        expect(blocks).toHaveLength(1);
+        return (blocks[0] as { runs: Run[] }).runs;
+      };
+      const styleOf = (r: Run) =>
+        [r.bold && "b", r.italic && "i", r.code && "code", r.strikethrough && "s"]
+          .filter(Boolean)
+          .join("+");
+
+      it.each([
+        ["**bold**", "**General-Naruto** | Quelle", "General-Naruto", "b"],
+        ["__bold__", "__General-Naruto__ | Quelle", "General-Naruto", "b"],
+        ["*italic*", "a *word* here", "word", "i"],
+        ["_italic_", "a _word_ here", "word", "i"],
+        ["***both***", "a ***word*** here", "word", "b+i"],
+        ["~~struck~~", "a ~~word~~ here", "word", "s"],
+        ["`code`", "run `npm test` now", "npm test", "code"],
+        ["<strong>", "a <strong>word</strong> here", "word", "b"],
+        ["<em>", "a <em>word</em> here", "word", "i"],
+        ["<del>", "a <del>word</del> here", "word", "s"],
+      ])("reads %s as styling", (_label, text, styled, style) => {
+        const runs = runsOf(text);
+        expect(runs.find((r) => r.text === styled)?.text).toBe(styled);
+        expect(styleOf(runs.find((r) => r.text === styled)!)).toBe(style);
+        expect(runs.filter((r) => r.text !== styled).every((r) => styleOf(r) === "")).toBe(true);
+        expect(runs.map((r) => r.text).join("")).not.toMatch(/[*_~`<]/);
+      });
+
+      it("nests bold inside italic", () => {
+        const runs = runsOf("*a **b** c*");
+        expect(runs.map((r) => [r.text, styleOf(r)])).toEqual([
+          ["a ", "i"],
+          ["b", "b+i"],
+          [" c", "i"],
+        ]);
+      });
+
+      it("keeps links and tags inside it", () => {
+        const runs = runsOf(
+          "**a [b](L0) <i>c</i>**",
+          '<p><a href="https://example.com/a">x</a></p>',
+        );
+        expect(runs.every((r) => r.bold)).toBe(true);
+        expect(runs.find((r) => r.text === "b")?.link).toBe("https://example.com/a");
+        expect(runs.find((r) => r.text === "c")?.italic).toBe(true);
+      });
+
+      it("takes a code span's content verbatim", () => {
+        const runs = runsOf("see `a *b* <i>c</i>` here");
+        expect(runs.find((r) => r.code)?.text).toBe("a *b* <i>c</i>");
+      });
+
+      it.each([
+        ["spaced markers", "a ** b ** c"],
+        ["an empty pair", "a **** b"],
+        ["an unclosed marker", "a **b c"],
+        ["arithmetic", "2*3*4 is 24"],
+        ["snake_case", "call my_var_name here"],
+        ["an opener glued to a word", "set a_b_ here"],
+        ["a lone tilde", "about ~5 km"],
+        ["a single tilde pair", "a ~b~ c"],
+        ["mismatched markers", "a *b** c"],
+      ])("leaves %s literal", (_label, text) => {
+        const runs = runsOf(text);
+        expect(runs.every((r) => styleOf(r) === "")).toBe(true);
+        expect(runs.map((r) => r.text).join("")).toBe(text);
+      });
+
+      it("never misreads a marker that was in the source", () => {
+        const blocks = fromHtml(
+          "<p>He said **not bold**, *not italic*, _not_ `code` ~~or~~ ***three*** out loud.</p>",
+        );
+        const doc = blocksToText(blocks);
+        expect(doc.text).not.toMatch(/(?<!\\)[*_`]|(?<!\\)~~/);
+        expect(textToBlocks(doc.text, doc).blocks).toEqual(canonicalBlocks(blocks));
+      });
     });
 
     it("ignores a link index that does not resolve", () => {
