@@ -101,27 +101,26 @@ function isOpaque(block: Block): block is ImageBlock | EmbedBlock | CodeBlock | 
  * Characters that mean something in this notation, escaped with a backslash so
  * prose containing them survives the round trip.
  *
- * Just three: `<` opens an inline tag, `[`/`]` delimit a link or a `[[M0]]`
- * placeholder. A literal backslash is escaped first, or unescaping would
- * consume the wrong character.
+ * The notation's own: `<` opens an inline tag, `[`/`]` delimit a link or a
+ * `[[M0]]` placeholder, and a literal backslash, or unescaping would consume
+ * the wrong character.
  *
- * Note what is *not* here -- a lone `*`, `` ` `` and `~` are ordinary text,
- * because inline styling is tags rather than Markdown emphasis. That is not a
- * cosmetic choice: `**bold***italic*` (two adjacent runs) serializes to a run
- * of five asterisks that no reader can split the same way twice, and prose is
- * full of asterisks and tildes that would otherwise each need a backslash.
- *
- * **The one exception is a doubled asterisk**: every `*` immediately followed
- * by another is escaped, so `**` never appears unescaped in what this module
- * writes. That is what lets `parseInline()` read an unescaped `**text**` in an
- * *answer* as bold -- it can only have come from the model, which despite
- * being told the inline styles are tags still reaches for Markdown emphasis
- * now and then. Measured on a translated Reddit thread: every comment author,
- * sent as `<b>name</b>`, came back as `**name**` and was stored with the
- * asterisks as visible text. `2 * 3` and `~~` still go out untouched.
+ * **Markdown's inline markers are escaped too** -- every `*`, `_` and
+ * `` ` ``, and a `~` that is followed by another -- even though this notation
+ * writes styling as tags, never as Markdown. That is what lets `parseInline()`
+ * read Markdown emphasis in an *answer* as styling: with every such marker in
+ * the source escaped on the way out, an unescaped one can only have come from
+ * the model, which despite being told the inline styles are tags still reaches
+ * for Markdown now and then. Measured on a translated Reddit thread: every
+ * comment author, sent as `<b>name</b>`, came back as `**name**` and was
+ * stored with the asterisks as visible text. Escaping every one rather than
+ * only the ones that would parse keeps the guarantee simple enough to trust
+ * (the seeded fuzz in `block-text.test.ts` pins it), and costs a backslash on
+ * characters prose rarely contains -- URLs, where underscores live, are never
+ * in the text. A lone `~` stays bare, since only `~~` means anything.
  */
 function escapeText(text: string): string {
-  return text.replace(/([\\<[\]])|\*(?=\*)/g, (match) => `\\${match}`);
+  return text.replace(/[\\<[\]*_`]|~(?=~)/g, (match) => `\\${match}`);
 }
 
 /**
@@ -348,6 +347,17 @@ const STYLE_TAGS = [
   ["strikethrough", "s"],
   ["italic", "i"],
   ["bold", "b"],
+] as const;
+
+/**
+ * What `parseInline()` accepts: the four tags this module writes, plus the
+ * HTML spellings a model sometimes answers with instead. Read, never written.
+ */
+const PARSE_TAGS = [
+  ...STYLE_TAGS,
+  ["bold", "strong"],
+  ["italic", "em"],
+  ["strikethrough", "del"],
 ] as const;
 
 /**
@@ -595,9 +605,12 @@ function parseInline(source: string, links: string[], style: Style = NO_STYLE): 
     }
 
     // Either an ordinary character, or a delimiter that found no partner --
-    // which is literal text, per the total-parser rule.
-    plain += source[i];
-    i += 1;
+    // which is literal text, per the total-parser rule. An unmatched Markdown
+    // marker run is consumed whole, so `****` cannot be retried one character
+    // in as `***`.
+    const literal = MARKDOWN_MARKERS.includes(source[i]) ? markerRunLength(source, i) : 1;
+    plain += source.slice(i, i + literal);
+    i += literal;
   }
 
   flush();
@@ -620,7 +633,7 @@ function tryDelimiter(
   const ch = source[index];
 
   if (ch === "<") {
-    for (const [flag, tag] of STYLE_TAGS) {
+    for (const [flag, tag] of PARSE_TAGS) {
       const open = `<${tag}>`;
       if (!source.startsWith(open, index)) continue;
       const close = findClosing(source, index + open.length, `</${tag}>`);
@@ -636,20 +649,8 @@ function tryDelimiter(
     return null;
   }
 
-  // Markdown bold the model wrote despite the spec. Safe to honour because
-  // `escapeText()` never lets an unescaped `**` out, so this cannot misread
-  // prose that was sent. Held to the shape a person means by it -- non-empty,
-  // no whitespace just inside either marker -- so `a ** b ** c` stays literal.
-  if (ch === "*" && source.startsWith("**", index)) {
-    const start = index + 2;
-    const close = findClosing(source, start, "**");
-    if (close > start && !/\s/.test(source[start]) && !/\s/.test(source[close - 1])) {
-      return {
-        runs: parseInline(source.slice(start, close), links, { ...style, bold: true }),
-        next: close + 2,
-      };
-    }
-    return null;
+  if (MARKDOWN_MARKERS.includes(ch)) {
+    return tryMarkdown(source, index, links, style);
   }
 
   if (ch === "[") {
@@ -667,6 +668,93 @@ function tryDelimiter(
     return null;
   }
 
+  return null;
+}
+
+/** Characters that open Markdown inline styling. */
+const MARKDOWN_MARKERS = "*_~`";
+
+/** How long the run of `source[index]` starting at `index` is. */
+function markerRunLength(source: string, index: number): number {
+  let end = index;
+  while (source[end] === source[index]) end += 1;
+  return end - index;
+}
+
+const WORD_CHAR = /[\p{L}\p{N}]/u;
+const SPACE_CHAR = /\s/;
+
+/** The style a Markdown marker run of this character and length stands for. */
+function markdownStyle(ch: string, length: number): Partial<Style> | null {
+  if (ch === "*" || ch === "_") {
+    if (length === 1) return { italic: true };
+    if (length === 2) return { bold: true };
+    if (length === 3) return { bold: true, italic: true };
+    return null;
+  }
+  if (ch === "~") return length === 2 ? { strikethrough: true } : null;
+  return { code: true }; // a backtick run of any length opens a code span
+}
+
+/**
+ * Markdown inline styling the model wrote despite the spec: `**bold**`,
+ * `__bold__`, `*italic*`, `_italic_`, `***both***`, `~~struck~~` and
+ * `` `code` ``.
+ *
+ * Safe to honour because `escapeText()` never lets one of these markers out
+ * unescaped, so nothing here can misread prose that was sent. Held to the
+ * shape a person means, a simplified form of CommonMark's flanking rules: the
+ * opener is not glued to a letter or digit before it (so `snake_case` and
+ * `2*3*4` stay literal) and is followed by a non-space; the closer is a run of
+ * exactly the opener's length, preceded by a non-space and not glued to a
+ * letter or digit after it. A run of another length is skipped whole, which is
+ * what lets `*a **b** c*` nest. A code span's content is taken verbatim, as
+ * Markdown does.
+ */
+function tryMarkdown(
+  source: string,
+  index: number,
+  links: string[],
+  style: Style,
+): { runs: InlineRun[]; next: number } | null {
+  const ch = source[index];
+  const length = markerRunLength(source, index);
+  const marked = markdownStyle(ch, length);
+  if (!marked) return null;
+
+  const code = ch === "`";
+  const start = index + length;
+  if (!code) {
+    if (index > 0 && WORD_CHAR.test(source[index - 1])) return null;
+    if (start >= source.length || SPACE_CHAR.test(source[start])) return null;
+  }
+
+  for (let j = start; j < source.length;) {
+    if (!code && source[j] === "\\") {
+      j += 2;
+      continue;
+    }
+    if (source[j] !== ch) {
+      j += 1;
+      continue;
+    }
+    const run = markerRunLength(source, j);
+    const after = source[j + run];
+    if (
+      run === length &&
+      j > start &&
+      (code || (!SPACE_CHAR.test(source[j - 1]) && !(after && WORD_CHAR.test(after))))
+    ) {
+      const inner = source.slice(start, j);
+      return {
+        runs: code
+          ? [makeRun(inner, { ...style, code: true })]
+          : parseInline(inner, links, { ...style, ...marked }),
+        next: j + run,
+      };
+    }
+    j += run;
+  }
   return null;
 }
 
