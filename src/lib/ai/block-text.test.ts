@@ -419,10 +419,8 @@ describe("blocksToText / textToBlocks", () => {
       const { blocks } = textToBlocks("A **stray marker and *another one", d);
 
       // What a total parser owes: no throw, one block, and no prose lost.
-      // Markdown emphasis is not notation here -- inline styling is `<b>`/`<i>`
-      // tags precisely so that two adjacent styled runs cannot serialize to a
-      // row of asterisks nobody can split the same way twice -- so these
-      // asterisks come back as the literal characters the model wrote.
+      // An unmatched `**` and a lone `*` are not emphasis, so these asterisks
+      // come back as the literal characters the model wrote.
       expect(blocks).toHaveLength(1);
       const runs = (blocks[0] as { runs: { text: string }[] }).runs;
       const words = runs
@@ -430,6 +428,54 @@ describe("blocksToText / textToBlocks", () => {
         .join("")
         .replace(/[*]/g, "");
       expect(words).toBe("A stray marker and another one");
+    });
+
+    describe("Markdown bold the model wrote instead of <b>", () => {
+      // Seen on a translated Reddit thread: each comment author went out as
+      // `<b>name</b>` and came back as `**name**`, stored with the asterisks
+      // as visible text.
+      const runsOf = (text: string) => {
+        const d = blocksToText(fromHtml("<p>x</p>"));
+        const { blocks } = textToBlocks(text, d);
+        expect(blocks).toHaveLength(1);
+        return (blocks[0] as { runs: { text: string; bold: boolean; link: string }[] }).runs;
+      };
+
+      it("reads **text** as bold", () => {
+        const runs = runsOf("**General-Naruto** | Quelle");
+        expect(runs.map((r) => [r.text, r.bold])).toEqual([
+          ["General-Naruto", true],
+          [" | Quelle", false],
+        ]);
+      });
+
+      it("keeps links and other styles inside it", () => {
+        const d = blocksToText(fromHtml('<p><a href="https://example.com/a">x</a></p>'));
+        const { blocks } = textToBlocks("**a [b](L0) <i>c</i>**", d);
+        const runs = (
+          blocks[0] as { runs: { text: string; bold: boolean; italic: boolean; link: string }[] }
+        ).runs;
+        expect(runs.every((r) => r.bold)).toBe(true);
+        expect(runs.find((r) => r.text === "b")?.link).toBe("https://example.com/a");
+        expect(runs.find((r) => r.text === "c")?.italic).toBe(true);
+      });
+
+      it.each([
+        ["spaced markers", "a ** b ** c"],
+        ["an empty pair", "a **** b"],
+        ["an unclosed marker", "a **b c"],
+      ])("leaves %s literal", (_label, text) => {
+        const runs = runsOf(text);
+        expect(runs.every((r) => !r.bold)).toBe(true);
+        expect(runs.map((r) => r.text).join("")).toBe(text);
+      });
+
+      it("never misreads a doubled asterisk that was in the source", () => {
+        const blocks = fromHtml("<p>He said **not bold** and ***three*** out loud.</p>");
+        const doc = blocksToText(blocks);
+        expect(doc.text).not.toMatch(/(?<!\\)\*\*/);
+        expect(textToBlocks(doc.text, doc).blocks).toEqual(canonicalBlocks(blocks));
+      });
     });
 
     it("ignores a link index that does not resolve", () => {

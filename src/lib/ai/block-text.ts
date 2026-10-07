@@ -105,14 +105,23 @@ function isOpaque(block: Block): block is ImageBlock | EmbedBlock | CodeBlock | 
  * placeholder. A literal backslash is escaped first, or unescaping would
  * consume the wrong character.
  *
- * Note what is *not* here -- `*`, `` ` `` and `~` are ordinary text, because
- * inline styling is tags rather than Markdown emphasis. That is not a
+ * Note what is *not* here -- a lone `*`, `` ` `` and `~` are ordinary text,
+ * because inline styling is tags rather than Markdown emphasis. That is not a
  * cosmetic choice: `**bold***italic*` (two adjacent runs) serializes to a run
  * of five asterisks that no reader can split the same way twice, and prose is
  * full of asterisks and tildes that would otherwise each need a backslash.
+ *
+ * **The one exception is a doubled asterisk**: every `*` immediately followed
+ * by another is escaped, so `**` never appears unescaped in what this module
+ * writes. That is what lets `parseInline()` read an unescaped `**text**` in an
+ * *answer* as bold -- it can only have come from the model, which despite
+ * being told the inline styles are tags still reaches for Markdown emphasis
+ * now and then. Measured on a translated Reddit thread: every comment author,
+ * sent as `<b>name</b>`, came back as `**name**` and was stored with the
+ * asterisks as visible text. `2 * 3` and `~~` still go out untouched.
  */
 function escapeText(text: string): string {
-  return text.replace(/([\\<[\]])/g, "\\$1");
+  return text.replace(/([\\<[\]])|\*(?=\*)/g, (match) => `\\${match}`);
 }
 
 /**
@@ -622,6 +631,22 @@ function tryDelimiter(
           [flag]: true,
         }),
         next: close + tag.length + 3,
+      };
+    }
+    return null;
+  }
+
+  // Markdown bold the model wrote despite the spec. Safe to honour because
+  // `escapeText()` never lets an unescaped `**` out, so this cannot misread
+  // prose that was sent. Held to the shape a person means by it -- non-empty,
+  // no whitespace just inside either marker -- so `a ** b ** c` stays literal.
+  if (ch === "*" && source.startsWith("**", index)) {
+    const start = index + 2;
+    const close = findClosing(source, start, "**");
+    if (close > start && !/\s/.test(source[start]) && !/\s/.test(source[close - 1])) {
+      return {
+        runs: parseInline(source.slice(start, close), links, { ...style, bold: true }),
+        next: close + 2,
       };
     }
     return null;
