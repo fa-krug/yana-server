@@ -29,7 +29,7 @@ if (typeof window.matchMedia !== "function") {
   });
 }
 
-// Node 25 defines its own `localStorage` global, and without
+// Node 25+ defines its own `localStorage` global, and without
 // `--localstorage-file` it is an empty object with no Storage methods at all
 // (it also prints a process warning about the missing path). It shadows the
 // jsdom one, so `localStorage.setItem` is a TypeError inside a jsdom test --

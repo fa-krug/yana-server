@@ -1,10 +1,12 @@
 # syntax=docker/dockerfile:1
 
 # ---------- deps: install with build tooling available ----------
-# Node 25 to match .nvmrc (25.6.1) and package.json's engines.node (>=25.0.0
-# <26) -- all three must name the same line, not the "Node LTS" the original
-# plan text suggested.
-FROM node:25-alpine AS deps
+# Node 26 to match .nvmrc (26.12.1) and package.json's engines.node (>=26.12.1
+# <27) -- all three must name the same line, not the "Node LTS" the original
+# plan text suggested. 26.12.1 is the floor because it fixes CVE-2026-111497
+# (Brotli decoder out-of-bounds write); Node 25 is end-of-life and never got
+# the fix.
+FROM node:26-alpine AS deps
 WORKDIR /build
 
 # better-sqlite3@13.0.2 ships N-API prebuilds for all 8 platform/arch targets,
@@ -21,7 +23,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 # ---------- builder: compile the app ----------
-FROM node:25-alpine AS builder
+FROM node:26-alpine AS builder
 WORKDIR /build
 COPY --from=deps /build/node_modules ./node_modules
 COPY . .
@@ -29,8 +31,19 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # ---------- runtime ----------
-FROM node:25-alpine AS runtime
+FROM node:26-alpine AS runtime
 WORKDIR /app
+
+# Refuse to ship a runtime older than the CVE-2026-111497 fix. The tag floats,
+# but a Docker host that already holds an older copy of `node:26-alpine` builds
+# from that copy without pulling -- and every feed this server fetches can
+# answer with a Brotli body, which Node's fetch decodes whatever was asked for.
+# The Node version is the only reliable signal: the fix was backported, so
+# `process.versions.brotli` still reads 1.2.0 on 26.12.1.
+RUN node -e 'const v = process.versions.node.split(".").map(Number); \
+  const min = [26, 12, 1]; \
+  const cmp = v.map((n, i) => n - min[i]).find((d) => d !== 0) ?? 0; \
+  if (cmp < 0) { console.error(`Node ${process.version} predates the CVE-2026-111497 fix (>= 26.12.1); pull a fresh node:26-alpine`); process.exit(1); }'
 
 LABEL org.opencontainers.image.title="Yana" \
       org.opencontainers.image.description="Self-hosted RSS aggregator" \

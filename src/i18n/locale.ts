@@ -20,7 +20,7 @@ function isAppLocale(value: string): value is AppLocale {
  * `en` meant a German visitor's *first* impression of the application was in
  * the wrong language with no control anywhere on screen to change it.
  *
- * Hand-rolled rather than `Intl.LocaleMatcher` (not in Node 25) or a
+ * Hand-rolled rather than `Intl.LocaleMatcher` (not in Node 26) or a
  * `negotiator`/`@formatjs/intl-localematcher` dependency: with a two-entry
  * supported list the whole algorithm is "sort by q, take the first primary
  * subtag we recognise", and that is worth less than a dependency to maintain.

@@ -179,7 +179,7 @@ behavior ever needs to be reconstructed.
 ## Commands
 
 ```bash
-npm install                  # first-time setup (Node 25 — see .nvmrc)
+npm install                  # first-time setup (Node 26 — see .nvmrc)
 npm run dev                  # dev server at http://localhost:3000
 npm run build                # production build (standalone output)
 npm start                    # serve a production build
@@ -216,8 +216,16 @@ npm run lint && npm run format:check && npm run typecheck && npm test
   any dependency or devDependency. Regenerate `package-lock.json`
   (`npm install`) whenever a pin changes, and grep both files for `^`/`~`
   before committing. Node is pinned three times and all three must agree:
-  `.nvmrc` (25.6.1), `package.json` `engines.node` (`>=25.0.0 <26`), and the
-  Dockerfile's `node:25-alpine`. The one `overrides` entry
+  `.nvmrc` (26.12.1), `package.json` `engines.node` (`>=26.12.1 <27`), and the
+  Dockerfile's `node:26-alpine`. 26.12.1 is a security floor, not a taste: it
+  fixes CVE-2026-111497, an out-of-bounds write in the Brotli decoder that every
+  `fetch()` of an untrusted feed reaches (Node decodes a `Content-Encoding: br`
+  body whatever `Accept-Encoding` asked for), and Node 25 — this repo's line
+  until then — is end-of-life and never got the fix. The Dockerfile's runtime
+  stage refuses to build on anything older, because a host holding a stale copy
+  of the floating tag builds from it without pulling; `process.versions.brotli`
+  cannot stand in for that check, since the fix was backported and still reads
+  1.2.0. The one `overrides` entry
   (`better-auth` → `better-sqlite3`) exists because better-auth 1.6.25 declares
   a `peerOptional better-sqlite3@^12` it never loads (we use the Drizzle
   adapter). Without the override `npm install` fails ERESOLVE against this
@@ -3882,7 +3890,7 @@ mock` the moment anything in the tree reaches an export it did not think to
     `nextCookies()` rule above for why `cookies` is mandatory in it.
   - `setup.ts` — testing-library cleanup, plus repair for three APIs:
     `window.matchMedia`, which jsdom declares but leaves `undefined`;
-    `localStorage`, which Node 25 shadows with a method-less object that makes
+    `localStorage`, which Node 25+ shadows with a method-less object that makes
     next-themes silently fall back to `defaultTheme`; and `fetch`, stubbed to
     answer `attempt()`'s session probe so **no jsdom test reaches the network**
     (before it, one rejection test spent a second on a connection refusal and

@@ -39,7 +39,7 @@ services:
       - ./media:/app/media
     # /health, without a trailing slash: Django served /health/ and Next serves
     # /health, 308-redirecting the slashed form. wget is available in the
-    # runtime image via busybox (node:25-alpine), so no extra package is needed.
+    # runtime image via busybox (node:26-alpine), so no extra package is needed.
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
       interval: 30s
