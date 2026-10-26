@@ -6,7 +6,7 @@ It's built with Next.js 16, React 19, TypeScript and SQLite (Drizzle + better-sq
 
 ## Running from source
 
-Requires Node 25 (see [.nvmrc](.nvmrc); `nvm use` will pick it up for you).
+Requires Node 26 (see [.nvmrc](.nvmrc); `nvm use` will pick it up for you).
 
 ```bash
 npm install

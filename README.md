@@ -37,7 +37,7 @@ Named volumes like `yana-data`/`yana-media` above are the simplest option becaus
 
 ### npm (global install)
 
-Requires Node.js 25 (see [.nvmrc](.nvmrc)).
+Requires Node.js 26 (see [.nvmrc](.nvmrc)).
 
 ```bash
 npm install -g @fa-krug/yana
