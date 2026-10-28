@@ -1,7 +1,8 @@
 # The target production shape -- a single service behind Traefik with named
-# volumes. The live stack file is managed in Portainer; this file documents
-# what it should look like and is what `.github/workflows/ci.yml`'s `deploy`
-# job redeploys against on every push to `main`.
+# volumes. The live compose file is managed in Arcane on the Pi at
+# /home/pi/docker/yana (Arcane project `yana`); this file documents what it
+# should look like and is what `.github/workflows/ci.yml`'s `deploy` job
+# redeploys against on every push to `main`.
 #
 # No `qcluster` service: the job worker runs in-process, so a second container
 # would run every job twice.
@@ -28,9 +29,9 @@ services:
       # A mismatch with the host the browser shows makes the browser refuse the
       # credential with an error that names nothing, and changing PASSKEY_RP_ID
       # later invalidates every passkey already registered.
-      - PASSKEY_RP_ID=${YANA_DOMAIN:-yana.fa-krug.de}
-      - PUBLIC_URL=https://${YANA_DOMAIN:-yana.fa-krug.de}
-      - BETTER_AUTH_URL=https://${YANA_DOMAIN:-yana.fa-krug.de}
+      - PASSKEY_RP_ID=${YANA_DOMAIN:-yana-app.fa-krug.de}
+      - PUBLIC_URL=https://${YANA_DOMAIN:-yana-app.fa-krug.de}
+      - BETTER_AUTH_URL=https://${YANA_DOMAIN:-yana-app.fa-krug.de}
     volumes:
       # Named volumes: they inherit the image's uid 1001 ownership, so SQLite can
       # create its -wal/-shm siblings without a host-side chown. No
@@ -67,12 +68,12 @@ services:
     #   3. PUBLIC_URL/BETTER_AUTH_URL above say `https://`; if the browser is on
     #      `http://` the origin check fails and WebAuthn refuses.
     # If `web` is the plain-HTTP entrypoint, point this at the TLS one (commonly
-    # `websecure`) and add a certresolver. Not changed blind: the live stack
-    # file is in Portainer, and the entrypoint names in that traefik install
-    # cannot be inferred from here.
+    # `websecure`) and add a certresolver. Not changed blind: the live compose
+    # file is managed in Arcane on the Pi (/home/pi/docker/yana), and the
+    # entrypoint names in that traefik install cannot be inferred from here.
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.yana.rule=Host(`${YANA_DOMAIN:-yana.fa-krug.de}`)"
+      - "traefik.http.routers.yana.rule=Host(`${YANA_DOMAIN:-yana-app.fa-krug.de}`)"
       - "traefik.http.routers.yana.entrypoints=web"
       - "traefik.http.services.yana.loadbalancer.server.port=3000"
 
