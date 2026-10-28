@@ -257,7 +257,9 @@ jobs:
         run: |
           set -euo pipefail
           arcane-cli config set server-url "$ARCANE_URL"
-          eval "$(arcane-cli auth federated --audience "$ARCANE_URL" --export)"
+          # </dev/null: the runner's stdin is a non-TTY, which makes the CLI try to
+          # read a token from stdin instead of minting the GitHub OIDC token.
+          eval "$(arcane-cli auth federated --audience "$ARCANE_URL" --export </dev/null)"
           echo "::add-mask::$ARCANE_TOKEN"
           # Pulls the new image and recreates the containers, streaming progress;
           # exits non-zero if the redeploy fails.
