@@ -29,9 +29,9 @@ services:
       # A mismatch with the host the browser shows makes the browser refuse the
       # credential with an error that names nothing, and changing PASSKEY_RP_ID
       # later invalidates every passkey already registered.
-      - PASSKEY_RP_ID=${YANA_DOMAIN:-yana.fa-krug.de}
-      - PUBLIC_URL=https://${YANA_DOMAIN:-yana.fa-krug.de}
-      - BETTER_AUTH_URL=https://${YANA_DOMAIN:-yana.fa-krug.de}
+      - PASSKEY_RP_ID=${YANA_DOMAIN:-yana-app.fa-krug.de}
+      - PUBLIC_URL=https://${YANA_DOMAIN:-yana-app.fa-krug.de}
+      - BETTER_AUTH_URL=https://${YANA_DOMAIN:-yana-app.fa-krug.de}
     volumes:
       # Named volumes: they inherit the image's uid 1001 ownership, so SQLite can
       # create its -wal/-shm siblings without a host-side chown. No
@@ -73,7 +73,7 @@ services:
     # entrypoint names in that traefik install cannot be inferred from here.
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.yana.rule=Host(`${YANA_DOMAIN:-yana.fa-krug.de}`)"
+      - "traefik.http.routers.yana.rule=Host(`${YANA_DOMAIN:-yana-app.fa-krug.de}`)"
       - "traefik.http.routers.yana.entrypoints=web"
       - "traefik.http.services.yana.loadbalancer.server.port=3000"
 
